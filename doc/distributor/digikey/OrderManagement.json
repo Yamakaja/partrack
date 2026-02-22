@@ -1,0 +1,1034 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "B2BApi Order Management Api",
+        "description": "An Api to make changes to Open SalesOrders. Eligible changes include [Date changes to existing Schedules]",
+        "termsOfService": "https:\/\/www.digikey.com\/en\/terms-and-conditions",
+        "contact": {
+            "name": "API Support",
+            "url": "https:\/\/developer.digikey.com\/support"
+        },
+        "version": "v1"
+    },
+    "host": "api.digikey.com",
+    "x-host-sandbox": "sandbox-api.digikey.com",
+    "x-host-production": "api.digikey.com",
+    "securityDefinitions": {
+        "apiKeySecurity": {
+            "type": "apiKey",
+            "name": "X-DIGIKEY-Client-Id",
+            "in": "header"
+        },
+        "oauth2AccessCodeSecurity": {
+            "type": "oauth2",
+            "flow": "accessCode",
+            "authorizationUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/authorize",
+            "tokenUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/token"
+        }
+    },
+    "security": [
+        {
+            "apiKeySecurity": [],
+            "oauth2AccessCodeSecurity": []
+        }
+    ],
+    "basePath": "\/OrderManagement\/v1",
+    "schemes": [
+        "https"
+    ],
+    "paths": {
+        "\/SalesOrders\/{salesOrderId}": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Use a Digi-Key SalesOrderId to return a SalesOrderView",
+                "operationId": "SalesOrderById",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SalesOrderView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/{salesOrderId}\/ChangeEligibility": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Use a Digi-Key SalesOrderId to check the change eligibility of a salesOrder",
+                "operationId": "ChangeEligibility",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SalesOrderEligibilityView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/{salesOrderId}\/Details": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Use a Digi-Key SalesOrderId to return the list of SalesOrderDetailViews associated with a SalesOrderView",
+                "operationId": "SalesOrderDetails",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#\/definitions\/SalesOrderDetailView"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/{salesOrderId}\/Details\/{detailId}": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Use a Digi-Key SalesOrderId and a detailId to return a specific SalesOrderDetailView",
+                "operationId": "SalesOrderDetailById",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "detailId",
+                        "description": "Id to distinguish detail line",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SalesOrderDetailView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/{salesOrderId}\/Details\/{detailId}\/Schedules": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Use a Digi-Key SalesOrderId and a detailId to return a specific SalesOrderSchedulesView",
+                "operationId": "SalesOrderSchedules",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "detailId",
+                        "description": "Id to distinguish detail line",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#\/definitions\/SalesOrderSchedulesView"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Create or Replace schedules for a given Digi-Key SalesOrderId and detailId. Please Note: replacing existing\r\nschedules may not be immediately available to read, but may take up to a minute to process.",
+                "operationId": "ReplaceSchedule",
+                "consumes": [
+                    "application\/json"
+                ],
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "detailId",
+                        "description": "Id to distinguish detail line",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "query",
+                        "name": "acceptNextDelivery",
+                        "description": "",
+                        "type": "boolean"
+                    },
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "description": "A list of SalesOrderScheduleForUpdate",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#\/definitions\/SalesOrderScheduleForUpdate"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Success - No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/{salesOrderId}\/Details\/{detailId}\/Schedules\/{scheduleIndex}": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Use a Digi-Key SalesOrderId, detailId, and scheduleIndex to return a specific SalesOrderSchedulesView",
+                "operationId": "SalesOrderScheduleById",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "detailId",
+                        "description": "Id to distinguish detail line",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "scheduleIndex",
+                        "description": "Id of the Schedule",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SalesOrderSchedulesView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Partial update for a schedule given Digi-Key SalesOrderId, detailId, and scheduleIndex",
+                "operationId": "PartialScheduleUpdate",
+                "consumes": [
+                    "application\/json"
+                ],
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Digi-Key SalesOrderId",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "detailId",
+                        "description": "Id to distinguish detail line",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "path",
+                        "name": "scheduleIndex",
+                        "description": "Id of the Schedule",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "query",
+                        "name": "acceptNextDelivery",
+                        "description": "",
+                        "type": "boolean"
+                    },
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "description": "A json patch document [{\"op\": \"replace\",\"path\": \"\/ScheduleDate\",\"value\": \"2022-12-10T05:00:00Z\"}]\r\noperation op must be \"replace\" and path must be \"\/ScheduleDate\"",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#\/definitions\/Operation"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SchedulePatchView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/Search\/PoNumber\/{poNumber}": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "Get SalesOrder information by Purchase Order number",
+                "operationId": "SalesOrdersByPoNumber",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "poNumber",
+                        "description": "Purchase order number",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordersLimit",
+                        "description": "Query Limit number of orders returned. Default is 1000",
+                        "type": "integer",
+                        "format": "int32",
+                        "default": 0
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SalesOrdersByPoNumberView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/SalesOrders\/{salesOrderId}\/NextAvailableDeliveryDate": {
+            "get": {
+                "tags": [
+                    "OrderManagement"
+                ],
+                "summary": "The NextAvailableDeliveryDate provides an estimate of the earliest delivery date. Estimate is calculated based on\r\nof Ship Method and Next Digi-Key Release day (or MSC scheduled release ). To schedule products to be delivered as\r\nfast as possible, call this end point and use the NextAvailableDeliveryDateView.EstimatedDeliveryDate  as the\r\nScheduleDate for put or patching schedules.",
+                "operationId": "NextAvailableDeliveryDate",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#\/definitions\/NextAvailableDeliveryDateView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "ApiErrorResponse": {
+            "description": "Common response model returned for any type of HTTP exception.",
+            "type": "object",
+            "properties": {
+                "_ErrorResponseVersion": {
+                    "description": "The version of the error handler.",
+                    "type": "string",
+                    "readOnly": true,
+                    "example": "3.0.0.0"
+                },
+                "StatusCode": {
+                    "format": "int32",
+                    "description": "The HttpStatusCode of the error.",
+                    "type": "integer",
+                    "example": 404
+                },
+                "ErrorMessage": {
+                    "description": "The message provided by the error handler.",
+                    "type": "string",
+                    "example": "The specified part was not found"
+                },
+                "ErrorDetails": {
+                    "description": "The details of the error.",
+                    "type": "string",
+                    "example": "Part Not Found"
+                },
+                "RequestId": {
+                    "description": "The Id of the request that triggered the error. If contacting API Support, please include the RequestId.",
+                    "type": "string",
+                    "example": "22da819d-9517-4a2c-a8c1-0195ea2e7878"
+                },
+                "ValidationErrors": {
+                    "description": "The list of validation errors (if applicable).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/ApiValidationError"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "ApiValidationError": {
+            "description": "Error with API input.",
+            "type": "object",
+            "properties": {
+                "Field": {
+                    "description": "The field that generated the error.",
+                    "type": "string",
+                    "example": "Keywords"
+                },
+                "Message": {
+                    "description": "The error message that was generated. This often explains how to fix your API input to be valid.",
+                    "type": "string",
+                    "example": "The Keywords field is required."
+                }
+            },
+            "additionalProperties": false
+        },
+        "NextAvailableDeliveryDateView": {
+            "type": "object",
+            "properties": {
+                "NextRelease": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "EstimatedDeliveryDate": {
+                    "format": "date-time",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "Operation": {
+            "type": "object",
+            "properties": {
+                "value": [],
+                "path": {
+                    "type": "string"
+                },
+                "op": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderByPoNumberDetail": {
+            "type": "object",
+            "properties": {
+                "SalesOrderId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "CustomerId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "AccountId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "OrderName": {
+                    "type": "string"
+                },
+                "PurchaseOrder": {
+                    "type": "string"
+                },
+                "DateEntered": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "ProcessingState": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "DisplayFlag": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderDetailView": {
+            "type": "object",
+            "properties": {
+                "PoLineItemNumber": {
+                    "type": "string"
+                },
+                "SalesOrderId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "DetailId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "DigiKeyPartNumber": {
+                    "type": "string"
+                },
+                "ManufacturerPartNumber": {
+                    "type": "string"
+                },
+                "Quantity": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "QuantityBackorder": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "QuantityShipped": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "InvoiceId": {
+                    "format": "int64",
+                    "type": "integer"
+                },
+                "StandardPackSize": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "Schedules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/SalesOrderSchedulesView"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderEligibilityView": {
+            "type": "object",
+            "properties": {
+                "Eligibility": {
+                    "type": "boolean"
+                },
+                "SalesOrderId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "DetailsWithOpenSchedulesCount": {
+                    "format": "int32",
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderScheduleForUpdate": {
+            "required": [
+                "QuantityScheduled",
+                "ScheduleDate"
+            ],
+            "type": "object",
+            "properties": {
+                "ScheduleDate": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "QuantityScheduled": {
+                    "format": "int32",
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderSchedulesView": {
+            "type": "object",
+            "properties": {
+                "ScheduleDate": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "DetailId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "QuantityScheduled": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "SalesOrderId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "ScheduleIndex": {
+                    "format": "int32",
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderView": {
+            "type": "object",
+            "properties": {
+                "Currency": {
+                    "type": "string"
+                },
+                "SalesOrderId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "CustomerId": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "PurchaseOrderNumber": {
+                    "type": "string"
+                },
+                "ShipMethod": {
+                    "type": "string"
+                },
+                "Details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/SalesOrderDetailView"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrdersByPoNumberView": {
+            "type": "object",
+            "properties": {
+                "SalesOrdersDetails": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/SalesOrderByPoNumberDetail"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "SchedulePatchView": {
+            "type": "object",
+            "properties": {
+                "Original": {
+                    "$ref": "#\/definitions\/SalesOrderSchedulesView"
+                },
+                "Patched": {
+                    "$ref": "#\/definitions\/SalesOrderSchedulesView"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "tags": []
+}

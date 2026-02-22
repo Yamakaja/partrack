@@ -1,0 +1,516 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "Barcoding",
+        "description": "Retrieve package information from the barcode.",
+        "contact": {
+            "name": "API Support",
+            "url": "https:\/\/developer.digikey.com\/support"
+        },
+        "version": "v3"
+    },
+    "host": "api.digikey.com",
+    "x-host-sandbox": "sandbox-api.digikey.com",
+    "x-host-production": "api.digikey.com",
+    "basePath": "\/Barcoding\/v3",
+    "schemes": [
+        "https"
+    ],
+    "paths": {
+        "\/ProductBarcodes\/{barcode}": {
+            "get": {
+                "tags": [
+                    "Barcoding"
+                ],
+                "summary": "Converts a legacy product barcode to Digi-Key and Manufacturer part number and quantity. The barcode this takes in\r\nis a one-dimensional barcode that was previously located on the label on the anti-static bag. This barcode can\r\nstill be found on older products.",
+                "operationId": "ProductBarcode",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "barcode",
+                        "description": "Product barcode located on the product's anti-static bag.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includes",
+                        "description": "Comma separated list of fields to return. Used to customize response to reduce bandwidth by\r\nselecting fields that you wish to receive. For example: \"DigiKeyPartNumber,Quantity\".",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your App.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/ProductBarcodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/Product2DBarcodes\/{barcode}": {
+            "get": {
+                "tags": [
+                    "Barcoding"
+                ],
+                "summary": "Converts a product 2D barcode to Digi-Key and Manufacturer part number and quantity. The barcode this takes in QR\r\nCode located on the label on the anti-static bag. The QR Code contains special ASCII symbols. These MUST be encoded\r\nto be sent through the API. Please ensure the Record Separator character is encoded as \\u241E and the Group\r\nSeparator character is encoded as \\u241D",
+                "operationId": "Product2DBarcode",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "barcode",
+                        "description": "QR Code from a Digi-Key product label. The QR Code contains special ASCII symbols. These MUST be\r\nencoded to be sent through the API. Please ensure the Record Separator character is encoded as \\u241E and the Group\r\nSeparator character is encoded as \\u241D",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includes",
+                        "description": "Comma separated list of fields to return. Used to customize response to reduce bandwidth by\r\nselecting fields that you wish to receive. For example: \"DigiKeyPartNumber,Quantity\"",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your App.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/Product2DBarcodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/PackListBarcodes\/{barcode}": {
+            "get": {
+                "tags": [
+                    "Barcoding"
+                ],
+                "summary": "Converts a pack list barcode to information about the order. The barcode this takes in is a one-dimensional barcode\r\nlocated in the lower left corner of the pack list.",
+                "operationId": "PackListBarcode",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "barcode",
+                        "description": "Pack list barcode located on the pack list in the lower left corner.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includes",
+                        "description": "Comma separated list of fields to return. Used to customize response to reduce bandwidth by\r\nselecting fields that you wish to receive. For example: \"Salesorder\"",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your App.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/PackListBarcodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "\/PackList2DBarcodes\/{barcode}": {
+            "get": {
+                "tags": [
+                    "Barcoding"
+                ],
+                "summary": "Converts a pack list 2D barcode to information about the order. The barcode this takes in is a two-dimensional\r\nbarcode located in the upper right corner of the pack list. This is not for individual line item barcodes. The 2D\r\nbarcode contains special symbols. These MUST be URL encoded to be sent through the API.",
+                "operationId": "PackList2DBarcode",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "barcode",
+                        "description": "Pack list barcode located on the pack list in the upper right corner.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includes",
+                        "description": "Comma separated list of fields to return. Used to customize response to reduce bandwidth by\r\nselecting fields that you wish to receive. For example: \"Salesorder\"",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your App.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/PackListBarcodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "apiKeySecurity": {
+            "type": "apiKey",
+            "name": "X-DIGIKEY-Client-Id",
+            "in": "header"
+        },
+        "oauth2AccessCodeSecurity": {
+            "type": "oauth2",
+            "flow": "accessCode",
+            "authorizationUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/authorize",
+            "tokenUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/token"
+        }
+    },
+    "security": [
+        {
+            "apiKeySecurity": [],
+            "oauth2AccessCodeSecurity": []
+        }
+    ],
+    "definitions": {
+        "ProductBarcodeResponse": {
+            "description": "Barcode Response model containing a basic product information and the quantity.",
+            "type": "object",
+            "properties": {
+                "DigiKeyPartNumber": {
+                    "description": "The Digi-Key part number.",
+                    "type": "string",
+                    "example": "P189-ND"
+                },
+                "ManufacturerPartNumber": {
+                    "description": "The manufacturer part number.",
+                    "type": "string",
+                    "example": "CR2032"
+                },
+                "ManufacturerName": {
+                    "description": "Manufacturer of the product.",
+                    "type": "string",
+                    "example": "Panasonic - BSG"
+                },
+                "ProductDescription": {
+                    "description": "Catalog description of the product.",
+                    "type": "string",
+                    "example": "BATTERY LITHIUM 3V COIN 20MM"
+                },
+                "Quantity": {
+                    "format": "int32",
+                    "description": "Quantity of the product.",
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "ApiValidationError": {
+            "type": "object",
+            "properties": {
+                "Field": {
+                    "type": "string"
+                },
+                "Message": {
+                    "type": "string"
+                }
+            }
+        },
+        "ApiErrorResponse": {
+            "type": "object",
+            "properties": {
+                "ErrorResponseVersion": {
+                    "type": "string",
+                    "readOnly": true
+                },
+                "StatusCode": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "ErrorMessage": {
+                    "type": "string"
+                },
+                "ErrorDetails": {
+                    "type": "string"
+                },
+                "RequestId": {
+                    "type": "string"
+                },
+                "ValidationErrors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/ApiValidationError"
+                    }
+                }
+            }
+        },
+        "Product2DBarcodeResponse": {
+            "description": "Data retrieved from a 2D barcode on a product.",
+            "type": "object",
+            "properties": {
+                "DigiKeyPartNumber": {
+                    "description": "The Digi-Key part number.",
+                    "type": "string",
+                    "example": "P189-ND"
+                },
+                "ManufacturerPartNumber": {
+                    "description": "The manufacturer part number.",
+                    "type": "string",
+                    "example": "CR2032"
+                },
+                "ManufacturerName": {
+                    "description": "Manufacturer of the product.",
+                    "type": "string",
+                    "example": "Panasonic - BSG"
+                },
+                "ProductDescription": {
+                    "description": "Catalog description of the product.",
+                    "type": "string",
+                    "example": "BATTERY LITHIUM 3V COIN 20MM"
+                },
+                "Quantity": {
+                    "format": "int32",
+                    "description": "Quantity of the product.",
+                    "type": "integer",
+                    "example": 5
+                },
+                "SalesorderId": {
+                    "format": "int32",
+                    "description": "The Id for the Salesorder. Note that if the barcode was from a \"Prepack\" label, this will not be populated.",
+                    "type": "integer",
+                    "example": 12345
+                },
+                "InvoiceId": {
+                    "format": "int32",
+                    "description": "The Id for the invoice. Note that if the barcode was from a \"Prepack\" label, this will not be populated.",
+                    "type": "integer",
+                    "example": 12345
+                },
+                "PurchaseOrder": {
+                    "description": "Customer PurchaseOrder (custom notes or identifier) on the order. Note that if the barcode was from a \"Prepack\" label, this will not be populated.",
+                    "type": "string",
+                    "example": "April batch 1"
+                },
+                "CountryOfOrigin": {
+                    "description": "The country that the product orginates from.",
+                    "type": "string",
+                    "example": "China"
+                },
+                "LotCode": {
+                    "description": "The Lot Code",
+                    "type": "string"
+                },
+                "DateCode": {
+                    "description": "The date code",
+                    "type": "string"
+                }
+            }
+        },
+        "PackListDetail": {
+            "description": "A detail from a Packlist containing the DigiKeyPartNumber and Quantity.",
+            "type": "object",
+            "properties": {
+                "DigiKeyPartNumber": {
+                    "description": "The Digi-Key part number.",
+                    "type": "string",
+                    "example": "P189-ND"
+                },
+                "Quantity": {
+                    "format": "int32",
+                    "description": "Quantity of the product.",
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "PackListBarcodeResponse": {
+            "description": "Data retrieved from a Packlist.",
+            "type": "object",
+            "properties": {
+                "SalesorderId": {
+                    "format": "int32",
+                    "description": "The Id for the Salesorder.",
+                    "type": "integer",
+                    "example": 12345
+                },
+                "InvoiceId": {
+                    "format": "int32",
+                    "description": "The Id for the invoice.",
+                    "type": "integer",
+                    "example": 12345
+                },
+                "PackListNumber": {
+                    "format": "int32",
+                    "description": "PackList number.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "PackListDetails": {
+                    "description": "List of PackList Details.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/PackListDetail"
+                    }
+                }
+            }
+        }
+    },
+    "tags": []
+}

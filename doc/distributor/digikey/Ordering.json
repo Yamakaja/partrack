@@ -1,0 +1,554 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "Ordering Api V3",
+        "description": "Queues an order for processing.",
+        "termsOfService": "https:\/\/www.digikey.com\/en\/terms-and-conditions",
+        "contact": {
+            "name": "API Support",
+            "url": "https:\/\/developer.digikey.com\/support"
+        },
+        "version": "v3"
+    },
+    "basePath": "\/Ordering\/v3",
+    "schemes": [
+        "https"
+    ],
+    "paths": {
+        "\/Orders": {
+            "post": {
+                "tags": [
+                    "V3"
+                ],
+                "summary": "This action queues an order for processing. A confirmation email will be sent later when it has been processed.",
+                "description": "This API uses 3 legged OAuth.\n\n<a href=\"https:\/\/developer.digikey.com\/documentation?atab=tab_link_5\" target=\"_blank\"> • See Documentation OAuth 2.0: 3 Legged Flow<\/a>\n\r\n -----------\r\n\n\r\n • If your Order only includes products that will be fulfilled by DigiKey, the SalesOrderIds field will be populated and SalesOrderIds_DKPlus list be empty.\r\n • If your Order includes products that will be fulfilled by DigiKey and by one or more Marketplace suppliers, both the SalesOrderIds field and SalesOrderIds_DKPlus list will be populated.\r\n • If your Order only includes products that will be fulfilled by Marketplace suppliers, the SalesOrderIds field will be zero and SalesOrderIds_DKPlus list will be populated.\r\n            \r\n\n\r\n -----------\r\n \n\r\nAfter you place your order, you can use the OrderStatus API to look up the real-time status of your order. Either use the SalesOrderID or a date range to find the Sales Order. You can enter both SalesOrderId and SalesOrderIDs_DKPlus values returned in this API in the RetrieveSalesOrder endpoint’s salesOrderId  field.\r\n\n\r\nNote: If we receive your order but are not able to generate a SalesOrderID by the time we need to respond to your request, we will return a 200 response with a “-1” value. That indicates that we have received your request, and you do not need to resubmit your order. If you do resubmit it, both orders will be charged and fulfilled.",
+                "operationId": "Order",
+                "consumes": [
+                    "application\/json"
+                ],
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "description": "",
+                        "schema": {
+                            "$ref": "#\/definitions\/OrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/OrderResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/ApiErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "Address": {
+            "description": "Address information for contacts",
+            "type": "object",
+            "properties": {
+                "Company": {
+                    "description": "Company name",
+                    "type": "string",
+                    "example": "Universal Solutions"
+                },
+                "FirstName": {
+                    "description": "Contact's first name",
+                    "type": "string",
+                    "example": "John"
+                },
+                "LastName": {
+                    "description": "Contact's last name",
+                    "type": "string",
+                    "example": "Smith"
+                },
+                "Email": {
+                    "description": "Contact's email address",
+                    "type": "string",
+                    "example": "jsmith@universal.com"
+                },
+                "AddressLineOne": {
+                    "description": "First line of delivery address",
+                    "maxLength": 40,
+                    "minLength": 0,
+                    "type": "string",
+                    "example": "1000 Main Street"
+                },
+                "AddressLineTwo": {
+                    "description": "Second line of delivery address",
+                    "maxLength": 40,
+                    "minLength": 0,
+                    "type": "string",
+                    "example": "Suite 300"
+                },
+                "City": {
+                    "description": "Contact's city",
+                    "type": "string",
+                    "example": "Bloomington"
+                },
+                "Province": {
+                    "description": "Province or state",
+                    "type": "string",
+                    "example": "MN"
+                },
+                "PostalCode": {
+                    "description": "Postal code or zip code",
+                    "type": "string",
+                    "example": "55425"
+                },
+                "Country": {
+                    "description": "Contact's country 2 character ISO code",
+                    "maxLength": 2,
+                    "minLength": 0,
+                    "type": "string",
+                    "example": "US"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ApiErrorResponse": {
+            "description": "Common response model returned for any type of HTTP exception.",
+            "type": "object",
+            "properties": {
+                "_ErrorResponseVersion": {
+                    "description": "The version of the error handler.",
+                    "type": "string",
+                    "readOnly": true,
+                    "example": "3.0.0.0"
+                },
+                "StatusCode": {
+                    "format": "int32",
+                    "description": "The HttpStatusCode of the error.",
+                    "type": "integer",
+                    "example": 404
+                },
+                "ErrorMessage": {
+                    "description": "The message provided by the error handler.",
+                    "type": "string",
+                    "example": "The specified part was not found"
+                },
+                "ErrorDetails": {
+                    "description": "The details of the error.",
+                    "type": "string",
+                    "example": "Part Not Found"
+                },
+                "RequestId": {
+                    "description": "The Id of the request that triggered the error. If contacting API Support, please include the RequestId.",
+                    "type": "string",
+                    "example": "22da819d-9517-4a2c-a8c1-0195ea2e7878"
+                },
+                "ValidationErrors": {
+                    "description": "The list of validation errors (if applicable).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/ApiValidationError"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "ApiValidationError": {
+            "description": "Error with API input.",
+            "type": "object",
+            "properties": {
+                "Field": {
+                    "description": "The field that generated the error.",
+                    "type": "string",
+                    "example": "Keywords"
+                },
+                "Message": {
+                    "description": "The error message that was generated. This often explains how to fix your API input to be valid.",
+                    "type": "string",
+                    "example": "The Keywords field is required."
+                }
+            },
+            "additionalProperties": false
+        },
+        "BuyerContact": {
+            "description": "Contact information for buyer",
+            "required": [
+                "Address",
+                "Name"
+            ],
+            "type": "object",
+            "properties": {
+                "CustomerId": {
+                    "description": "Your DigiKey AccountID to be used for billing purposes. Populate this CustomerID field with your AccountID.\r\nWe use this information to ensure the order is placed for the correct company and location.\r\nSelect ‘My account’ above to learn more about AccountIDs.",
+                    "type": "string",
+                    "example": "123456789"
+                },
+                "Name": {
+                    "description": "Customer's name",
+                    "type": "string",
+                    "example": "John Smith"
+                },
+                "Address": {
+                    "$ref": "#\/definitions\/Address"
+                },
+                "Telephone": {
+                    "description": "Contact's telephone number",
+                    "type": "string",
+                    "example": "555-123-4567"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ExportQuestions": {
+            "description": "Required structure for Independent Distributors if product is shipping outside of the US. Otherwise do not include.",
+            "required": [
+                "ConsigneeName",
+                "CountryCode",
+                "PrimaryApplication",
+                "SecondaryApplication"
+            ],
+            "type": "object",
+            "properties": {
+                "CountryCode": {
+                    "description": "The 2 digit ISO code for the country of final destination",
+                    "type": "string",
+                    "example": "MX"
+                },
+                "ConsigneeName": {
+                    "description": "End customer name",
+                    "type": "string",
+                    "example": "John Smith"
+                },
+                "PrimaryApplication": {
+                    "description": "The category of use for the product. Must exactly match one of the following items: \"Aerospace\", \"Automotive\", \"Computer & Peripherals\", \"Consumer Electronics\", \"Industrial\", \"Medical\", \"Military\".",
+                    "type": "string",
+                    "example": "Aerospace"
+                },
+                "SecondaryApplication": {
+                    "description": "The use for the product, valid options are determined by PrimaryApplication. It must match one of the following items exactly. \r\nIf Primary is \"Aerospace\", valid options are: \"Aircraft, commercial transport\", \"Aircraft, UAV\", \"Communications equipment\", \"Computer systems\", \"Entertainment systems\", \"Sensors, controls, test equipment\", \"Safety systems\", \"Satellites, commercial\", \"Other\".\r\nIf Primary is \"Automotive\", valid options are: \"Drive train\", \"Instrumentation\", \"Safety systems\", \"Other\".\r\nIf Primary is \"Computer & Peripherals\", valid options are: \"Accessories\", \"Desktop\", \"Laptop\", \"Server\/storage\", \"Other\".\r\nIf Primary is \"Consumer Electronics\", valid options are: \"Audio\/video\", \"Gaming systems\", \"Home appliances\", \"Lighting systems\", \"Wired communications\", \"Wireless communications\", \"Other\".\r\nIf Primary is \"Industrial\", valid options are: \"Appliances\/white goods\", \"Automation and control\", \"Renewable\/fossil fuels energy\", \"Nuclear energy\", \"Lighting systems\", \"Sensors, controls, test equipment\", \"Tools\", \"Other\".\r\nIf Primary is \"Medical\", valid options are: \"Diagnostic equipment\", \"Instruments, devices\", \"Imaging \/ scanning\", \"Other\".\r\nIf Primary is \"Military\", valid options are: \"Aircraft, military\", \"Aircraft, UAV\", \"Communications equipment\", \"Computer systems\", \"Missile systems\", \"Satellites, military\", \"Sensors, controls, test equipment\", \"Vehicles, personnel transport\", \"Vehicles, weapon transport\", \"Weapons systems\", \"Other\".",
+                    "type": "string",
+                    "example": "Aircraft"
+                },
+                "AdditionalInfo": {
+                    "description": "Free form text to provide any additional application information",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "LineItem": {
+            "description": "Details for each line item in the order",
+            "required": [
+                "RequestedQuantity",
+                "UnitPrice"
+            ],
+            "type": "object",
+            "properties": {
+                "MfgCOfCRequired": {
+                    "description": "Indicates if the manufacturer certificate of compliance is required. Applies to the only this line item.",
+                    "type": "boolean"
+                },
+                "CustomerLineItemId": {
+                    "description": "Line item number for customer use",
+                    "type": "string"
+                },
+                "ProductDescription": {
+                    "description": "Optional description of the product",
+                    "type": "string",
+                    "example": "CAP ALUM 1000UF 20% 35V RADIAL"
+                },
+                "CustomerPartNumber": {
+                    "description": "Optional special customer part number if your company has a special part number system with Digi-Key",
+                    "type": "string"
+                },
+                "DigiKeyPartNumber": {
+                    "description": "Digi-Key part number. Either this or ManufacturerPartNumber must be provided.",
+                    "type": "string",
+                    "example": "P5555-ND"
+                },
+                "ManufacturerPartNumber": {
+                    "description": "Manufacturer part number. Either this or Digi-Key part number must be provided.",
+                    "type": "string",
+                    "example": "ECA-1VHG102"
+                },
+                "ManufacturerName": {
+                    "description": "Optional name of manufacturer\/part supplier. May assist with unresolved manufacturer part numbers.",
+                    "type": "string",
+                    "example": "Panasonic Electronic Components"
+                },
+                "RequestedQuantity": {
+                    "format": "int32",
+                    "description": "Quantity that must be greater than zero.",
+                    "type": "integer"
+                },
+                "UnitPrice": {
+                    "format": "double",
+                    "description": "Expected price. This is required so any discrepancies between between the expected and actual price can be addressed.",
+                    "type": "number",
+                    "example": 0.86
+                },
+                "QuoteId": {
+                    "format": "int32",
+                    "description": "Optional QuoteId to use price from.",
+                    "type": "integer"
+                },
+                "DeliveryDate": {
+                    "format": "date-time",
+                    "description": "Optional future date that the product is expected to be in-house. This should be in ISO 8601 format.",
+                    "type": "string"
+                },
+                "LineItemNotes": {
+                    "description": "Optional notes",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Schedules": {
+                    "description": "Optional array of Schedules for shipping this LineItem. If blank, will use LineItem's delivery date with the full quantity.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/Schedule"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "OrderRequest": {
+            "description": "Model that contains all information required for an order.",
+            "required": [
+                "Currency",
+                "LineItems",
+                "PurchaseOrderNumber",
+                "ShippingContact"
+            ],
+            "type": "object",
+            "properties": {
+                "PurchaseOrderNumber": {
+                    "description": "Purchase order number",
+                    "type": "string"
+                },
+                "Currency": {
+                    "description": "Currency to use for the order",
+                    "type": "string",
+                    "example": "USD"
+                },
+                "ShipControl": {
+                    "description": "If some products are not in stock, how would you like this order released?\r\nImmediate-Ship in stock products immediately and each backorder as soon as it's available - Default Options\r\nSingle-No products from the SalesOrder will ship until all items are available",
+                    "type": "string",
+                    "example": "Immediate"
+                },
+                "MfgCOfCRequired": {
+                    "description": "Indicates if the manufacturer certificate of compliance is required. Applies to the whole shipment.",
+                    "type": "boolean"
+                },
+                "BuyerContact": {
+                    "$ref": "#\/definitions\/BuyerContact"
+                },
+                "ShippingContact": {
+                    "$ref": "#\/definitions\/ShippingContact"
+                },
+                "BillingAccount": {
+                    "format": "int64",
+                    "description": "This field is no longer used. We use the information in the ShippingContract section to identify the accounts to use for this order.",
+                    "type": "integer"
+                },
+                "ShipMethod": {
+                    "description": "Shipping method. Not all options are available in all times and locations. The following options are accepted: \"DHL worldwide Express\"  \"FedEx ground\"  \"FedEx 3 day\"  \"FedEx 2 day\"  \"FedEx standard overnight\"  \"FedEx priority overnight\"  \"FedEx first overnight\"  \"FedEx international priority\"  \"FedEx international economy\"  \"UPS ground\"  \"UPS 3 day\"  \"UPS 2 day\"  \"UPS 2 day noon\"  \"UPS 1 day\"  \"UPS 1 day 3 p.m.\"  \"UPS 1 day early a.m.\"  \"UPS worldwide expedited\"  \"UPS worldwide express\"  \"UPS worldwide saver\"  \"USPS express mail international\"  \"USPS express mail\"  \"USPS priority mail\"  \"USPS ground advantage\"  \"USPS standard mail\"",
+                    "type": "string",
+                    "example": "FedEx Ground"
+                },
+                "ShipperAccountNumber": {
+                    "description": "Optional shipping account to use",
+                    "type": "string"
+                },
+                "LineItems": {
+                    "description": "List of one of more Part Details",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/LineItem"
+                    }
+                },
+                "OrderNotes": {
+                    "description": "Optional notes",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "PackagingPreference": {
+                    "description": "Optional field for which type of part to prefer: DKR (Digi-Key Reel) or CT (cut tape)",
+                    "type": "string",
+                    "example": "CT"
+                },
+                "Taxable": {
+                    "description": "Whether the order is taxable or not",
+                    "type": "boolean",
+                    "example": true
+                },
+                "ExportQuestions": {
+                    "$ref": "#\/definitions\/ExportQuestions"
+                }
+            },
+            "additionalProperties": false
+        },
+        "OrderResponse": {
+            "description": "Response message model created when submitting an order to the OrderingAPI",
+            "type": "object",
+            "properties": {
+                "Message": {
+                    "description": "A string message containing useful information about the API request\r\nbe it success, informational, or error.",
+                    "type": "string"
+                },
+                "SalesOrderId": {
+                    "format": "int32",
+                    "description": " This field will contain one of three types of numbers:\r\n\n 1. The SalesOrderId we created for your order.\r\n\n 2. If your order only contains DigiKey Marketplace products, this will be set to “0”\r\n\n 3. If we received your request but needed to respond to your API request before we received a SalesOrderID from our system, this will be set to “-1.” The order will be processed soon, so there is no need to resubmit it.",
+                    "type": "integer"
+                },
+                "PurchaseOrderNumber": {
+                    "description": "The Purchase Order Number provided by customer on input.",
+                    "type": "string"
+                },
+                "SalesOrderIds_DKPlus": {
+                    "description": "This field will contain one of two types of response:\r\n            \r\n\n 1. If your order contains products fulfilled by a DigiKey Marketplace partner, this will contain the SalesOrderID we created for your order. If your order contains products that will be fulfilled by multiple DigiKey Marketplace partners, you will receive one SalesOrderID for each partner.\r\n\n 2. If your order does not contain any products that a DigiKey Marketplace partner will fulfil, this field will be null.\r\n\n\n\r\nNote: This field will also be null AND SalesOrderId = “-1” when the order contains products fulfilled by a DigiKey Marketplace partner, but we needed to respond to your API request before we received a SalesOrderID from our system. The order will be processed soon, so there is no need to resubmit it.",
+                    "type": "array",
+                    "items": {
+                        "format": "int32",
+                        "type": "integer"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "Schedule": {
+            "description": "Optional schedule to determine how many of the lineitem are shipped on which dates",
+            "required": [
+                "ScheduledDate",
+                "ScheduledQuantity"
+            ],
+            "type": "object",
+            "properties": {
+                "ScheduledDate": {
+                    "format": "date-time",
+                    "description": "Valid future date for shipping. This should be in ISO 8601 format.",
+                    "type": "string"
+                },
+                "ScheduledQuantity": {
+                    "format": "int32",
+                    "description": "Number to schedule on the selected date.",
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ShippingContact": {
+            "description": "Shipping contact information",
+            "required": [
+                "Address",
+                "Name"
+            ],
+            "type": "object",
+            "properties": {
+                "CustomerId": {
+                    "description": "Your DigiKey AccountID to be used for billing purposes. Populate this CustomerID field with your AccountID.\r\nWe use this information to ensure the order is placed for the correct company and location.\r\nSelect ‘My account’ above to learn more about AccountIDs.",
+                    "type": "string",
+                    "example": "123456789"
+                },
+                "Name": {
+                    "description": "Customer's name",
+                    "type": "string",
+                    "example": "John Smith"
+                },
+                "Address": {
+                    "$ref": "#\/definitions\/Address"
+                },
+                "Telephone": {
+                    "description": "Contact's telephone number",
+                    "type": "string",
+                    "example": "555-123-4567"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "host": "api.digikey.com",
+    "x-host-sandbox": "sandbox-api.digikey.com",
+    "x-host-production": "api.digikey.com",
+    "securityDefinitions": {
+        "apiKeySecurity": {
+            "type": "apiKey",
+            "name": "X-DIGIKEY-Client-Id",
+            "in": "header"
+        },
+        "oauth2AccessCodeSecurity": {
+            "type": "oauth2",
+            "flow": "accessCode",
+            "authorizationUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/authorize",
+            "tokenUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/token"
+        }
+    },
+    "security": [
+        {
+            "apiKeySecurity": [],
+            "oauth2AccessCodeSecurity": []
+        }
+    ],
+    "tags": []
+}

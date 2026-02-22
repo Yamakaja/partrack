@@ -1,0 +1,902 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "Quote Api",
+        "description": "Send a list of products to be priced and lock in those prices for a specified period of time.",
+        "termsOfService": "https:\/\/www.digikey.com\/en\/terms-and-conditions",
+        "contact": {
+            "name": "API Support",
+            "url": "https:\/\/developer.digikey.com\/support"
+        },
+        "version": "v4"
+    },
+    "host": "api.digikey.com",
+    "x-host-sandbox": "sandbox-api.digikey.com",
+    "x-host-production": "api.digikey.com",
+    "securityDefinitions": {
+        "apiKeySecurityScheme": {
+            "type": "apiKey",
+            "name": "X-DIGIKEY-Client-Id",
+            "in": "header",
+            "description": "Client Id for current application"
+        },
+        "oauth2SecurityScheme": {
+            "type": "oauth2",
+            "flow": "accessCode",
+            "authorizationUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/authorize",
+            "tokenUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/token",
+            "scopes": {
+                "Audience": "developer.digikey.com HTTP Api"
+            }
+        }
+    },
+    "security": [
+        {
+            "apiKeySecurity": [],
+            "oauth2AccessCodeSecurity": []
+        }
+    ],
+    "basePath": "\/quoting\/v4",
+    "schemes": [
+        "https"
+    ],
+    "paths": {
+        "\/quotes": {
+            "post": {
+                "tags": [
+                    "Quotes"
+                ],
+                "summary": "Create a quote. Products are added to it in the AddProductsToQuote operation.",
+                "operationId": "CreateQuote",
+                "consumes": [
+                    "application\/json-patch+json",
+                    "application\/json",
+                    "text\/json",
+                    "application\/*+json"
+                ],
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Locale-Currency",
+                        "description": "This value determines which country’s prices are used to create the quote. Acceptable values include: AUD, CAD, CHF, CNY, CZK, DKK, EUR, GBP, HKD, HUF, ILS, INR, JPY, KRW, MYR, NOK, NZD, PHP, PLN, RON, SEK, SGD, THB, TWD, USD, ZAR.\nDefault value: primary currency for the entered CustomerId’s mailing address.",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Locale-Site",
+                        "description": "Two letter code for Digi-Key product website to search on. Different countries' sites have different part restrictions, supported languages, and currencies. Acceptable values include: US, CA, JP, UK, DE, AT, BE, DK, FI, GR, IE, IT, LU, NL, NO, PT, ES, KR, HK, SG, CN, TW, AU, FR, IN, NZ, SE, MX, CH, IL, PL, SK, SI, LV, LT, EE, CZ, HU, BG, MY, ZA, RO, TH, PH, BR, VN.\nDefault value: US",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Account-Id",
+                        "description": "This optional field should be populated when your email address is associated with more than one Account. \r\nWe use the AccountID to determine which quotes will be returned.\r\nSelect ‘My account’ above to learn more about AccountIDs.\r\n",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "description": "Information to needed to create a new list",
+                        "schema": {
+                            "$ref": "#\/definitions\/CreateQuoteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#\/definitions\/QuoteResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            },
+            "get": {
+                "tags": [
+                    "Quotes"
+                ],
+                "summary": "Retrieve quote information (excluding the product information) for a range of quotes defined by offset and limit.",
+                "operationId": "AllQuotes",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "description": "starting index of quotes to retrieve. This is used to paginate beyond offset returned. Default is “0”",
+                        "type": "integer",
+                        "format": "int32",
+                        "default": 0
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "description": "Maximum number of results returned. Defaults to 10 but must be 50 or less.",
+                        "type": "integer",
+                        "format": "int32",
+                        "default": 10
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Account-Id",
+                        "description": "This optional field should be populated when your email address is associated with more than one Account. \r\nWe use the AccountID to determine which quotes will be returned.\r\nSelect ‘My account’ above to learn more about AccountIDs.\r\n",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#\/definitions\/QuotesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "\/quotes\/{quoteId}": {
+            "get": {
+                "tags": [
+                    "Quotes"
+                ],
+                "summary": "Retrieve quote information (excluding the product information) for a single quote created by the authenticated\r\nCustomerId.",
+                "operationId": "GetQuote",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "quoteId",
+                        "description": "Unique identifier for the quote",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Account-Id",
+                        "description": "This optional field should be populated when your email address is associated with more than one Account. \r\nWe use the AccountID to determine which quotes will be returned.\r\nSelect ‘My account’ above to learn more about AccountIDs.\r\n",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#\/definitions\/QuoteResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "\/quotes\/{quoteId}\/details": {
+            "post": {
+                "tags": [
+                    "Quotes"
+                ],
+                "summary": "Add one or more product(s) to a new or existing quote",
+                "description": "Entering a DigiKey product number in ‘ProductNumber’ is recommended to ensure that we can find the correct product to add to the quote.  \r\n            \r\nThe maximum number of products that can be included per call is 300.",
+                "operationId": "AddProductsToQuote",
+                "consumes": [
+                    "application\/json-patch+json",
+                    "application\/json",
+                    "text\/json",
+                    "application\/*+json"
+                ],
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "quoteId",
+                        "description": "Unique identifier for the quote",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Account-Id",
+                        "description": "This optional field should be populated when your email address is associated with more than one Account. \r\nWe use the AccountID to determine which quotes will be returned.\r\nSelect ‘My account’ above to learn more about AccountIDs.\r\n",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "description": "The products to add to the quote",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#\/definitions\/AddProductToQuote"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#\/definitions\/AddProductsToQuoteResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            },
+            "get": {
+                "tags": [
+                    "Quotes"
+                ],
+                "summary": "Retrieve product contents for a single QuoteId created by the authenticated CustomerId.",
+                "operationId": "ProductsFromQuote",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "quoteId",
+                        "description": "Unique identifier for the quote",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "description": "starting index of products to retrieve. This is used to paginate beyond Offset returned.\\n Default is “0”",
+                        "type": "integer",
+                        "format": "int32",
+                        "default": 0
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "description": "Maximum number of results returned. Defaults to 10 but must be 50 or less.",
+                        "type": "integer",
+                        "format": "int32",
+                        "default": 10
+                    },
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Account-Id",
+                        "description": "This optional field should be populated when your email address is associated with more than one Account. \r\nWe use the AccountID to determine which quotes will be returned.\r\nSelect ‘My account’ above to learn more about AccountIDs.\r\n",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#\/definitions\/ProductsFromQuoteResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "AddProductToQuote": {
+            "description": "Add Product information to a quote",
+            "type": "object",
+            "properties": {
+                "ProductNumber": {
+                    "description": "Product number to add to the quote. Only Manufacturer Part Numbers and DigiKey Part Numbers are accepted.",
+                    "type": "string"
+                },
+                "CustomerReference": {
+                    "description": "The Customer Reference for the product. Maximum is 40 characters.",
+                    "type": "string"
+                },
+                "Quantities": {
+                    "description": "Quantity of the product to add to the quote.",
+                    "type": "array",
+                    "items": {
+                        "format": "int32",
+                        "type": "integer"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "AddProductsToQuoteResponse": {
+            "description": "Response model when adding details to a quote via API.",
+            "type": "object",
+            "properties": {
+                "QuoteId": {
+                    "format": "int32",
+                    "description": "The unique Id which identifies this quote.",
+                    "type": "integer"
+                },
+                "Errors": {
+                    "description": "Errors will contain issues with specific details and will indicate that the detail will likely be incorrect or not\r\nadded.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Comments": {
+                    "description": "Comments will contain warnings or comments about specific details that you may want to take note of but should not\r\nprevent the detail from being added.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "CreateQuoteRequest": {
+            "description": "Create request parameters",
+            "required": [
+                "QuoteName"
+            ],
+            "type": "object",
+            "properties": {
+                "QuoteName": {
+                    "description": "The name you want to give for your quote. Maximum length is 40 characters.",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "DKProblemDetails": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "status": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "correlationId": {
+                    "type": "string"
+                },
+                "errors": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "readOnly": true
+                }
+            },
+            "additionalProperties": false
+        },
+        "ExpirationStatus": {
+            "enum": [
+                "Active",
+                "Error",
+                "Expired"
+            ],
+            "type": "string"
+        },
+        "ProductsFromQuoteResponse": {
+            "description": "A range of Products from a quote",
+            "type": "object",
+            "properties": {
+                "TotalProducts": {
+                    "format": "int32",
+                    "description": "Total number of products in the quote, may be greater than the number of products returned in this response due to page limits.",
+                    "type": "integer"
+                },
+                "QuoteProducts": {
+                    "description": "A range of products from a quote",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/QuoteProduct"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "QuoteInformation": {
+            "description": "Response for creating a quote",
+            "type": "object",
+            "properties": {
+                "TotalProducts": {
+                    "format": "int32",
+                    "description": "The total number of products on a quote, not just what may be returned.",
+                    "type": "integer"
+                },
+                "QuoteId": {
+                    "format": "int64",
+                    "description": "The unique ID which identifies this quote.",
+                    "type": "integer"
+                },
+                "CustomerId": {
+                    "format": "int32",
+                    "description": "CustomerId that is on the quote",
+                    "type": "integer"
+                },
+                "DateCreated": {
+                    "format": "date-time",
+                    "description": "Date the quote was created",
+                    "type": "string"
+                },
+                "ExpirationStatus": {
+                    "$ref": "#\/definitions\/ExpirationStatus"
+                },
+                "Currency": {
+                    "description": "   The currency used for the quote. Note this may be different from the value you entered if that value\r\nwas not one of our allowed values or not valid the for the CustomerId’s country.",
+                    "type": "string"
+                },
+                "QuoteName": {
+                    "description": "The name the user gave to the quote when it was created.",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "QuoteProduct": {
+            "description": "Extends the quote detail class with more information",
+            "type": "object",
+            "properties": {
+                "DetailId": {
+                    "format": "int32",
+                    "description": "Unique Identifier for a product.",
+                    "type": "integer"
+                },
+                "DigikeyProductNumber": {
+                    "description": "Digikey product number",
+                    "type": "string"
+                },
+                "RequestedProductNumber": {
+                    "description": "Product number that was requested by the customer",
+                    "type": "string"
+                },
+                "ManufacturerProductNumber": {
+                    "description": "ManufacturerProductNumber",
+                    "type": "string"
+                },
+                "ManufacturerName": {
+                    "description": "Manufacturer name",
+                    "type": "string"
+                },
+                "Description": {
+                    "description": "Description of the product",
+                    "type": "string"
+                },
+                "CustomerReference": {
+                    "description": "The CustomerReference that was entered by the customer.",
+                    "type": "string"
+                },
+                "CountryOfOrigin": {
+                    "description": "Country of Origin",
+                    "type": "string"
+                },
+                "PackageType": {
+                    "description": "Type of packaging for the product. Not all products are available in all packaging types. Possibilities include but\r\nare not limited to: Tape and Reel(TR), Cut Tape(CT), Digi-Reel, Tube, Tray, and Bulk.",
+                    "type": "string"
+                },
+                "MinimumOrderQuantity": {
+                    "format": "int32",
+                    "description": "Minimum Order Quantity",
+                    "type": "integer"
+                },
+                "QuantityAvailable": {
+                    "format": "int32",
+                    "description": "In-stock quantity that is available for immediate shipping.",
+                    "type": "integer"
+                },
+                "IsObsolete": {
+                    "description": "Product is obsolete",
+                    "type": "boolean"
+                },
+                "IsDiscontinued": {
+                    "description": "This product is no longer sold at DigiKey and will no longer be restocked.",
+                    "type": "boolean"
+                },
+                "IsMfgQuoteRequired": {
+                    "description": "Product requires a quote from the manufacturer.",
+                    "type": "boolean"
+                },
+                "IsMarketplace": {
+                    "description": "Product is a Marketplace product that ships direct from the supplier. A separate shipping fee may apply",
+                    "type": "boolean"
+                },
+                "RoHSStatus": {
+                    "$ref": "#\/definitions\/RoHSStatusCode"
+                },
+                "ReachStatus": {
+                    "$ref": "#\/definitions\/ReachStatusCode"
+                },
+                "StandardPackage": {
+                    "format": "int32",
+                    "description": "Quantity of the standard package for the part",
+                    "type": "integer"
+                },
+                "ExpirationDate": {
+                    "format": "date-time",
+                    "description": "Date that the product expires on this quote",
+                    "type": "string"
+                },
+                "IsTariffActive": {
+                    "description": "True if a tariff is applied",
+                    "type": "boolean"
+                },
+                "Quantities": {
+                    "description": "List of quantities with unit and extended prices on it",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/QuoteProductQuantity"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "QuoteProductQuantity": {
+            "description": "Contains all quantity information",
+            "type": "object",
+            "properties": {
+                "Quantity": {
+                    "format": "int32",
+                    "description": "Quoted Quantity",
+                    "type": "integer"
+                },
+                "UnitPrice": {
+                    "format": "double",
+                    "description": "Quoted Unit Price",
+                    "type": "number"
+                },
+                "ExtendedPrice": {
+                    "format": "double",
+                    "description": "Quoted Extended Price",
+                    "type": "number"
+                }
+            },
+            "additionalProperties": false
+        },
+        "QuoteResponse": {
+            "description": "Quote Information to a quote",
+            "type": "object",
+            "properties": {
+                "Quote": {
+                    "$ref": "#\/definitions\/QuoteInformation"
+                }
+            },
+            "additionalProperties": false
+        },
+        "QuotesResponse": {
+            "description": "Response from querying quotes",
+            "type": "object",
+            "properties": {
+                "TotalQuotes": {
+                    "format": "int32",
+                    "description": "Total number of quotes for customerId, not the total number returned for this call",
+                    "type": "integer"
+                },
+                "Quotes": {
+                    "description": "List of quote information",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/QuoteInformation"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "ReachStatusCode": {
+            "enum": [
+                "Unknown",
+                "Affected",
+                "Unaffected",
+                "NotApplicable"
+            ],
+            "type": "string"
+        },
+        "RoHSStatusCode": {
+            "enum": [
+                "Unknown",
+                "Compliant",
+                "Mix",
+                "NonCompliant",
+                "ByException",
+                "NotApplicable",
+                "VendorUndefined",
+                "Compliant3"
+            ],
+            "type": "string"
+        }
+    },
+    "tags": []
+}

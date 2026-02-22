@@ -1,0 +1,496 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "PackingList Api",
+        "description": "Send an Invoice Number or Sales Order Number and retrieve information included on the packing list supplied in the shipment’s package. You can also request that we return a pdf version of the packing list that was included in the package.\r\n \r\nEvery order placed with DigiKey is linked to a single Sales Order Number. If the order results in multiple shipments, each shipment will have one Order Number. We generate one packing list for each Invoice Number.\r\n \r\nNote: A packing list is also known as a pack list, packing slip, or manifest.",
+        "termsOfService": "https:\/\/www.digikey.com\/en\/terms-and-conditions",
+        "contact": {
+            "name": "B2BApi Team",
+            "url": "https:\/\/developer.digikey.com\/support",
+            "email": "dl_Agile_Team_B2B_API@digikey.com"
+        },
+        "version": "v1",
+        "x-technical-domain": "Sales"
+    },
+    "basePath": "\/packinglist",
+    "schemes": [
+        "https"
+    ],
+    "paths": {
+        "\/v1\/invoice\/{invoiceId}": {
+            "get": {
+                "tags": [
+                    "PackList"
+                ],
+                "summary": "Enter an Invoice Number and receive a single packing list.",
+                "operationId": "GetPackingList",
+                "produces": [
+                    "text\/plain",
+                    "application\/json",
+                    "text\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invoiceId",
+                        "description": "Enter the Invoice ID that is to be returned.",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includePdf",
+                        "description": "If you would like to have a pdf for this packing list returned, set the value to “True”.",
+                        "type": "boolean"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/InvoicePackingList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "\/v1\/salesorderid\/{salesOrderId}": {
+            "get": {
+                "tags": [
+                    "PackList"
+                ],
+                "summary": "Enter a Sales Order Number and receive all packing lists created for that order.",
+                "operationId": "GetPackingListBySalesOrderId",
+                "produces": [
+                    "text\/plain",
+                    "application\/json",
+                    "text\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "salesOrderId",
+                        "description": "Enter the Sales Order Number ID that you want packing lists returned.",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includePdf",
+                        "description": "If you would like to have a pdf of each packing list returned, set the value to “True”",
+                        "type": "boolean"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/SalesOrderPackList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "\/v1\/purchaseordernumber\/{purchaseOrderNumber}": {
+            "get": {
+                "tags": [
+                    "PackList"
+                ],
+                "summary": "Enter a valid Purchase Order Number and receive assciated packing lists created for that corresponding sales order.",
+                "operationId": "GetPackingListByPoNumber",
+                "produces": [
+                    "text\/plain",
+                    "application\/json",
+                    "text\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "purchaseOrderNumber",
+                        "description": "Enter your purchase order number and the corresponding SalesOrderId will be found",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "includePdf",
+                        "description": "If you would like to have a pdf of each packing list returned, set the value to “True",
+                        "type": "boolean"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "$ref": "#\/definitions\/PoNumberPackList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "DKProblemDetails": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "status": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "correlationId": {
+                    "type": "string"
+                },
+                "errors": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "readOnly": true
+                }
+            },
+            "additionalProperties": false
+        },
+        "InvoicePackingList": {
+            "description": "",
+            "type": "object",
+            "properties": {
+                "PackingListItem": {
+                    "description": "Item found from Invoice",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/PackingListItem"
+                    }
+                },
+                "InvoiceIdEntered": {
+                    "format": "int32",
+                    "description": "The InvoiceID that you entered in the request",
+                    "type": "integer"
+                },
+                "IncludePdfEntered": {
+                    "description": "The value that you entered in the request. \"True\" is to return the encoded pdf string. \"False\" is to not.",
+                    "type": "boolean"
+                },
+                "PdfFound": {
+                    "description": "Pdf for this invoice has been found",
+                    "type": "boolean"
+                },
+                "EncodedString": {
+                    "description": "Enter this string in a string decoder to generate a pdf.",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PackingListItem": {
+            "type": "object",
+            "properties": {
+                "InvoiceId": {
+                    "format": "int32",
+                    "description": "Invoice ID of order. There is one per shipment.",
+                    "type": "integer"
+                },
+                "SalesOrderId": {
+                    "format": "int32",
+                    "description": "Sales order ID. There is one per order.",
+                    "type": "integer"
+                },
+                "PurchaseOrderNumber": {
+                    "description": "Purchase Order Number supplied by the customer when the order was placed.",
+                    "type": "string"
+                },
+                "OrderedQuantity": {
+                    "format": "int32",
+                    "description": "Number of items ordered of products included in the packing list for given line item",
+                    "type": "integer"
+                },
+                "QuantityShipped": {
+                    "format": "int32",
+                    "description": "The quantity of items in the shipment",
+                    "type": "integer"
+                },
+                "QuantityBackOrder": {
+                    "format": "int32",
+                    "description": "The quantity of items on backorder",
+                    "type": "integer"
+                },
+                "CustomerLineItemId": {
+                    "description": "Customer Line item id",
+                    "type": "string"
+                },
+                "LineItem": {
+                    "description": "DigiKey’s Line Item number for that Sales Order",
+                    "type": "string"
+                },
+                "ProductNumber": {
+                    "description": "DigiKey product number for given line item",
+                    "type": "string"
+                },
+                "Description": {
+                    "description": "Product Description for given line item",
+                    "type": "string"
+                },
+                "ECCN": {
+                    "description": "Export control class number for given line item. See documentation from the U.S. Department of Commerce.",
+                    "type": "string"
+                },
+                "CustomerPartNumber": {
+                    "description": "Customer Part Number for given line item",
+                    "type": "string"
+                },
+                "HTSUS": {
+                    "description": "Harmonized Tariff Schedule of the United States for given line item. See documentation from the U.S. International Trade Commission.",
+                    "type": "string"
+                },
+                "ManufacturerProductNumber": {
+                    "description": "Manufacturer part number for given line item",
+                    "type": "string"
+                },
+                "Manufacturer": {
+                    "description": "Manufacturer Name for given line item",
+                    "type": "string"
+                },
+                "CountryOfOrigin": {
+                    "description": "Country of origin for given line item",
+                    "type": "string"
+                },
+                "LotQuantity": {
+                    "format": "int32",
+                    "description": "Quantity of products in the lot for given line item",
+                    "type": "integer"
+                },
+                "DateCode": {
+                    "description": "Date Code for given line item. Format is MMM-YYYY",
+                    "type": "string"
+                },
+                "LotCode": {
+                    "description": "Lot Code for given line item",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PoNumberPackList": {
+            "type": "object",
+            "properties": {
+                "SalesOrderPackLists": {
+                    "description": "List of sales orders associated with given Purchase Order Number.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/SalesOrderPackList"
+                    }
+                },
+                "PoNumber": {
+                    "description": "Customers provided Purchase Order Number.",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "SalesOrderPackList": {
+            "description": "PackList from provided Sales Order Id",
+            "type": "object",
+            "properties": {
+                "PackingListInvoice": {
+                    "description": "Invoices from the sales order id provided",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/InvoicePackingList"
+                    }
+                },
+                "SalesOrderIdEntered": {
+                    "format": "int32",
+                    "description": "The SalesOrderID that you entered in the reques",
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "securityDefinitions": {
+        "apiKeySecurity": {
+            "type": "apiKey",
+            "name": "X-DIGIKEY-Client-Id",
+            "in": "header"
+        },
+        "oauth2AccessCodeSecurity": {
+            "type": "oauth2",
+            "flow": "accessCode",
+            "authorizationUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/authorize",
+            "tokenUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/token"
+        }
+    },
+    "security": [
+        {
+            "apiKeySecurity": [],
+            "oauth2AccessCodeSecurity": []
+        }
+    ],
+    "host": "api.digikey.com",
+    "x-host-sandbox": "sandbox-api.digikey.com",
+    "x-host-production": "api.digikey.com",
+    "tags": []
+}
