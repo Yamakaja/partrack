@@ -1,0 +1,117 @@
+-- name: ListOrders :many
+SELECT
+    o.id, o.distributor_id, d.name AS distributor_name,
+    o.status, o.external_reference, o.created_at,
+    COUNT(oli.id) AS item_count
+FROM orders o
+JOIN distributors d ON d.id = o.distributor_id
+LEFT JOIN order_line_items oli ON oli.order_id = o.id
+WHERE o.team_id = $1
+  AND (sqlc.narg('status')::order_status IS NULL OR o.status = sqlc.narg('status'))
+  AND (sqlc.narg('distributor_id')::uuid IS NULL OR o.distributor_id = sqlc.narg('distributor_id'))
+GROUP BY o.id, d.name
+ORDER BY o.created_at DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountOrders :one
+SELECT COUNT(*) FROM orders
+WHERE team_id = $1
+  AND (sqlc.narg('status')::order_status IS NULL OR status = sqlc.narg('status'))
+  AND (sqlc.narg('distributor_id')::uuid IS NULL OR distributor_id = sqlc.narg('distributor_id'));
+
+-- name: GetOrder :one
+SELECT
+    o.id, o.team_id, o.distributor_id, d.name AS distributor_name,
+    o.status, o.submission_method, o.external_reference, o.external_ref_linked_at,
+    o.received_at, o.notes, o.created_at,
+    u.display_name AS created_by_display_name
+FROM orders o
+JOIN distributors d ON d.id = o.distributor_id
+JOIN users u ON u.id = o.created_by
+WHERE o.id = $1 AND o.team_id = $2;
+
+-- name: GetOrderLineItems :many
+SELECT
+    oli.id, oli.listing_id,
+    p.mpn AS part_mpn,
+    dl.sku, dl.packaging_type,
+    oli.quantity_ordered, oli.quantity_received,
+    oli.unit_price_snapshot, oli.fixed_order_cost_snapshot
+FROM order_line_items oli
+JOIN distributor_listings dl ON dl.id = oli.listing_id
+JOIN parts p ON p.id = dl.part_id
+WHERE oli.order_id = $1
+ORDER BY oli.id;
+
+-- name: CreateOrder :one
+INSERT INTO orders (team_id, distributor_id, created_by)
+VALUES ($1, $2, $3)
+RETURNING id, team_id, distributor_id, status, created_by, created_at;
+
+-- name: CreateOrderLineItem :one
+INSERT INTO order_line_items (order_id, listing_id, quantity_ordered, unit_price_snapshot, fixed_order_cost_snapshot)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, order_id, listing_id, quantity_ordered, quantity_received, unit_price_snapshot, fixed_order_cost_snapshot;
+
+-- name: UpdateOrderNotes :one
+UPDATE orders
+SET notes = sqlc.narg('notes')
+WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id') AND status = 'draft'
+RETURNING id, status, notes;
+
+-- name: UpdateOrderLineItemQuantity :exec
+UPDATE order_line_items
+SET quantity_ordered = $2
+WHERE order_line_items.id = $1
+  AND order_id IN (SELECT o.id FROM orders o WHERE o.team_id = $3 AND o.status = 'draft');
+
+-- name: CancelOrder :exec
+UPDATE orders
+SET status = 'cancelled'
+WHERE id = $1 AND team_id = $2 AND status != 'received';
+
+-- name: TransitionOrderStatus :exec
+UPDATE orders SET status = $2 WHERE id = $1;
+
+-- name: LinkOrderExternalReference :one
+UPDATE orders
+SET external_reference     = sqlc.arg('external_reference'),
+    external_ref_linked_at = NOW(),
+    status                 = 'placed'
+WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
+  AND status IN ('draft', 'exported', 'submitted')
+RETURNING id, status, external_reference, external_ref_linked_at;
+
+-- name: TransitionOrderToExported :exec
+UPDATE orders
+SET status = 'exported', submission_method = 'manual'
+WHERE id = $1 AND team_id = $2 AND status IN ('draft', 'exported');
+
+-- name: GetOrderLineItem :one
+SELECT
+    oli.id, oli.order_id, oli.listing_id,
+    oli.quantity_ordered, oli.quantity_received,
+    oli.unit_price_snapshot, oli.fixed_order_cost_snapshot,
+    dl.part_id,
+    o.team_id
+FROM order_line_items oli
+JOIN distributor_listings dl ON dl.id = oli.listing_id
+JOIN orders o ON o.id = oli.order_id
+WHERE oli.id = $1 AND o.team_id = $2;
+
+-- name: ReceiveOrderLineItem :one
+UPDATE order_line_items
+SET quantity_received = quantity_received + $2
+WHERE id = $1
+RETURNING id, order_id, quantity_ordered, quantity_received;
+
+-- name: GetOrderReceiptStatus :one
+SELECT
+    COUNT(*) AS total,
+    COUNT(*) FILTER (WHERE quantity_received >= quantity_ordered) AS fully_received
+FROM order_line_items WHERE order_id = $1;
+
+-- name: CreateOrderStockAdjustment :one
+INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, order_line_item_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, order_line_item_id;

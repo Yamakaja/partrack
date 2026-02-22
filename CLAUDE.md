@@ -4,7 +4,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-partrack is currently in the **architecture and design phase**. No application code exists yet. The repository contains design documentation that must be consulted before making any implementation decisions.
+partrack has completed the architecture and design phase and is now in **initial implementation**. The Go backend scaffold is in place; handler stubs return 501 and will be filled in progressively.
+
+## Build & Run
+
+```bash
+go build ./...                    # compile all packages
+go build -o partrack ./cmd/partrack  # build the binary
+go run ./cmd/partrack             # run directly (requires config.yaml or env vars)
+go mod tidy                       # sync dependencies
+```
+
+Runtime requires:
+- `PARTRACK_DB_URL=postgres://...` or `database.url` in `config.yaml`
+- Migrations run automatically at startup via golang-migrate
+
+## Code Layout
+
+```
+cmd/partrack/        # main entrypoint
+internal/
+  config/            # Config struct; YAML + env override loading
+  db/                # pgxpool setup (pool.go) + migrate runner (migrate.go); gen/ holds sqlc output
+  server/            # Chi router construction (server.go) + all route registrations (routes.go)
+  middleware/        # auth.go (session/token → User in ctx), team.go (min-role enforcement)
+  handler/           # HTTP handlers; one file per domain group; all share handler.Handler struct
+  worker/            # channel-based job queue + per-team SSE hub
+db/
+  db.go              # exports embed.FS for migrations (used by internal/db/migrate.go)
+  migrations/        # golang-migrate SQL files (000001_initial_schema.up/down.sql)
+  queries/           # sqlc .sql query files (empty until handlers are implemented)
+web/
+  web.go             # exports embed.FS for frontend dist/
+  dist/              # Vite build output (git-ignored; .gitkeep placeholder committed)
+sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal/db/gen)
+```
+
+## Key Patterns
+
+- All handler methods live on `handler.Handler` (holds DB pool, Config, Worker queue). Add DB queries by writing SQL in `db/queries/`, running `sqlc generate`, then calling the generated types from handlers.
+- Authentication middleware (`middleware.Authenticate`) injects `*middleware.User` into the request context. Retrieve it with `middleware.UserFromContext(ctx)`.
+- Team role enforcement: `middleware.RequireTeamRole("member")` etc. — injects `*middleware.TeamMembership` into ctx.
+- Background jobs: `h.Worker.Enqueue(worker.JobBOMImport, teamID, payload)` returns a job ID. Progress events are published via `h.Worker.Publish(ev)` and consumed by SSE subscribers.
+- `writeJSON` / `writeError` helpers are in `internal/handler/handler.go`.
 
 ## Design Documents
 

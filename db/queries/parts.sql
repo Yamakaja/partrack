@@ -1,0 +1,99 @@
+-- Parts catalog, parameters, and distributor listing queries.
+
+-- name: ListParts :many
+SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
+       lifecycle_status, created_at
+FROM parts
+WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND (sqlc.narg('q')::text IS NULL
+       OR mpn ILIKE '%' || sqlc.narg('q') || '%'
+       OR description ILIKE '%' || sqlc.narg('q') || '%'
+       OR manufacturer ILIKE '%' || sqlc.narg('q') || '%')
+  AND (sqlc.narg('mpn_exact')::text IS NULL OR mpn = sqlc.narg('mpn_exact'))
+  AND (sqlc.narg('category')::text IS NULL OR category = sqlc.narg('category'))
+  AND (sqlc.narg('package')::text IS NULL OR package = sqlc.narg('package'))
+  AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
+       OR lifecycle_status = sqlc.narg('lifecycle_status'))
+  AND (sqlc.narg('filter_scope')::part_scope IS NULL OR scope = sqlc.narg('filter_scope'))
+ORDER BY mpn NULLS LAST, id
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountParts :one
+SELECT COUNT(*) FROM parts
+WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND (sqlc.narg('q')::text IS NULL
+       OR mpn ILIKE '%' || sqlc.narg('q') || '%'
+       OR description ILIKE '%' || sqlc.narg('q') || '%'
+       OR manufacturer ILIKE '%' || sqlc.narg('q') || '%')
+  AND (sqlc.narg('mpn_exact')::text IS NULL OR mpn = sqlc.narg('mpn_exact'))
+  AND (sqlc.narg('category')::text IS NULL OR category = sqlc.narg('category'))
+  AND (sqlc.narg('package')::text IS NULL OR package = sqlc.narg('package'))
+  AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
+       OR lifecycle_status = sqlc.narg('lifecycle_status'))
+  AND (sqlc.narg('filter_scope')::part_scope IS NULL OR scope = sqlc.narg('filter_scope'));
+
+-- name: GetPart :one
+SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
+       datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
+       preferred_parameter_source_id, created_at
+FROM parts WHERE id = $1;
+
+-- name: CreatePart :one
+INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
+                   datasheet_url, lifecycle_status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, scope, team_id, mpn, manufacturer, description, category, package,
+          datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
+          preferred_parameter_source_id, created_at;
+
+-- name: UpdatePart :one
+UPDATE parts
+SET description                   = COALESCE(sqlc.narg('description'), description),
+    category                      = COALESCE(sqlc.narg('category'), category),
+    package                       = COALESCE(sqlc.narg('package'), package),
+    datasheet_url                 = COALESCE(sqlc.narg('datasheet_url'), datasheet_url),
+    lifecycle_status              = COALESCE(sqlc.narg('lifecycle_status'), lifecycle_status),
+    preferred_parameter_source_id = COALESCE(sqlc.narg('preferred_parameter_source_id'),
+                                             preferred_parameter_source_id)
+WHERE id = sqlc.arg('id')
+RETURNING id, scope, team_id, mpn, manufacturer, description, category, package,
+          datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
+          preferred_parameter_source_id, created_at;
+
+-- name: ListParameters :many
+SELECT
+    pp.id, pp.part_id, pp.name, pp.value, pp.unit,
+    pp.source_type, pp.source_distributor_id,
+    d.name AS source_distributor_name
+FROM part_parameters pp
+LEFT JOIN distributors d ON d.id = pp.source_distributor_id
+WHERE pp.part_id = $1
+ORDER BY pp.source_type, pp.name;
+
+-- name: UpsertUserParameter :one
+-- Replaces any existing user-specified parameter with the same name, then inserts.
+WITH deleted AS (
+    DELETE FROM part_parameters
+    WHERE part_id = $1 AND name = $2 AND source_type = 'user'
+)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type)
+VALUES ($1, $2, $3, $4, 'user')
+RETURNING id, part_id, name, value, unit, source_type, source_distributor_id;
+
+-- name: DeleteParameter :exec
+-- Only deletes user-specified parameters; distributor-sourced ones are ignored.
+DELETE FROM part_parameters
+WHERE id = $1 AND source_type = 'user';
+
+-- name: ListListings :many
+SELECT
+    dl.id, dl.part_id, dl.distributor_id, d.name AS distributor_name,
+    dl.sku, dl.packaging_type, dl.unit_price, dl.stock_available,
+    dl.moq, dl.fixed_order_cost, dl.last_refreshed_at
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE dl.part_id = $1
+ORDER BY d.name, dl.packaging_type;
+
+-- name: GetListing :one
+SELECT id, part_id, distributor_id, sku FROM distributor_listings WHERE id = $1;

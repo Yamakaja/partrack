@@ -1,0 +1,94 @@
+-- name: ListRevisions :many
+SELECT
+    br.id, br.label, br.imported_at, br.notes,
+    u.display_name AS imported_by_display_name,
+    COUNT(bli.id) AS item_count,
+    COUNT(bli.id) FILTER (WHERE bli.resolved_part_id IS NOT NULL) AS resolved_count,
+    COUNT(bli.id) FILTER (WHERE bli.resolved_part_id IS NULL) AS unresolved_count,
+    (p.active_bom_revision_id = br.id) AS is_active
+FROM bom_revisions br
+JOIN users u ON u.id = br.imported_by
+JOIN projects p ON p.id = br.project_id
+LEFT JOIN bom_line_items bli ON bli.bom_revision_id = br.id
+WHERE br.project_id = $1
+GROUP BY br.id, u.display_name, p.active_bom_revision_id
+ORDER BY br.imported_at DESC;
+
+-- name: GetRevision :one
+SELECT
+    br.id, br.label, br.imported_at, br.notes,
+    u.display_name AS imported_by_display_name,
+    (p.active_bom_revision_id = br.id) AS is_active
+FROM bom_revisions br
+JOIN users u ON u.id = br.imported_by
+JOIN projects p ON p.id = br.project_id
+WHERE br.id = $1 AND br.project_id = $2;
+
+-- name: CreateRevision :one
+INSERT INTO bom_revisions (project_id, label, notes, imported_by)
+VALUES ($1, $2, $3, $4)
+RETURNING id, project_id, label, imported_at, notes, imported_by;
+
+-- name: UpdateRevision :one
+UPDATE bom_revisions
+SET label = COALESCE(sqlc.narg('label'), label),
+    notes = COALESCE(sqlc.narg('notes'), notes)
+WHERE id = sqlc.arg('id') AND project_id = sqlc.arg('project_id')
+RETURNING id, label, imported_at, notes, imported_by;
+
+-- name: CreateBOMLineItem :one
+INSERT INTO bom_line_items (bom_revision_id, reference_designators, quantity, raw_description)
+VALUES ($1, $2, $3, $4)
+RETURNING id, bom_revision_id, reference_designators, quantity, raw_description, resolved_part_id;
+
+-- name: ListBOMLineItems :many
+SELECT
+    bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
+    bli.resolved_part_id,
+    p.mpn AS resolved_part_mpn
+FROM bom_line_items bli
+LEFT JOIN parts p ON p.id = bli.resolved_part_id
+WHERE bli.bom_revision_id = $1
+ORDER BY bli.id;
+
+-- name: GetBOMLineItem :one
+SELECT id, bom_revision_id, reference_designators, quantity, raw_description, resolved_part_id
+FROM bom_line_items
+WHERE id = $1 AND bom_revision_id = $2;
+
+-- name: UpdateBOMLineItem :one
+UPDATE bom_line_items
+SET resolved_part_id = sqlc.narg('resolved_part_id')
+WHERE id = sqlc.arg('id') AND bom_revision_id = sqlc.arg('bom_revision_id')
+RETURNING id, reference_designators, quantity, raw_description, resolved_part_id;
+
+-- name: ListAllSubstitutesForRevision :many
+SELECT
+    s.bom_line_item_id,
+    s.part_id,
+    p.mpn AS part_mpn
+FROM bom_line_item_substitutes s
+JOIN parts p ON p.id = s.part_id
+JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
+WHERE bli.bom_revision_id = $1;
+
+-- name: AddBOMSubstitute :exec
+INSERT INTO bom_line_item_substitutes (bom_line_item_id, part_id)
+VALUES ($1, $2);
+
+-- name: RemoveBOMSubstitute :exec
+DELETE FROM bom_line_item_substitutes
+WHERE bom_line_item_id = $1 AND part_id = $2;
+
+-- name: GetInventoryQuantitiesForRevision :many
+SELECT ie.part_id, ie.quantity_on_hand
+FROM inventory_entries ie
+WHERE ie.team_id = $2
+  AND ie.part_id IN (
+    SELECT bm.resolved_part_id FROM bom_line_items bm
+    WHERE bm.bom_revision_id = $1 AND bm.resolved_part_id IS NOT NULL
+    UNION
+    SELECT s.part_id FROM bom_line_item_substitutes s
+    JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
+    WHERE bli.bom_revision_id = $1
+  );
