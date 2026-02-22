@@ -7,11 +7,13 @@ WHERE user_id = $1
   AND expires_at > NOW()
 ORDER BY last_seen_at DESC;
 
--- name: DeleteSessionByID :exec
+-- name: DeleteSessionByID :one
 -- Only deletes if the session belongs to the requesting user.
+-- Returns ErrNoRows when the session doesn't exist or belongs to a different user.
 DELETE FROM sessions
 WHERE id = $1
-  AND user_id = $2;
+  AND user_id = $2
+RETURNING id;
 
 -- name: ListAPITokensByUser :many
 SELECT id, user_id, name, created_at, last_used_at, expires_at

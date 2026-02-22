@@ -68,10 +68,11 @@ func (q *Queries) DeleteAPITokenByID(ctx context.Context, arg DeleteAPITokenByID
 	return err
 }
 
-const deleteSessionByID = `-- name: DeleteSessionByID :exec
+const deleteSessionByID = `-- name: DeleteSessionByID :one
 DELETE FROM sessions
 WHERE id = $1
   AND user_id = $2
+RETURNING id
 `
 
 type DeleteSessionByIDParams struct {
@@ -80,9 +81,12 @@ type DeleteSessionByIDParams struct {
 }
 
 // Only deletes if the session belongs to the requesting user.
-func (q *Queries) DeleteSessionByID(ctx context.Context, arg DeleteSessionByIDParams) error {
-	_, err := q.db.Exec(ctx, deleteSessionByID, arg.ID, arg.UserID)
-	return err
+// Returns ErrNoRows when the session doesn't exist or belongs to a different user.
+func (q *Queries) DeleteSessionByID(ctx context.Context, arg DeleteSessionByIDParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, deleteSessionByID, arg.ID, arg.UserID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getPreferences = `-- name: GetPreferences :one

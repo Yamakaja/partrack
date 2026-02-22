@@ -84,7 +84,7 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Queries.DeleteSessionByID(r.Context(), dbgen.DeleteSessionByIDParams{
+	_, err := h.Queries.DeleteSessionByID(r.Context(), dbgen.DeleteSessionByIDParams{
 		ID:     sessionID,
 		UserID: userID,
 	})

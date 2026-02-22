@@ -5,7 +5,7 @@ SELECT
     COUNT(bli.id) AS item_count,
     COUNT(bli.id) FILTER (WHERE bli.resolved_part_id IS NOT NULL) AS resolved_count,
     COUNT(bli.id) FILTER (WHERE bli.resolved_part_id IS NULL) AS unresolved_count,
-    (p.active_bom_revision_id = br.id) AS is_active
+    CASE WHEN p.active_bom_revision_id = br.id THEN TRUE ELSE FALSE END AS is_active
 FROM bom_revisions br
 JOIN users u ON u.id = br.imported_by
 JOIN projects p ON p.id = br.project_id
@@ -18,7 +18,7 @@ ORDER BY br.imported_at DESC;
 SELECT
     br.id, br.label, br.imported_at, br.notes,
     u.display_name AS imported_by_display_name,
-    (p.active_bom_revision_id = br.id) AS is_active
+    CASE WHEN p.active_bom_revision_id = br.id THEN TRUE ELSE FALSE END AS is_active
 FROM bom_revisions br
 JOIN users u ON u.id = br.imported_by
 JOIN projects p ON p.id = br.project_id
