@@ -154,6 +154,7 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.Cache.EvictMembership(teamID.String(), userID.String())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"team_id":    membership.TeamID.String(),
 		"user_id":    membership.UserID.String(),
@@ -181,6 +182,7 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	h.Cache.EvictMembership(teamID.String(), userID.String())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -197,6 +199,9 @@ func (h *Handler) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	h.Cache.EvictAllSessionsForUser(userID.String())
+	h.Cache.EvictAllAPITokensForUser(userID.String())
+	h.Cache.EvictAllMembershipsForUser(userID.String())
 	w.WriteHeader(http.StatusNoContent)
 }
 

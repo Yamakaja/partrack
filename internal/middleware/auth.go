@@ -43,14 +43,15 @@ type TeamMembership struct {
 	Role   string // "viewer" | "member" | "purchaser" | "admin"
 }
 
-// Middleware holds shared DB access for all authentication middleware.
+// Middleware holds shared DB access and the auth cache for all authentication middleware.
 type Middleware struct {
-	q *dbgen.Queries
+	q     *dbgen.Queries
+	cache *AuthCache
 }
 
-// New creates a Middleware backed by the given pool.
-func New(db *pgxpool.Pool) *Middleware {
-	return &Middleware{q: dbgen.New(db)}
+// New creates a Middleware backed by the given pool and cache.
+func New(db *pgxpool.Pool, cache *AuthCache) *Middleware {
+	return &Middleware{q: dbgen.New(db), cache: cache}
 }
 
 // UserFromContext retrieves the authenticated User from a request context.
@@ -106,38 +107,56 @@ func hashToken(raw string) string {
 }
 
 // lookupToken validates a raw token and returns the associated User.
-// It checks session tokens first, then API tokens.
+// It checks the in-process cache first, falling back to the database on a miss.
+// last_seen_at / last_used_at writes are deferred to the cache flusher.
 func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error) {
 	hash := hashToken(raw)
 
-	// Try session token first.
+	// Cache hit — session token.
+	if entry, ok := m.cache.LookupSession(hash); ok {
+		m.cache.TouchSession(hash)
+		return entry.user, nil
+	}
+
+	// Cache hit — API token.
+	if entry, ok := m.cache.LookupAPIToken(hash); ok {
+		m.cache.TouchAPIToken(hash)
+		return entry.user, nil
+	}
+
+	// Cache miss — try session token via DB.
 	row, err := m.q.GetUserBySessionToken(ctx, hash)
 	if err == nil {
-		// Touch last_seen_at asynchronously — don't let it block the request.
-		go m.q.UpdateSessionLastSeen(context.Background(), row.SessionID) //nolint:errcheck
-		return &User{
+		user := &User{
 			ID:          row.ID.String(),
 			DisplayName: row.DisplayName,
 			Email:       row.Email,
 			IsActive:    row.IsActive,
 			sessionID:   row.SessionID.String(),
-		}, nil
+		}
+		m.cache.StoreSession(hash, row.SessionID.String(), row.ID.String(), user, row.ExpiresAt.Time)
+		m.cache.TouchSession(hash)
+		return user, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 
-	// Fall back to API token.
+	// Cache miss — try API token via DB.
 	apiRow, err := m.q.GetUserByAPIToken(ctx, hash)
 	if err == nil {
-		go m.q.UpdateAPITokenLastUsed(context.Background(), apiRow.TokenID) //nolint:errcheck
-		return &User{
+		user := &User{
 			ID:          apiRow.ID.String(),
 			DisplayName: apiRow.DisplayName,
 			Email:       apiRow.Email,
 			IsActive:    apiRow.IsActive,
 			apiTokenID:  apiRow.TokenID.String(),
-		}, nil
+		}
+		// GetUserByAPITokenRow has no ExpiresAt — the SQL filters expired tokens
+		// server-side. Pass nil so the cache entry lives until explicit revocation.
+		m.cache.StoreAPIToken(hash, apiRow.TokenID.String(), apiRow.ID.String(), user, nil)
+		m.cache.TouchAPIToken(hash)
+		return user, nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // not found is not an error

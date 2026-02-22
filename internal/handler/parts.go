@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -438,10 +439,44 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 
 // EnrichPart handles POST /api/v1/parts/{partId}/enrich
 // Triggers re-enrichment from distributor APIs. Returns 202 with job_id.
+// Query: team_id (required) — the team whose distributor configs to use; caller must be a member.
 func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
 	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
+
+	teamIDStr := r.URL.Query().Get("team_id")
+	if teamIDStr == "" {
+		writeError(w, http.StatusBadRequest, "team_id query parameter is required", "BAD_REQUEST")
+		return
+	}
+	var teamID pgtype.UUID
+	if err := teamID.Scan(teamIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
+		TeamID: teamID,
+		UserID: userID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
@@ -454,8 +489,7 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := r.URL.Query().Get("team_id") // optional; used for SSE routing only
-	jobID := h.Worker.Enqueue(worker.JobPartEnrich, teamID, map[string]string{
+	jobID := h.Worker.Enqueue(worker.JobPartEnrich, teamIDStr, map[string]string{
 		"part_id": partID.String(),
 	})
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})

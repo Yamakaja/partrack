@@ -164,5 +164,6 @@ func (h *Handler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	h.Cache.EvictAPITokenByID(tokenID.String())
 	w.WriteHeader(http.StatusNoContent)
 }

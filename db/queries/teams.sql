@@ -70,3 +70,7 @@ WHERE id = $1;
 UPDATE users
 SET is_active = FALSE
 WHERE id = $1;
+
+-- name: CheckTeamMembership :one
+-- Returns pgx.ErrNoRows when the user is not a member of the team.
+SELECT id FROM team_memberships WHERE team_id = $1 AND user_id = $2 LIMIT 1;

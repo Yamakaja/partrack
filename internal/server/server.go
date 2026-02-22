@@ -2,8 +2,10 @@
 package server
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/config"
 	"github.com/Yamakaja/partrack/internal/handler"
@@ -17,8 +19,11 @@ import (
 
 // New constructs an http.Server with all routes registered.
 func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue) *http.Server {
-	h := handler.New(db, cfg, q)
-	mw := middleware.New(db)
+	cache := middleware.NewAuthCache()
+	cache.StartFlusher(context.Background(), db, 5*time.Minute)
+
+	h := handler.New(db, cfg, q, cache)
+	mw := middleware.New(db, cache)
 	r := chi.NewRouter()
 
 	// Global middleware

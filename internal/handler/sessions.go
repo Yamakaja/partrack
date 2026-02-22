@@ -96,5 +96,6 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	h.Cache.EvictSessionByID(sessionID.String())
 	w.WriteHeader(http.StatusNoContent)
 }

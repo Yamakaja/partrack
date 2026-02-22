@@ -71,8 +71,16 @@ func (m *Middleware) RequireTeamRole(minRole string) func(http.Handler) http.Han
 	}
 }
 
-// lookupMembership fetches the team membership for (teamID, userID).
+// lookupMembership returns the team membership for (teamID, userID),
+// checking the in-process cache before hitting the database.
 func (m *Middleware) lookupMembership(ctx context.Context, teamID, userID pgtype.UUID) (*TeamMembership, error) {
+	teamIDStr := teamID.String()
+	userIDStr := userID.String()
+
+	if role, ok := m.cache.LookupMembership(teamIDStr, userIDStr); ok {
+		return &TeamMembership{TeamID: teamIDStr, UserID: userIDStr, Role: role}, nil
+	}
+
 	row, err := m.q.GetTeamMembership(ctx, dbgen.GetTeamMembershipParams{
 		TeamID: teamID,
 		UserID: userID,
@@ -83,9 +91,10 @@ func (m *Middleware) lookupMembership(ctx context.Context, teamID, userID pgtype
 		}
 		return nil, err
 	}
+	m.cache.StoreMembership(teamIDStr, userIDStr, string(row.Role))
 	return &TeamMembership{
-		TeamID: row.TeamID.String(),
-		UserID: row.UserID.String(),
+		TeamID: teamIDStr,
+		UserID: userIDStr,
 		Role:   string(row.Role),
 	}, nil
 }

@@ -171,14 +171,17 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rawToken != "" {
-		if err := h.Queries.DeleteSessionByTokenHash(r.Context(), hashToken(rawToken)); err != nil {
+		hash := hashToken(rawToken)
+		if err := h.Queries.DeleteSessionByTokenHash(r.Context(), hash); err != nil {
 			log.Printf("handler: logout: %v", err)
 		}
+		h.Cache.EvictSession(hash)
 	} else if user != nil && user.SessionID() != "" {
 		var sid, uid pgtype.UUID
 		if sid.Scan(user.SessionID()) == nil && uid.Scan(user.ID) == nil {
 			h.Queries.DeleteSession(r.Context(), dbgen.DeleteSessionParams{ID: sid, UserID: uid}) //nolint:errcheck
 		}
+		h.Cache.EvictSessionByID(user.SessionID())
 	}
 
 	http.SetCookie(w, &http.Cookie{

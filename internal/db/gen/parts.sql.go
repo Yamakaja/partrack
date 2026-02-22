@@ -104,6 +104,23 @@ func (q *Queries) CreatePart(ctx context.Context, arg CreatePartParams) (Part, e
 	return i, err
 }
 
+const deleteDistributorParameters = `-- name: DeleteDistributorParameters :exec
+DELETE FROM part_parameters
+WHERE part_id = $1 AND source_type = 'distributor' AND source_distributor_id = $2
+`
+
+type DeleteDistributorParametersParams struct {
+	PartID              pgtype.UUID `json:"part_id"`
+	SourceDistributorID pgtype.UUID `json:"source_distributor_id"`
+}
+
+// Removes all distributor-sourced parameters for a part from one distributor.
+// Called before re-inserting fresh parameters from enrichment.
+func (q *Queries) DeleteDistributorParameters(ctx context.Context, arg DeleteDistributorParametersParams) error {
+	_, err := q.db.Exec(ctx, deleteDistributorParameters, arg.PartID, arg.SourceDistributorID)
+	return err
+}
+
 const deleteParameter = `-- name: DeleteParameter :exec
 DELETE FROM part_parameters
 WHERE id = $1 AND source_type = 'user'
@@ -138,6 +155,35 @@ func (q *Queries) GetListing(ctx context.Context, id pgtype.UUID) (GetListingRow
 	return i, err
 }
 
+const getListingForRefresh = `-- name: GetListingForRefresh :one
+SELECT dl.id, dl.part_id, dl.distributor_id, dl.sku, d.api_type
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE dl.id = $1
+`
+
+type GetListingForRefreshRow struct {
+	ID            pgtype.UUID `json:"id"`
+	PartID        pgtype.UUID `json:"part_id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+	Sku           string      `json:"sku"`
+	ApiType       *string     `json:"api_type"`
+}
+
+// Fetches the listing plus its distributor's api_type for the worker.
+func (q *Queries) GetListingForRefresh(ctx context.Context, id pgtype.UUID) (GetListingForRefreshRow, error) {
+	row := q.db.QueryRow(ctx, getListingForRefresh, id)
+	var i GetListingForRefreshRow
+	err := row.Scan(
+		&i.ID,
+		&i.PartID,
+		&i.DistributorID,
+		&i.Sku,
+		&i.ApiType,
+	)
+	return i, err
+}
+
 const getPart = `-- name: GetPart :one
 SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
        datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
@@ -165,6 +211,33 @@ func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const insertDistributorParameter = `-- name: InsertDistributorParameter :one
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
+VALUES ($1, $2, $3, $4, 'distributor', $5)
+RETURNING id
+`
+
+type InsertDistributorParameterParams struct {
+	PartID              pgtype.UUID `json:"part_id"`
+	Name                string      `json:"name"`
+	Value               string      `json:"value"`
+	Unit                *string     `json:"unit"`
+	SourceDistributorID pgtype.UUID `json:"source_distributor_id"`
+}
+
+func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDistributorParameterParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertDistributorParameter,
+		arg.PartID,
+		arg.Name,
+		arg.Value,
+		arg.Unit,
+		arg.SourceDistributorID,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listListings = `-- name: ListListings :many
@@ -362,6 +435,44 @@ func (q *Queries) ListParts(ctx context.Context, arg ListPartsParams) ([]ListPar
 	return items, nil
 }
 
+const setPartEnriched = `-- name: SetPartEnriched :exec
+UPDATE parts
+SET enrichment_source_id = $2,
+    enriched_at          = NOW()
+WHERE id = $1
+`
+
+type SetPartEnrichedParams struct {
+	ID                 pgtype.UUID `json:"id"`
+	EnrichmentSourceID pgtype.UUID `json:"enrichment_source_id"`
+}
+
+// Records which distributor last enriched this part and when.
+func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams) error {
+	_, err := q.db.Exec(ctx, setPartEnriched, arg.ID, arg.EnrichmentSourceID)
+	return err
+}
+
+const updateListingData = `-- name: UpdateListingData :exec
+UPDATE distributor_listings
+SET unit_price        = $2,
+    stock_available   = $3,
+    last_refreshed_at = NOW()
+WHERE id = $1
+`
+
+type UpdateListingDataParams struct {
+	ID             pgtype.UUID    `json:"id"`
+	UnitPrice      pgtype.Numeric `json:"unit_price"`
+	StockAvailable *int32         `json:"stock_available"`
+}
+
+// Writes refreshed price/stock data for a single listing.
+func (q *Queries) UpdateListingData(ctx context.Context, arg UpdateListingDataParams) error {
+	_, err := q.db.Exec(ctx, updateListingData, arg.ID, arg.UnitPrice, arg.StockAvailable)
+	return err
+}
+
 const updatePart = `-- name: UpdatePart :one
 UPDATE parts
 SET description                   = COALESCE($1, description),
@@ -415,6 +526,48 @@ func (q *Queries) UpdatePart(ctx context.Context, arg UpdatePartParams) (Part, e
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const upsertListing = `-- name: UpsertListing :one
+INSERT INTO distributor_listings (part_id, distributor_id, sku, packaging_type,
+                                  unit_price, stock_available, moq, fixed_order_cost,
+                                  last_refreshed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+ON CONFLICT (distributor_id, sku) DO UPDATE
+SET unit_price        = EXCLUDED.unit_price,
+    stock_available   = EXCLUDED.stock_available,
+    moq               = EXCLUDED.moq,
+    fixed_order_cost  = EXCLUDED.fixed_order_cost,
+    last_refreshed_at = NOW()
+RETURNING id
+`
+
+type UpsertListingParams struct {
+	PartID         pgtype.UUID    `json:"part_id"`
+	DistributorID  pgtype.UUID    `json:"distributor_id"`
+	Sku            string         `json:"sku"`
+	PackagingType  string         `json:"packaging_type"`
+	UnitPrice      pgtype.Numeric `json:"unit_price"`
+	StockAvailable *int32         `json:"stock_available"`
+	Moq            int32          `json:"moq"`
+	FixedOrderCost pgtype.Numeric `json:"fixed_order_cost"`
+}
+
+// Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq.
+func (q *Queries) UpsertListing(ctx context.Context, arg UpsertListingParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, upsertListing,
+		arg.PartID,
+		arg.DistributorID,
+		arg.Sku,
+		arg.PackagingType,
+		arg.UnitPrice,
+		arg.StockAvailable,
+		arg.Moq,
+		arg.FixedOrderCost,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertUserParameter = `-- name: UpsertUserParameter :one

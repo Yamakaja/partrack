@@ -4,10 +4,18 @@
 package worker
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/Yamakaja/partrack/internal/distributor"
+	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // JobType identifies the kind of background work to perform.
@@ -29,38 +37,35 @@ type Job struct {
 
 // Event is a progress notification sent to SSE subscribers.
 type Event struct {
-	Type    string          `json:"event"`
-	Data    json.RawMessage `json:"data"`
-	JobID   string          `json:"job_id,omitempty"`
-	TeamID  string          `json:"-"` // routing only; not serialised
+	Type   string          `json:"event"`
+	Data   json.RawMessage `json:"data"`
+	JobID  string          `json:"job_id,omitempty"`
+	TeamID string          `json:"-"` // routing only; not serialised
 }
 
 // Queue is a channel-based job dispatcher with an integrated SSE hub.
 // Jobs are processed by a pool of worker goroutines. Progress events are
 // fanned out to all active SSE subscribers for the relevant team.
 type Queue struct {
-	jobs        chan Job
-	subscribers map[string][]chan Event // keyed by team ID
-	mu          sync.RWMutex
+	jobs         chan Job
+	subscribers  map[string][]chan Event // keyed by team ID
+	mu           sync.RWMutex
+	db           *pgxpool.Pool
+	distributors distributor.Registry
 }
 
 // New creates a Queue and starts n worker goroutines.
-func New(workers int) *Queue {
+func New(workers int, db *pgxpool.Pool, reg distributor.Registry) *Queue {
 	q := &Queue{
-		jobs:        make(chan Job, 64),
-		subscribers: make(map[string][]chan Event),
+		jobs:         make(chan Job, 64),
+		subscribers:  make(map[string][]chan Event),
+		db:           db,
+		distributors: reg,
 	}
 	for i := 0; i < workers; i++ {
 		go q.run()
 	}
 	return q
-}
-
-// Enqueue submits a job and returns its ID.
-func (q *Queue) Enqueue(jobType JobType, teamID string, payload any) string {
-	id := newUUID()
-	q.jobs <- Job{ID: id, Type: jobType, TeamID: teamID, Payload: payload}
-	return id
 }
 
 // newUUID returns a random UUID v4 string.
@@ -70,6 +75,13 @@ func newUUID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+// Enqueue submits a job and returns its ID.
+func (q *Queue) Enqueue(jobType JobType, teamID string, payload any) string {
+	id := newUUID()
+	q.jobs <- Job{ID: id, Type: jobType, TeamID: teamID, Payload: payload}
+	return id
 }
 
 // Subscribe registers a channel to receive SSE events for a team.
@@ -117,7 +129,6 @@ func (q *Queue) run() {
 }
 
 // process dispatches a job to the appropriate handler.
-// Handlers are stubs until implemented; they publish a terminal error event.
 func (q *Queue) process(job Job) {
 	var handler func(Job)
 	switch job.Type {
@@ -147,21 +158,319 @@ func (q *Queue) publishError(job Job, msg string) {
 	})
 }
 
+func (q *Queue) publishProgress(job Job, eventType string, data any) {
+	b, _ := json.Marshal(data)
+	q.Publish(Event{Type: eventType, Data: b, JobID: job.ID, TeamID: job.TeamID})
+}
+
 func (q *Queue) handleBOMImport(job Job) {
 	// TODO: implement BOM import enrichment pipeline
 	q.publishError(job, fmt.Sprintf("handler %s not yet implemented", job.Type))
 }
 
 func (q *Queue) handlePartEnrich(job Job) {
-	// TODO: implement part enrichment from distributor APIs
-	q.publishError(job, fmt.Sprintf("handler %s not yet implemented", job.Type))
+	ctx := context.Background()
+
+	payload, ok := job.Payload.(map[string]string)
+	if !ok {
+		q.publishError(job, "invalid payload type")
+		return
+	}
+	partIDStr, ok := payload["part_id"]
+	if !ok {
+		q.publishError(job, "missing part_id in payload")
+		return
+	}
+	var partID pgtype.UUID
+	if err := partID.Scan(partIDStr); err != nil {
+		q.publishError(job, "invalid part_id: "+partIDStr)
+		return
+	}
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(job.TeamID); err != nil {
+		q.publishError(job, "invalid team_id: "+job.TeamID)
+		return
+	}
+
+	queries := dbgen.New(q.db)
+
+	part, err := queries.GetPart(ctx, partID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			q.publishError(job, fmt.Sprintf("part %s not found", partIDStr))
+		} else {
+			q.publishError(job, "failed to get part: "+err.Error())
+		}
+		return
+	}
+	if part.Mpn == nil {
+		q.publishError(job, "part has no MPN, cannot enrich")
+		return
+	}
+
+	configs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
+	if err != nil {
+		q.publishError(job, "failed to list distributor configs: "+err.Error())
+		return
+	}
+
+	for _, cfg := range configs {
+		if cfg.ApiType == nil {
+			continue
+		}
+		client := q.distributors.Lookup(*cfg.ApiType)
+		if client == nil {
+			continue // no client registered for this api_type
+		}
+
+		result, err := client.EnrichPart(ctx, *part.Mpn, json.RawMessage(cfg.ApiCredentials))
+		if err != nil {
+			q.publishProgress(job, "part_enrichment_progress", map[string]any{
+				"status":         "error",
+				"distributor_id": cfg.DistributorID.String(),
+				"error":          err.Error(),
+			})
+			continue
+		}
+		if result == nil {
+			q.publishProgress(job, "part_enrichment_progress", map[string]any{
+				"status":         "not_found",
+				"distributor_id": cfg.DistributorID.String(),
+			})
+			continue
+		}
+
+		tx, err := q.db.Begin(ctx)
+		if err != nil {
+			q.publishProgress(job, "part_enrichment_progress", map[string]any{
+				"status":         "error",
+				"distributor_id": cfg.DistributorID.String(),
+				"error":          "failed to begin transaction: " + err.Error(),
+			})
+			return
+		}
+		qtx := queries.WithTx(tx)
+
+		if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
+			PartID:              partID,
+			SourceDistributorID: cfg.DistributorID,
+		}); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			q.publishProgress(job, "part_enrichment_progress", map[string]any{
+				"status":         "error",
+				"distributor_id": cfg.DistributorID.String(),
+				"error":          "failed to delete parameters: " + err.Error(),
+			})
+			return
+		}
+
+		for _, p := range result.Parameters {
+			var unit *string
+			if p.Unit != "" {
+				u := p.Unit
+				unit = &u
+			}
+			if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
+				PartID:              partID,
+				Name:                p.Name,
+				Value:               p.Value,
+				Unit:                unit,
+				SourceDistributorID: cfg.DistributorID,
+			}); err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				q.publishProgress(job, "part_enrichment_progress", map[string]any{
+					"status":         "error",
+					"distributor_id": cfg.DistributorID.String(),
+					"error":          "failed to insert parameter: " + err.Error(),
+				})
+				return
+			}
+		}
+
+		for _, l := range result.Listings {
+			unitPrice, err := parseNumeric(l.UnitPrice)
+			if err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				q.publishProgress(job, "part_enrichment_progress", map[string]any{
+					"status":         "error",
+					"distributor_id": cfg.DistributorID.String(),
+					"error":          "invalid unit_price: " + l.UnitPrice,
+				})
+				return
+			}
+			fixedCost, err := parseNumeric(l.FixedOrderCost)
+			if err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				q.publishProgress(job, "part_enrichment_progress", map[string]any{
+					"status":         "error",
+					"distributor_id": cfg.DistributorID.String(),
+					"error":          "invalid fixed_order_cost: " + l.FixedOrderCost,
+				})
+				return
+			}
+			if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
+				PartID:         partID,
+				DistributorID:  cfg.DistributorID,
+				Sku:            l.SKU,
+				PackagingType:  l.PackagingType,
+				UnitPrice:      unitPrice,
+				StockAvailable: l.StockAvailable,
+				Moq:            l.Moq,
+				FixedOrderCost: fixedCost,
+			}); err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				q.publishProgress(job, "part_enrichment_progress", map[string]any{
+					"status":         "error",
+					"distributor_id": cfg.DistributorID.String(),
+					"error":          "failed to upsert listing: " + err.Error(),
+				})
+				return
+			}
+		}
+
+		if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
+			ID:                 partID,
+			EnrichmentSourceID: cfg.DistributorID,
+		}); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			q.publishProgress(job, "part_enrichment_progress", map[string]any{
+				"status":         "error",
+				"distributor_id": cfg.DistributorID.String(),
+				"error":          "failed to set enriched: " + err.Error(),
+			})
+			return
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			q.publishProgress(job, "part_enrichment_progress", map[string]any{
+				"status":         "error",
+				"distributor_id": cfg.DistributorID.String(),
+				"error":          "failed to commit: " + err.Error(),
+			})
+			return
+		}
+
+		q.publishProgress(job, "part_enrichment_progress", map[string]any{
+			"status":         "done",
+			"distributor_id": cfg.DistributorID.String(),
+			"listings":       len(result.Listings),
+			"parameters":     len(result.Parameters),
+		})
+	}
+
+	q.publishProgress(job, "part_enrichment_progress", map[string]any{
+		"status": "complete",
+		"job_id": job.ID,
+	})
 }
 
 func (q *Queue) handleListingRefresh(job Job) {
-	// TODO: implement price/availability refresh
-	q.publishError(job, fmt.Sprintf("handler %s not yet implemented", job.Type))
+	ctx := context.Background()
+
+	payload, ok := job.Payload.(map[string]string)
+	if !ok {
+		q.publishError(job, "invalid payload type")
+		return
+	}
+	listingIDStr, ok := payload["listing_id"]
+	if !ok {
+		q.publishError(job, "missing listing_id in payload")
+		return
+	}
+	var listingID pgtype.UUID
+	if err := listingID.Scan(listingIDStr); err != nil {
+		q.publishError(job, "invalid listing_id: "+listingIDStr)
+		return
+	}
+
+	queries := dbgen.New(q.db)
+
+	listing, err := queries.GetListingForRefresh(ctx, listingID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			q.publishError(job, fmt.Sprintf("listing %s not found", listingIDStr))
+		} else {
+			q.publishError(job, "failed to get listing: "+err.Error())
+		}
+		return
+	}
+
+	if listing.ApiType == nil {
+		q.publishError(job, "distributor has no API integration")
+		return
+	}
+
+	client := q.distributors.Lookup(*listing.ApiType)
+	if client == nil {
+		q.publishError(job, fmt.Sprintf("no client registered for api_type %s", *listing.ApiType))
+		return
+	}
+
+	// Fetch credentials for this distributor+team if available.
+	var credentials json.RawMessage
+	if job.TeamID != "" {
+		var teamID pgtype.UUID
+		if err := teamID.Scan(job.TeamID); err == nil {
+			configs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
+			if err == nil {
+				for _, cfg := range configs {
+					if cfg.DistributorID == listing.DistributorID {
+						credentials = json.RawMessage(cfg.ApiCredentials)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	result, err := client.RefreshListing(ctx, listing.Sku, credentials)
+	if err != nil {
+		q.publishError(job, "refresh failed: "+err.Error())
+		return
+	}
+	if result == nil {
+		q.publishProgress(job, "listing_refresh_done", map[string]any{
+			"status":     "unavailable",
+			"listing_id": listingIDStr,
+		})
+		return
+	}
+
+	unitPrice, err := parseNumeric(result.UnitPrice)
+	if err != nil {
+		q.publishError(job, "invalid unit_price from client: "+result.UnitPrice)
+		return
+	}
+
+	if err := queries.UpdateListingData(ctx, dbgen.UpdateListingDataParams{
+		ID:             listingID,
+		UnitPrice:      unitPrice,
+		StockAvailable: result.StockAvailable,
+	}); err != nil {
+		q.publishError(job, "failed to update listing: "+err.Error())
+		return
+	}
+
+	q.publishProgress(job, "listing_refresh_done", map[string]any{
+		"status":          "done",
+		"listing_id":      listingIDStr,
+		"stock_available": result.StockAvailable,
+		"unit_price":      result.UnitPrice,
+	})
 }
 
 func (q *Queue) handleUnknown(job Job) {
 	q.publishError(job, fmt.Sprintf("unknown job type: %s", job.Type))
+}
+
+// parseNumeric converts a decimal string to pgtype.Numeric.
+// An empty string returns a zero (null) Numeric.
+func parseNumeric(s string) (pgtype.Numeric, error) {
+	var n pgtype.Numeric
+	if s == "" {
+		return n, nil
+	}
+	err := n.Scan(s)
+	return n, err
 }

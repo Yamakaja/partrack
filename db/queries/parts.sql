@@ -97,3 +97,50 @@ ORDER BY d.name, dl.packaging_type;
 
 -- name: GetListing :one
 SELECT id, part_id, distributor_id, sku FROM distributor_listings WHERE id = $1;
+
+-- name: UpsertListing :one
+-- Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq.
+INSERT INTO distributor_listings (part_id, distributor_id, sku, packaging_type,
+                                  unit_price, stock_available, moq, fixed_order_cost,
+                                  last_refreshed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+ON CONFLICT (distributor_id, sku) DO UPDATE
+SET unit_price        = EXCLUDED.unit_price,
+    stock_available   = EXCLUDED.stock_available,
+    moq               = EXCLUDED.moq,
+    fixed_order_cost  = EXCLUDED.fixed_order_cost,
+    last_refreshed_at = NOW()
+RETURNING id;
+
+-- name: SetPartEnriched :exec
+-- Records which distributor last enriched this part and when.
+UPDATE parts
+SET enrichment_source_id = $2,
+    enriched_at          = NOW()
+WHERE id = $1;
+
+-- name: UpdateListingData :exec
+-- Writes refreshed price/stock data for a single listing.
+UPDATE distributor_listings
+SET unit_price        = $2,
+    stock_available   = $3,
+    last_refreshed_at = NOW()
+WHERE id = $1;
+
+-- name: GetListingForRefresh :one
+-- Fetches the listing plus its distributor's api_type for the worker.
+SELECT dl.id, dl.part_id, dl.distributor_id, dl.sku, d.api_type
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE dl.id = $1;
+
+-- name: DeleteDistributorParameters :exec
+-- Removes all distributor-sourced parameters for a part from one distributor.
+-- Called before re-inserting fresh parameters from enrichment.
+DELETE FROM part_parameters
+WHERE part_id = $1 AND source_type = 'distributor' AND source_distributor_id = $2;
+
+-- name: InsertDistributorParameter :one
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
+VALUES ($1, $2, $3, $4, 'distributor', $5)
+RETURNING id;

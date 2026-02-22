@@ -43,3 +43,17 @@ RETURNING id, team_id, distributor_id, enabled, preferred, cache_duration_second
 -- name: DeleteDistributorConfig :exec
 DELETE FROM distributor_configs
 WHERE team_id = $1 AND distributor_id = $2;
+
+-- name: ListEnabledDistributorConfigsForTeam :many
+-- Returns enabled configs where the distributor has an API integration,
+-- ordered preferred-first so enrichment priority is deterministic.
+SELECT
+    dc.distributor_id,
+    d.name             AS distributor_name,
+    d.api_type,
+    dc.api_credentials,
+    dc.cache_duration_seconds
+FROM distributor_configs dc
+JOIN distributors d ON d.id = dc.distributor_id
+WHERE dc.team_id = $1 AND dc.enabled = TRUE AND d.api_type IS NOT NULL
+ORDER BY dc.preferred DESC, d.name;

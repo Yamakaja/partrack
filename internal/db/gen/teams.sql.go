@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkTeamMembership = `-- name: CheckTeamMembership :one
+SELECT id FROM team_memberships WHERE team_id = $1 AND user_id = $2 LIMIT 1
+`
+
+type CheckTeamMembershipParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+// Returns pgx.ErrNoRows when the user is not a member of the team.
+func (q *Queries) CheckTeamMembership(ctx context.Context, arg CheckTeamMembershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, checkTeamMembership, arg.TeamID, arg.UserID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createTeam = `-- name: CreateTeam :one
 INSERT INTO teams (name, description)
 VALUES ($1, $2)

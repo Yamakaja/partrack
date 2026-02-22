@@ -110,6 +110,55 @@ func (q *Queries) ListDistributors(ctx context.Context) ([]Distributor, error) {
 	return items, nil
 }
 
+const listEnabledDistributorConfigsForTeam = `-- name: ListEnabledDistributorConfigsForTeam :many
+SELECT
+    dc.distributor_id,
+    d.name             AS distributor_name,
+    d.api_type,
+    dc.api_credentials,
+    dc.cache_duration_seconds
+FROM distributor_configs dc
+JOIN distributors d ON d.id = dc.distributor_id
+WHERE dc.team_id = $1 AND dc.enabled = TRUE AND d.api_type IS NOT NULL
+ORDER BY dc.preferred DESC, d.name
+`
+
+type ListEnabledDistributorConfigsForTeamRow struct {
+	DistributorID        pgtype.UUID `json:"distributor_id"`
+	DistributorName      string      `json:"distributor_name"`
+	ApiType              *string     `json:"api_type"`
+	ApiCredentials       []byte      `json:"api_credentials"`
+	CacheDurationSeconds int32       `json:"cache_duration_seconds"`
+}
+
+// Returns enabled configs where the distributor has an API integration,
+// ordered preferred-first so enrichment priority is deterministic.
+func (q *Queries) ListEnabledDistributorConfigsForTeam(ctx context.Context, teamID pgtype.UUID) ([]ListEnabledDistributorConfigsForTeamRow, error) {
+	rows, err := q.db.Query(ctx, listEnabledDistributorConfigsForTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnabledDistributorConfigsForTeamRow
+	for rows.Next() {
+		var i ListEnabledDistributorConfigsForTeamRow
+		if err := rows.Scan(
+			&i.DistributorID,
+			&i.DistributorName,
+			&i.ApiType,
+			&i.ApiCredentials,
+			&i.CacheDurationSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertDistributorConfig = `-- name: UpsertDistributorConfig :one
 INSERT INTO distributor_configs (team_id, distributor_id, enabled, preferred, cache_duration_seconds, api_credentials)
 VALUES ($1, $2, $3, $4, $5, $6)

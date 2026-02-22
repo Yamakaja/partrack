@@ -9,6 +9,7 @@ import (
 
 	"github.com/Yamakaja/partrack/internal/config"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,16 +20,18 @@ type Handler struct {
 	Queries     *dbgen.Queries
 	Config      *config.Config
 	Worker      *worker.Queue
+	Cache       *middleware.AuthCache
 	oidcEntries map[string]*oidcEntry // populated by initOIDC() in auth.go
 }
 
 // New creates a Handler and initialises OIDC providers.
-func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue) *Handler {
+func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middleware.AuthCache) *Handler {
 	h := &Handler{
 		DB:      db,
 		Queries: dbgen.New(db),
 		Config:  cfg,
 		Worker:  q,
+		Cache:   cache,
 	}
 	h.initOIDC()
 	return h
