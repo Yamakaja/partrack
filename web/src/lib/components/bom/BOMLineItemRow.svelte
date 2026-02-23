@@ -6,6 +6,17 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { TableRow, TableCell } from '$lib/components/ui/table/index.js';
 
+  const COLUMN_WIDTH: number = 80
+
+  function truncateRow(s: string|undefined): string {
+    if (!s)
+      return "";
+    if (s.length <= COLUMN_WIDTH)
+      return s;
+
+    return s.substring(0, COLUMN_WIDTH) + "..."
+  }
+
   let {
     item,
     teamId,
@@ -64,13 +75,28 @@
 </script>
 
 <TableRow>
+  <TableCell>
+    {item.part_name || ''}
+  </TableCell>
+  <TableCell>
+    {item.manufacturer || ''}
+  </TableCell>
+  <TableCell>
+    {item.mpn || ''}
+  </TableCell>
+  <TableCell class="max-w-xs truncate text-muted-foreground">
+    {item.raw_description ?? ''}
+  </TableCell>
   <TableCell class="font-mono text-xs text-muted-foreground">
-    {item.reference_designators || '—'}
+    {truncateRow(item.reference_designators) || '—'}
+  </TableCell>
+  <TableCell>
+    {item.distributor_name || ''}
+  </TableCell>
+  <TableCell>
+    {item.sku || ''}
   </TableCell>
   <TableCell class="text-center tabular-nums">{item.quantity}</TableCell>
-  <TableCell class="max-w-xs truncate text-muted-foreground">
-    {item.raw_description ?? '—'}
-  </TableCell>
   <TableCell>
     {#if item.resolved_part_id}
       <Badge variant="success">Resolved</Badge>

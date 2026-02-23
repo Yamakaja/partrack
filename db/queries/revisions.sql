@@ -37,14 +37,17 @@ WHERE id = sqlc.arg('id') AND project_id = sqlc.arg('project_id')
 RETURNING id, label, imported_at, notes, imported_by;
 
 -- name: CreateBOMLineItem :one
-INSERT INTO bom_line_items (bom_revision_id, reference_designators, quantity, raw_description)
-VALUES ($1, $2, $3, $4)
-RETURNING id, bom_revision_id, reference_designators, quantity, raw_description, resolved_part_id;
+INSERT INTO bom_line_items (
+    bom_revision_id, reference_designators, quantity, raw_description,
+    manufacturer, mpn, part_name, sku, distributor_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id;
 
 -- name: ListBOMLineItems :many
 SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
+    bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id

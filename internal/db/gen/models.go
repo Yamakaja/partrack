@@ -376,6 +376,11 @@ type BomLineItem struct {
 	Quantity             int32       `json:"quantity"`
 	RawDescription       *string     `json:"raw_description"`
 	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Mpn                  *string     `json:"mpn"`
+	PartName             *string     `json:"part_name"`
+	Sku                  *string     `json:"sku"`
+	DistributorName      *string     `json:"distributor_name"`
 }
 
 type BomLineItemSubstitute struct {

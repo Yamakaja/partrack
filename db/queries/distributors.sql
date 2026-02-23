@@ -57,3 +57,11 @@ FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1 AND dc.enabled = TRUE AND d.api_type IS NOT NULL
 ORDER BY dc.preferred DESC, d.name;
+
+-- name: GetListingBySKUAndDistributorName :one
+SELECT dl.id, dl.part_id
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE dl.sku = $1
+  AND d.name ILIKE $2
+LIMIT 1;

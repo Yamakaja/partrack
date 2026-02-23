@@ -7,7 +7,8 @@
   import { importRevision } from '$lib/api/revisions.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
 
-  type ColumnRole = 'ignore' | 'designators' | 'quantity' | 'mpn' | 'description';
+  type ColumnRole = 'ignore' | 'designators' | 'quantity' | 'mpn' | 'description'
+               | 'manufacturer' | 'name' | 'sku' | 'distributor';
 
   let {
     teamId,
@@ -40,6 +41,21 @@
     description: 'description',
     desc: 'description',
     value: 'description',
+    manufacturer: 'manufacturer',
+    'manufacturer 1': 'manufacturer',
+    mfr: 'manufacturer',
+    mfg: 'manufacturer',
+    'manufacturer name': 'manufacturer',
+    name: 'name',
+    sku: 'sku',
+    'distributor sku': 'sku',
+    'supplier sku': 'sku',
+    distributor: 'distributor',
+    'distributor name': 'distributor',
+    vendor: 'distributor',
+    supplier: 'distributor',
+    'supplier 1': 'distributor',
+    'supplier part number 1': 'sku'
   };
 
   const ROLE_LABELS: Record<ColumnRole, string> = {
@@ -48,6 +64,10 @@
     quantity: 'Quantity *',
     mpn: 'MPN',
     description: 'Description',
+    manufacturer: 'Manufacturer',
+    name: 'Name',
+    sku: 'SKU',
+    distributor: 'Distributor',
   };
 
   const COLUMN_WIDTH: number = 80
@@ -162,16 +182,23 @@
     try {
       const desigIdx = columnRoles.indexOf('designators');
       const qtyIdx   = columnRoles.indexOf('quantity');
-      const mpnIdx   = columnRoles.indexOf('mpn');
       const descIdx  = columnRoles.indexOf('description');
+      const mfrIdx   = columnRoles.indexOf('manufacturer');
+      const mpnIdx   = columnRoles.indexOf('mpn');
+      const nameIdx  = columnRoles.indexOf('name');
+      const skuIdx   = columnRoles.indexOf('sku');
+      const distIdx  = columnRoles.indexOf('distributor');
 
       const items = dataRows
         .map(row => ({
           reference_designators: row[desigIdx]?.trim() ?? '',
           quantity: parseInt(row[qtyIdx] ?? '0', 10),
-          raw_description:
-            (mpnIdx >= 0 && row[mpnIdx]?.trim() ? row[mpnIdx].trim() : undefined) ??
-            (descIdx >= 0 && row[descIdx]?.trim() ? row[descIdx].trim() : undefined),
+          raw_description:  descIdx >= 0 && row[descIdx]?.trim() ? row[descIdx].trim() : undefined,
+          mpn:              mpnIdx >= 0  && row[mpnIdx]?.trim()  ? row[mpnIdx].trim()  : undefined,
+          manufacturer:     mfrIdx  >= 0 && row[mfrIdx]?.trim()  ? row[mfrIdx].trim()  : undefined,
+          name:             nameIdx >= 0 && row[nameIdx]?.trim() ? row[nameIdx].trim() : undefined,
+          sku:              skuIdx  >= 0 && row[skuIdx]?.trim()  ? row[skuIdx].trim()  : undefined,
+          distributor_name: distIdx >= 0 && row[distIdx]?.trim() ? row[distIdx].trim() : undefined,
         }))
         .filter(it => it.reference_designators && it.quantity > 0);
 
@@ -185,10 +212,14 @@
           hasHeader: String(hasHeader),
           comments,
           skipFirstLines: String(skipFirstLines),
-          ref_col:         desigIdx >= 0 ? (headerRow[desigIdx] ?? '') : '',
-          qty_col:         qtyIdx   >= 0 ? (headerRow[qtyIdx]   ?? '') : '',
-          mpn_col:         mpnIdx   >= 0 ? (headerRow[mpnIdx]   ?? '') : '',
-          description_col: descIdx  >= 0 ? (headerRow[descIdx]  ?? '') : '',
+          ref_col:          desigIdx >= 0 ? (headerRow[desigIdx] ?? '') : '',
+          qty_col:          qtyIdx   >= 0 ? (headerRow[qtyIdx]   ?? '') : '',
+          mpn_col:          mpnIdx   >= 0 ? (headerRow[mpnIdx]   ?? '') : '',
+          description_col:  descIdx  >= 0 ? (headerRow[descIdx]  ?? '') : '',
+          manufacturer_col: mfrIdx   >= 0 ? (headerRow[mfrIdx]   ?? '') : '',
+          name_col:         nameIdx  >= 0 ? (headerRow[nameIdx]  ?? '') : '',
+          sku_col:          skuIdx   >= 0 ? (headerRow[skuIdx]   ?? '') : '',
+          distributor_col:  distIdx  >= 0 ? (headerRow[distIdx]  ?? '') : '',
         },
         items,
       });

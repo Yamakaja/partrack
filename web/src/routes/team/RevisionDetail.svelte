@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { getProject } from '$lib/api/projects.js';
+  import type { BOMLineItem } from '$lib/types/projects.js';
   import { getRevision, updateBOMLineItem, listAllSubstitutes, type SubstituteItem } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
@@ -79,6 +80,11 @@
 
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');
+
+  function sortBomItems(items: BOMLineItem[]): BOMLineItem[] {
+    items.sort((a,b) => b.quantity - a.quantity);
+    return items;
+  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -130,7 +136,7 @@
     {:else if revisionQuery.isError}
       <div class="text-sm text-destructive">Error: {revisionQuery.error.message}</div>
     {:else if revisionQuery.data}
-      {@const items = revisionQuery.data.items}
+      {@const items = sortBomItems(revisionQuery.data.items)}
       {#if items.length === 0}
         <EmptyState
           title="No line items"
@@ -140,9 +146,14 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Ref Des</TableHead>
-              <TableHead class="text-center">Qty</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Manufacturer</TableHead>
+              <TableHead>MPN</TableHead>
               <TableHead>Description</TableHead>
+              <TableHead>Reference Designators</TableHead>
+              <TableHead>Distributor Name</TableHead>
+              <TableHead>SKU</TableHead>
+              <TableHead class="text-center">Qty</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Resolve Part</TableHead>
               <TableHead>Substitutes</TableHead>

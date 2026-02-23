@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Yamakaja/partrack/internal/distributor"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -215,23 +215,36 @@ func (q *Queue) handleBOMImport(job Job) {
 		if item.ResolvedPartID.Valid {
 			continue // already resolved
 		}
-		if item.RawDescription == nil || *item.RawDescription == "" {
-			continue // nothing to match against
+
+		var resolvedPartID pgtype.UUID
+
+		// 1. SKU-based resolution: if both sku and distributor_name are present,
+		//    look up the distributor listing to find the part.
+		if item.Sku != nil && *item.Sku != "" && item.DistributorName != nil && *item.DistributorName != "" {
+			if listing, err := queries.GetListingBySKUAndDistributorName(ctx, dbgen.GetListingBySKUAndDistributorNameParams{
+				Sku:  *item.Sku,
+				Name: *item.DistributorName,
+			}); err == nil {
+				resolvedPartID = listing.PartID
+			}
 		}
 
-		part, err := queries.GetPartByMPN(ctx, dbgen.GetPartByMPNParams{
-			Mpn:    item.RawDescription,
-			TeamID: teamID,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue // not in catalog; not an error
+		// 2. MPN-based resolution: fall back to raw_description lookup.
+		if !resolvedPartID.Valid && item.RawDescription != nil && *item.RawDescription != "" {
+			if part, err := queries.GetPartByMPN(ctx, dbgen.GetPartByMPNParams{
+				Mpn:    item.RawDescription,
+				TeamID: teamID,
+			}); err == nil {
+				resolvedPartID = part.ID
 			}
-			continue // other DB error; skip item, non-fatal
+		}
+
+		if !resolvedPartID.Valid {
+			continue // no match found; not an error
 		}
 
 		if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
-			ResolvedPartID: part.ID,
+			ResolvedPartID: resolvedPartID,
 			ID:             item.ID,
 			BomRevisionID:  revID,
 		}); err != nil {
@@ -241,12 +254,12 @@ func (q *Queue) handleBOMImport(job Job) {
 		// Ensure team has an inventory entry for this part.
 		_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
 			TeamID: teamID,
-			PartID: part.ID,
+			PartID: resolvedPartID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			_, _ = queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
 				TeamID: teamID,
-				PartID: part.ID,
+				PartID: resolvedPartID,
 			})
 		}
 

@@ -44,7 +44,12 @@ export interface BOMLineItem {
   id: string;
   reference_designators: string;
   quantity: number;
+  part_name: string | null;
   raw_description: string | null;
+  manufacturer: string | null;
+  mpn: string | null;
+  sku: string | null;
+  distributor_name: string | null;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
   substitutes: BOMSubstitute[];

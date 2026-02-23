@@ -115,6 +115,11 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		ReferenceDesignators string  `json:"reference_designators"`
 		Quantity             int32   `json:"quantity"`
 		RawDescription       *string `json:"raw_description"`
+		Manufacturer         *string `json:"manufacturer"`
+		MPN                  *string `json:"mpn"`
+		Name                 *string `json:"name"`
+		SKU                  *string `json:"sku"`
+		DistributorName      *string `json:"distributor_name"`
 	}
 	var items []itemInput
 	if v, ok := rawBody["items"]; ok {
@@ -156,6 +161,11 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			ReferenceDesignators: item.ReferenceDesignators,
 			Quantity:             item.Quantity,
 			RawDescription:       item.RawDescription,
+			Manufacturer:         item.Manufacturer,
+			Mpn:                  item.MPN,
+			PartName:             item.Name,
+			Sku:                  item.SKU,
+			DistributorName:      item.DistributorName,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -255,7 +265,12 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		ID                   string     `json:"id"`
 		ReferenceDesignators string     `json:"reference_designators"`
 		Quantity             int32      `json:"quantity"`
+		PartName             *string    `json:"part_name"`
 		RawDescription       *string    `json:"raw_description"`
+		Manufacturer         *string    `json:"manufacturer"`
+		MPN                  *string    `json:"mpn"`
+		SKU                  *string    `json:"sku"`
+		DistributorName      *string    `json:"distributor_name"`
 		ResolvedPartID       *string    `json:"resolved_part_id"`
 		ResolvedPartMpn      *string    `json:"resolved_part_mpn"`
 		Substitutes          []subEntry `json:"substitutes"`
@@ -268,7 +283,12 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			ID:                   id,
 			ReferenceDesignators: li.ReferenceDesignators,
 			Quantity:             li.Quantity,
+			PartName:             li.PartName,
 			RawDescription:       li.RawDescription,
+			Manufacturer:         li.Manufacturer,
+			MPN:                  li.Mpn,
+			SKU:                  li.Sku,
+			DistributorName:      li.DistributorName,
 			ResolvedPartID:       uuidPtrString(li.ResolvedPartID),
 			ResolvedPartMpn:      li.ResolvedPartMpn,
 			Substitutes:          subsByItem[id],

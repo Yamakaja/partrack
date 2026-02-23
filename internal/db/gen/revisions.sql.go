@@ -27,9 +27,11 @@ func (q *Queries) AddBOMSubstitute(ctx context.Context, arg AddBOMSubstitutePara
 }
 
 const createBOMLineItem = `-- name: CreateBOMLineItem :one
-INSERT INTO bom_line_items (bom_revision_id, reference_designators, quantity, raw_description)
-VALUES ($1, $2, $3, $4)
-RETURNING id, bom_revision_id, reference_designators, quantity, raw_description, resolved_part_id
+INSERT INTO bom_line_items (
+    bom_revision_id, reference_designators, quantity, raw_description,
+    manufacturer, mpn, part_name, sku, distributor_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id
 `
 
 type CreateBOMLineItemParams struct {
@@ -37,25 +39,28 @@ type CreateBOMLineItemParams struct {
 	ReferenceDesignators string      `json:"reference_designators"`
 	Quantity             int32       `json:"quantity"`
 	RawDescription       *string     `json:"raw_description"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Mpn                  *string     `json:"mpn"`
+	PartName             *string     `json:"part_name"`
+	Sku                  *string     `json:"sku"`
+	DistributorName      *string     `json:"distributor_name"`
 }
 
-func (q *Queries) CreateBOMLineItem(ctx context.Context, arg CreateBOMLineItemParams) (BomLineItem, error) {
+func (q *Queries) CreateBOMLineItem(ctx context.Context, arg CreateBOMLineItemParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, createBOMLineItem,
 		arg.BomRevisionID,
 		arg.ReferenceDesignators,
 		arg.Quantity,
 		arg.RawDescription,
+		arg.Manufacturer,
+		arg.Mpn,
+		arg.PartName,
+		arg.Sku,
+		arg.DistributorName,
 	)
-	var i BomLineItem
-	err := row.Scan(
-		&i.ID,
-		&i.BomRevisionID,
-		&i.ReferenceDesignators,
-		&i.Quantity,
-		&i.RawDescription,
-		&i.ResolvedPartID,
-	)
-	return i, err
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const createRevision = `-- name: CreateRevision :one
@@ -101,9 +106,18 @@ type GetBOMLineItemParams struct {
 	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
 }
 
-func (q *Queries) GetBOMLineItem(ctx context.Context, arg GetBOMLineItemParams) (BomLineItem, error) {
+type GetBOMLineItemRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	BomRevisionID        pgtype.UUID `json:"bom_revision_id"`
+	ReferenceDesignators string      `json:"reference_designators"`
+	Quantity             int32       `json:"quantity"`
+	RawDescription       *string     `json:"raw_description"`
+	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
+}
+
+func (q *Queries) GetBOMLineItem(ctx context.Context, arg GetBOMLineItemParams) (GetBOMLineItemRow, error) {
 	row := q.db.QueryRow(ctx, getBOMLineItem, arg.ID, arg.BomRevisionID)
-	var i BomLineItem
+	var i GetBOMLineItemRow
 	err := row.Scan(
 		&i.ID,
 		&i.BomRevisionID,
@@ -239,6 +253,7 @@ const listBOMLineItems = `-- name: ListBOMLineItems :many
 SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
+    bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
@@ -252,6 +267,11 @@ type ListBOMLineItemsRow struct {
 	Quantity             int32       `json:"quantity"`
 	RawDescription       *string     `json:"raw_description"`
 	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
+	PartName             *string     `json:"part_name"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Mpn                  *string     `json:"mpn"`
+	Sku                  *string     `json:"sku"`
+	DistributorName      *string     `json:"distributor_name"`
 	ResolvedPartMpn      *string     `json:"resolved_part_mpn"`
 }
 
@@ -270,6 +290,11 @@ func (q *Queries) ListBOMLineItems(ctx context.Context, bomRevisionID pgtype.UUI
 			&i.Quantity,
 			&i.RawDescription,
 			&i.ResolvedPartID,
+			&i.PartName,
+			&i.Manufacturer,
+			&i.Mpn,
+			&i.Sku,
+			&i.DistributorName,
 			&i.ResolvedPartMpn,
 		); err != nil {
 			return nil, err
