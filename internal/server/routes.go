@@ -51,9 +51,12 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Get("/preferences", h.GetPreferences)
 			r.Put("/preferences", h.PutPreferences)
 
-			// 5. Teams (listing and creation are user-scoped)
+			// 5. Teams (listing is user-scoped; creation is admin-only)
 			r.Get("/teams", h.ListTeams)
-			r.Post("/teams", h.CreateTeam)
+			r.Group(func(r chi.Router) {
+				r.Use(mw.RequireAdmin)
+				r.Post("/teams", h.CreateTeam)
+			})
 
 			// 6. Distributors (global read)
 			r.Get("/distributors", h.ListDistributors)

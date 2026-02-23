@@ -132,6 +132,38 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 	return i, err
 }
 
+const listAllTeams = `-- name: ListAllTeams :many
+
+SELECT id, name, description, created_at FROM teams ORDER BY name
+`
+
+// Teams and membership queries.
+// All teams; used by site admins who have implicit access to every team.
+func (q *Queries) ListAllTeams(ctx context.Context) ([]Team, error) {
+	rows, err := q.db.Query(ctx, listAllTeams)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Team
+	for rows.Next() {
+		var i Team
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeamMembers = `-- name: ListTeamMembers :many
 SELECT
     tm.id,
@@ -183,7 +215,6 @@ func (q *Queries) ListTeamMembers(ctx context.Context, teamID pgtype.UUID) ([]Li
 }
 
 const listUserTeams = `-- name: ListUserTeams :many
-
 SELECT
     t.id,
     t.name,
@@ -204,7 +235,6 @@ type ListUserTeamsRow struct {
 	Role        TeamRole           `json:"role"`
 }
 
-// Teams and membership queries.
 // Teams the user is a member of, with their role in each.
 func (q *Queries) ListUserTeams(ctx context.Context, userID pgtype.UUID) ([]ListUserTeamsRow, error) {
 	rows, err := q.db.Query(ctx, listUserTeams, userID)

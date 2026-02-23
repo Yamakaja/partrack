@@ -44,12 +44,6 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teams, err := h.Queries.ListUserTeams(r.Context(), userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
 	type teamItem struct {
 		ID          string  `json:"id"`
 		Name        string  `json:"name"`
@@ -57,14 +51,39 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 		CreatedAt   string  `json:"created_at"`
 		Role        string  `json:"role"`
 	}
-	items := make([]teamItem, len(teams))
-	for i, t := range teams {
-		items[i] = teamItem{
-			ID:          t.ID.String(),
-			Name:        t.Name,
-			Description: t.Description,
-			CreatedAt:   t.CreatedAt.Time.UTC().Format(time.RFC3339),
-			Role:        string(t.Role),
+
+	var items []teamItem
+	if user.IsAdmin {
+		teams, err := h.Queries.ListAllTeams(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		items = make([]teamItem, len(teams))
+		for i, t := range teams {
+			items[i] = teamItem{
+				ID:          t.ID.String(),
+				Name:        t.Name,
+				Description: t.Description,
+				CreatedAt:   t.CreatedAt.Time.UTC().Format(time.RFC3339),
+				Role:        "admin",
+			}
+		}
+	} else {
+		teams, err := h.Queries.ListUserTeams(r.Context(), userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		items = make([]teamItem, len(teams))
+		for i, t := range teams {
+			items[i] = teamItem{
+				ID:          t.ID.String(),
+				Name:        t.Name,
+				Description: t.Description,
+				CreatedAt:   t.CreatedAt.Time.UTC().Format(time.RFC3339),
+				Role:        string(t.Role),
+			}
 		}
 	}
 

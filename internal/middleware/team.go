@@ -54,6 +54,17 @@ func (m *Middleware) RequireTeamRole(minRole string) func(http.Handler) http.Han
 				return
 			}
 
+			// Site admins have implicit admin-level access to every team.
+			if user.IsAdmin {
+				ctx := context.WithValue(r.Context(), contextKeyTeamMembership, &TeamMembership{
+					TeamID: teamIDStr,
+					UserID: user.ID,
+					Role:   "admin",
+				})
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			membership, err := m.lookupMembership(r.Context(), teamID, userID)
 			if err != nil || membership == nil {
 				writeForbidden(w, "not a member of this team")

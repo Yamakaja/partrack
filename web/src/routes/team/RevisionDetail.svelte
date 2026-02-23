@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { getProject } from '$lib/api/projects.js';
-  import { getRevision, updateBOMLineItem, listAllSubstitutes } from '$lib/api/revisions.js';
+  import { getRevision, updateBOMLineItem, listAllSubstitutes, type SubstituteItem } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
@@ -48,10 +48,10 @@
 
   // Map from bom_line_item_id → substitute list for O(1) lookup per row.
   let substituteMap = $derived(() => {
-    const map = new Map<string, { part_id: string; part_mpn: string }[]>();
+    const map = new Map<string, SubstituteItem[]>();
     for (const sub of substitutesQuery.data?.items ?? []) {
       const existing = map.get(sub.bom_line_item_id) ?? [];
-      existing.push({ part_id: sub.part_id, part_mpn: sub.part_mpn });
+      existing.push(sub);
       map.set(sub.bom_line_item_id, existing);
     }
     return map;

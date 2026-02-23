@@ -1,5 +1,11 @@
 -- Drop in reverse dependency order
 
+DELETE FROM distributors WHERE api_type IN ('digikey', 'test');
+
+DROP TABLE IF EXISTS password_reset_tokens;
+
+ALTER TABLE users DROP COLUMN IF EXISTS is_admin;
+
 ALTER TABLE stock_adjustments
     DROP CONSTRAINT IF EXISTS sa_order_line_item_fk,
     DROP CONSTRAINT IF EXISTS sa_build_fk,

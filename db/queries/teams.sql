@@ -1,5 +1,9 @@
 -- Teams and membership queries.
 
+-- name: ListAllTeams :many
+-- All teams; used by site admins who have implicit access to every team.
+SELECT id, name, description, created_at FROM teams ORDER BY name;
+
 -- name: ListUserTeams :many
 -- Teams the user is a member of, with their role in each.
 SELECT

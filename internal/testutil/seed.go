@@ -123,14 +123,14 @@ func CreatePart(t *testing.T, pool *pgxpool.Pool, scope, mpn string, teamID *str
 }
 
 // GetTestDistributorID returns the UUID of the distributor with api_type='test'
-// (inserted by migration 000002). Fatal if not found.
+// (seeded by migration 000001). Fatal if not found.
 func GetTestDistributorID(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var id string
 	if err := pool.QueryRow(context.Background(),
 		`SELECT id FROM distributors WHERE api_type = 'test' LIMIT 1`,
 	).Scan(&id); err != nil {
-		t.Fatalf("testutil: GetTestDistributorID: migration 000002 may not have run: %v", err)
+		t.Fatalf("testutil: GetTestDistributorID: migration 000001 may not have run: %v", err)
 	}
 	return id
 }

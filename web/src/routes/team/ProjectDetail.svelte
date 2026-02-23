@@ -1,17 +1,14 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { getProject, setActiveBOM } from '$lib/api/projects.js';
-  import { listRevisions, importRevision } from '$lib/api/revisions.js';
-  import type { ImportRevisionBody } from '$lib/api/revisions.js';
+  import { listRevisions } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
+  import BOMImportDialog from '$lib/components/bom/BOMImportDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
-  import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Upload } from 'lucide-svelte';
@@ -19,15 +16,6 @@
   let { teamId, projectId }: { teamId: string; projectId: string } = $props();
 
   const qc = useQueryClient();
-
-  // Import dialog state
-  let importOpen = $state(false);
-  let importLabel = $state('');
-  let importRefCol = $state('Reference');
-  let importMpnCol = $state('MPN');
-  let importQtyCol = $state('Quantity');
-  let importDescCol = $state('Description');
-  let importing = $state(false);
 
   // Running job state
   let activeJobId = $state<string | null>(null);
@@ -43,40 +31,10 @@
     queryFn: () => listRevisions(teamId, projectId),
   }));
 
-  function openImport() {
-    importLabel = '';
-    importRefCol = 'Reference';
-    importMpnCol = 'MPN';
-    importQtyCol = 'Quantity';
-    importDescCol = 'Description';
-    importOpen = true;
-  }
-
-  async function handleImport(e: Event) {
-    e.preventDefault();
-    if (!importLabel.trim()) return;
-    importing = true;
-    try {
-      const body: ImportRevisionBody = {
-        label: importLabel.trim(),
-        bom_import_config: {
-          ref_col: importRefCol.trim(),
-          mpn_col: importMpnCol.trim(),
-          qty_col: importQtyCol.trim(),
-          description_col: importDescCol.trim(),
-        },
-      };
-      const result = await importRevision(teamId, projectId, body);
-      importOpen = false;
-      activeJobId = result.job_id;
-      activeRevId = result.bom_revision_id;
-      qc.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
-      pushToast('info', 'BOM import started');
-    } catch (err: any) {
-      pushToast('error', 'Import failed', err.message);
-    } finally {
-      importing = false;
-    }
+  function handleImportStarted(jobId: string, revisionId: string) {
+    activeJobId = jobId;
+    activeRevId = revisionId;
+    qc.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
   }
 
   function handleImportComplete() {
@@ -122,9 +80,13 @@
     ]}
   >
     {#snippet actions()}
-      <Button size="sm" onclick={openImport}>
-        <Upload class="h-4 w-4 mr-1" /> Import BOM
-      </Button>
+      <BOMImportDialog {teamId} {projectId} oncomplete={handleImportStarted}>
+        {#snippet trigger(open)}
+          <Button size="sm" onclick={open}>
+            <Upload class="h-4 w-4 mr-1" /> Import BOM
+          </Button>
+        {/snippet}
+      </BOMImportDialog>
     {/snippet}
   </Topbar>
 
@@ -161,9 +123,13 @@
             description="Import a BOM file to create the first revision."
           >
             {#snippet action()}
-              <Button size="sm" onclick={openImport}>
-                <Upload class="h-4 w-4 mr-1" /> Import BOM
-              </Button>
+              <BOMImportDialog {teamId} {projectId} oncomplete={handleImportStarted}>
+                {#snippet trigger(open)}
+                  <Button size="sm" onclick={open}>
+                    <Upload class="h-4 w-4 mr-1" /> Import BOM
+                  </Button>
+                {/snippet}
+              </BOMImportDialog>
             {/snippet}
           </EmptyState>
         {:else}
@@ -233,56 +199,3 @@
   </div>
 </div>
 
-<!-- Import BOM Dialog -->
-<Dialog.Root bind:open={importOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
-      <Dialog.Title class="text-lg font-semibold mb-1">Import BOM</Dialog.Title>
-      <Dialog.Description class="text-sm text-muted-foreground mb-4">
-        Specify the revision label and column names from your CSV file.
-      </Dialog.Description>
-      <form onsubmit={handleImport} class="space-y-4">
-        <div class="space-y-1">
-          <Label for="rev-label">Revision Name <span class="text-destructive">*</span></Label>
-          <Input
-            id="rev-label"
-            bind:value={importLabel}
-            placeholder="e.g. v1.0, Rev A"
-            required
-          />
-        </div>
-        <fieldset class="space-y-3">
-          <legend class="text-sm font-medium">Column Mapping</legend>
-          <p class="text-xs text-muted-foreground">
-            Enter the exact column header names from your CSV file.
-          </p>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <Label for="ref-col">Reference Designators</Label>
-              <Input id="ref-col" bind:value={importRefCol} placeholder="Reference" />
-            </div>
-            <div class="space-y-1">
-              <Label for="mpn-col">MPN</Label>
-              <Input id="mpn-col" bind:value={importMpnCol} placeholder="MPN" />
-            </div>
-            <div class="space-y-1">
-              <Label for="qty-col">Quantity</Label>
-              <Input id="qty-col" bind:value={importQtyCol} placeholder="Quantity" />
-            </div>
-            <div class="space-y-1">
-              <Label for="desc-col">Description</Label>
-              <Input id="desc-col" bind:value={importDescCol} placeholder="Description" />
-            </div>
-          </div>
-        </fieldset>
-        <div class="flex justify-end gap-2 pt-2">
-          <Button variant="outline" type="button" onclick={() => (importOpen = false)}>Cancel</Button>
-          <Button type="submit" disabled={importing || !importLabel.trim()}>
-            {importing ? 'Importing…' : 'Start Import'}
-          </Button>
-        </div>
-      </form>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>

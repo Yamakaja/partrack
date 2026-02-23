@@ -382,23 +382,40 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	memberships, err := h.Queries.ListUserTeamMemberships(r.Context(), userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
 	type membershipItem struct {
 		TeamID   string `json:"team_id"`
 		TeamName string `json:"team_name"`
 		Role     string `json:"role"`
 	}
-	items := make([]membershipItem, len(memberships))
-	for i, m := range memberships {
-		items[i] = membershipItem{
-			TeamID:   m.TeamID.String(),
-			TeamName: m.TeamName,
-			Role:     string(m.Role),
+
+	var items []membershipItem
+	if ctxUser.IsAdmin {
+		teams, err := h.Queries.ListAllTeams(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		items = make([]membershipItem, len(teams))
+		for i, t := range teams {
+			items[i] = membershipItem{
+				TeamID:   t.ID.String(),
+				TeamName: t.Name,
+				Role:     "admin",
+			}
+		}
+	} else {
+		memberships, err := h.Queries.ListUserTeamMemberships(r.Context(), userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		items = make([]membershipItem, len(memberships))
+		for i, m := range memberships {
+			items[i] = membershipItem{
+				TeamID:   m.TeamID.String(),
+				TeamName: m.TeamName,
+				Role:     string(m.Role),
+			}
 		}
 	}
 

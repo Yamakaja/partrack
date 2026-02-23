@@ -42,14 +42,6 @@
           {m.team_name}
         </button>
       {/each}
-      <div class="border-t border-border mt-1 pt-1">
-        <button
-          class="w-full px-3 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-          onclick={() => { open = false; navigate('/'); }}
-        >
-          + New team
-        </button>
-      </div>
     </div>
 
     <!-- Backdrop to close dropdown -->
