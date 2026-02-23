@@ -12,7 +12,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Dialog } from 'bits-ui';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Upload } from 'lucide-svelte';
 
@@ -33,12 +33,12 @@
   let activeJobId = $state<string | null>(null);
   let activeRevId = $state<string | null>(null);
 
-  let projectQuery = $derived(createQuery({
+  let projectQuery = createQuery(() => ({
     queryKey: ['project', teamId, projectId],
     queryFn: () => getProject(teamId, projectId),
   }));
 
-  let revisionsQuery = $derived(createQuery({
+  let revisionsQuery = createQuery(() => ({
     queryKey: ['revisions', teamId, projectId],
     queryFn: () => listRevisions(teamId, projectId),
   }));
@@ -110,7 +110,7 @@
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
-  let projectName = $derived($projectQuery.data?.name ?? 'Project');
+  let projectName = $derived(projectQuery.data?.name ?? 'Project');
 </script>
 
 <div class="flex flex-col h-full">
@@ -130,8 +130,8 @@
 
   <div class="flex-1 overflow-auto p-6 space-y-6">
     <!-- Project info -->
-    {#if $projectQuery.data}
-      {@const proj = $projectQuery.data}
+    {#if projectQuery.data}
+      {@const proj = projectQuery.data}
       {#if proj.description}
         <p class="text-sm text-muted-foreground">{proj.description}</p>
       {/if}
@@ -149,12 +149,12 @@
     <!-- Revisions table -->
     <div>
       <h2 class="text-sm font-semibold mb-3">BOM Revisions</h2>
-      {#if $revisionsQuery.isPending}
+      {#if revisionsQuery.isPending}
         <div class="text-sm text-muted-foreground">Loading…</div>
-      {:else if $revisionsQuery.isError}
-        <div class="text-sm text-destructive">Error: {$revisionsQuery.error.message}</div>
-      {:else if $revisionsQuery.data}
-        {@const revisions = $revisionsQuery.data.items}
+      {:else if revisionsQuery.isError}
+        <div class="text-sm text-destructive">Error: {revisionsQuery.error.message}</div>
+      {:else if revisionsQuery.data}
+        {@const revisions = revisionsQuery.data.items}
         {#if revisions.length === 0}
           <EmptyState
             title="No BOM revisions"

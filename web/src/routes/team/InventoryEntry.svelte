@@ -29,12 +29,12 @@
   let editReorderQty = $state('');
   let editSaving = $state(false);
 
-  let entryQuery = $derived(createQuery({
+  let entryQuery = createQuery(() => ({
     queryKey: ['inventory-entry', teamId, entryId],
     queryFn: () => getInventoryEntry(teamId, entryId),
   }));
 
-  let storageQuery = $derived(createQuery({
+  let storageQuery = createQuery(() => ({
     queryKey: ['storage', teamId],
     queryFn: () => listStorageLocations(teamId),
   }));
@@ -46,7 +46,7 @@
   }
 
   function openEdit() {
-    const entry = $entryQuery.data;
+    const entry = entryQuery.data;
     if (!entry) return;
     editStorageLocationId = entry.storage_location_id ?? '';
     editMinStock = entry.minimum_stock_quantity != null ? String(entry.minimum_stock_quantity) : '';
@@ -95,10 +95,10 @@
 
 <div class="flex flex-col h-full">
   <Topbar
-    title={$entryQuery.data?.part_mpn ?? 'Inventory Entry'}
+    title={entryQuery.data?.part_mpn ?? 'Inventory Entry'}
     breadcrumbs={[
       { label: 'Inventory', href: `/teams/${teamId}/inventory` },
-      { label: $entryQuery.data?.part_mpn ?? '…' },
+      { label: entryQuery.data?.part_mpn ?? '…' },
     ]}
   >
     {#snippet actions()}
@@ -108,12 +108,12 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6 space-y-6">
-    {#if $entryQuery.isPending}
+    {#if entryQuery.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
-    {:else if $entryQuery.isError}
-      <div class="text-sm text-destructive">Error: {$entryQuery.error.message}</div>
-    {:else if $entryQuery.data}
-      {@const entry = $entryQuery.data}
+    {:else if entryQuery.isError}
+      <div class="text-sm text-destructive">Error: {entryQuery.error.message}</div>
+    {:else if entryQuery.data}
+      {@const entry = entryQuery.data}
 
       <!-- Part info + stock info card -->
       <div class="rounded-lg border border-border bg-card p-5 space-y-4">
@@ -201,7 +201,7 @@
           <Label for="edit-location">Storage Location</Label>
           <Select id="edit-location" bind:value={editStorageLocationId}>
             <option value="">None</option>
-            {#each ($storageQuery.data?.items ?? []) as loc (loc.id)}
+            {#each (storageQuery.data?.items ?? []) as loc (loc.id)}
               <option value={loc.id}>{loc.label}</option>
             {/each}
           </Select>

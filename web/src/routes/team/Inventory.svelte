@@ -15,7 +15,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Select } from '$lib/components/ui/select/index.js';
   import { Dialog } from 'bits-ui';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus } from 'lucide-svelte';
 
@@ -38,7 +38,7 @@
   let newReorderQty = $state('');
   let creating = $state(false);
 
-  let inventoryQuery = $derived(createQuery({
+  let inventoryQuery = createQuery(() => ({
     queryKey: ['inventory', teamId, q, storageLocationId, belowMinStock, limit, offset],
     queryFn: () => listInventory(teamId, {
       q: q || undefined,
@@ -49,7 +49,7 @@
     }),
   }));
 
-  let storageQuery = $derived(createQuery({
+  let storageQuery = createQuery(() => ({
     queryKey: ['storage', teamId],
     queryFn: () => listStorageLocations(teamId),
   }));
@@ -122,7 +122,7 @@
         class="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">All locations</option>
-        {#each ($storageQuery.data?.items ?? []) as loc (loc.id)}
+        {#each (storageQuery.data?.items ?? []) as loc (loc.id)}
           <option value={loc.id}>{loc.label}</option>
         {/each}
       </select>
@@ -137,12 +137,12 @@
       </label>
     </div>
 
-    {#if $inventoryQuery.isPending}
+    {#if inventoryQuery.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
-    {:else if $inventoryQuery.isError}
-      <div class="text-sm text-destructive">Error: {$inventoryQuery.error.message}</div>
-    {:else if $inventoryQuery.data}
-      {@const data = $inventoryQuery.data}
+    {:else if inventoryQuery.isError}
+      <div class="text-sm text-destructive">Error: {inventoryQuery.error.message}</div>
+    {:else if inventoryQuery.data}
+      {@const data = inventoryQuery.data}
       {#if data.items.length === 0}
         <EmptyState
           title="No inventory entries"
@@ -207,7 +207,7 @@
           <Label for="entry-location">Storage Location</Label>
           <Select id="entry-location" bind:value={newStorageLocationId}>
             <option value="">None</option>
-            {#each ($storageQuery.data?.items ?? []) as loc (loc.id)}
+            {#each (storageQuery.data?.items ?? []) as loc (loc.id)}
               <option value={loc.id}>{loc.label}</option>
             {/each}
           </Select>

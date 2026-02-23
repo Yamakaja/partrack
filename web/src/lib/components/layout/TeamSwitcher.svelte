@@ -2,7 +2,7 @@
   import { authStore } from '$lib/stores/auth.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   let activeTeam = $derived(activeTeamStore.current);
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
 
   let open = $state(false);
 

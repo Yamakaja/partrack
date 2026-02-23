@@ -111,9 +111,17 @@ FROM users
 WHERE id = $1
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
+type GetUserByIDRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	DisplayName string             `json:"display_name"`
+	Email       string             `json:"email"`
+	IsActive    bool               `json:"is_active"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
@@ -238,6 +246,44 @@ type RemoveTeamMemberParams struct {
 func (q *Queries) RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) error {
 	_, err := q.db.Exec(ctx, removeTeamMember, arg.TeamID, arg.UserID)
 	return err
+}
+
+const searchUsers = `-- name: SearchUsers :many
+SELECT id, display_name, email
+FROM users
+WHERE is_active = TRUE
+  AND (display_name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+ORDER BY display_name
+LIMIT 10
+`
+
+type SearchUsersRow struct {
+	ID          pgtype.UUID `json:"id"`
+	DisplayName string      `json:"display_name"`
+	Email       string      `json:"email"`
+}
+
+// Case-insensitive substring search on display_name or email.
+// Returns at most 10 active users. Enforces a minimum 2-character query
+// in the handler to prevent full-table scans.
+func (q *Queries) SearchUsers(ctx context.Context, dollar_1 *string) ([]SearchUsersRow, error) {
+	rows, err := q.db.Query(ctx, searchUsers, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchUsersRow
+	for rows.Next() {
+		var i SearchUsersRow
+		if err := rows.Scan(&i.ID, &i.DisplayName, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateTeam = `-- name: UpdateTeam :one

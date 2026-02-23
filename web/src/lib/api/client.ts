@@ -42,7 +42,7 @@ export async function request<T>(
   return data as T;
 }
 
-export function qs(params: Record<string, string | number | boolean | undefined | null>): string {
+export function qs(params: object): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') {

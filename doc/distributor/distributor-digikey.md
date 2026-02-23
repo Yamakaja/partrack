@@ -1,5 +1,7 @@
 # DigiKey API Integration Plan
 
+Reference material at doc/distributor/digikey/*.json. Query with jq if necessary.
+
 ## Available APIs
 
 | Swagger file | API name | Base path | Relevance |

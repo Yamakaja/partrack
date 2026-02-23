@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-  import { currentRoute, matchRoute, navigate } from '$lib/router/index.js';
+  import { currentRoute, matchRoute, navigate } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
   import AppShell from '$lib/components/layout/AppShell.svelte';
@@ -31,6 +31,8 @@
   import Profile from './routes/settings/Profile.svelte';
   import Sessions from './routes/settings/Sessions.svelte';
   import Tokens from './routes/settings/Tokens.svelte';
+  import AdminUsers from './routes/admin/Users.svelte';
+  import ResetPassword from './routes/admin/ResetPassword.svelte';
 
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -41,6 +43,9 @@
   // Route table: ordered most-specific first.
   const ROUTES = [
     { pattern: '/login',                                                                  component: Login },
+    { pattern: '/reset-password',                                                         component: ResetPassword },
+    { pattern: '/admin/users',                                                            component: AdminUsers },
+    { pattern: '/admin',                                                                  component: AdminUsers },
     { pattern: '/settings/profile',                                                       component: Profile },
     { pattern: '/settings/sessions',                                                      component: Sessions },
     { pattern: '/settings/tokens',                                                        component: Tokens },
@@ -81,7 +86,8 @@
     if (teamId) setActiveTeam(teamId);
     else clearActiveTeam();
 
-    if (!authStore.loading && !authStore.user && route.path !== '/login') {
+    const publicPaths = ['/login', '/reset-password'];
+    if (!authStore.loading && !authStore.user && !publicPaths.includes(route.path)) {
       navigate('/login', true);
     }
   });
@@ -94,7 +100,7 @@
   });
 
   let resolved = $derived(resolve(currentRoute().path));
-  let isLoginPage = $derived(currentRoute().path === '/login');
+  let isShellless = $derived(['/login', '/reset-password'].includes(currentRoute().path));
 </script>
 
 <QueryClientProvider client={queryClient}>
@@ -104,7 +110,7 @@
     </div>
   {:else if resolved}
     {@const Cmp = resolved.component}
-    {#if isLoginPage}
+    {#if isShellless}
       <Cmp {...resolved.params} />
     {:else}
       <AppShell>

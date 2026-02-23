@@ -144,3 +144,13 @@ WHERE part_id = $1 AND source_type = 'distributor' AND source_distributor_id = $
 INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
 VALUES ($1, $2, $3, $4, 'distributor', $5)
 RETURNING id;
+
+-- name: GetPartByMPN :one
+-- Returns the best-matching part for an MPN: team-scoped before global.
+-- Used by the BOM import pipeline to resolve raw_description against the catalog.
+SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
+FROM parts
+WHERE mpn = $1
+  AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+ORDER BY scope DESC
+LIMIT 1;

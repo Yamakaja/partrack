@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { currentRoute, linkAction } from '$lib/router/index.js';
+  import { currentRoute, linkAction } from '$lib/router/index.svelte.js';
   import { authStore, clearAuth } from '$lib/stores/auth.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   let activeTeam = $derived(activeTeamStore.current);
   import { logout } from '$lib/api/auth.js';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import TeamSwitcher from './TeamSwitcher.svelte';
 
   async function handleLogout() {
@@ -112,6 +112,18 @@
     </nav>
   {:else}
     <div class="flex-1"></div>
+  {/if}
+
+  <!-- Administration (instance admins only) -->
+  {#if authStore.user?.is_admin}
+    <div class="border-t border-border px-2 py-3 space-y-0.5 text-sm">
+      <div class="pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Administration</div>
+      <a href="/admin/users" use:linkAction
+        class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
+          {isActive('/admin') ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+        Users
+      </a>
+    </div>
   {/if}
 
   <!-- User footer -->

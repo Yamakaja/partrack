@@ -37,12 +37,6 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 	return h
 }
 
-// notImplemented writes a 501 Not Implemented JSON response.
-// Used by stub handlers until they are properly implemented.
-func (h *Handler) notImplemented(w http.ResponseWriter) {
-	writeError(w, http.StatusNotImplemented, "not implemented", "NOT_IMPLEMENTED")
-}
-
 // writeError writes a JSON error response.
 func writeError(w http.ResponseWriter, status int, message, code string) {
 	w.Header().Set("Content-Type", "application/json")

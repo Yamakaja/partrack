@@ -14,6 +14,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Post("/auth/login", h.Login)
 		r.Get("/auth/oidc/{provider}", h.OIDCInitiate)
 		r.Get("/auth/oidc/{provider}/callback", h.OIDCCallback)
+		r.Get("/auth/reset-password", h.GetResetPasswordInfo)
+		r.Post("/auth/reset-password", h.CompletePasswordReset)
 
 		// ── Authenticated-only routes ────────────────────────────────────────
 		r.Group(func(r chi.Router) {
@@ -21,6 +23,20 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 			r.Post("/auth/logout", h.Logout)
 			r.Get("/auth/me", h.Me)
+
+			// Admin (instance-level)
+			r.Group(func(r chi.Router) {
+				r.Use(mw.RequireAdmin)
+				r.Get("/admin/users", h.ListUsers)
+				r.Post("/admin/users", h.CreateUser)
+				r.Get("/admin/users/{userId}", h.GetUser)
+				r.Patch("/admin/users/{userId}", h.UpdateUser)
+				r.Post("/admin/users/{userId}/set-password", h.SetPassword)
+				r.Post("/admin/users/{userId}/password-reset-link", h.GeneratePasswordResetLink)
+			})
+
+			// User search
+			r.Get("/users/search", h.SearchUsers)
 
 			// 2. Session management
 			r.Get("/sessions", h.ListSessions)
@@ -76,6 +92,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/projects/{projectId}", h.GetProject)
 					r.Get("/projects/{projectId}/revisions", h.ListRevisions)
 					r.Get("/projects/{projectId}/revisions/{revId}", h.GetRevision)
+					r.Get("/projects/{projectId}/revisions/{revId}/substitutes", h.ListSubstitutes)
 					r.Get("/projects/{projectId}/stock-check", h.StockCheck)
 
 					// 13. Orders

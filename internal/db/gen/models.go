@@ -529,6 +529,15 @@ type PartParameter struct {
 	SourceDistributorID pgtype.UUID         `json:"source_distributor_id"`
 }
 
+type PasswordResetToken struct {
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	UsedAt    pgtype.Timestamptz `json:"used_at"`
+}
+
 type Project struct {
 	ID                  pgtype.UUID        `json:"id"`
 	TeamID              pgtype.UUID        `json:"team_id"`
@@ -597,6 +606,7 @@ type User struct {
 	Email       string             `json:"email"`
 	IsActive    bool               `json:"is_active"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	IsAdmin     bool               `json:"is_admin"`
 }
 
 type UserCredential struct {

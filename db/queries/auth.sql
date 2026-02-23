@@ -8,6 +8,7 @@ SELECT
     u.display_name,
     u.email,
     u.is_active,
+    u.is_admin,
     u.created_at,
     s.id       AS session_id,
     s.expires_at
@@ -29,6 +30,7 @@ SELECT
     u.display_name,
     u.email,
     u.is_active,
+    u.is_admin,
     u.created_at,
     t.id AS token_id
 FROM api_tokens t
@@ -50,7 +52,7 @@ WHERE team_id = $1
   AND user_id = $2;
 
 -- name: GetUserByEmail :one
-SELECT id, display_name, email, is_active, created_at
+SELECT id, display_name, email, is_active, is_admin, created_at
 FROM users
 WHERE email = $1;
 
@@ -79,7 +81,7 @@ WHERE provider = $1
 -- name: CreateUser :one
 INSERT INTO users (display_name, email)
 VALUES ($1, $2)
-RETURNING id, display_name, email, is_active, created_at;
+RETURNING id, display_name, email, is_active, is_admin, created_at;
 
 -- name: CreateOIDCIdentity :one
 INSERT INTO oidc_identities (user_id, provider, subject, provider_email)
@@ -92,6 +94,7 @@ SELECT
     u.display_name,
     u.email,
     u.is_active,
+    u.is_admin,
     u.created_at
 FROM users u
 WHERE u.id = $1;

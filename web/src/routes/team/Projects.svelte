@@ -8,7 +8,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Dialog } from 'bits-ui';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus } from 'lucide-svelte';
 
@@ -21,7 +21,7 @@
   let newDescription = $state('');
   let creating = $state(false);
 
-  let query = $derived(createQuery({
+  let query = createQuery(() => ({
     queryKey: ['projects', teamId],
     queryFn: () => listProjects(teamId),
   }));
@@ -64,12 +64,12 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6">
-    {#if $query.isPending}
+    {#if query.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
-    {:else if $query.isError}
-      <div class="text-sm text-destructive">Error: {$query.error.message}</div>
-    {:else if $query.data}
-      {@const items = $query.data.items}
+    {:else if query.isError}
+      <div class="text-sm text-destructive">Error: {query.error.message}</div>
+    {:else if query.data}
+      {@const items = query.data.items}
       {#if items.length === 0}
         <EmptyState
           title="No projects yet"

@@ -205,6 +205,31 @@ func (h *Handler) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// SearchUsers handles GET /api/v1/users/search?q=...
+// Requires authentication only; no team role needed.
+// Returns up to 10 active users whose display_name or email matches q (min 2 chars).
+func (h *Handler) SearchUsers(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if len(q) < 2 {
+		writeJSON(w, http.StatusOK, map[string]any{"users": []any{}})
+		return
+	}
+	rows, err := h.Queries.SearchUsers(r.Context(), &q)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	users := make([]map[string]any, len(rows))
+	for i, u := range rows {
+		users[i] = map[string]any{
+			"id":           u.ID.String(),
+			"display_name": u.DisplayName,
+			"email":        u.Email,
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+}
+
 // isUniqueViolation returns true if err is a PostgreSQL unique constraint violation (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
 	if err == nil {

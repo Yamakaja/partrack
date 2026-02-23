@@ -29,6 +29,7 @@ type User struct {
 	DisplayName string
 	Email       string
 	IsActive    bool
+	IsAdmin     bool
 	// sessionID is set when authenticated via a session cookie/token.
 	// Empty when authenticated via API token.
 	sessionID string
@@ -132,6 +133,7 @@ func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error)
 			DisplayName: row.DisplayName,
 			Email:       row.Email,
 			IsActive:    row.IsActive,
+			IsAdmin:     row.IsAdmin,
 			sessionID:   row.SessionID.String(),
 		}
 		m.cache.StoreSession(hash, row.SessionID.String(), row.ID.String(), user, row.ExpiresAt.Time)
@@ -150,6 +152,7 @@ func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error)
 			DisplayName: apiRow.DisplayName,
 			Email:       apiRow.Email,
 			IsActive:    apiRow.IsActive,
+			IsAdmin:     apiRow.IsAdmin,
 			apiTokenID:  apiRow.TokenID.String(),
 		}
 		// GetUserByAPITokenRow has no ExpiresAt — the SQL filters expired tokens
@@ -168,6 +171,21 @@ func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error)
 // Empty string if authenticated via API token.
 func (u *User) SessionID() string {
 	return u.sessionID
+}
+
+// RequireAdmin verifies that the authenticated user has the instance-level admin flag.
+// Must be used after the Authenticate middleware.
+func (m *Middleware) RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user == nil || !user.IsAdmin {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"forbidden","code":"FORBIDDEN"}`)) //nolint:errcheck
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeUnauthorized(w http.ResponseWriter, msg string) {

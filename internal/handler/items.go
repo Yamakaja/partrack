@@ -111,6 +111,41 @@ func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListSubstitutes handles GET /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/substitutes
+// Returns all substitutes for all line items in the revision as a flat list.
+func (h *Handler) ListSubstitutes(w http.ResponseWriter, r *http.Request) {
+	var revID pgtype.UUID
+	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
+
+	rows, err := h.Queries.ListAllSubstitutesForRevision(r.Context(), revID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type subItem struct {
+		BOMLineItemID string `json:"bom_line_item_id"`
+		PartID        string `json:"part_id"`
+		PartMPN       string `json:"part_mpn"`
+	}
+	items := make([]subItem, len(rows))
+	for i, row := range rows {
+		mpn := ""
+		if row.PartMpn != nil {
+			mpn = *row.PartMpn
+		}
+		items[i] = subItem{
+			BOMLineItemID: row.BomLineItemID.String(),
+			PartID:        row.PartID.String(),
+			PartMPN:       mpn,
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 // RemoveSubstitute handles DELETE /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}
 func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
 	var itemID pgtype.UUID

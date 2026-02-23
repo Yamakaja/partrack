@@ -17,7 +17,7 @@
   const limit = 20;
   let offset = $state(0);
 
-  let query = $derived(createQuery({
+  let query = createQuery(() => ({
     queryKey: ['adjustments', teamId, entryId, limit, offset],
     queryFn: () => listAdjustments(teamId, entryId, { limit, offset }),
   }));
@@ -37,12 +37,12 @@
 <div class="space-y-3">
   <h3 class="text-sm font-semibold text-foreground">Adjustment History</h3>
 
-  {#if $query.isPending}
+  {#if query.isPending}
     <div class="text-sm text-muted-foreground">Loading…</div>
-  {:else if $query.isError}
-    <div class="text-sm text-destructive">Error: {$query.error.message}</div>
-  {:else if $query.data}
-    {@const data = $query.data}
+  {:else if query.isError}
+    <div class="text-sm text-destructive">Error: {query.error.message}</div>
+  {:else if query.data}
+    {@const data = query.data}
     {#if data.items.length === 0}
       <EmptyState title="No adjustments yet" description="Stock adjustments will appear here." />
     {:else}

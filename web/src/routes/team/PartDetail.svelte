@@ -10,7 +10,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { ArrowLeft, Sparkles } from 'lucide-svelte';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
@@ -18,17 +18,17 @@
   const qc = useQueryClient();
   let enriching = $state(false);
 
-  let partQuery = $derived(createQuery({
+  let partQuery = createQuery(() => ({
     queryKey: ['part', partId],
     queryFn: () => getPart(partId),
   }));
 
-  let paramsQuery = $derived(createQuery({
+  let paramsQuery = createQuery(() => ({
     queryKey: ['part-params', partId],
     queryFn: () => listParameters(partId),
   }));
 
-  let listingsQuery = $derived(createQuery({
+  let listingsQuery = createQuery(() => ({
     queryKey: ['part-listings', partId],
     queryFn: () => listListings(partId),
   }));
@@ -48,10 +48,10 @@
 
 <div class="flex flex-col h-full">
   <Topbar
-    title={$partQuery.data?.mpn ?? 'Part Detail'}
+    title={partQuery.data?.mpn ?? 'Part Detail'}
     breadcrumbs={[
       { label: 'Parts', href: `/teams/${teamId}/parts` },
-      { label: $partQuery.data?.mpn ?? '…' },
+      { label: partQuery.data?.mpn ?? '…' },
     ]}
   >
     {#snippet actions()}
@@ -66,13 +66,13 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6">
-    {#if $partQuery.isPending}
+    {#if partQuery.isPending}
       <div class="space-y-3">
         <Skeleton class="h-6 w-48" />
         <Skeleton class="h-4 w-72" />
       </div>
-    {:else if $partQuery.data}
-      {@const part = $partQuery.data}
+    {:else if partQuery.data}
+      {@const part = partQuery.data}
       <div class="space-y-6">
         <!-- Overview card -->
         <div class="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -100,29 +100,29 @@
         <Tabs value="parameters">
           <TabsList>
             <TabsTrigger value="parameters">Parameters</TabsTrigger>
-            <TabsTrigger value="listings">Listings ({$listingsQuery.data?.items.length ?? '…'})</TabsTrigger>
+            <TabsTrigger value="listings">Listings ({listingsQuery.data?.items.length ?? '…'})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="parameters">
-            {#if $paramsQuery.isPending}
+            {#if paramsQuery.isPending}
               <Skeleton class="h-32 w-full" />
-            {:else if $paramsQuery.data}
+            {:else if paramsQuery.data}
               <ParameterTable
                 {partId}
-                parameters={$paramsQuery.data}
+                parameters={paramsQuery.data}
                 onchange={() => qc.invalidateQueries({ queryKey: ['part-params', partId] })}
               />
             {/if}
           </TabsContent>
 
           <TabsContent value="listings">
-            {#if $listingsQuery.isPending}
+            {#if listingsQuery.isPending}
               <Skeleton class="h-32 w-full" />
-            {:else if $listingsQuery.data}
+            {:else if listingsQuery.data}
               <ListingTable
                 {partId}
                 {teamId}
-                listings={$listingsQuery.data.items}
+                listings={listingsQuery.data.items}
                 onrefresh={() => qc.invalidateQueries({ queryKey: ['part-listings', partId] })}
               />
             {/if}

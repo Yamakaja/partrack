@@ -1,7 +1,7 @@
 <script lang="ts">
   import { authStore } from '$lib/stores/auth.svelte.js';
-  import { navigate } from '$lib/router/index.js';
-  import { linkAction } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
+  import { linkAction } from '$lib/router/index.svelte.js';
   import { onMount } from 'svelte';
 
   onMount(() => {

@@ -1,0 +1,222 @@
+# Getting Started
+
+## Prerequisites
+
+| Tool | Minimum version | Notes |
+|---|---|---|
+| Go | 1.25 | `go version` |
+| Node.js | 20 LTS | `node --version` |
+| npm | 10 | bundled with Node |
+| PostgreSQL | 15 | local install, Docker, or managed |
+| sqlc | latest | only needed when editing SQL queries |
+
+---
+
+## 1. Database
+
+partrack requires a PostgreSQL database. Create one before starting the server:
+
+```bash
+createdb partrack
+```
+
+Or with a connection string directly:
+
+```bash
+psql postgres://localhost/postgres -c "CREATE DATABASE partrack;"
+```
+
+**Migrations run automatically** on every server start via golang-migrate. There is no manual migration step.
+
+---
+
+## 2. Configuration
+
+partrack is configured with a YAML file and/or environment variables. Environment variables override file values.
+
+### Minimal `config.yaml`
+
+```yaml
+database:
+  url: postgres://localhost/partrack?sslmode=disable
+
+server:
+  listen_addr: ":8080"
+```
+
+Place this file in the directory where you run the binary (or set `PARTRACK_CONFIG=/path/to/config.yaml`).
+
+### Full reference
+
+```yaml
+database:
+  url: postgres://user:password@host:5432/partrack?sslmode=disable
+
+server:
+  listen_addr: ":8080"   # default
+
+log:
+  level: info             # debug | info | warn | error
+
+# Optional: OIDC providers for single sign-on
+oidc:
+  - name: google
+    issuer: https://accounts.google.com
+    client_id: "..."
+    client_secret: "..."   # or PARTRACK_OIDC_GOOGLE_SECRET env var
+    auto_provision: true   # create user accounts on first login
+    default_team_id: ""    # UUID of team to auto-join; leave empty to skip
+```
+
+### Environment variable overrides
+
+| Variable | Equivalent config key |
+|---|---|
+| `PARTRACK_DB_URL` | `database.url` |
+| `PARTRACK_LISTEN_ADDR` | `server.listen_addr` |
+| `PARTRACK_CONFIG` | path to the config file |
+| `PARTRACK_OIDC_<NAME>_SECRET` | `oidc[name].client_secret` |
+
+---
+
+## 3. Development
+
+Development runs two processes side by side: the Go backend and the Vite dev server. They communicate via Vite's API proxy.
+
+### Terminal 1 — Go backend
+
+```bash
+go run ./cmd/partrack
+```
+
+The server starts on `:8080` and prints:
+
+```
+partrack listening on :8080
+```
+
+Migrations are applied automatically on startup. The backend serves the API at `/api/v1/...` and the embedded frontend at all other paths.
+
+### Terminal 2 — Frontend dev server
+
+```bash
+cd web
+npm install          # first time only
+npm run dev
+```
+
+Vite starts on `http://localhost:5173` (default). Requests to `/api` are proxied to `http://localhost:8080`, so the frontend talks to the live Go backend. Hot module replacement (HMR) is active for all Svelte and TypeScript files.
+
+Open `http://localhost:5173` in your browser.
+
+### Bootstrapping the first admin
+
+No admin user exists after a fresh install. Set one via SQL:
+
+```bash
+psql postgres://localhost/partrack -c \
+  "UPDATE users SET is_admin = TRUE WHERE email = 'your@email.com';"
+```
+
+You must have logged in at least once first (to create the user record), or create the user via the API/admin panel after bootstrapping any initial admin.
+
+### Modifying SQL queries
+
+partrack uses [sqlc](https://sqlc.dev) to generate type-safe Go from SQL. After editing any file under `db/queries/`:
+
+```bash
+sqlc generate
+```
+
+This regenerates `internal/db/gen/`. Commit the generated files alongside the SQL changes.
+
+---
+
+## 4. Production
+
+### Step 1 — Build the frontend
+
+```bash
+cd web
+npm install
+npm run build
+```
+
+Output goes to `web/dist/`. This directory is embedded into the Go binary at compile time; it must be built before the Go build.
+
+### Step 2 — Build the binary
+
+```bash
+go build -o partrack ./cmd/partrack
+```
+
+The resulting `partrack` binary is self-contained: it embeds the frontend assets and SQL migrations. No separate file deployment is needed.
+
+### Step 3 — Run
+
+```bash
+PARTRACK_DB_URL=postgres://user:password@host/partrack ./partrack
+```
+
+Or with a config file:
+
+```bash
+PARTRACK_CONFIG=/etc/partrack/config.yaml ./partrack
+```
+
+The server listens on `:8080` by default. Put a reverse proxy (nginx, Caddy, etc.) in front of it for TLS termination.
+
+### Minimal nginx config
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name partrack.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Required for SSE (inventory events stream)
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+---
+
+## 5. Type-checking the frontend
+
+```bash
+cd web
+npm run check
+```
+
+This runs `svelte-check` + `tsc` and reports any TypeScript or Svelte type errors without building.
+
+---
+
+## 6. Quick reference
+
+```bash
+# Run backend (dev)
+go run ./cmd/partrack
+
+# Run frontend dev server
+cd web && npm run dev
+
+# Build everything (production)
+cd web && npm run build && cd .. && go build -o partrack ./cmd/partrack
+
+# Regenerate DB query types after editing db/queries/
+sqlc generate
+
+# Type-check frontend
+cd web && npm run check
+
+# Bootstrap first admin (after first login)
+psql "$PARTRACK_DB_URL" -c "UPDATE users SET is_admin = TRUE WHERE email = 'you@example.com';"
+```

@@ -90,16 +90,30 @@ type userResponse struct {
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 	IsActive    bool   `json:"is_active"`
+	IsAdmin     bool   `json:"is_admin"`
 	CreatedAt   string `json:"created_at"`
 }
 
-func toUserResponse(u dbgen.User) userResponse {
+
+func meRowToUserResponse(r dbgen.GetUserWithMembershipsRow) userResponse {
 	return userResponse{
-		ID:          u.ID.String(),
-		DisplayName: u.DisplayName,
-		Email:       u.Email,
-		IsActive:    u.IsActive,
-		CreatedAt:   u.CreatedAt.Time.UTC().Format(time.RFC3339),
+		ID:          r.ID.String(),
+		DisplayName: r.DisplayName,
+		Email:       r.Email,
+		IsActive:    r.IsActive,
+		IsAdmin:     r.IsAdmin,
+		CreatedAt:   r.CreatedAt.Time.UTC().Format(time.RFC3339),
+	}
+}
+
+func loginRowToUserResponse(r dbgen.GetUserByEmailRow) userResponse {
+	return userResponse{
+		ID:          r.ID.String(),
+		DisplayName: r.DisplayName,
+		Email:       r.Email,
+		IsActive:    r.IsActive,
+		IsAdmin:     r.IsAdmin,
+		CreatedAt:   r.CreatedAt.Time.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -151,7 +165,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, rawToken, expiresAt)
-	writeJSON(w, http.StatusOK, map[string]any{"user": toUserResponse(user)})
+	writeJSON(w, http.StatusOK, map[string]any{"user": loginRowToUserResponse(user)})
 }
 
 // Logout handles POST /api/v1/auth/logout
@@ -301,7 +315,7 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 var errOIDCNotProvisioned = errors.New("auto-provisioning disabled")
 
 // resolveOIDCUser finds or auto-provisions the user for an OIDC login.
-func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email, name string, cfg config.OIDCProvider) (dbgen.User, error) {
+func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email, name string, cfg config.OIDCProvider) (dbgen.GetUserWithMembershipsRow, error) {
 	identity, err := h.Queries.GetOIDCIdentity(ctx, dbgen.GetOIDCIdentityParams{
 		Provider: provider,
 		Subject:  subject,
@@ -310,11 +324,11 @@ func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email,
 		return h.Queries.GetUserWithMemberships(ctx, identity.UserID)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return dbgen.User{}, err
+		return dbgen.GetUserWithMembershipsRow{}, err
 	}
 
 	if !cfg.AutoProvision {
-		return dbgen.User{}, errOIDCNotProvisioned
+		return dbgen.GetUserWithMembershipsRow{}, errOIDCNotProvisioned
 	}
 
 	displayName := name
@@ -326,7 +340,7 @@ func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email,
 		Email:       email,
 	})
 	if err != nil {
-		return dbgen.User{}, fmt.Errorf("create user: %w", err)
+		return dbgen.GetUserWithMembershipsRow{}, fmt.Errorf("create user: %w", err)
 	}
 	_, err = h.Queries.CreateOIDCIdentity(ctx, dbgen.CreateOIDCIdentityParams{
 		UserID:        user.ID,
@@ -335,9 +349,16 @@ func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email,
 		ProviderEmail: &email,
 	})
 	if err != nil {
-		return dbgen.User{}, fmt.Errorf("create oidc identity: %w", err)
+		return dbgen.GetUserWithMembershipsRow{}, fmt.Errorf("create oidc identity: %w", err)
 	}
-	return user, nil
+	return dbgen.GetUserWithMembershipsRow{
+		ID:          user.ID,
+		DisplayName: user.DisplayName,
+		Email:       user.Email,
+		IsActive:    user.IsActive,
+		IsAdmin:     user.IsAdmin,
+		CreatedAt:   user.CreatedAt,
+	}, nil
 }
 
 // Me handles GET /api/v1/auth/me
@@ -382,7 +403,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":        toUserResponse(user),
+		"user":        meRowToUserResponse(user),
 		"memberships": items,
 	})
 }
@@ -419,4 +440,100 @@ func setSessionCookie(w http.ResponseWriter, rawToken string, expiresAt time.Tim
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// GetResetPasswordInfo handles GET /api/v1/auth/reset-password?token=...
+// Validates the token and returns the target user's display name so the
+// frontend can show "you are resetting the password for <name>".
+func (h *Handler) GetResetPasswordInfo(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("token")
+	if raw == "" {
+		writeError(w, http.StatusBadRequest, "token is required", "TOKEN_INVALID")
+		return
+	}
+
+	row, err := h.Queries.GetPasswordResetToken(r.Context(), hashToken(raw))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid or expired token", "TOKEN_INVALID")
+		return
+	}
+	if row.UsedAt.Valid || row.ExpiresAt.Time.Before(time.Now()) {
+		writeError(w, http.StatusBadRequest, "invalid or expired token", "TOKEN_INVALID")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"display_name": row.DisplayName,
+		"email":        row.Email,
+		"expires_at":   row.ExpiresAt.Time.UTC().Format(time.RFC3339),
+	})
+}
+
+// CompletePasswordReset handles POST /api/v1/auth/reset-password
+// Consumes the token, sets the new password, and logs the user in.
+// Body: {token, password}
+func (h *Handler) CompletePasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "token and password are required", "BAD_REQUEST")
+		return
+	}
+
+	row, err := h.Queries.GetPasswordResetToken(r.Context(), hashToken(req.Token))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid or expired token", "TOKEN_INVALID")
+		return
+	}
+	if row.UsedAt.Valid || row.ExpiresAt.Time.Before(time.Now()) {
+		writeError(w, http.StatusBadRequest, "invalid or expired token", "TOKEN_INVALID")
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := h.Queries.AdminSetPassword(r.Context(), dbgen.AdminSetPasswordParams{
+		UserID:       row.UserID,
+		PasswordHash: string(hash),
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := h.Queries.UsePasswordResetToken(r.Context(), row.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	rawToken, _, expiresAt, err := h.createSession(r.Context(), row.UserID, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	setSessionCookie(w, rawToken, expiresAt)
+
+	user, err := h.Queries.GetUserWithMemberships(r.Context(), row.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	memberships, err := h.Queries.ListUserTeamMemberships(r.Context(), row.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	type membershipItem struct {
+		TeamID   string `json:"team_id"`
+		TeamName string `json:"team_name"`
+		Role     string `json:"role"`
+	}
+	items := make([]membershipItem, len(memberships))
+	for i, m := range memberships {
+		items[i] = membershipItem{TeamID: m.TeamID.String(), TeamName: m.TeamName, Role: string(m.Role)}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": meRowToUserResponse(user), "memberships": items})
 }

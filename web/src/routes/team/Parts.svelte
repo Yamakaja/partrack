@@ -12,7 +12,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Select } from '$lib/components/ui/select/index.js';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus } from 'lucide-svelte';
 
@@ -31,7 +31,7 @@
   let newScope = $state<'global' | 'team'>('team');
   let creating = $state(false);
 
-  let query = $derived(createQuery({
+  let query = createQuery(() => ({
     queryKey: ['parts', teamId, q, limit, offset],
     queryFn: () => listParts({ team_id: teamId, q: q || undefined, limit, offset }),
   }));
@@ -76,12 +76,12 @@
   <div class="flex-1 overflow-auto p-6 space-y-4">
     <SearchInput placeholder="Search by MPN, description, or manufacturer…" onchange={handleSearch} />
 
-    {#if $query.isPending}
+    {#if query.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
-    {:else if $query.isError}
-      <div class="text-sm text-destructive">Error: {$query.error.message}</div>
-    {:else if $query.data}
-      {@const data = $query.data}
+    {:else if query.isError}
+      <div class="text-sm text-destructive">Error: {query.error.message}</div>
+    {:else if query.data}
+      {@const data = query.data}
       {#if data.items.length === 0}
         <EmptyState
           title="No parts found"

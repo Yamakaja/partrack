@@ -213,6 +213,47 @@ func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
 	return i, err
 }
 
+const getPartByMPN = `-- name: GetPartByMPN :one
+SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
+FROM parts
+WHERE mpn = $1
+  AND (scope = 'global' OR (scope = 'team' AND team_id = $2))
+ORDER BY scope DESC
+LIMIT 1
+`
+
+type GetPartByMPNParams struct {
+	Mpn    *string     `json:"mpn"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetPartByMPNRow struct {
+	ID              pgtype.UUID         `json:"id"`
+	Mpn             *string             `json:"mpn"`
+	Manufacturer    *string             `json:"manufacturer"`
+	Description     *string             `json:"description"`
+	Category        *string             `json:"category"`
+	Package         *string             `json:"package"`
+	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+}
+
+// Returns the best-matching part for an MPN: team-scoped before global.
+// Used by the BOM import pipeline to resolve raw_description against the catalog.
+func (q *Queries) GetPartByMPN(ctx context.Context, arg GetPartByMPNParams) (GetPartByMPNRow, error) {
+	row := q.db.QueryRow(ctx, getPartByMPN, arg.Mpn, arg.TeamID)
+	var i GetPartByMPNRow
+	err := row.Scan(
+		&i.ID,
+		&i.Mpn,
+		&i.Manufacturer,
+		&i.Description,
+		&i.Category,
+		&i.Package,
+		&i.LifecycleStatus,
+	)
+	return i, err
+}
+
 const insertDistributorParameter = `-- name: InsertDistributorParameter :one
 INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
 VALUES ($1, $2, $3, $4, 'distributor', $5)

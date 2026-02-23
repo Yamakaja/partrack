@@ -164,8 +164,107 @@ func (q *Queue) publishProgress(job Job, eventType string, data any) {
 }
 
 func (q *Queue) handleBOMImport(job Job) {
-	// TODO: implement BOM import enrichment pipeline
-	q.publishError(job, fmt.Sprintf("handler %s not yet implemented", job.Type))
+	ctx := context.Background()
+
+	payload, ok := job.Payload.(map[string]string)
+	if !ok {
+		q.publishError(job, "invalid payload type")
+		return
+	}
+	revIDStr, ok := payload["bom_revision_id"]
+	if !ok {
+		q.publishError(job, "missing bom_revision_id in payload")
+		return
+	}
+	var revID pgtype.UUID
+	if err := revID.Scan(revIDStr); err != nil {
+		q.publishError(job, "invalid bom_revision_id: "+revIDStr)
+		return
+	}
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(job.TeamID); err != nil {
+		q.publishError(job, "invalid team_id: "+job.TeamID)
+		return
+	}
+
+	queries := dbgen.New(q.db)
+
+	items, err := queries.ListBOMLineItems(ctx, revID)
+	if err != nil {
+		q.publishError(job, "failed to list BOM line items: "+err.Error())
+		return
+	}
+
+	alreadyResolved := 0
+	for _, it := range items {
+		if it.ResolvedPartID.Valid {
+			alreadyResolved++
+		}
+	}
+
+	q.publishProgress(job, "bom_import_progress", map[string]any{
+		"status":   "progress",
+		"resolved": alreadyResolved,
+		"total":    len(items),
+		"job_id":   job.ID,
+	})
+
+	resolvedCount := alreadyResolved
+	for _, item := range items {
+		if item.ResolvedPartID.Valid {
+			continue // already resolved
+		}
+		if item.RawDescription == nil || *item.RawDescription == "" {
+			continue // nothing to match against
+		}
+
+		part, err := queries.GetPartByMPN(ctx, dbgen.GetPartByMPNParams{
+			Mpn:    item.RawDescription,
+			TeamID: teamID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue // not in catalog; not an error
+			}
+			continue // other DB error; skip item, non-fatal
+		}
+
+		if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
+			ResolvedPartID: part.ID,
+			ID:             item.ID,
+			BomRevisionID:  revID,
+		}); err != nil {
+			continue // non-fatal
+		}
+
+		// Ensure team has an inventory entry for this part.
+		_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
+			TeamID: teamID,
+			PartID: part.ID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			_, _ = queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+				TeamID: teamID,
+				PartID: part.ID,
+			})
+		}
+
+		resolvedCount++
+		q.publishProgress(job, "bom_import_progress", map[string]any{
+			"status":   "progress",
+			"resolved": resolvedCount,
+			"total":    len(items),
+			"job_id":   job.ID,
+		})
+	}
+
+	q.publishProgress(job, "bom_import_progress", map[string]any{
+		"status":   "complete",
+		"resolved": resolvedCount,
+		"total":    len(items),
+		"job_id":   job.ID,
+	})
 }
 
 func (q *Queue) handlePartEnrich(job Job) {

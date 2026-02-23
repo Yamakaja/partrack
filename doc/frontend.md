@@ -41,42 +41,42 @@ web/
   src/
     lib/
       api/                  ← API client layer
-        client.ts           ← Base fetch wrapper: base URL, error parsing, cookie auth
-        auth.ts             ← /auth/login, /auth/logout, /auth/me, OIDC redirect
+        client.ts           ← Base fetch wrapper: credentials, error parsing
+        auth.ts             ← /auth/login, /auth/logout, /auth/me, OIDC redirect,
+                               sessions (list/revoke), API tokens (list/create/revoke),
+                               user preferences, user search
+        admin.ts            ← Instance admin: user CRUD, set-password, reset links;
+                               also getResetPasswordInfo / completePasswordReset
         teams.ts            ← Teams, memberships
         distributors.ts     ← Distributor list, team configs
         parts.ts            ← Parts catalog, parameters, listings, enrichment, listing refresh
         storage.ts          ← Storage locations
         inventory.ts        ← Inventory entries, adjustments, replenish preview
         projects.ts         ← Projects
-        revisions.ts        ← BOM revisions, line items, substitutes
-        stockcheck.ts       ← Stock check (stateless calculation endpoint)
+        revisions.ts        ← BOM revisions, line items, substitutes, stock check
         cart.ts             ← Cart read/write, add-shortfall, add-low-stock, convert
         orders.ts           ← Orders, line items, receipt
         builds.ts           ← Builds
         checkouts.ts        ← General checkouts
-        preferences.ts      ← User preferences
-        sessions.ts         ← Session list + revoke
-        tokens.ts           ← API token list, create, revoke
         sse.ts              ← EventSource lifecycle management
       components/
         ui/                 ← shadcn-svelte primitives (copied in, not installed)
-          Button.svelte
-          Badge.svelte
-          Dialog.svelte
-          DropdownMenu.svelte
-          Input.svelte
-          Select.svelte
-          Table.svelte
-          Tabs.svelte
-          Toast.svelte
-          Tooltip.svelte
-          Separator.svelte
-          Skeleton.svelte
-          ...
+          badge/            ← Badge
+          button/           ← Button
+          dialog/           ← Dialog (via bits-ui Dialog.Root/Content/Portal/Overlay/Title)
+          dropdown-menu/    ← DropdownMenu
+          input/            ← Input
+          label/            ← Label
+          select/           ← Select
+          separator/        ← Separator
+          skeleton/         ← Skeleton
+          table/            ← Table, TableHeader, TableBody, TableRow, TableHead, TableCell
+          tabs/             ← Tabs, TabsList, TabsTrigger, TabsContent
+          textarea/         ← Textarea
+          tooltip/          ← Tooltip
         layout/             ← App chrome
           AppShell.svelte       ← Root layout: sidebar + main area
-          Sidebar.svelte        ← Navigation tree + team switcher
+          Sidebar.svelte        ← Navigation tree + team switcher + admin section
           Topbar.svelte         ← Page title, breadcrumbs, slot for page-level actions
           TeamSwitcher.svelte   ← Dropdown listing user's teams; navigates on select
         common/             ← Reusable domain-agnostic components
@@ -88,49 +88,44 @@ web/
           PriceDisplay.svelte   ← Renders a "10.4500" decimal string as formatted currency
           DateDisplay.svelte    ← Formats RFC3339 timestamp to locale string
           CopyButton.svelte     ← Click-to-copy with feedback
+          Toaster.svelte        ← Global toast notification renderer
         parts/              ← Parts-domain components
           PartSearch.svelte     ← Combobox to search and select a Part by MPN/description
-          PartBadge.svelte      ← Compact MPN + description chip
           LifecycleBadge.svelte ← Active / NRND / Obsolete badge
           ParameterTable.svelte ← Grouped parameters display (user / distributor sourced)
           ListingTable.svelte   ← Distributor listings for a part
-          ListingPicker.svelte  ← Select a listing from a part's listings
         inventory/
           StockBadge.svelte     ← In Stock / Partial / Out of Stock coloured chip
           AdjustmentHistory.svelte ← Paginated list of stock_adjustments for an entry
         bom/
-          BOMLineItemRow.svelte ← Single BOM line item with resolve status + substitute editor
-          SubstituteManager.svelte ← Add/remove approved substitutes (PartSearch + list)
-          StockCheckRow.svelte  ← Required / on-hand / shortfall row in stock check view
-        cart/
-          CartLineItem.svelte   ← Editable cart row: qty field + ListingPicker + source badge
-          CartSummary.svelte    ← Per-distributor cost breakdown
-        orders/
-          OrderStatusBadge.svelte ← Draft / Placed / Received etc.
-          ReceiveLineItem.svelte  ← Qty received input for order receipt
-      stores/               ← Global reactive state
-        auth.ts             ← currentUser (User + memberships[]); set on login/me response
-        activeTeam.ts       ← teamId + role derived from URL; guards route access
-        preferences.ts      ← Writable preferences blob; synced to /api/v1/preferences
-        toasts.ts           ← Toast notification queue
+          BOMLineItemRow.svelte    ← Single BOM line item with resolve status + substitute editor
+          BOMImportProgress.svelte ← Specialised JobProgress for BOM import jobs
+      stores/               ← Global reactive state (Svelte 5 runes; `.svelte.ts` suffix)
+        auth.svelte.ts      ← currentUser (User + memberships[]); set on login/me response
+        activeTeam.svelte.ts ← teamId + role derived from URL; guards route access
+        preferences.svelte.ts ← Writable preferences blob; synced to /api/v1/preferences
+        toasts.svelte.ts    ← Toast notification queue
       types/                ← TypeScript interfaces mirroring API response shapes
-        auth.ts
-        teams.ts
-        parts.ts
+        auth.ts             ← User (incl. is_admin), TeamMembership, Team, Session, ApiToken
+        common.ts
         inventory.ts
         orders.ts
-        ...
+        parts.ts
+        projects.ts
       router/
-        index.ts            ← Route definitions, navigate(), Link component
-        guards.ts           ← requireAuth(), requireRole() guard wrappers
+        index.ts            ← currentRoute(), navigate(), matchRoute(), linkAction
+        guards.ts           ← Guard helpers
       utils/
-        price.ts            ← Format "10.4500" string to locale currency string
+        cn.ts               ← Tailwind class merging (clsx + tailwind-merge)
         date.ts             ← Format RFC3339 to relative/absolute display
-        uuid.ts             ← Validate UUID strings
+        price.ts            ← Format "10.4500" string to locale currency string
         roles.ts            ← Role ordering helpers (hasMinRole, etc.)
     routes/                 ← Page components (one file per route)
       Login.svelte
       TeamSelect.svelte           ← "/" — lists user's teams; redirects if only one
+      admin/
+        Users.svelte              ← "/admin/users" — instance admin: user management
+        ResetPassword.svelte      ← "/reset-password" — public password-reset flow
       team/
         Dashboard.svelte          ← "/teams/:teamId"
         Inventory.svelte          ← "/teams/:teamId/inventory"
@@ -152,16 +147,15 @@ web/
           Distributors.svelte     ← "/teams/:teamId/settings/distributors"
           Members.svelte          ← "/teams/:teamId/settings/members"
           Team.svelte             ← "/teams/:teamId/settings"
-    settings/               ← User-level settings (not team-scoped)
-      Profile.svelte              ← "/settings/profile"
-      Sessions.svelte             ← "/settings/sessions"
-      Tokens.svelte               ← "/settings/tokens"
+      settings/               ← User-level settings (not team-scoped)
+        Profile.svelte              ← "/settings/profile"
+        Sessions.svelte             ← "/settings/sessions"
+        Tokens.svelte               ← "/settings/tokens"
     App.svelte              ← Root component: router outlet + AppShell
     main.ts                 ← Vite entry; mounts App.svelte
   index.html                ← SPA shell; single <script type="module" src="/src/main.ts">
   vite.config.ts
   tsconfig.json
-  tailwind.config.ts        ← (Tailwind v4 uses CSS config; this may be minimal)
   package.json
   .gitignore                ← node_modules, dist
 ```
@@ -176,18 +170,21 @@ A single file (`src/lib/router/index.ts`) implements an ~80-line history-mode ro
 
 - A Svelte 5 rune (`$state`) holds the current `{ path, params }` object.
 - A `navigate(path)` function calls `history.pushState` and updates the state.
-- A `<Link href="...">` component renders an `<a>` that intercepts clicks and calls `navigate()`.
-- A `<Route>` component (or a route-matching function) resolves the current path to a page component.
+- `linkAction` is a Svelte action applied to `<a>` elements that intercepts clicks and calls `navigate()`.
+- `matchRoute(pattern, path)` resolves a path pattern (with `:param` segments) to a params map.
 - `popstate` listener handles browser back/forward.
 
 No third-party router dependency.
 
 ### Route Table
 
-| Path | Component | Min Auth | Notes |
+| Path | Component | Auth required | Notes |
 |---|---|---|---|
-| `/login` | `Login.svelte` | none | Redirects to `/` if already logged in |
-| `/` | `TeamSelect.svelte` | authenticated | Redirects to `/teams/:teamId` if user has exactly one team |
+| `/login` | `Login.svelte` | no | Redirects to `/` if already logged in |
+| `/reset-password` | `ResetPassword.svelte` | no | Token from `?token=` query param; signs user in on success |
+| `/` | `TeamSelect.svelte` | yes | Redirects to `/teams/:teamId` if user has exactly one team |
+| `/admin` | `Users.svelte` | admin | Alias for `/admin/users` |
+| `/admin/users` | `Users.svelte` | admin | Instance admin user management |
 | `/teams/:teamId` | `Dashboard.svelte` | V | Team overview |
 | `/teams/:teamId/inventory` | `Inventory.svelte` | V | Paginated, filterable inventory list |
 | `/teams/:teamId/inventory/:entryId` | `InventoryEntry.svelte` | V | Full detail: part info, adjustments, listings |
@@ -207,41 +204,38 @@ No third-party router dependency.
 | `/teams/:teamId/settings` | `Team.svelte` | A | Team name/description |
 | `/teams/:teamId/settings/members` | `Members.svelte` | A | Member list, add/remove, change role |
 | `/teams/:teamId/settings/distributors` | `Distributors.svelte` | A | Enable/configure distributors |
-| `/settings/profile` | `Profile.svelte` | authenticated | Edit display name, email |
-| `/settings/sessions` | `Sessions.svelte` | authenticated | List and revoke sessions |
-| `/settings/tokens` | `Tokens.svelte` | authenticated | Create/revoke API tokens |
+| `/settings/profile` | `Profile.svelte` | yes | Edit display name, email |
+| `/settings/sessions` | `Sessions.svelte` | yes | List and revoke sessions |
+| `/settings/tokens` | `Tokens.svelte` | yes | Create/revoke API tokens |
+
+Auth column: `V` = viewer+, `M` = member+, `P` = purchaser+, `A` = team admin+, `admin` = instance admin flag.
 
 ### Route Guards
 
-Two guard functions wrap page components:
-
-- `requireAuth(component)` — redirects to `/login` if no session.
-- `requireRole(teamId, minRole, component)` — redirects to `/teams/:teamId` if the user's role in the team is below `minRole`. Role ordering: `viewer < member < purchaser < admin`.
-
-The `activeTeam` store is set when any `/teams/:teamId/...` route is resolved; it exposes `{ teamId, role }` to all descendant components.
+The `$effect` in `App.svelte` redirects to `/login` when the user is not authenticated, with `/login` and `/reset-password` as the only public exemptions. The `activeTeam` store is set when any `/teams/:teamId/...` route is resolved; it exposes `{ teamId, role }` to all descendant components.
 
 ---
 
 ## 5. State Management
 
-### Auth Store (`stores/auth.ts`)
+### Auth Store (`stores/auth.svelte.ts`)
 
 ```ts
 // Populated on app load (GET /auth/me) and on login.
 interface AuthState {
-  user: User | null;
+  user: User | null;   // includes is_admin
   memberships: TeamMembership[];
   loading: boolean;
 }
 ```
 
-On app start, `App.svelte` calls `GET /api/v1/auth/me`. If it returns 401, the user is redirected to `/login`. On successful logout, the store is cleared.
+On app start, `App.svelte` calls `GET /api/v1/auth/me`. If it returns 401, the user is redirected to `/login`. On successful logout, the store is cleared. `setAuth(user, memberships)` is called after login or password reset to update the store without a round-trip.
 
-### Active Team Store (`stores/activeTeam.ts`)
+### Active Team Store (`stores/activeTeam.svelte.ts`)
 
 Derived from the current route. When the path is `/teams/:teamId/...`, the router writes `{ teamId, role }` into this store. All team-scoped components read from it rather than re-parsing the URL. Null when on a non-team route.
 
-### Preferences Store (`stores/preferences.ts`)
+### Preferences Store (`stores/preferences.svelte.ts`)
 
 A writable store. Loaded on auth, persisted by calling `PUT /api/v1/preferences` when mutated. Used for: theme, locale, per-table column visibility, default BOM import column names.
 
@@ -249,15 +243,15 @@ A writable store. Loaded on auth, persisted by calling `PUT /api/v1/preferences`
 
 All API data (inventory list, part detail, cart, orders, etc.) is managed via TanStack Query:
 
-- **Queries** (`useQuery`) — data fetching with automatic background refetching, loading/error states.
-- **Mutations** (`useMutation`) — data writes with cache invalidation. E.g. after receiving order line items, invalidate the order query, the inventory query for affected parts, and the adjustment history query.
+- **Queries** (`createQuery`) — data fetching with automatic background refetching, loading/error states.
+- **Mutations** (`createMutation`) — data writes with cache invalidation. E.g. after receiving order line items, invalidate the order query, the inventory query for affected parts, and the adjustment history query.
 - **Query keys** are scoped: `['inventory', teamId, filters]`, `['parts', teamId, partId]`, etc.
 
 This eliminates boilerplate loading/error/refetch state management, which would be substantial given the number of list views.
 
-### Toast Store (`stores/toasts.ts`)
+### Toast Store (`stores/toasts.svelte.ts`)
 
-A queue of `{ id, type: 'success' | 'error' | 'info', message, detail? }` objects. Components push to it; the global `<Toaster>` (rendered in `App.svelte`) drains it. Used for mutation feedback ("Part enrichment queued", "Order received successfully", "Error: ...").
+A queue of `{ id, type: 'success' | 'error' | 'info', message, detail? }` objects. Components push to it via `pushToast()`; the global `<Toaster>` (rendered in `App.svelte`) drains it. Used for mutation feedback ("Part enrichment queued", "Order received successfully", "Error: ...").
 
 ---
 
@@ -275,23 +269,28 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 Authentication is entirely cookie-based for the browser client. No Authorization header management is needed — the session cookie is set by the server and sent by `fetch` with `credentials: 'include'`.
 
-### Module Example (`api/inventory.ts`)
+### Module Overview
 
-```ts
-export function listInventory(teamId: string, params: ListInventoryParams) {
-  return request<PaginatedResponse<InventoryEntry>>('GET', `/api/v1/teams/${teamId}/inventory?${qs(params)}`)
-}
-
-export function createAdjustment(teamId: string, entryId: string, body: CreateAdjustmentBody) {
-  return request<StockAdjustment>('POST', `/api/v1/teams/${teamId}/inventory/${entryId}/adjustments`, body)
-}
-```
-
-Every module exports typed functions. TypeScript interfaces in `types/` are written once, matching the documented API response shapes.
+| Module | Key exports |
+|---|---|
+| `auth.ts` | `login`, `logout`, `getMe`, `listSessions`, `revokeSession`, `listTokens`, `createToken`, `revokeToken`, `getPreferences`, `putPreferences`, `searchUsers`, `OIDCInitiate` |
+| `admin.ts` | `listUsers`, `createUser`, `updateUser`, `setPassword`, `generateResetLink`, `getResetPasswordInfo`, `completePasswordReset` |
+| `teams.ts` | `listTeams`, `createTeam`, `getTeam`, `updateTeam`, `listMembers`, `addMember`, `updateMemberRole`, `removeMember`, `deactivateUser`, `searchUsers` |
+| `distributors.ts` | `listDistributors`, `listDistributorConfigs`, `upsertDistributorConfig`, `deleteDistributorConfig` |
+| `parts.ts` | `listParts`, `createPart`, `getPart`, `updatePart`, `enrichPart`, `listParameters`, `createParameter`, `deleteParameter`, `listListings`, `refreshListing` |
+| `storage.ts` | `listStorageLocations`, `createStorageLocation`, `updateStorageLocation`, `deleteStorageLocation` |
+| `inventory.ts` | `listInventory`, `getInventoryEntry`, `createInventoryEntry`, `updateInventoryEntry`, `listAdjustments`, `createAdjustment`, `replenishPreview` |
+| `projects.ts` | `listProjects`, `createProject`, `getProject`, `updateProject`, `stockCheck` |
+| `revisions.ts` | `listRevisions`, `importRevision`, `getRevision`, `updateRevision`, `updateBOMItem`, `addSubstitute`, `removeSubstitute`, `listSubstitutes` |
+| `cart.ts` | `getCart`, `clearCart`, `addCartItem`, `updateCartItem`, `removeCartItem`, `addShortfalls`, `addLowStock`, `convertCart` |
+| `orders.ts` | `listOrders`, `getOrder`, `updateOrder`, `cancelOrder`, `exportOrder`, `submitOrder`, `linkOrderReference`, `receiveOrderItem` |
+| `builds.ts` | `listBuilds`, `getBuild`, `previewBuild`, `createBuild` |
+| `checkouts.ts` | `listCheckouts`, `getCheckout`, `createCheckout` |
+| `sse.ts` | EventSource lifecycle management |
 
 ### Error Handling Convention
 
-TanStack Query surfaces errors from mutations/queries automatically. Page components render an error state when a query fails. The `useMutation` `onError` callback pushes to the toast store for user feedback.
+TanStack Query surfaces errors from mutations/queries automatically. Page components render an error state when a query fails. The `onError` callback or `catch` in handlers pushes to the toast store for user feedback.
 
 ---
 
@@ -302,26 +301,27 @@ TanStack Query surfaces errors from mutations/queries automatically. Page compon
 | Component | Description |
 |---|---|
 | `AppShell` | Outer wrapper: fixed sidebar on the left, scrollable main content on the right |
-| `Sidebar` | Navigation links (grouped: Parts, Inventory, Projects, Orders, Builds, Settings); collapses on narrow screens; team switcher at the top |
-| `Topbar` | Sticky page header: page title, breadcrumb trail, right-aligned action slot (e.g. "New Project" button) |
+| `Sidebar` | Navigation links (grouped: Parts, Inventory, Projects, Orders, Builds, Settings); team switcher at the top; "Administration → Users" section visible only to `is_admin` users |
+| `Topbar` | Sticky page header: page title, right-aligned action slot (e.g. "New Project" button) |
 | `TeamSwitcher` | Dropdown listing the user's teams by name; clicking navigates to the team's dashboard |
 
 ### UI Primitives (shadcn-svelte)
 
-Button, Badge, Input, Select, Textarea, Dialog (modal), DropdownMenu, Popover, Tooltip, Tabs, Table, Separator, Skeleton (loading placeholder), ScrollArea, Command (command palette / combobox). All sourced from shadcn-svelte — components live in `src/lib/components/ui/` as first-class source files.
+Button, Badge, Input, Label, Select, Textarea, Dialog (via bits-ui), DropdownMenu, Tooltip, Tabs, Table, Separator, Skeleton (loading placeholder). All sourced from shadcn-svelte — components live in `src/lib/components/ui/` as first-class source files.
 
 ### Common Domain-Agnostic Components
 
 | Component | Description |
 |---|---|
 | `Pagination` | Previous/Next + page info for offset-based pagination |
-| `SearchInput` | Debounced input (300ms), clear button, forwards `search` event |
-| `EmptyState` | Centered illustration + heading + optional CTA button |
-| `ConfirmDialog` | Modal with title, description, confirm/cancel; returns Promise\<boolean\> |
+| `SearchInput` | Debounced input (300ms), clear button |
+| `EmptyState` | Centered heading + optional description |
+| `ConfirmDialog` | Modal with title, description, confirm/cancel, optional destructive styling |
 | `JobProgress` | Inline banner showing async job state (pending → running → complete/error); subscribes to SSE for job ID |
 | `PriceDisplay` | Renders `"10.4500"` as `$10.45` (or locale-appropriate format) |
-| `DateDisplay` | Renders RFC3339 timestamp as "3 hours ago" / tooltip with full date |
+| `DateDisplay` | Renders RFC3339 timestamp as locale string |
 | `CopyButton` | Icon button; copies text to clipboard; shows tick on success |
+| `Toaster` | Global toast notification renderer (mounted in `App.svelte`) |
 
 ### Domain Components
 
@@ -330,11 +330,9 @@ Button, Badge, Input, Select, Textarea, Dialog (modal), DropdownMenu, Popover, T
 | Component | Description |
 |---|---|
 | `PartSearch` | Full combobox (`GET /api/v1/teams/:id/parts?q=...`) to pick a Part; shows MPN + description |
-| `PartBadge` | Compact chip: MPN (bold) + truncated description; links to part detail |
 | `LifecycleBadge` | Coloured chip: Active (green), NRND (amber), Obsolete (red), etc. |
 | `ParameterTable` | Two-tab display: "User Specified" / "Distributor Sourced"; shows name, value, unit, source |
 | `ListingTable` | Table of distributor listings: distributor, SKU, packaging, price, stock, MOQ; includes "Refresh" action |
-| `ListingPicker` | Select component populated from a part's listings; used in cart and inventory entry edit |
 
 **Inventory**
 
@@ -348,23 +346,7 @@ Button, Badge, Input, Select, Textarea, Dialog (modal), DropdownMenu, Popover, T
 | Component | Description |
 |---|---|
 | `BOMLineItemRow` | Row in revision detail: ref designator, qty, raw description, resolve status chip, linked part (or PartSearch to resolve), substitutes count |
-| `SubstituteManager` | Expandable panel: lists approved substitutes + `PartSearch` to add new ones; remove button per entry |
-| `StockCheckRow` | Stock check result row: line item, required qty, on-hand qty (across primary + substitutes), shortfall chip, "Add to cart" button (shown when shortfall > 0) |
 | `BOMImportProgress` | Specialised `JobProgress` for `JobBOMImport`; shows per-item resolution events as they arrive over SSE |
-
-**Cart**
-
-| Component | Description |
-|---|---|
-| `CartLineItem` | Row with: part name, qty input, `ListingPicker`, source badge (BOM Shortfall / Low Stock / Manual), unit price × qty subtotal, remove button |
-| `CartSummary` | Collapsible per-distributor totals table at the bottom of the cart; "Convert to Orders" button |
-
-**Orders**
-
-| Component | Description |
-|---|---|
-| `OrderStatusBadge` | Draft (grey) / Placed (blue) / Exported (amber) / Partially Received (cyan) / Received (green) |
-| `ReceiveLineItem` | Inline form: shows ordered qty, input for received qty; validates received ≤ ordered |
 
 ---
 
@@ -372,24 +354,33 @@ Button, Badge, Input, Select, Textarea, Dialog (modal), DropdownMenu, Popover, T
 
 ### Login (`/login`)
 
-Username + password form. On submit, calls `POST /api/v1/auth/login`, stores user in auth store, navigates to `/`. Also shows OIDC login button(s) if the backend reports providers are configured (detected via a `GET /api/v1/auth/providers` endpoint or hardcoded from config).
+Username + password form. On submit, calls `POST /api/v1/auth/login`, stores user in auth store, navigates to `/`. Also shows OIDC login button(s) if the backend reports providers are configured.
+
+### Reset Password (`/reset-password`)
+
+Public page — no auth required. Reads `token` from `?token=` query param. Calls `GET /api/v1/auth/reset-password?token=...` on mount to validate the token and retrieve the target user's name. If valid, shows a password + confirm form. On submit, calls `POST /api/v1/auth/reset-password`; on success, calls `setAuth()` and navigates to `/`. Shows an error state if the token is invalid or expired.
 
 ### Team Select (`/`)
 
 Grid of the user's teams (from `memberships[]` in auth store). Each card shows team name, role badge, and quick-link to inventory/projects. "New Team" button opens a dialog. If the user has exactly one team, auto-redirects to `/teams/:teamId`.
 
+### Admin Users (`/admin/users`)
+
+Instance admin only. Paginated table of all user accounts. Columns: Display Name, Email, Status (Active/Inactive chip), Admin (badge), Has Password, Created. Row actions:
+- **Edit** — dialog to update display name, email, and instance-admin flag.
+- **Set Password** — dialog with a password field; calls `POST /admin/users/{id}/set-password`.
+- **Reset Link** — generates a 24-hour one-time password-reset link via `POST /admin/users/{id}/password-reset-link`; shows a copyable URL in a modal.
+- **Deactivate / Reactivate** — toggles `is_active`; deactivation shows a confirm dialog and immediately revokes all sessions.
+
+"Add User" button opens a dialog: display name (required), email (required), password (optional — if blank, user must use a reset link or OIDC to log in first).
+
 ### Dashboard (`/teams/:teamId`)
 
-Summary tiles:
-- Inventory count, items below minimum stock
-- Active projects count
-- Open orders count
-- Cart item count (with link to cart)
-- Recent builds / checkouts
+Summary tiles: inventory count, items below minimum stock, active projects count, open orders count, cart item count, recent builds/checkouts.
 
 ### Inventory (`/teams/:teamId/inventory`)
 
-Filterable, paginated table of inventory entries. Columns: MPN, description, quantity on hand, storage location, min stock (with warning icon if below min). Filter bar: text search, storage location dropdown, "Below minimum" toggle. "Add Part to Inventory" action opens a dialog with `PartSearch`.
+Filterable, paginated table of inventory entries. Columns: MPN, description, quantity on hand, storage location, min stock (with warning icon if below min). Filter bar: text search, storage location dropdown, "Below minimum" toggle.
 
 ### Inventory Entry (`/teams/:teamId/inventory/:entryId`)
 
@@ -417,15 +408,15 @@ Revision list (label, imported date, item count, resolved/unresolved counts, act
 
 ### Revision Detail (`/teams/:teamId/projects/:projectId/revisions/:revId`)
 
-Header: revision label, imported-by, imported-at, notes. "Set Active" button (member+). Action: "Check Stock" button (navigates to stock check). Body: table of `BOMLineItemRow` components, with counts of resolved/unresolved at the top. Unresolved items are highlighted. "Resolve All" — triggers enrichment for all unresolved items.
+Header: revision label, imported-by, imported-at, notes. "Set Active" button (member+). Action: "Check Stock" button (navigates to stock check). Body: table of `BOMLineItemRow` components, with counts of resolved/unresolved at the top. Unresolved items are highlighted.
 
 ### Stock Check (`/teams/:teamId/projects/:projectId/revisions/:revId/stock`)
 
-Build quantity input at the top (ephemeral, not saved). Table of `StockCheckRow` components. Summary row: boards fully buildable count. Actions: "Add All Shortfalls to Cart" button — calls `POST /api/v1/teams/:id/cart/add-shortfall`, then navigates to cart.
+Build quantity input at the top (ephemeral, not saved). Table of stock check rows. Summary row: boards fully buildable count. Actions: "Add All Shortfalls to Cart" button — calls `POST /api/v1/teams/:id/cart/add-shortfall`, then navigates to cart.
 
 ### Cart (`/teams/:teamId/cart`)
 
-List of `CartLineItem` components. Cart is empty state or items. Below the list: `CartSummary` with per-distributor totals. Header actions: "Add Low Stock" (calls add-low-stock, refreshes), "Clear Cart" (confirm dialog + DELETE /items loop or batch endpoint). "Convert to Orders" button (purchaser+) — confirm dialog, calls `POST /api/v1/teams/:id/cart/convert`, navigates to orders.
+List of cart items. Below the list: per-distributor cost breakdown. Header actions: "Add Low Stock" (calls add-low-stock, refreshes), "Clear Cart" (confirm dialog). "Convert to Orders" button (purchaser+) — confirm dialog, calls `POST /api/v1/teams/:id/cart/convert`, navigates to orders.
 
 ### Orders (`/teams/:teamId/orders`)
 
@@ -433,22 +424,15 @@ Tabbed list: All / Draft / Placed / Received. Each row: distributor, order refer
 
 ### Order Detail (`/teams/:teamId/orders/:orderId`)
 
-Header: order status, distributor, total price, "Distributor Order Reference" field (editable for placed). Line items table with `ReceiveLineItem` for items not yet fully received (purchaser+). Actions by status:
-- Draft: "Export CSV", "Submit via API" (if distributor has API integration)
-- Placed: "Receive Items" (opens receive flow), "Mark as Received" (all at once)
-- Exported: "Enter Order Reference" → marks as Placed
+Header: order status, distributor, total price. Line items table with receive-qty inputs for items not yet fully received (purchaser+). Actions by status: Draft → Export CSV / Submit via API; Placed → Receive Items; Exported → Enter Order Reference.
 
 ### Builds (`/teams/:teamId/builds`)
 
-Table of build events: project name, revision label, quantity built, built-at, notes. "Record Build" button (member+) opens a multi-step dialog:
-1. Pick project + revision
-2. Enter quantity
-3. Preview consumption table (from `POST /api/v1/teams/:id/builds/preview`)
-4. Confirm → submits build
+Table of build events: project name, revision label, quantity built, built-at, notes. "Record Build" button (member+) opens a multi-step dialog: pick project + revision → enter quantity → preview consumption table → confirm.
 
 ### Build Detail (`/teams/:teamId/builds/:buildId`)
 
-Build metadata header. Table of consumed parts with quantity deducted, source inventory entry, link to part. Provides audit trail.
+Build metadata header. Table of consumed parts with quantity deducted, source inventory entry, link to part.
 
 ### General Checkouts (`/teams/:teamId/checkouts`)
 
@@ -456,15 +440,15 @@ Table of checkout events. "New Checkout" opens a dialog: add one or more parts w
 
 ### Distributor Settings (`/teams/:teamId/settings/distributors`)
 
-Table of all distributors. Toggle (enabled/disabled), preferred toggle. "Configure" button opens a dialog for `cache_duration_seconds` and `api_credentials` JSON field. Credentials shown as a masked field with "Edit" to reveal/replace — never returned from the backend, so the field is always empty on load.
+Table of all distributors. Toggle (enabled/disabled), preferred toggle. "Configure" button opens a dialog for `cache_duration_seconds` and API credentials.
 
 ### Members Settings (`/teams/:teamId/settings/members`)
 
-Table of members with role badge and "Change Role" / "Remove" actions. "Add Member" button: user search by email + role select.
+Table of members with role select and "Remove" action. "Add Member" button: user search by name/email + role select.
 
 ### Profile Settings (`/settings/profile`)
 
-Edit display name. Change email. If the account has a local password, "Change Password" section. Shows linked OIDC providers if any.
+Edit display name and email. Shows linked OIDC providers if any.
 
 ### Sessions (`/settings/sessions`)
 
@@ -472,7 +456,7 @@ Table of active sessions with IP, user agent, created/last-seen, current session
 
 ### API Tokens (`/settings/tokens`)
 
-Table of tokens: name, created, last used, expires. "New Token" opens a dialog: name + optional expiry. On creation, shows a one-time display of the raw token (`ptk_...`) with a `CopyButton`. "Revoke" per row.
+Table of tokens: name, created, last used, expires. "New Token" opens a dialog: name + optional expiry. On creation, shows a one-time display of the raw token with a `CopyButton`. "Revoke" per row.
 
 ---
 
@@ -500,7 +484,7 @@ Components that trigger async jobs (BOM import, part enrichment, listing refresh
 
 `BOMImportProgress` extends this with a live-updating item-resolution counter ("Resolved 12/48 line items").
 
-On job completion, `JobProgress` calls an optional `onComplete` callback so the parent page can invalidate its TanStack Query cache (e.g. refresh the revision's line item list after BOM import).
+On job completion, `JobProgress` calls an optional `onComplete` callback so the parent page can invalidate its TanStack Query cache.
 
 ---
 
@@ -517,6 +501,8 @@ Rather than hiding UI elements entirely based on role (surprising to viewers), t
 - Disable it (greyed button + tooltip: "Requires purchaser role") if the user lacks the required role.
 - Exception: Admin-only settings pages are not shown in the sidebar for non-admins.
 
+The instance-level admin flag (`user.is_admin`) is separate from team roles. The "Administration" sidebar section is only rendered when `authStore.user?.is_admin` is true.
+
 ### Pagination strategy
 
 All list pages use **offset pagination** matching the backend API. Page size is stored in preferences (default 50). Pagination controls are rendered by `<Pagination>`. No infinite scroll — the data is ordered and bounded; accurate total counts enable "page 3 of 7" style navigation.
@@ -525,9 +511,14 @@ All list pages use **offset pagination** matching the backend API. Page size is 
 
 BOM import is a notable UX challenge because it involves a job with potentially slow SSE feedback. The import is initiated in the project detail page via a side panel (not a full-page modal). After submitting, the side panel closes and a `BOMImportProgress` banner appears in the revision detail page. The user can navigate away and back — the job ID is preserved in the query cache until resolved.
 
-### Monetary value display
+### Admin bootstrapping
 
-All prices displayed using the `<PriceDisplay>` component so locale formatting is consistent. The component accepts the raw string and renders formatted output. This is the single point of price formatting logic in the frontend.
+No instance admin exists initially. The first admin must be set via direct SQL:
+```sql
+UPDATE users SET is_admin = TRUE WHERE email = 'your@email.com';
+```
+
+Thereafter, admins can grant the flag to others via the Users admin panel.
 
 ---
 
@@ -544,4 +535,4 @@ go build ./...            # embeds web/dist/ into the binary via //go:embed
 
 Vite dev server is configured with a proxy: requests to `/api` are forwarded to `http://localhost:8080` (the Go server). The frontend `fetch` calls use relative paths (`/api/v1/...`), so they work without modification in both dev and production.
 
-The Vite config also sets `build.outDir = '../web/dist'` (relative to the `web/` directory, or absolute path) so the Go embed path `web/dist` is always correct.
+The Vite config also sets `build.outDir = '../web/dist'` so the Go embed path `web/dist` is always correct.

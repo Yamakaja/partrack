@@ -41,3 +41,14 @@ export function updateMemberRole(teamId: string, userId: string, role: string) {
 export function removeMember(teamId: string, userId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/members/${userId}`);
 }
+
+export interface UserSearchResult {
+  id: string;
+  display_name: string;
+  email: string;
+}
+
+export async function searchUsers(q: string): Promise<UserSearchResult[]> {
+  const res = await request<{ users: UserSearchResult[] }>('GET', `/api/v1/users/search?q=${encodeURIComponent(q)}`);
+  return res.users ?? [];
+}

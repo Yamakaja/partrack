@@ -82,7 +82,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (display_name, email)
 VALUES ($1, $2)
-RETURNING id, display_name, email, is_active, created_at
+RETURNING id, display_name, email, is_active, is_admin, created_at
 `
 
 type CreateUserParams struct {
@@ -90,14 +90,24 @@ type CreateUserParams struct {
 	Email       string `json:"email"`
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+type CreateUserRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	DisplayName string             `json:"display_name"`
+	Email       string             `json:"email"`
+	IsActive    bool               `json:"is_active"`
+	IsAdmin     bool               `json:"is_admin"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser, arg.DisplayName, arg.Email)
-	var i User
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
 		&i.Email,
 		&i.IsActive,
+		&i.IsAdmin,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -184,6 +194,7 @@ SELECT
     u.display_name,
     u.email,
     u.is_active,
+    u.is_admin,
     u.created_at,
     t.id AS token_id
 FROM api_tokens t
@@ -198,6 +209,7 @@ type GetUserByAPITokenRow struct {
 	DisplayName string             `json:"display_name"`
 	Email       string             `json:"email"`
 	IsActive    bool               `json:"is_active"`
+	IsAdmin     bool               `json:"is_admin"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	TokenID     pgtype.UUID        `json:"token_id"`
 }
@@ -211,6 +223,7 @@ func (q *Queries) GetUserByAPIToken(ctx context.Context, tokenHash string) (GetU
 		&i.DisplayName,
 		&i.Email,
 		&i.IsActive,
+		&i.IsAdmin,
 		&i.CreatedAt,
 		&i.TokenID,
 	)
@@ -218,19 +231,29 @@ func (q *Queries) GetUserByAPIToken(ctx context.Context, tokenHash string) (GetU
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, display_name, email, is_active, created_at
+SELECT id, display_name, email, is_active, is_admin, created_at
 FROM users
 WHERE email = $1
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+type GetUserByEmailRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	DisplayName string             `json:"display_name"`
+	Email       string             `json:"email"`
+	IsActive    bool               `json:"is_active"`
+	IsAdmin     bool               `json:"is_admin"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i User
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
 		&i.Email,
 		&i.IsActive,
+		&i.IsAdmin,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -243,6 +266,7 @@ SELECT
     u.display_name,
     u.email,
     u.is_active,
+    u.is_admin,
     u.created_at,
     s.id       AS session_id,
     s.expires_at
@@ -258,6 +282,7 @@ type GetUserBySessionTokenRow struct {
 	DisplayName string             `json:"display_name"`
 	Email       string             `json:"email"`
 	IsActive    bool               `json:"is_active"`
+	IsAdmin     bool               `json:"is_admin"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	SessionID   pgtype.UUID        `json:"session_id"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
@@ -274,6 +299,7 @@ func (q *Queries) GetUserBySessionToken(ctx context.Context, tokenHash string) (
 		&i.DisplayName,
 		&i.Email,
 		&i.IsActive,
+		&i.IsAdmin,
 		&i.CreatedAt,
 		&i.SessionID,
 		&i.ExpiresAt,
@@ -305,19 +331,30 @@ SELECT
     u.display_name,
     u.email,
     u.is_active,
+    u.is_admin,
     u.created_at
 FROM users u
 WHERE u.id = $1
 `
 
-func (q *Queries) GetUserWithMemberships(ctx context.Context, id pgtype.UUID) (User, error) {
+type GetUserWithMembershipsRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	DisplayName string             `json:"display_name"`
+	Email       string             `json:"email"`
+	IsActive    bool               `json:"is_active"`
+	IsAdmin     bool               `json:"is_admin"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUserWithMemberships(ctx context.Context, id pgtype.UUID) (GetUserWithMembershipsRow, error) {
 	row := q.db.QueryRow(ctx, getUserWithMemberships, id)
-	var i User
+	var i GetUserWithMembershipsRow
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
 		&i.Email,
 		&i.IsActive,
+		&i.IsAdmin,
 		&i.CreatedAt,
 	)
 	return i, err

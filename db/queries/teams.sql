@@ -74,3 +74,14 @@ WHERE id = $1;
 -- name: CheckTeamMembership :one
 -- Returns pgx.ErrNoRows when the user is not a member of the team.
 SELECT id FROM team_memberships WHERE team_id = $1 AND user_id = $2 LIMIT 1;
+
+-- name: SearchUsers :many
+-- Case-insensitive substring search on display_name or email.
+-- Returns at most 10 active users. Enforces a minimum 2-character query
+-- in the handler to prevent full-table scans.
+SELECT id, display_name, email
+FROM users
+WHERE is_active = TRUE
+  AND (display_name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+ORDER BY display_name
+LIMIT 10;

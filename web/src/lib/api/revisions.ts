@@ -31,6 +31,16 @@ export function updateBOMLineItem(teamId: string, projectId: string, revId: stri
   return request<BOMLineItem>('PATCH', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}`, body);
 }
 
+export interface SubstituteItem {
+  bom_line_item_id: string;
+  part_id: string;
+  part_mpn: string;
+}
+
+export function listAllSubstitutes(teamId: string, projectId: string, revId: string) {
+  return request<{ items: SubstituteItem[] }>('GET', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/substitutes`);
+}
+
 export function addSubstitute(teamId: string, projectId: string, revId: string, itemId: string, partId: string) {
   return request<void>('POST', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes`, { part_id: partId });
 }

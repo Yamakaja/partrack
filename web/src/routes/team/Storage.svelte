@@ -28,7 +28,7 @@
   let deleteOpen = $state(false);
   let deleteTarget = $state<StorageLocation | null>(null);
 
-  let query = $derived(createQuery({
+  let query = createQuery(() => ({
     queryKey: ['storage', teamId],
     queryFn: () => listStorageLocations(teamId),
   }));
@@ -103,12 +103,12 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6">
-    {#if $query.isPending}
+    {#if query.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
-    {:else if $query.isError}
-      <div class="text-sm text-destructive">Error: {$query.error.message}</div>
-    {:else if $query.data}
-      {@const items = $query.data.items}
+    {:else if query.isError}
+      <div class="text-sm text-destructive">Error: {query.error.message}</div>
+    {:else if query.data}
+      {@const items = query.data.items}
       {#if items.length === 0}
         <EmptyState
           title="No storage locations yet"

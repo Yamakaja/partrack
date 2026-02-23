@@ -10,7 +10,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { ShoppingCart, Zap } from 'lucide-svelte';
 
@@ -22,18 +22,18 @@
   let addingAll = $state(false);
   let addingItemId = $state<string | null>(null);
 
-  let projectQuery = $derived(createQuery({
+  let projectQuery = createQuery(() => ({
     queryKey: ['project', teamId, projectId],
     queryFn: () => getProject(teamId, projectId),
   }));
 
-  let revisionQuery = $derived(createQuery({
+  let revisionQuery = createQuery(() => ({
     queryKey: ['revision-meta', teamId, projectId, revId],
     queryFn: () => getRevision(teamId, projectId, revId),
   }));
 
-  let projectName = $derived($projectQuery.data?.name ?? 'Project');
-  let revisionLabel = $derived($revisionQuery.data?.label ?? 'Revision');
+  let projectName = $derived(projectQuery.data?.name ?? 'Project');
+  let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');
 
   async function handleCheck() {
     if (buildQty < 1) return;

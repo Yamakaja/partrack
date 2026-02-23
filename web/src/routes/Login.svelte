@@ -1,7 +1,7 @@
 <script lang="ts">
   import { login, getMe } from '$lib/api/auth.js';
   import { setAuth } from '$lib/stores/auth.svelte.js';
-  import { navigate } from '$lib/router/index.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
 
   let email = $state('');
