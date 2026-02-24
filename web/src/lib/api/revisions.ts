@@ -5,12 +5,24 @@ export function listRevisions(teamId: string, projectId: string) {
   return request<{ items: Revision[] }>('GET', `/api/v1/teams/${teamId}/projects/${projectId}/revisions`);
 }
 
+export interface ImportRevisionItem {
+  reference_designators: string;
+  quantity: number;
+  raw_description?: string;
+  manufacturer?: string;
+  mpn?: string;
+  name?: string;
+  sku?: string;
+  distributor_name?: string;
+  resolved_distributor_id?: string | null;
+}
+
 export interface ImportRevisionBody {
   label: string;
   notes?: string;
   set_active?: boolean;
   bom_import_config?: Record<string, string> | null;
-  items?: { reference_designators: string; quantity: number; raw_description?: string }[];
+  items?: ImportRevisionItem[];
 }
 
 export function importRevision(teamId: string, projectId: string, body: ImportRevisionBody) {

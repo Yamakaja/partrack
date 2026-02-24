@@ -50,6 +50,7 @@ export interface BOMLineItem {
   mpn: string | null;
   sku: string | null;
   distributor_name: string | null;
+  has_linked_distributor: boolean;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
   substitutes: BOMSubstitute[];

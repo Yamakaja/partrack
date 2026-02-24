@@ -218,12 +218,11 @@ func (q *Queue) handleBOMImport(job Job) {
 
 		var resolvedPartID pgtype.UUID
 
-		// 1. SKU-based resolution: if both sku and distributor_name are present,
-		//    look up the distributor listing to find the part.
-		if item.Sku != nil && *item.Sku != "" && item.DistributorName != nil && *item.DistributorName != "" {
-			if listing, err := queries.GetListingBySKUAndDistributorName(ctx, dbgen.GetListingBySKUAndDistributorNameParams{
-				Sku:  *item.Sku,
-				Name: *item.DistributorName,
+		// 1. SKU-based resolution: only if a resolved distributor ID was explicitly chosen.
+		if item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
+			if listing, err := queries.GetListingBySKUAndDistributorID(ctx, dbgen.GetListingBySKUAndDistributorIDParams{
+				Sku:           *item.Sku,
+				DistributorID: item.ResolvedDistributorID,
 			}); err == nil {
 				resolvedPartID = listing.PartID
 			}

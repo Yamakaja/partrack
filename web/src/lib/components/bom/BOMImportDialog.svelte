@@ -6,6 +6,8 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { importRevision } from '$lib/api/revisions.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import type { Distributor } from '$lib/types/parts.js';
+  import { listDistributors } from '$lib/api/distributors.js';
 
   type ColumnRole = 'ignore' | 'designators' | 'quantity' | 'mpn' | 'description'
                | 'manufacturer' | 'name' | 'sku' | 'distributor';
@@ -13,11 +15,15 @@
   let {
     teamId,
     projectId,
+    // The parent should pass the current project's saved BOM import config
+    // (projects.bom_import_config) so we can pre-populate the dialog.
+    initialConfig,
     oncomplete,
     trigger,
   }: {
     teamId: string;
     projectId: string;
+    initialConfig?: Record<string, string> | null;
     oncomplete: (jobId: string, revisionId: string) => void;
     trigger: import('svelte').Snippet<[() => void]>;
   } = $props();
@@ -73,7 +79,7 @@
   const COLUMN_WIDTH: number = 80
 
   let open = $state(false);
-  let step = $state<'parse' | 'map'>('parse');
+  let step = $state<'parse' | 'map' | 'distributor-map'>('parse');
   let rawText = $state('');
   let parsedRows = $state<string[][]>([]);
 
@@ -88,11 +94,52 @@
   // Column mapping — one ColumnRole per column
   let columnRoles = $state<ColumnRole[]>([]);
 
+  // Distributor mapping step
+  type DistMapping = Record<string, string | undefined>;
+
+  let uniqueDistributorNames = $state<string[]>([]);
+  let distributorMappings = $state<DistMapping>({});
+  let availableDistributors = $state<Distributor[]>([]);
+
   // Revision details
   let label = $state('');
   let importing = $state(false);
 
   let fileInputEl: HTMLInputElement;
+
+  // Initialize parse + mapping options from a previously saved bom_import_config, if provided.
+  function applyInitialConfig(config: Record<string, string> | null | undefined) {
+    if (!config) return;
+
+    // Core PapaParse options
+    if (config.delimiter) delimiter = config.delimiter;
+    if (config.quoteChar) quoteChar = config.quoteChar;
+    if (config.escapeChar) escapeChar = config.escapeChar;
+    if (config.comments) comments = config.comments;
+
+    if (config.hasHeader !== undefined) {
+      // Stored as string on the backend; treat anything truthy as true
+      hasHeader = config.hasHeader === 'true' || config.hasHeader === '1';
+    }
+
+    if (config.skipFirstLines !== undefined) {
+      const n = parseInt(config.skipFirstLines, 10);
+      if (!Number.isNaN(n) && n >= 0) {
+        skipFirstLines = n;
+      }
+    }
+
+    // Column mapping based on stored header names; we only apply this once we have parsed
+    // the header row, so we store the config and use it during advanceToMap.
+    _storedConfigForMapping = config;
+  }
+
+  // Holds the last loaded bom_import_config so that advanceToMap can apply role mappings
+  // based on the stored header names.
+  let _storedConfigForMapping: Record<string, string> | null | undefined = null;
+
+  // Apply initial configuration once when the component is created.
+  applyInitialConfig(initialConfig);
 
   // Re-parse whenever any option or raw text changes.
   $effect(() => {
@@ -149,11 +196,38 @@
 
   function advanceToMap() {
     const numCols = parsedRows[0]?.length ?? 0;
+
+    // Start with either AUTO_MAP- or ignore-based roles, as before
     if (hasHeader && parsedRows.length > 0) {
-      columnRoles = parsedRows[0].map(h => AUTO_MAP[h.toLowerCase().trim()] ?? 'ignore');
+      columnRoles = parsedRows[0].map((h) => AUTO_MAP[h.toLowerCase().trim()] ?? 'ignore');
     } else {
       columnRoles = Array.from({ length: numCols }, () => 'ignore' as ColumnRole);
     }
+
+    // If we have a stored config and a header row, try to refine the mapping so the
+    // exact columns the user picked last time are re-selected.
+    if (hasHeader && parsedRows.length > 0 && _storedConfigForMapping) {
+      const header = parsedRows[0];
+
+      const tryAssignRoleFromConfig = (configKey: string, role: ColumnRole) => {
+        const colName = _storedConfigForMapping?.[configKey];
+        if (!colName) return;
+        const idx = header.findIndex((h) => h === colName);
+        if (idx >= 0) {
+          columnRoles[idx] = role;
+        }
+      };
+
+      tryAssignRoleFromConfig('ref_col', 'designators');
+      tryAssignRoleFromConfig('qty_col', 'quantity');
+      tryAssignRoleFromConfig('mpn_col', 'mpn');
+      tryAssignRoleFromConfig('description_col', 'description');
+      tryAssignRoleFromConfig('manufacturer_col', 'manufacturer');
+      tryAssignRoleFromConfig('name_col', 'name');
+      tryAssignRoleFromConfig('sku_col', 'sku');
+      tryAssignRoleFromConfig('distributor_col', 'distributor');
+    }
+
     step = 'map';
   }
 
@@ -176,10 +250,44 @@
     columnRoles.filter(r => r === 'quantity').length === 1
   );
 
-  async function handleImport() {
+  function buildItems(mapping?: DistMapping) {
+    const desigIdx = columnRoles.indexOf('designators');
+    const qtyIdx   = columnRoles.indexOf('quantity');
+    const descIdx  = columnRoles.indexOf('description');
+    const mfrIdx   = columnRoles.indexOf('manufacturer');
+    const mpnIdx   = columnRoles.indexOf('mpn');
+    const nameIdx  = columnRoles.indexOf('name');
+    const skuIdx   = columnRoles.indexOf('sku');
+    const distIdx  = columnRoles.indexOf('distributor');
+
+    return dataRows
+      .map(row => {
+        const distributorName = distIdx >= 0 && row[distIdx]?.trim() ? row[distIdx].trim() : undefined;
+        const resolvedDistributorId = distributorName && mapping
+          ? (mapping[distributorName] || null)
+          : null;
+
+        return {
+          reference_designators: row[desigIdx]?.trim() ?? '',
+          quantity: parseInt(row[qtyIdx] ?? '0', 10),
+          raw_description:  descIdx >= 0 && row[descIdx]?.trim() ? row[descIdx].trim() : undefined,
+          mpn:              mpnIdx >= 0  && row[mpnIdx]?.trim()  ? row[mpnIdx].trim()  : undefined,
+          manufacturer:     mfrIdx  >= 0 && row[mfrIdx]?.trim()  ? row[mfrIdx].trim()  : undefined,
+          name:             nameIdx >= 0 && row[nameIdx]?.trim() ? row[nameIdx].trim() : undefined,
+          sku:              skuIdx  >= 0 && row[skuIdx]?.trim()  ? row[skuIdx].trim()  : undefined,
+          distributor_name: distributorName,
+          resolved_distributor_id: resolvedDistributorId,
+        };
+      })
+      .filter(it => it.reference_designators && it.quantity > 0);
+  }
+
+  async function performImport(mapping?: DistMapping) {
     if (!canImport) return;
     importing = true;
     try {
+      const items = buildItems(mapping);
+
       const desigIdx = columnRoles.indexOf('designators');
       const qtyIdx   = columnRoles.indexOf('quantity');
       const descIdx  = columnRoles.indexOf('description');
@@ -188,19 +296,6 @@
       const nameIdx  = columnRoles.indexOf('name');
       const skuIdx   = columnRoles.indexOf('sku');
       const distIdx  = columnRoles.indexOf('distributor');
-
-      const items = dataRows
-        .map(row => ({
-          reference_designators: row[desigIdx]?.trim() ?? '',
-          quantity: parseInt(row[qtyIdx] ?? '0', 10),
-          raw_description:  descIdx >= 0 && row[descIdx]?.trim() ? row[descIdx].trim() : undefined,
-          mpn:              mpnIdx >= 0  && row[mpnIdx]?.trim()  ? row[mpnIdx].trim()  : undefined,
-          manufacturer:     mfrIdx  >= 0 && row[mfrIdx]?.trim()  ? row[mfrIdx].trim()  : undefined,
-          name:             nameIdx >= 0 && row[nameIdx]?.trim() ? row[nameIdx].trim() : undefined,
-          sku:              skuIdx  >= 0 && row[skuIdx]?.trim()  ? row[skuIdx].trim()  : undefined,
-          distributor_name: distIdx >= 0 && row[distIdx]?.trim() ? row[distIdx].trim() : undefined,
-        }))
-        .filter(it => it.reference_designators && it.quantity > 0);
 
       const result = await importRevision(teamId, projectId, {
         label: label.trim(),
@@ -228,10 +323,47 @@
       pushToast('info', 'BOM import started');
       oncomplete(result.job_id, result.bom_revision_id);
     } catch (err: any) {
-      pushToast('error', 'Import failed', err.message);
+      pushToast('error', 'Import failed', err.message ?? String(err));
     } finally {
       importing = false;
     }
+  }
+
+  async function handleMapStepNext() {
+    if (!canImport || importing) return;
+
+    const items = buildItems();
+    const names = Array.from(new Set(
+      items
+        .map((it) => it.distributor_name?.trim())
+        .filter((v): v is string => !!v && v.length > 0),
+    ));
+
+    if (names.length === 0) {
+      await performImport();
+      return;
+    }
+
+    uniqueDistributorNames = names;
+    distributorMappings = {};
+    for (const n of names) {
+      distributorMappings[n] = undefined;
+    }
+
+    importing = true;
+    try {
+      const resp = await listDistributors();
+      availableDistributors = resp.items;
+      step = 'distributor-map';
+    } catch (err: any) {
+      pushToast('error', 'Failed to load distributors', err.message ?? String(err));
+    } finally {
+      importing = false;
+    }
+  }
+
+  async function handleDistributorImport() {
+    await performImport(distributorMappings);
   }
 
   function truncateRow(s: string|undefined): string {
@@ -284,9 +416,11 @@
           <Dialog.Title class="text-lg font-semibold">Import BOM</Dialog.Title>
           <Dialog.Description class="mt-0.5 text-sm text-muted-foreground">
             {#if step === 'parse'}
-              Adjust parsing options and verify the preview, then proceed to column mapping.
+              Enter a revision label, adjust parsing options and verify the preview, then proceed to column mapping.
+            {:else if step === 'map'}
+              Assign each column a role, then continue to distributor mapping or import.
             {:else}
-              Assign each column a role, enter a revision label, then click Import.
+              Map each distributor name from the CSV to a known distributor, then click Import.
             {/if}
           </Dialog.Description>
         </div>
@@ -294,6 +428,18 @@
           <span class={step === 'parse' ? 'font-semibold text-foreground' : ''}>1. Parse</span>
           <span>›</span>
           <span class={step === 'map' ? 'font-semibold text-foreground' : ''}>2. Map Columns</span>
+          <span>›</span>
+          <span class={step === 'distributor-map' ? 'font-semibold text-foreground' : ''}>3. Map Distributors</span>
+        </div>
+      </div>
+
+      <!-- Revision details (shown for all steps) -->
+      <div class="shrink-0 border-b border-border px-6 py-3">
+        <div class="max-w-xs space-y-1">
+          <Label for="bom-label">
+            Revision label <span class="text-destructive">*</span>
+          </Label>
+          <Input id="bom-label" bind:value={label} placeholder="e.g. v1.0, Rev A" />
         </div>
       </div>
 
@@ -387,7 +533,7 @@
           </Button>
         </div>
 
-      {:else}
+      {:else if step === 'map'}
         <!-- ── Step 2: Column mapping + revision label ── -->
 
         <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
@@ -432,14 +578,6 @@
             </div>
           {/if}
 
-          <!-- Revision label -->
-          <div class="mt-5 max-w-xs space-y-1">
-            <Label for="bom-label">
-              Revision label <span class="text-destructive">*</span>
-            </Label>
-            <Input id="bom-label" bind:value={label} placeholder="e.g. v1.0, Rev A" />
-          </div>
-
           {#if checkForDuplicates(columnRoles)}
             <p class="mt-2 text-xs text-destructive">
               Each column can only be assigned once.
@@ -456,7 +594,63 @@
           <Button variant="outline" onclick={() => (step = 'parse')}>← Back</Button>
           <div class="flex gap-2">
             <Button variant="outline" onclick={handleClose}>Cancel</Button>
-            <Button onclick={handleImport} disabled={!canImport || importing}>
+            <Button onclick={handleMapStepNext} disabled={!canImport || importing}>
+              {importing ? 'Importing…' : 'Import'}
+            </Button>
+          </div>
+        </div>
+
+      {:else}
+        <!-- ── Step 3: Distributor mapping ── -->
+
+        <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
+          {#if uniqueDistributorNames.length === 0}
+            <p class="py-8 text-center text-sm text-muted-foreground">
+              No distributors detected in the BOM.
+            </p>
+          {:else}
+            <div class="space-y-4">
+              <p class="text-sm text-muted-foreground">
+                Map each distributor name found in the CSV to a known distributor, or choose
+                <span class="font-semibold">None</span> to skip SKU-based resolution for that name.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="w-full border-collapse text-xs">
+                  <thead>
+                    <tr class="border-b border-border">
+                      <th class="px-3 py-1.5 text-left font-semibold text-muted-foreground">CSV distributor</th>
+                      <th class="px-3 py-1.5 text-left font-semibold text-muted-foreground">Resolve using</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each uniqueDistributorNames as name (name)}
+                      <tr class="border-b border-border/60">
+                        <td class="px-3 py-1.5 font-mono text-xs">{name}</td>
+                        <td class="px-3 py-1.5">
+                          <select
+                            bind:value={distributorMappings[name]}
+                            class="w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            <option value={''}>None (do not use for resolution)</option>
+                            {#each availableDistributors as d}
+                              <option value={d.id}>{d.name}</option>
+                            {/each}
+                          </select>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        <div class="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
+          <Button variant="outline" onclick={() => (step = 'map')}>← Back</Button>
+          <div class="flex gap-2">
+            <Button variant="outline" onclick={handleClose}>Cancel</Button>
+            <Button onclick={handleDistributorImport} disabled={!canImport || importing}>
               {importing ? 'Importing…' : 'Import'}
             </Button>
           </div>

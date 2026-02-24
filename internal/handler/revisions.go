@@ -59,7 +59,15 @@ func (h *Handler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 }
 
 // ImportRevision handles POST /api/v1/teams/{teamId}/projects/{projectId}/revisions
-// Body: {label, notes?, set_active, bom_import_config?, items: [{reference_designators, quantity, raw_description?}]}
+// Body: {label, notes?, set_active, bom_import_config?, items: [
+//
+//	{
+//	  reference_designators, quantity,
+//	  raw_description?, manufacturer?, mpn?, name?, sku?, distributor_name?,
+//	  resolved_distributor_id?
+//	}
+//
+// ]}
 func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -112,14 +120,15 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type itemInput struct {
-		ReferenceDesignators string  `json:"reference_designators"`
-		Quantity             int32   `json:"quantity"`
-		RawDescription       *string `json:"raw_description"`
-		Manufacturer         *string `json:"manufacturer"`
-		MPN                  *string `json:"mpn"`
-		Name                 *string `json:"name"`
-		SKU                  *string `json:"sku"`
-		DistributorName      *string `json:"distributor_name"`
+		ReferenceDesignators  string  `json:"reference_designators"`
+		Quantity              int32   `json:"quantity"`
+		RawDescription        *string `json:"raw_description"`
+		Manufacturer          *string `json:"manufacturer"`
+		MPN                   *string `json:"mpn"`
+		Name                  *string `json:"name"`
+		SKU                   *string `json:"sku"`
+		DistributorName       *string `json:"distributor_name"`
+		ResolvedDistributorID *string `json:"resolved_distributor_id"`
 	}
 	var items []itemInput
 	if v, ok := rawBody["items"]; ok {
@@ -156,16 +165,25 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, item := range items {
+		var resolvedDistributorID pgtype.UUID
+		if item.ResolvedDistributorID != nil && *item.ResolvedDistributorID != "" {
+			if err := resolvedDistributorID.Scan(*item.ResolvedDistributorID); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid resolved_distributor_id", "BAD_REQUEST")
+				return
+			}
+		}
+
 		_, err := qtx.CreateBOMLineItem(r.Context(), dbgen.CreateBOMLineItemParams{
-			BomRevisionID:        rev.ID,
-			ReferenceDesignators: item.ReferenceDesignators,
-			Quantity:             item.Quantity,
-			RawDescription:       item.RawDescription,
-			Manufacturer:         item.Manufacturer,
-			Mpn:                  item.MPN,
-			PartName:             item.Name,
-			Sku:                  item.SKU,
-			DistributorName:      item.DistributorName,
+			BomRevisionID:         rev.ID,
+			ReferenceDesignators:  item.ReferenceDesignators,
+			Quantity:              item.Quantity,
+			RawDescription:        item.RawDescription,
+			Manufacturer:          item.Manufacturer,
+			Mpn:                   item.MPN,
+			PartName:              item.Name,
+			Sku:                   item.SKU,
+			DistributorName:       item.DistributorName,
+			ResolvedDistributorID: resolvedDistributorID,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -271,6 +289,7 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		MPN                  *string    `json:"mpn"`
 		SKU                  *string    `json:"sku"`
 		DistributorName      *string    `json:"distributor_name"`
+		HasLinkedDistributor bool       `json:"has_linked_distributor"`
 		ResolvedPartID       *string    `json:"resolved_part_id"`
 		ResolvedPartMpn      *string    `json:"resolved_part_mpn"`
 		Substitutes          []subEntry `json:"substitutes"`
@@ -289,6 +308,7 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			MPN:                  li.Mpn,
 			SKU:                  li.Sku,
 			DistributorName:      li.DistributorName,
+			HasLinkedDistributor: li.ResolvedDistributorID.Valid,
 			ResolvedPartID:       uuidPtrString(li.ResolvedPartID),
 			ResolvedPartMpn:      li.ResolvedPartMpn,
 			Substitutes:          subsByItem[id],

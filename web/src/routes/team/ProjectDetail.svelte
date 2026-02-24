@@ -80,7 +80,12 @@
     ]}
   >
     {#snippet actions()}
-      <BOMImportDialog {teamId} {projectId} oncomplete={handleImportStarted}>
+      <BOMImportDialog
+        {teamId}
+        {projectId}
+        initialConfig={projectQuery.data?.bom_import_config ?? null}
+        oncomplete={handleImportStarted}
+      >
         {#snippet trigger(open)}
           <Button size="sm" onclick={open}>
             <Upload class="h-4 w-4 mr-1" /> Import BOM
@@ -123,7 +128,12 @@
             description="Import a BOM file to create the first revision."
           >
             {#snippet action()}
-              <BOMImportDialog {teamId} {projectId} oncomplete={handleImportStarted}>
+              <BOMImportDialog
+                {teamId}
+                {projectId}
+                initialConfig={projectQuery.data?.bom_import_config ?? null}
+                oncomplete={handleImportStarted}
+              >
                 {#snippet trigger(open)}
                   <Button size="sm" onclick={open}>
                     <Upload class="h-4 w-4 mr-1" /> Import BOM

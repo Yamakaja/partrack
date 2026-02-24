@@ -65,3 +65,10 @@ JOIN distributors d ON d.id = dl.distributor_id
 WHERE dl.sku = $1
   AND d.name ILIKE $2
 LIMIT 1;
+
+-- name: GetListingBySKUAndDistributorID :one
+SELECT id, part_id
+FROM distributor_listings
+WHERE sku = $1 AND distributor_id = $2
+LIMIT 1;
+

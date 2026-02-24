@@ -370,17 +370,18 @@ type ApiToken struct {
 }
 
 type BomLineItem struct {
-	ID                   pgtype.UUID `json:"id"`
-	BomRevisionID        pgtype.UUID `json:"bom_revision_id"`
-	ReferenceDesignators string      `json:"reference_designators"`
-	Quantity             int32       `json:"quantity"`
-	RawDescription       *string     `json:"raw_description"`
-	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
-	Manufacturer         *string     `json:"manufacturer"`
-	Mpn                  *string     `json:"mpn"`
-	PartName             *string     `json:"part_name"`
-	Sku                  *string     `json:"sku"`
-	DistributorName      *string     `json:"distributor_name"`
+	ID                    pgtype.UUID `json:"id"`
+	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`
+	ReferenceDesignators  string      `json:"reference_designators"`
+	Quantity              int32       `json:"quantity"`
+	RawDescription        *string     `json:"raw_description"`
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	Manufacturer          *string     `json:"manufacturer"`
+	Mpn                   *string     `json:"mpn"`
+	PartName              *string     `json:"part_name"`
+	Sku                   *string     `json:"sku"`
+	DistributorName       *string     `json:"distributor_name"`
+	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
 }
 
 type BomLineItemSubstitute struct {

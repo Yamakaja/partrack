@@ -91,7 +91,17 @@
     {truncateRow(item.reference_designators) || '—'}
   </TableCell>
   <TableCell>
-    {item.distributor_name || ''}
+    <div class="flex items-center gap-1">
+      <span>{item.distributor_name || ''}</span>
+      {#if item.distributor_name}
+        <span
+          class="text-xs align-middle"
+          title={item.has_linked_distributor ? 'Distributor linked' : 'Distributor not linked'}
+        >
+          {item.has_linked_distributor ? '✓' : '✕'}
+        </span>
+      {/if}
+    </div>
   </TableCell>
   <TableCell>
     {item.sku || ''}

@@ -13,7 +13,7 @@ LEFT JOIN bom_line_items bli ON bli.bom_revision_id = br.id
 WHERE br.project_id = $1
 GROUP BY br.id, u.display_name, p.active_bom_revision_id
 ORDER BY br.imported_at DESC;
-
+ 
 -- name: GetRevision :one
 SELECT
     br.id, br.label, br.imported_at, br.notes,
@@ -23,12 +23,12 @@ FROM bom_revisions br
 JOIN users u ON u.id = br.imported_by
 JOIN projects p ON p.id = br.project_id
 WHERE br.id = $1 AND br.project_id = $2;
-
+ 
 -- name: CreateRevision :one
 INSERT INTO bom_revisions (project_id, label, notes, imported_by)
 VALUES ($1, $2, $3, $4)
 RETURNING id, project_id, label, imported_at, notes, imported_by;
-
+ 
 -- name: UpdateRevision :one
 UPDATE bom_revisions
 SET label = COALESCE(sqlc.narg('label'), label),
@@ -39,8 +39,8 @@ RETURNING id, label, imported_at, notes, imported_by;
 -- name: CreateBOMLineItem :one
 INSERT INTO bom_line_items (
     bom_revision_id, reference_designators, quantity, raw_description,
-    manufacturer, mpn, part_name, sku, distributor_name
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id;
 
 -- name: ListBOMLineItems :many
@@ -48,6 +48,7 @@ SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
     bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
+    bli.resolved_distributor_id,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id

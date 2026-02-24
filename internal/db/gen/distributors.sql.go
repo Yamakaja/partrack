@@ -26,6 +26,30 @@ func (q *Queries) DeleteDistributorConfig(ctx context.Context, arg DeleteDistrib
 	return err
 }
 
+const getListingBySKUAndDistributorID = `-- name: GetListingBySKUAndDistributorID :one
+SELECT id, part_id
+FROM distributor_listings
+WHERE sku = $1 AND distributor_id = $2
+LIMIT 1
+`
+
+type GetListingBySKUAndDistributorIDParams struct {
+	Sku           string      `json:"sku"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+}
+
+type GetListingBySKUAndDistributorIDRow struct {
+	ID     pgtype.UUID `json:"id"`
+	PartID pgtype.UUID `json:"part_id"`
+}
+
+func (q *Queries) GetListingBySKUAndDistributorID(ctx context.Context, arg GetListingBySKUAndDistributorIDParams) (GetListingBySKUAndDistributorIDRow, error) {
+	row := q.db.QueryRow(ctx, getListingBySKUAndDistributorID, arg.Sku, arg.DistributorID)
+	var i GetListingBySKUAndDistributorIDRow
+	err := row.Scan(&i.ID, &i.PartID)
+	return i, err
+}
+
 const getListingBySKUAndDistributorName = `-- name: GetListingBySKUAndDistributorName :one
 SELECT dl.id, dl.part_id
 FROM distributor_listings dl
