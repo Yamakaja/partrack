@@ -17,11 +17,30 @@ export interface ImportRevisionItem {
   resolved_distributor_id?: string | null;
 }
 
+export interface BOMImportConfig {
+  delimiter?: string;
+  quoteChar?: string;
+  escapeChar?: string;
+  hasHeader?: string;
+  comments?: string;
+  skipFirstLines?: string;
+  ref_col?: string;
+  qty_col?: string;
+  mpn_col?: string;
+  description_col?: string;
+  manufacturer_col?: string;
+  name_col?: string;
+  sku_col?: string;
+  distributor_col?: string;
+  /** distributor name → distributor UUID mapping chosen at import time */
+  mapping?: Record<string, string | undefined>;
+}
+
 export interface ImportRevisionBody {
   label: string;
   notes?: string;
   set_active?: boolean;
-  bom_import_config?: Record<string, string> | null;
+  bom_import_config?: BOMImportConfig | null;
   items?: ImportRevisionItem[];
 }
 

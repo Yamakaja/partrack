@@ -4,7 +4,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { importRevision } from '$lib/api/revisions.js';
+  import { importRevision, type BOMImportConfig } from '$lib/api/revisions.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { Distributor } from '$lib/types/parts.js';
   import { listDistributors } from '$lib/api/distributors.js';
@@ -23,7 +23,7 @@
   }: {
     teamId: string;
     projectId: string;
-    initialConfig?: Record<string, string> | null;
+    initialConfig?: BOMImportConfig | null;
     oncomplete: (jobId: string, revisionId: string) => void;
     trigger: import('svelte').Snippet<[() => void]>;
   } = $props();
@@ -79,7 +79,7 @@
   const COLUMN_WIDTH: number = 80
 
   let open = $state(false);
-  let step = $state<'parse' | 'map' | 'distributor-map'>('parse');
+  let step = $state<'parse' | 'map' | 'distributor-map' | 'details'>('parse');
   let rawText = $state('');
   let parsedRows = $state<string[][]>([]);
 
@@ -108,7 +108,7 @@
   let fileInputEl: HTMLInputElement;
 
   // Initialize parse + mapping options from a previously saved bom_import_config, if provided.
-  function applyInitialConfig(config: Record<string, string> | null | undefined) {
+  function applyInitialConfig(config: BOMImportConfig | null | undefined) {
     if (!config) return;
 
     // Core PapaParse options
@@ -132,11 +132,12 @@
     // Column mapping based on stored header names; we only apply this once we have parsed
     // the header row, so we store the config and use it during advanceToMap.
     _storedConfigForMapping = config;
+    distributorMappings = config.dist_mapping ?? {};
   }
 
   // Holds the last loaded bom_import_config so that advanceToMap can apply role mappings
   // based on the stored header names.
-  let _storedConfigForMapping: Record<string, string> | null | undefined = null;
+  let _storedConfigForMapping: BOMImportConfig | null | undefined = null;
 
   // Apply initial configuration once when the component is created.
   applyInitialConfig(initialConfig);
@@ -209,8 +210,8 @@
     if (hasHeader && parsedRows.length > 0 && _storedConfigForMapping) {
       const header = parsedRows[0];
 
-      const tryAssignRoleFromConfig = (configKey: string, role: ColumnRole) => {
-        const colName = _storedConfigForMapping?.[configKey];
+      const tryAssignRoleFromConfig = (configKey: keyof BOMImportConfig, role: ColumnRole) => {
+        const colName = _storedConfigForMapping?.[configKey] as string | undefined;
         if (!colName) return;
         const idx = header.findIndex((h) => h === colName);
         if (idx >= 0) {
@@ -244,10 +245,15 @@
   let dataRows = $derived(hasHeader ? parsedRows.slice(1) : parsedRows);
   let previewRows = $derived(dataRows.slice(0, 20));
 
-  let canImport = $derived(
-    label.trim().length > 0 &&
+  // Column requirements (designators + quantity must each be mapped once)
+  let hasRequiredColumns = $derived(
     columnRoles.filter(r => r === 'designators').length === 1 &&
     columnRoles.filter(r => r === 'quantity').length === 1
+  );
+
+  // Final import requires a revision label and valid column mapping.
+  let canImport = $derived(
+    label.trim().length > 0 && hasRequiredColumns
   );
 
   function buildItems(mapping?: DistMapping) {
@@ -315,6 +321,7 @@
           name_col:         nameIdx  >= 0 ? (headerRow[nameIdx]  ?? '') : '',
           sku_col:          skuIdx   >= 0 ? (headerRow[skuIdx]   ?? '') : '',
           distributor_col:  distIdx  >= 0 ? (headerRow[distIdx]  ?? '') : '',
+          dist_mapping: mapping
         },
         items,
       });
@@ -330,7 +337,7 @@
   }
 
   async function handleMapStepNext() {
-    if (!canImport || importing) return;
+    if (!hasRequiredColumns || importing) return;
 
     const items = buildItems();
     const names = Array.from(new Set(
@@ -339,15 +346,18 @@
         .filter((v): v is string => !!v && v.length > 0),
     ));
 
+    // If there are no distributor names in the BOM, skip distributor mapping
+    // and go straight to the final details step.
     if (names.length === 0) {
-      await performImport();
+      step = 'details';
       return;
     }
 
     uniqueDistributorNames = names;
-    distributorMappings = {};
+    // distributorMappings = {};
     for (const n of names) {
-      distributorMappings[n] = undefined;
+      if (!(n in distributorMappings))
+        distributorMappings[n] = undefined;
     }
 
     importing = true;
@@ -362,8 +372,14 @@
     }
   }
 
-  async function handleDistributorImport() {
-    await performImport(distributorMappings);
+  function handleDistributorNext() {
+    step = 'details';
+  }
+
+  async function handleFinalImport() {
+    if (!canImport || importing) return;
+    const mapping = uniqueDistributorNames.length > 0 ? distributorMappings : undefined;
+    await performImport(mapping);
   }
 
   function truncateRow(s: string|undefined): string {
@@ -411,35 +427,32 @@
       style="max-height: 85vh;"
     >
       <!-- Dialog header -->
-      <div class="flex shrink-0 items-start justify-between border-b border-border px-6 pb-4 pt-5">
-        <div>
+      <div class="flex shrink-0 items-center justify-between border-b border-border px-6 pb-4 pt-5 gap-6">
+        <!-- Left: title + description -->
+        <div class="space-y-1">
           <Dialog.Title class="text-lg font-semibold">Import BOM</Dialog.Title>
-          <Dialog.Description class="mt-0.5 text-sm text-muted-foreground">
+          <Dialog.Description class="text-sm text-muted-foreground">
             {#if step === 'parse'}
-              Enter a revision label, adjust parsing options and verify the preview, then proceed to column mapping.
+              Adjust parsing options and verify the preview, then proceed to column mapping.
             {:else if step === 'map'}
               Assign each column a role, then continue to distributor mapping or import.
+            {:else if step === 'distributor-map'}
+              Map each distributor name from the CSV to a known distributor, then proceed to details.
             {:else}
-              Map each distributor name from the CSV to a known distributor, then click Import.
+              Review the revision label and confirm the import.
             {/if}
           </Dialog.Description>
         </div>
-        <div class="ml-4 flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+
+        <!-- Right: step indicator -->
+        <div class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span class={step === 'parse' ? 'font-semibold text-foreground' : ''}>1. Parse</span>
           <span>›</span>
           <span class={step === 'map' ? 'font-semibold text-foreground' : ''}>2. Map Columns</span>
           <span>›</span>
           <span class={step === 'distributor-map' ? 'font-semibold text-foreground' : ''}>3. Map Distributors</span>
-        </div>
-      </div>
-
-      <!-- Revision details (shown for all steps) -->
-      <div class="shrink-0 border-b border-border px-6 py-3">
-        <div class="max-w-xs space-y-1">
-          <Label for="bom-label">
-            Revision label <span class="text-destructive">*</span>
-          </Label>
-          <Input id="bom-label" bind:value={label} placeholder="e.g. v1.0, Rev A" />
+          <span>›</span>
+          <span class={step === 'details' ? 'font-semibold text-foreground' : ''}>4. Details</span>
         </div>
       </div>
 
@@ -594,13 +607,13 @@
           <Button variant="outline" onclick={() => (step = 'parse')}>← Back</Button>
           <div class="flex gap-2">
             <Button variant="outline" onclick={handleClose}>Cancel</Button>
-            <Button onclick={handleMapStepNext} disabled={!canImport || importing}>
-              {importing ? 'Importing…' : 'Import'}
+            <Button onclick={handleMapStepNext} disabled={!hasRequiredColumns || importing}>
+              Next: Distributor Mapping →
             </Button>
           </div>
         </div>
 
-      {:else}
+      {:else if step === 'distributor-map'}
         <!-- ── Step 3: Distributor mapping ── -->
 
         <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
@@ -610,10 +623,6 @@
             </p>
           {:else}
             <div class="space-y-4">
-              <p class="text-sm text-muted-foreground">
-                Map each distributor name found in the CSV to a known distributor, or choose
-                <span class="font-semibold">None</span> to skip SKU-based resolution for that name.
-              </p>
               <div class="overflow-x-auto">
                 <table class="w-full border-collapse text-xs">
                   <thead>
@@ -650,7 +659,30 @@
           <Button variant="outline" onclick={() => (step = 'map')}>← Back</Button>
           <div class="flex gap-2">
             <Button variant="outline" onclick={handleClose}>Cancel</Button>
-            <Button onclick={handleDistributorImport} disabled={!canImport || importing}>
+            <Button onclick={handleDistributorNext} disabled={!hasRequiredColumns}>
+              Next: Details →
+            </Button>
+          </div>
+        </div>
+
+      {:else}
+        <!-- ── Step 4: Details / final confirmation ── -->
+        <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
+          <div class="space-y-3 max-w-xl">
+            <div class="space-y-1">
+              <Label class="text-xs">Revision label</Label>
+              <Input bind:value={label} placeholder="e.g. v1.0, Rev A" class="h-8 text-sm max-w-xs" />
+            </div>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
+          <Button variant="outline" onclick={() => (step = uniqueDistributorNames.length > 0 ? 'distributor-map' : 'map')}>
+            ← Back
+          </Button>
+          <div class="flex gap-2">
+            <Button variant="outline" onclick={handleClose}>Cancel</Button>
+            <Button onclick={handleFinalImport} disabled={!canImport || importing}>
               {importing ? 'Importing…' : 'Import'}
             </Button>
           </div>
