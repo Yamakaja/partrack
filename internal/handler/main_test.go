@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 	reg := distributor.NewRegistry()
 	reg.Register("test", testclient.New())
 	q := worker.New(1, testDB, reg)
-	srv := server.New(cfg, testDB, q)
+	srv := server.New(cfg, testDB, q, reg)
 	ts := httptest.NewServer(srv.Handler)
 
 	testEnv = &testEnvType{Server: ts, DB: testDB, Queue: q}

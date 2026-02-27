@@ -166,5 +166,8 @@ func (c *Client) SearchParts(_ context.Context, q distributor.SearchQuery, _ jso
 	}
 
 	// Everything else: no results.
-	return nil, nil
+	return &distributor.SearchResult{
+		Products:   []distributor.SearchProduct{},
+		TotalCount: 0,
+	}, nil
 }

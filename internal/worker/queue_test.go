@@ -65,10 +65,14 @@ func TestHandlePartEnrich_LM317(t *testing.T) {
 	defer cancel()
 
 	q.process(Job{
-		ID:      "j-lm317",
-		Type:    JobPartEnrich,
-		TeamID:  teamID,
-		Payload: map[string]string{"part_id": partID},
+		ID:     "j-lm317",
+		Type:   JobPartEnrich,
+		TeamID: teamID,
+		Payload: map[string]string{
+			"part_id":        partID,
+			"sku":            "LM317-TEST-TUBE",
+			"distributor_id": distID,
+		},
 	})
 
 	if d := drainEvents(ch, "complete", 2*time.Second); d == nil {
@@ -107,7 +111,7 @@ func TestHandlePartEnrich_LM317(t *testing.T) {
 	}
 }
 
-func TestHandlePartEnrich_UnknownMPN(t *testing.T) {
+func TestHandlePartEnrich_UnknownSKU(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
 	userID := testutil.CreateUser(t, testDB, "bc547@example.com", "pw", "BC547 Test")
@@ -121,15 +125,19 @@ func TestHandlePartEnrich_UnknownMPN(t *testing.T) {
 	defer cancel()
 
 	q.process(Job{
-		ID:      "j-bc547",
-		Type:    JobPartEnrich,
-		TeamID:  teamID,
-		Payload: map[string]string{"part_id": partID},
+		ID:     "j-bc547",
+		Type:   JobPartEnrich,
+		TeamID: teamID,
+		Payload: map[string]string{
+			"part_id":        partID,
+			"sku":            "BC547-BOGUS-SKU",
+			"distributor_id": distID,
+		},
 	})
 
-	// Wait for complete event.
-	if d := drainEvents(ch, "complete", 2*time.Second); d == nil {
-		t.Fatal("timed out waiting for status=complete")
+	// SKU not known to testclient → not_found event (no complete published).
+	if d := drainEvents(ch, "not_found", 2*time.Second); d == nil {
+		t.Fatal("expected not_found event for unknown SKU")
 	}
 
 	var paramCount, listingCount int
