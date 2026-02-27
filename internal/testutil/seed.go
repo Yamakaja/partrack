@@ -29,12 +29,23 @@ func randHex(n int) string {
 // CreateUser inserts a user with a bcrypt-hashed password and returns the user UUID string.
 func CreateUser(t *testing.T, pool *pgxpool.Pool, email, password, displayName string) string {
 	t.Helper()
+	return createUser(t, pool, email, password, displayName, false)
+}
+
+// CreateAdminUser inserts a user with is_admin=true and returns the user UUID string.
+func CreateAdminUser(t *testing.T, pool *pgxpool.Pool, email, password, displayName string) string {
+	t.Helper()
+	return createUser(t, pool, email, password, displayName, true)
+}
+
+func createUser(t *testing.T, pool *pgxpool.Pool, email, password, displayName string, isAdmin bool) string {
+	t.Helper()
 	ctx := context.Background()
 
 	var userID string
 	err := pool.QueryRow(ctx,
-		`INSERT INTO users (display_name, email) VALUES ($1, $2) RETURNING id`,
-		displayName, email,
+		`INSERT INTO users (display_name, email, is_admin) VALUES ($1, $2, $3) RETURNING id`,
+		displayName, email, isAdmin,
 	).Scan(&userID)
 	if err != nil {
 		t.Fatalf("testutil: CreateUser: %v", err)

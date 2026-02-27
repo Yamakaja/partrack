@@ -11,7 +11,7 @@ import (
 func TestCreateTeam(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
-	userID := testutil.CreateUser(t, testDB, "teamcreate@example.com", "pw", "Creator")
+	userID := testutil.CreateAdminUser(t, testDB, "teamcreate@example.com", "pw", "Creator")
 	token := testutil.CreateSession(t, testDB, userID)
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/teams",
@@ -41,7 +41,7 @@ func TestCreateTeam(t *testing.T) {
 func TestCreateTeam_MissingName(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
-	userID := testutil.CreateUser(t, testDB, "teamnoname@example.com", "pw", "NoName")
+	userID := testutil.CreateAdminUser(t, testDB, "teamnoname@example.com", "pw", "NoName")
 	token := testutil.CreateSession(t, testDB, userID)
 
 	_, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/teams",
