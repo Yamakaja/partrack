@@ -76,7 +76,7 @@ An electronics parts inventory tracking system for PCB designers. Core workflow:
 
 The data model (`datamodel.md`) has no open design questions. Critical things to understand before writing code:
 
-- **Part** (global or team-scoped) is a catalog entry — it exists independently of stock. Identified by MPN where possible. Never deleted; use lifecycle status instead.
+- **Part** (global or team-scoped) is a catalog entry — it exists independently of stock. Identified by MPN where possible (MPN may only be unique within a manufacturer, but are generally not unique globally). Never deleted; use lifecycle status instead.
 - **Inventory Entry** is the team's *profile* for a Part — holds preferred storage location, preferred distributor listing, minimum stock level, reorder quantity, and the stock ledger. Created with zero quantity when a Part first becomes relevant to a team. Not the same as "has stock."
 - **Stock Adjustment** is an immutable ledger entry; quantity on hand is a running total derived from these. Source of an adjustment is one of: Order Line Item (receipt), Build (PCB assembly), General Checkout (ad-hoc withdrawal), or null (manual correction).
 - **Distributor Listing** is one Distributor × Part × Packaging Type combination. A single MPN can have many listings (different distributors, different packaging, different MOQ and fixed costs).
@@ -86,6 +86,7 @@ The data model (`datamodel.md`) has no open design questions. Critical things to
 - **Shopping Cart** is the team's persistent staging area (one per team) for parts to be ordered, populated from BOM shortfall checks, inventory maintenance scans, or manual additions. Cart items are converted to Orders grouped by distributor.
 - **Build** records a PCB assembly event (project + BOM revision + quantity built) and drives stock deductions.
 - **General Checkout** records ad-hoc parts withdrawal not tied to a project.
+- Distributor + SKU pairs can be considered unique identifiers of a listing, which itself is associated with a manufacturer and MPN.
 
 ## Architectural Constraints Already Decided
 
