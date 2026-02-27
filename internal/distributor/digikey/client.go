@@ -139,38 +139,45 @@ func setHeaders(req *http.Request, creds Credentials, token string) {
 	}
 }
 
-// doPostJSON performs an authenticated POST with a JSON body, decoding a JSON response into out.
+// doRequest performs an authenticated HTTP request, decoding a JSON response into out.
+// For POST requests body is marshalled to JSON and Content-Type is set; for GET pass body=nil.
 // Returns (true, nil) on 200, (false, nil) on 404, (false, err) otherwise.
-// Handles 401 by re-fetching the token and retrying once; 429 by honouring Retry-After and retrying once.
-func (c *Client) doPostJSON(ctx context.Context, rawURL string, body any, creds Credentials, out any) (found bool, err error) {
+// Retries once on 401 (token refresh) and once on 429 (Retry-After backoff).
+func (c *Client) doRequest(ctx context.Context, method, rawURL string, body any, creds Credentials, out any) (bool, error) {
 	token, err := c.getToken(ctx, creds)
 	if err != nil {
 		return false, err
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
-		buf, err := json.Marshal(body)
-		if err != nil {
-			return false, fmt.Errorf("digikey: encode request body: %w", err)
+		var bodyReader io.Reader
+		if body != nil {
+			buf, err := json.Marshal(body)
+			if err != nil {
+				return false, fmt.Errorf("digikey: encode request body: %w", err)
+			}
+			bodyReader = bytes.NewReader(buf)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(buf))
+		req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
 		if err != nil {
 			return false, fmt.Errorf("digikey: build request: %w", err)
 		}
-		req.Header.Set("Content-Type", "application/json")
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		setHeaders(req, creds, token)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			return false, fmt.Errorf("digikey: request: %w", err)
 		}
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
 		switch resp.StatusCode {
 		case http.StatusOK:
-			if err := json.Unmarshal(bodyBytes, out); err != nil {
+			if err := json.Unmarshal(respBody, out); err != nil {
 				return false, fmt.Errorf("digikey: decode response: %w", err)
 			}
 			return true, nil
@@ -179,7 +186,7 @@ func (c *Client) doPostJSON(ctx context.Context, rawURL string, body any, creds 
 			return false, nil
 
 		case http.StatusBadRequest:
-			return false, fmt.Errorf("digikey: 400 bad request: %s", bodyBytes)
+			return false, fmt.Errorf("digikey: 400 bad request: %s", respBody)
 
 		case http.StatusUnauthorized:
 			if attempt == 0 {
@@ -210,81 +217,18 @@ func (c *Client) doPostJSON(ctx context.Context, rawURL string, body any, creds 
 			return false, fmt.Errorf("digikey: 429 rate limited")
 
 		default:
-			return false, fmt.Errorf("digikey: unexpected status %d: %s", resp.StatusCode, bodyBytes)
+			return false, fmt.Errorf("digikey: unexpected status %d: %s", resp.StatusCode, respBody)
 		}
 	}
 	return false, fmt.Errorf("digikey: max retries exceeded")
 }
 
-// doGet performs an authenticated GET, decoding a JSON response into out.
-// Returns (true, nil) on 200, (false, nil) on 404, (false, err) otherwise.
-// Handles 401 by re-fetching the token and retrying once; 429 by honouring Retry-After and retrying once.
-func (c *Client) doGet(ctx context.Context, rawURL string, creds Credentials, out any) (found bool, err error) {
-	token, err := c.getToken(ctx, creds)
-	if err != nil {
-		return false, err
-	}
+func (c *Client) doGet(ctx context.Context, rawURL string, creds Credentials, out any) (bool, error) {
+	return c.doRequest(ctx, http.MethodGet, rawURL, nil, creds, out)
+}
 
-	for attempt := 0; attempt < 2; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-		if err != nil {
-			return false, fmt.Errorf("digikey: build request: %w", err)
-		}
-		setHeaders(req, creds, token)
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return false, fmt.Errorf("digikey: request: %w", err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		switch resp.StatusCode {
-		case http.StatusOK:
-			if err := json.Unmarshal(body, out); err != nil {
-				return false, fmt.Errorf("digikey: decode response: %w", err)
-			}
-			return true, nil
-
-		case http.StatusNotFound:
-			return false, nil
-
-		case http.StatusBadRequest:
-			return false, fmt.Errorf("digikey: 400 bad request: %s", body)
-
-		case http.StatusUnauthorized:
-			if attempt == 0 {
-				c.invalidateToken(creds.ClientID)
-				token, err = c.getToken(ctx, creds)
-				if err != nil {
-					return false, err
-				}
-				continue
-			}
-			return false, fmt.Errorf("digikey: 401 unauthorized after token refresh")
-
-		case http.StatusTooManyRequests:
-			if attempt == 0 {
-				wait := 5 * time.Second
-				if ra := resp.Header.Get("Retry-After"); ra != "" {
-					if secs, err := strconv.Atoi(ra); err == nil {
-						wait = time.Duration(secs) * time.Second
-					}
-				}
-				select {
-				case <-ctx.Done():
-					return false, ctx.Err()
-				case <-time.After(wait):
-				}
-				continue
-			}
-			return false, fmt.Errorf("digikey: 429 rate limited")
-
-		default:
-			return false, fmt.Errorf("digikey: unexpected status %d: %s", resp.StatusCode, body)
-		}
-	}
-	return false, fmt.Errorf("digikey: max retries exceeded")
+func (c *Client) doPostJSON(ctx context.Context, rawURL string, body any, creds Credentials, out any) (bool, error) {
+	return c.doRequest(ctx, http.MethodPost, rawURL, body, creds, out)
 }
 
 // ---- DigiKey API response types ----
@@ -383,9 +327,10 @@ type isoSearchLocale struct{}
 
 // ---- distributor.Client implementation ----
 
-// EnrichPart fetches full product metadata and listings for mpn from DigiKey.
-// Returns nil, nil if the MPN is not found.
-func (c *Client) EnrichPart(ctx context.Context, mpn string, rawCreds json.RawMessage) (*distributor.EnrichmentResult, error) {
+// EnrichPart fetches full product metadata and listings for a specific DigiKey SKU.
+// The SKU must be chosen unambiguously by the caller (e.g. selected from SearchParts results).
+// Returns nil, nil if the SKU is not found.
+func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMessage) (*distributor.EnrichmentResult, error) {
 	if rawCreds == nil {
 		return nil, fmt.Errorf("digikey: credentials required")
 	}
@@ -394,7 +339,7 @@ func (c *Client) EnrichPart(ctx context.Context, mpn string, rawCreds json.RawMe
 		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
 	}
 
-	endpoint := baseURL(creds) + "/products/v4/search/" + url.PathEscape(mpn) + "/productdetails"
+	endpoint := baseURL(creds) + "/products/v4/search/" + url.PathEscape(sku) + "/productdetails"
 	var resp productDetailsResponse
 	found, err := c.doGet(ctx, endpoint, creds, &resp)
 	if err != nil {
@@ -406,26 +351,20 @@ func (c *Client) EnrichPart(ctx context.Context, mpn string, rawCreds json.RawMe
 
 	p := resp.Product
 	result := &distributor.EnrichmentResult{
-		Manufacturer: p.Manufacturer.Name,
-		Description:  p.Description.ProductDescription,
-		Category:     p.Category.Name,
-		DatasheetURL: p.DatasheetUrl,
+		Manufacturer:    p.Manufacturer.Name,
+		Description:     p.Description.ProductDescription,
+		Category:        p.Category.Name,
+		DatasheetURL:    p.DatasheetUrl,
+		Package:         extractPackage(p.Parameters),
+		LifecycleStatus: mapProductStatus(p.ProductStatus.Status),
 	}
 	if result.Description == "" {
 		result.Description = p.Description.DetailedDescription
 	}
 
-	// Extract parameters; also capture package while iterating.
-	var packageCase, supplierPackage string
 	for _, param := range p.Parameters {
 		if param.ValueText == "" || param.ValueText == "-" {
 			continue
-		}
-		switch param.ParameterText {
-		case "Package / Case":
-			packageCase = param.ValueText
-		case "Supplier Device Package":
-			supplierPackage = param.ValueText
 		}
 
 		p2 := distributor.Parameter{
@@ -443,12 +382,6 @@ func (c *Client) EnrichPart(ctx context.Context, mpn string, rawCreds json.RawMe
 			}
 		}
 		result.Parameters = append(result.Parameters, p2)
-	}
-
-	if packageCase != "" {
-		result.Package = packageCase
-	} else if supplierPackage != "" {
-		result.Package = supplierPackage
 	}
 
 	// Build one Listing per non-marketplace ProductVariation.
@@ -558,25 +491,10 @@ func (c *Client) SearchParts(ctx context.Context, q distributor.SearchQuery, raw
 			Manufacturer: p.Manufacturer.Name,
 			Description:  p.Description.ProductDescription,
 			Category:     p.Category.Name,
+			Package:      extractPackage(p.Parameters),
 		}
 		if sp.Description == "" {
 			sp.Description = p.Description.DetailedDescription
-		}
-
-		// Extract package from Parameters similar to EnrichPart.
-		var packageCase, supplierPackage string
-		for _, param := range p.Parameters {
-			switch param.ParameterText {
-			case "Package / Case":
-				packageCase = param.ValueText
-			case "Supplier Device Package":
-				supplierPackage = param.ValueText
-			}
-		}
-		if packageCase != "" {
-			sp.Package = packageCase
-		} else if supplierPackage != "" {
-			sp.Package = supplierPackage
 		}
 
 		// Choose a primary variation (first non-marketplace) for SKU/price/stock.
@@ -619,16 +537,66 @@ func (c *Client) SearchParts(ctx context.Context, q distributor.SearchQuery, raw
 
 // ---- helpers ----
 
+// extractPackage returns the best package string from a DigiKey parameter list.
+// Prefers "Package / Case" over "Supplier Device Package"; skips empty or "-" values.
+func extractPackage(params []parameterValue) string {
+	var packageCase, supplierPackage string
+	for _, p := range params {
+		if p.ValueText == "" || p.ValueText == "-" {
+			continue
+		}
+		switch p.ParameterText {
+		case "Package / Case":
+			packageCase = p.ValueText
+		case "Supplier Device Package":
+			supplierPackage = p.ValueText
+		}
+	}
+	if packageCase != "" {
+		return packageCase
+	}
+	return supplierPackage
+}
+
+// mapProductStatus maps a DigiKey ProductStatus.Status string to a partrack
+// lifecycle_status enum value. Returns "" for unknown/unmapped values so the
+// caller leaves the existing DB value unchanged.
+func mapProductStatus(status string) string {
+	switch status {
+	case "Active", "Preliminary", "Limited Supply":
+		return "active"
+	case "Not For New Designs":
+		return "nrnd"
+	case "Discontinued", "Obsolete", "Last Time Buy":
+		return "obsolete"
+	case "Unavailable", "No Longer Available":
+		return "no_longer_available"
+	default:
+		return ""
+	}
+}
+
 // buildListing converts a DigiKey variation's fields into a distributor.Listing.
 // MyPricing takes precedence over StandardPricing when non-empty (account-level pricing).
+// Moq is clamped to a minimum of 1 to satisfy the DB CHECK constraint.
 func buildListing(sku, packagingType string, stock, moq int32, std, my []priceBreak) distributor.Listing {
+	if moq < 1 {
+		moq = 1
+	}
 	pricing := std
 	if len(my) > 0 {
 		pricing = my
 	}
+	breaks := make([]distributor.PriceBreak, 0, len(pricing))
+	for _, pb := range pricing {
+		breaks = append(breaks, distributor.PriceBreak{
+			BreakQty:  pb.BreakQuantity,
+			UnitPrice: fmt.Sprintf("%.4f", pb.UnitPrice),
+		})
+	}
 	unitPrice := ""
-	if len(pricing) > 0 {
-		unitPrice = fmt.Sprintf("%.4f", pricing[0].UnitPrice)
+	if len(breaks) > 0 {
+		unitPrice = breaks[0].UnitPrice
 	}
 	stock32 := stock
 	return distributor.Listing{
@@ -638,6 +606,7 @@ func buildListing(sku, packagingType string, stock, moq int32, std, my []priceBr
 		StockAvailable: &stock32,
 		Moq:            moq,
 		FixedOrderCost: "0.0000",
+		PriceBreaks:    breaks,
 	}
 }
 

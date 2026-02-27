@@ -2,10 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -188,4 +192,119 @@ func (h *Handler) DeleteDistributorConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// SearchDistributor handles GET /api/v1/teams/{teamId}/distributor-configs/{distributorId}/search
+// Query params: keywords (required), limit (default 20, max 50), offset (default 0).
+func (h *Handler) SearchDistributor(w http.ResponseWriter, r *http.Request) {
+	var teamID, distributorID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+	if err := distributorID.Scan(chi.URLParam(r, "distributorId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid distributor ID", "BAD_REQUEST")
+		return
+	}
+
+	keywords := r.URL.Query().Get("keywords")
+	if keywords == "" {
+		writeError(w, http.StatusBadRequest, "keywords query parameter is required", "BAD_REQUEST")
+		return
+	}
+
+	limit := int32(20)
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 32); err == nil && v > 0 {
+			limit = int32(v)
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	offset := int32(0)
+	if s := r.URL.Query().Get("offset"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 32); err == nil && v >= 0 {
+			offset = int32(v)
+		}
+	}
+
+	cfg, err := h.Queries.GetDistributorConfigForSearch(r.Context(), dbgen.GetDistributorConfigForSearchParams{
+		TeamID:        teamID,
+		DistributorID: distributorID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "distributor config not found or not enabled", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if cfg.ApiType == nil {
+		writeError(w, http.StatusUnprocessableEntity, "distributor has no API integration", "NO_API")
+		return
+	}
+
+	client := h.Distributors.Lookup(*cfg.ApiType)
+	if client == nil {
+		writeError(w, http.StatusUnprocessableEntity, "no client registered for distributor api_type", "NO_CLIENT")
+		return
+	}
+
+	result, err := client.SearchParts(r.Context(), distributor.SearchQuery{
+		Keywords: keywords,
+		Limit:    limit,
+		Offset:   offset,
+	}, cfg.ApiCredentials)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "search failed: "+err.Error(), "SEARCH_ERROR")
+		return
+	}
+
+	type productResp struct {
+		MPN            string  `json:"mpn"`
+		Manufacturer   string  `json:"manufacturer"`
+		Description    string  `json:"description"`
+		Category       string  `json:"category"`
+		PrimarySKU     string  `json:"primary_sku"`
+		Package        string  `json:"package"`
+		UnitPrice      string  `json:"unit_price"`
+		StockAvailable *int32  `json:"stock_available"`
+	}
+
+	if result == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items":               []productResp{},
+			"total":               0,
+			"exact_match_indices": []int{},
+		})
+		return
+	}
+
+	items := make([]productResp, len(result.Products))
+	for i, p := range result.Products {
+		items[i] = productResp{
+			MPN:            p.MPN,
+			Manufacturer:   p.Manufacturer,
+			Description:    p.Description,
+			Category:       p.Category,
+			PrimarySKU:     p.PrimarySKU,
+			Package:        p.Package,
+			UnitPrice:      p.UnitPrice,
+			StockAvailable: p.StockAvailable,
+		}
+	}
+
+	exactIndices := result.ExactMatchIndices
+	if exactIndices == nil {
+		exactIndices = []int{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":               items,
+		"total":               result.TotalCount,
+		"exact_match_indices": exactIndices,
+	})
 }

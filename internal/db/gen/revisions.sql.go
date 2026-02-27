@@ -257,6 +257,7 @@ SELECT
     bli.resolved_part_id,
     bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
     bli.resolved_distributor_id,
+    bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
@@ -276,6 +277,8 @@ type ListBOMLineItemsRow struct {
 	Sku                   *string     `json:"sku"`
 	DistributorName       *string     `json:"distributor_name"`
 	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	Ignored               bool        `json:"ignored"`
 	ResolvedPartMpn       *string     `json:"resolved_part_mpn"`
 }
 
@@ -300,6 +303,8 @@ func (q *Queries) ListBOMLineItems(ctx context.Context, bomRevisionID pgtype.UUI
 			&i.Sku,
 			&i.DistributorName,
 			&i.ResolvedDistributorID,
+			&i.ResolutionState,
+			&i.Ignored,
 			&i.ResolvedPartMpn,
 		); err != nil {
 			return nil, err
@@ -388,15 +393,18 @@ func (q *Queries) RemoveBOMSubstitute(ctx context.Context, arg RemoveBOMSubstitu
 
 const updateBOMLineItem = `-- name: UpdateBOMLineItem :one
 UPDATE bom_line_items
-SET resolved_part_id = $1
-WHERE id = $2 AND bom_revision_id = $3
-RETURNING id, reference_designators, quantity, raw_description, resolved_part_id
+SET resolved_part_id = $1,
+    resolution_state = $2
+WHERE id = $3 AND bom_revision_id = $4
+RETURNING id, reference_designators, quantity, raw_description,
+          resolved_part_id, resolution_state
 `
 
 type UpdateBOMLineItemParams struct {
-	ResolvedPartID pgtype.UUID `json:"resolved_part_id"`
-	ID             pgtype.UUID `json:"id"`
-	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
+	ResolvedPartID  pgtype.UUID `json:"resolved_part_id"`
+	ResolutionState *string     `json:"resolution_state"`
+	ID              pgtype.UUID `json:"id"`
+	BomRevisionID   pgtype.UUID `json:"bom_revision_id"`
 }
 
 type UpdateBOMLineItemRow struct {
@@ -405,10 +413,16 @@ type UpdateBOMLineItemRow struct {
 	Quantity             int32       `json:"quantity"`
 	RawDescription       *string     `json:"raw_description"`
 	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
+	ResolutionState      *string     `json:"resolution_state"`
 }
 
 func (q *Queries) UpdateBOMLineItem(ctx context.Context, arg UpdateBOMLineItemParams) (UpdateBOMLineItemRow, error) {
-	row := q.db.QueryRow(ctx, updateBOMLineItem, arg.ResolvedPartID, arg.ID, arg.BomRevisionID)
+	row := q.db.QueryRow(ctx, updateBOMLineItem,
+		arg.ResolvedPartID,
+		arg.ResolutionState,
+		arg.ID,
+		arg.BomRevisionID,
+	)
 	var i UpdateBOMLineItemRow
 	err := row.Scan(
 		&i.ID,
@@ -416,6 +430,7 @@ func (q *Queries) UpdateBOMLineItem(ctx context.Context, arg UpdateBOMLineItemPa
 		&i.Quantity,
 		&i.RawDescription,
 		&i.ResolvedPartID,
+		&i.ResolutionState,
 	)
 	return i, err
 }

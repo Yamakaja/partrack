@@ -196,27 +196,40 @@ func (q *Queue) handleBOMImport(job Job) {
 		return
 	}
 
-	alreadyResolved := 0
+	// Count items already resolved before this run.
+	resolvedSKU, resolvedMPN, ambiguousCount := 0, 0, 0
 	for _, it := range items {
-		if it.ResolvedPartID.Valid {
-			alreadyResolved++
+		switch {
+		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
+			resolvedSKU++
+		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_mpn":
+			resolvedMPN++
+		case it.ResolutionState != nil && *it.ResolutionState == "ambiguous":
+			ambiguousCount++
 		}
 	}
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
-		"status":   "progress",
-		"resolved": alreadyResolved,
-		"total":    len(items),
-		"job_id":   job.ID,
+		"status":       "progress",
+		"resolved_sku": resolvedSKU,
+		"resolved_mpn": resolvedMPN,
+		"ambiguous":    ambiguousCount,
+		"total":        len(items),
+		"job_id":       job.ID,
 	})
 
-	resolvedCount := alreadyResolved
+	strPtr := func(s string) *string { return &s }
+
 	for _, item := range items {
 		if item.ResolvedPartID.Valid {
-			continue // already resolved
+			continue // already resolved in a previous run
+		}
+		if item.ResolutionState != nil {
+			continue // already classified (e.g. ambiguous, ignored)
 		}
 
 		var resolvedPartID pgtype.UUID
+		var resolutionState *string
 
 		// 1. SKU-based resolution: only if a resolved distributor ID was explicitly chosen.
 		if item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
@@ -225,57 +238,103 @@ func (q *Queue) handleBOMImport(job Job) {
 				DistributorID: item.ResolvedDistributorID,
 			}); err == nil {
 				resolvedPartID = listing.PartID
+				resolutionState = strPtr("auto_sku")
 			}
 		}
 
-		// 2. MPN-based resolution: fall back to raw_description lookup.
-		if !resolvedPartID.Valid && item.RawDescription != nil && *item.RawDescription != "" {
-			if part, err := queries.GetPartByMPN(ctx, dbgen.GetPartByMPNParams{
-				Mpn:    item.RawDescription,
+		// 2a. MPN + Manufacturer (preferred — avoids false ambiguity from same MPN across manufacturers).
+		if resolutionState == nil && item.Mpn != nil && *item.Mpn != "" &&
+			item.Manufacturer != nil && *item.Manufacturer != "" {
+			matched, err := queries.ListPartsByMPNAndManufacturer(ctx, dbgen.ListPartsByMPNAndManufacturerParams{
+				Mpn:          item.Mpn,
+				Manufacturer: item.Manufacturer,
+				TeamID:       teamID,
+			})
+			switch {
+			case err == nil && len(matched) == 1:
+				resolvedPartID = matched[0].ID
+				resolutionState = strPtr("auto_mpn")
+			case err == nil && len(matched) > 1:
+				resolutionState = strPtr("ambiguous")
+			}
+		}
+
+		// 2b. MPN only (fallback when manufacturer is absent or 2a found nothing).
+		if resolutionState == nil && item.Mpn != nil && *item.Mpn != "" {
+			matched, err := queries.ListPartsByMPN(ctx, dbgen.ListPartsByMPNParams{
+				Mpn:    item.Mpn,
 				TeamID: teamID,
-			}); err == nil {
-				resolvedPartID = part.ID
+			})
+			switch {
+			case err == nil && len(matched) == 1:
+				resolvedPartID = matched[0].ID
+				resolutionState = strPtr("auto_mpn")
+			case err == nil && len(matched) > 1:
+				resolutionState = strPtr("ambiguous")
 			}
 		}
 
-		if !resolvedPartID.Valid {
-			continue // no match found; not an error
+		if resolutionState == nil {
+			continue // no match and not ambiguous; leave for manual resolution
 		}
 
 		if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
-			ResolvedPartID: resolvedPartID,
-			ID:             item.ID,
-			BomRevisionID:  revID,
+			ResolvedPartID:  resolvedPartID,
+			ResolutionState: resolutionState,
+			ID:              item.ID,
+			BomRevisionID:   revID,
 		}); err != nil {
 			continue // non-fatal
 		}
 
-		// Ensure team has an inventory entry for this part.
-		_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
-			TeamID: teamID,
-			PartID: resolvedPartID,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			_, _ = queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+		switch *resolutionState {
+		case "auto_sku":
+			resolvedSKU++
+		case "auto_mpn":
+			resolvedMPN++
+		case "ambiguous":
+			ambiguousCount++
+		}
+
+		if resolvedPartID.Valid {
+			// Ensure team has an inventory entry for this part.
+			_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
 				TeamID: teamID,
 				PartID: resolvedPartID,
 			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				_, _ = queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+					TeamID: teamID,
+					PartID: resolvedPartID,
+				})
+			}
 		}
 
-		resolvedCount++
 		q.publishProgress(job, "bom_import_progress", map[string]any{
-			"status":   "progress",
-			"resolved": resolvedCount,
-			"total":    len(items),
-			"job_id":   job.ID,
+			"status":       "progress",
+			"resolved_sku": resolvedSKU,
+			"resolved_mpn": resolvedMPN,
+			"ambiguous":    ambiguousCount,
+			"total":        len(items),
+			"job_id":       job.ID,
 		})
 	}
 
+	unresolvedCount := 0
+	for _, it := range items {
+		if !it.ResolvedPartID.Valid && it.ResolutionState == nil {
+			unresolvedCount++
+		}
+	}
+
 	q.publishProgress(job, "bom_import_progress", map[string]any{
-		"status":   "complete",
-		"resolved": resolvedCount,
-		"total":    len(items),
-		"job_id":   job.ID,
+		"status":       "complete",
+		"resolved_sku": resolvedSKU,
+		"resolved_mpn": resolvedMPN,
+		"ambiguous":    ambiguousCount,
+		"unresolved":   unresolvedCount,
+		"total":        len(items),
+		"job_id":       job.ID,
 	})
 }
 
@@ -292,12 +351,27 @@ func (q *Queue) handlePartEnrich(job Job) {
 		q.publishError(job, "missing part_id in payload")
 		return
 	}
+	sku := payload["sku"]
+	if sku == "" {
+		q.publishError(job, "missing sku in payload")
+		return
+	}
+	distIDStr := payload["distributor_id"]
+	if distIDStr == "" {
+		q.publishError(job, "missing distributor_id in payload")
+		return
+	}
+
 	var partID pgtype.UUID
 	if err := partID.Scan(partIDStr); err != nil {
 		q.publishError(job, "invalid part_id: "+partIDStr)
 		return
 	}
-
+	var distributorID pgtype.UUID
+	if err := distributorID.Scan(distIDStr); err != nil {
+		q.publishError(job, "invalid distributor_id: "+distIDStr)
+		return
+	}
 	var teamID pgtype.UUID
 	if err := teamID.Scan(job.TeamID); err != nil {
 		q.publishError(job, "invalid team_id: "+job.TeamID)
@@ -306,8 +380,7 @@ func (q *Queue) handlePartEnrich(job Job) {
 
 	queries := dbgen.New(q.db)
 
-	part, err := queries.GetPart(ctx, partID)
-	if err != nil {
+	if _, err := queries.GetPart(ctx, partID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			q.publishError(job, fmt.Sprintf("part %s not found", partIDStr))
 		} else {
@@ -315,161 +388,141 @@ func (q *Queue) handlePartEnrich(job Job) {
 		}
 		return
 	}
-	if part.Mpn == nil {
-		q.publishError(job, "part has no MPN, cannot enrich")
-		return
-	}
 
+	// Find the specific distributor config for this team + distributor.
 	configs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
 	if err != nil {
 		q.publishError(job, "failed to list distributor configs: "+err.Error())
 		return
 	}
+	var cfg *dbgen.ListEnabledDistributorConfigsForTeamRow
+	for i := range configs {
+		if configs[i].DistributorID == distributorID {
+			cfg = &configs[i]
+			break
+		}
+	}
+	if cfg == nil {
+		q.publishError(job, fmt.Sprintf("distributor %s not configured or not enabled for this team", distIDStr))
+		return
+	}
+	if cfg.ApiType == nil {
+		q.publishError(job, "distributor has no API integration")
+		return
+	}
+	client := q.distributors.Lookup(*cfg.ApiType)
+	if client == nil {
+		q.publishError(job, fmt.Sprintf("no client registered for api_type %s", *cfg.ApiType))
+		return
+	}
 
-	for _, cfg := range configs {
-		if cfg.ApiType == nil {
-			continue
-		}
-		client := q.distributors.Lookup(*cfg.ApiType)
-		if client == nil {
-			continue // no client registered for this api_type
-		}
+	result, err := client.EnrichPart(ctx, sku, json.RawMessage(cfg.ApiCredentials))
+	if err != nil {
+		q.publishError(job, "enrichment failed: "+err.Error())
+		return
+	}
+	if result == nil {
+		q.publishProgress(job, "part_enrichment_progress", map[string]any{
+			"status":         "not_found",
+			"distributor_id": distIDStr,
+		})
+		return
+	}
 
-		result, err := client.EnrichPart(ctx, *part.Mpn, json.RawMessage(cfg.ApiCredentials))
-		if err != nil {
-			q.publishProgress(job, "part_enrichment_progress", map[string]any{
-				"status":         "error",
-				"distributor_id": cfg.DistributorID.String(),
-				"error":          err.Error(),
-			})
-			continue
-		}
-		if result == nil {
-			q.publishProgress(job, "part_enrichment_progress", map[string]any{
-				"status":         "not_found",
-				"distributor_id": cfg.DistributorID.String(),
-			})
-			continue
-		}
+	tx, err := q.db.Begin(ctx)
+	if err != nil {
+		q.publishError(job, "failed to begin transaction: "+err.Error())
+		return
+	}
+	qtx := queries.WithTx(tx)
 
-		tx, err := q.db.Begin(ctx)
-		if err != nil {
-			q.publishProgress(job, "part_enrichment_progress", map[string]any{
-				"status":         "error",
-				"distributor_id": cfg.DistributorID.String(),
-				"error":          "failed to begin transaction: " + err.Error(),
-			})
-			return
-		}
-		qtx := queries.WithTx(tx)
+	if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
+		PartID:              partID,
+		SourceDistributorID: cfg.DistributorID,
+	}); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		q.publishError(job, "failed to delete parameters: "+err.Error())
+		return
+	}
 
-		if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
+	for _, p := range result.Parameters {
+		var unit *string
+		if p.Unit != "" {
+			u := p.Unit
+			unit = &u
+		}
+		if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
 			PartID:              partID,
+			Name:                p.Name,
+			Value:               p.Value,
+			Unit:                unit,
 			SourceDistributorID: cfg.DistributorID,
 		}); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
-			q.publishProgress(job, "part_enrichment_progress", map[string]any{
-				"status":         "error",
-				"distributor_id": cfg.DistributorID.String(),
-				"error":          "failed to delete parameters: " + err.Error(),
-			})
+			q.publishError(job, "failed to insert parameter: "+err.Error())
 			return
 		}
-
-		for _, p := range result.Parameters {
-			var unit *string
-			if p.Unit != "" {
-				u := p.Unit
-				unit = &u
-			}
-			if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
-				PartID:              partID,
-				Name:                p.Name,
-				Value:               p.Value,
-				Unit:                unit,
-				SourceDistributorID: cfg.DistributorID,
-			}); err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				q.publishProgress(job, "part_enrichment_progress", map[string]any{
-					"status":         "error",
-					"distributor_id": cfg.DistributorID.String(),
-					"error":          "failed to insert parameter: " + err.Error(),
-				})
-				return
-			}
-		}
-
-		for _, l := range result.Listings {
-			unitPrice, err := parseNumeric(l.UnitPrice)
-			if err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				q.publishProgress(job, "part_enrichment_progress", map[string]any{
-					"status":         "error",
-					"distributor_id": cfg.DistributorID.String(),
-					"error":          "invalid unit_price: " + l.UnitPrice,
-				})
-				return
-			}
-			fixedCost, err := parseNumeric(l.FixedOrderCost)
-			if err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				q.publishProgress(job, "part_enrichment_progress", map[string]any{
-					"status":         "error",
-					"distributor_id": cfg.DistributorID.String(),
-					"error":          "invalid fixed_order_cost: " + l.FixedOrderCost,
-				})
-				return
-			}
-			if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
-				PartID:         partID,
-				DistributorID:  cfg.DistributorID,
-				Sku:            l.SKU,
-				PackagingType:  l.PackagingType,
-				UnitPrice:      unitPrice,
-				StockAvailable: l.StockAvailable,
-				Moq:            l.Moq,
-				FixedOrderCost: fixedCost,
-			}); err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				q.publishProgress(job, "part_enrichment_progress", map[string]any{
-					"status":         "error",
-					"distributor_id": cfg.DistributorID.String(),
-					"error":          "failed to upsert listing: " + err.Error(),
-				})
-				return
-			}
-		}
-
-		if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
-			ID:                 partID,
-			EnrichmentSourceID: cfg.DistributorID,
-		}); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			q.publishProgress(job, "part_enrichment_progress", map[string]any{
-				"status":         "error",
-				"distributor_id": cfg.DistributorID.String(),
-				"error":          "failed to set enriched: " + err.Error(),
-			})
-			return
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			q.publishProgress(job, "part_enrichment_progress", map[string]any{
-				"status":         "error",
-				"distributor_id": cfg.DistributorID.String(),
-				"error":          "failed to commit: " + err.Error(),
-			})
-			return
-		}
-
-		q.publishProgress(job, "part_enrichment_progress", map[string]any{
-			"status":         "done",
-			"distributor_id": cfg.DistributorID.String(),
-			"listings":       len(result.Listings),
-			"parameters":     len(result.Parameters),
-		})
 	}
 
+	for _, l := range result.Listings {
+		unitPrice, err := parseNumeric(l.UnitPrice)
+		if err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			q.publishError(job, "invalid unit_price: "+l.UnitPrice)
+			return
+		}
+		fixedCost, err := parseNumeric(l.FixedOrderCost)
+		if err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			q.publishError(job, "invalid fixed_order_cost: "+l.FixedOrderCost)
+			return
+		}
+		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
+		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
+			PartID:         partID,
+			DistributorID:  cfg.DistributorID,
+			Sku:            l.SKU,
+			PackagingType:  l.PackagingType,
+			UnitPrice:      unitPrice,
+			StockAvailable: l.StockAvailable,
+			Moq:            l.Moq,
+			FixedOrderCost: fixedCost,
+			PriceBreaks:    priceBreaksJSON,
+		}); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			q.publishError(job, "failed to upsert listing: "+err.Error())
+			return
+		}
+	}
+
+	var lifecycleStatus dbgen.NullPartLifecycleStatus
+	if result.LifecycleStatus != "" {
+		lifecycleStatus = dbgen.NullPartLifecycleStatus{
+			PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
+			Valid:               true,
+		}
+	}
+	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
+		ID:                 partID,
+		EnrichmentSourceID: cfg.DistributorID,
+		LifecycleStatus:    lifecycleStatus,
+	}); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		q.publishError(job, "failed to set enriched: "+err.Error())
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		q.publishError(job, "failed to commit: "+err.Error())
+		return
+	}
+
+	q.publishProgress(job, "part_enrichment_progress", map[string]any{
+		"status":         "done",
+		"distributor_id": distIDStr,
+		"listings":       len(result.Listings),
+		"parameters":     len(result.Parameters),
+	})
 	q.publishProgress(job, "part_enrichment_progress", map[string]any{
 		"status": "complete",
 		"job_id": job.ID,
@@ -554,10 +607,12 @@ func (q *Queue) handleListingRefresh(job Job) {
 		return
 	}
 
+	priceBreaksJSON, _ := json.Marshal(result.PriceBreaks)
 	if err := queries.UpdateListingData(ctx, dbgen.UpdateListingDataParams{
 		ID:             listingID,
 		UnitPrice:      unitPrice,
 		StockAvailable: result.StockAvailable,
+		PriceBreaks:    priceBreaksJSON,
 	}); err != nil {
 		q.publishError(job, "failed to update listing: "+err.Error())
 		return

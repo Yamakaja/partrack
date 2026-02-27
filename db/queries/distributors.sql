@@ -58,6 +58,14 @@ JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1 AND dc.enabled = TRUE AND d.api_type IS NOT NULL
 ORDER BY dc.preferred DESC, d.name;
 
+-- name: GetDistributorConfigForSearch :one
+-- Returns api_type and credentials for a specific enabled distributor config.
+-- Used by the distributor search handler.
+SELECT d.api_type, dc.api_credentials
+FROM distributor_configs dc
+JOIN distributors d ON d.id = dc.distributor_id
+WHERE dc.team_id = $1 AND dc.distributor_id = $2 AND dc.enabled = TRUE;
+
 -- name: GetListingBySKUAndDistributorName :one
 SELECT dl.id, dl.part_id
 FROM distributor_listings dl

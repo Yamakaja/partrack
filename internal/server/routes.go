@@ -87,6 +87,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/inventory/{entryId}", h.GetInventoryEntry)
 					r.Get("/inventory/{entryId}/adjustments", h.ListAdjustments)
 
+					// Distributor search
+					r.Get("/distributor-configs/{distributorId}/search", h.SearchDistributor)
+
 					// 9. Storage locations
 					r.Get("/storage-locations", h.ListStorageLocations)
 

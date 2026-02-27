@@ -26,6 +26,32 @@ func (q *Queries) DeleteDistributorConfig(ctx context.Context, arg DeleteDistrib
 	return err
 }
 
+const getDistributorConfigForSearch = `-- name: GetDistributorConfigForSearch :one
+SELECT d.api_type, dc.api_credentials
+FROM distributor_configs dc
+JOIN distributors d ON d.id = dc.distributor_id
+WHERE dc.team_id = $1 AND dc.distributor_id = $2 AND dc.enabled = TRUE
+`
+
+type GetDistributorConfigForSearchParams struct {
+	TeamID        pgtype.UUID `json:"team_id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+}
+
+type GetDistributorConfigForSearchRow struct {
+	ApiType        *string `json:"api_type"`
+	ApiCredentials []byte  `json:"api_credentials"`
+}
+
+// Returns api_type and credentials for a specific enabled distributor config.
+// Used by the distributor search handler.
+func (q *Queries) GetDistributorConfigForSearch(ctx context.Context, arg GetDistributorConfigForSearchParams) (GetDistributorConfigForSearchRow, error) {
+	row := q.db.QueryRow(ctx, getDistributorConfigForSearch, arg.TeamID, arg.DistributorID)
+	var i GetDistributorConfigForSearchRow
+	err := row.Scan(&i.ApiType, &i.ApiCredentials)
+	return i, err
+}
+
 const getListingBySKUAndDistributorID = `-- name: GetListingBySKUAndDistributorID :one
 SELECT id, part_id
 FROM distributor_listings

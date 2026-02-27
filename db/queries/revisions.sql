@@ -49,6 +49,7 @@ SELECT
     bli.resolved_part_id,
     bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
     bli.resolved_distributor_id,
+    bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
@@ -62,9 +63,11 @@ WHERE id = $1 AND bom_revision_id = $2;
 
 -- name: UpdateBOMLineItem :one
 UPDATE bom_line_items
-SET resolved_part_id = sqlc.narg('resolved_part_id')
+SET resolved_part_id = sqlc.narg('resolved_part_id'),
+    resolution_state = sqlc.narg('resolution_state')
 WHERE id = sqlc.arg('id') AND bom_revision_id = sqlc.arg('bom_revision_id')
-RETURNING id, reference_designators, quantity, raw_description, resolved_part_id;
+RETURNING id, reference_designators, quantity, raw_description,
+          resolved_part_id, resolution_state;
 
 -- name: ListAllSubstitutesForRevision :many
 SELECT

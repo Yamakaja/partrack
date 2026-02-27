@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/config"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/handler"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -18,11 +19,11 @@ import (
 )
 
 // New constructs an http.Server with all routes registered.
-func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue) *http.Server {
+func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.Registry) *http.Server {
 	cache := middleware.NewAuthCache()
 	cache.StartFlusher(context.Background(), db, 5*time.Minute)
 
-	h := handler.New(db, cfg, q, cache)
+	h := handler.New(db, cfg, q, cache, reg)
 	mw := middleware.New(db, cache)
 	r := chi.NewRouter()
 

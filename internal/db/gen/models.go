@@ -382,6 +382,8 @@ type BomLineItem struct {
 	Sku                   *string     `json:"sku"`
 	DistributorName       *string     `json:"distributor_name"`
 	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	Ignored               bool        `json:"ignored"`
 }
 
 type BomLineItemSubstitute struct {
@@ -447,6 +449,7 @@ type DistributorListing struct {
 	Moq             int32              `json:"moq"`
 	FixedOrderCost  pgtype.Numeric     `json:"fixed_order_cost"`
 	LastRefreshedAt pgtype.Timestamptz `json:"last_refreshed_at"`
+	PriceBreaks     []byte             `json:"price_breaks"`
 }
 
 type GeneralCheckout struct {

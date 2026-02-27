@@ -22,20 +22,21 @@ func New() *Client {
 	return &Client{}
 }
 
-// EnrichPart returns enrichment data for any LM317 variant (case-insensitive prefix match).
-// Returns nil for all other MPNs.
-func (c *Client) EnrichPart(_ context.Context, mpn string, _ json.RawMessage) (*distributor.EnrichmentResult, error) {
-	if !strings.HasPrefix(strings.ToUpper(mpn), "LM317") {
+// EnrichPart returns enrichment data for the LM317-TEST-TUBE SKU (and any SKU that
+// starts with "LM317" for convenience in tests). Returns nil for all other SKUs.
+func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*distributor.EnrichmentResult, error) {
+	if !strings.HasPrefix(strings.ToUpper(sku), "LM317") {
 		return nil, nil
 	}
 
 	stockZero := int32(0)
 	return &distributor.EnrichmentResult{
-		Manufacturer: "Texas Instruments",
-		Description:  "1.5A Adjustable Voltage Regulator",
-		Category:     "Linear Regulators",
-		Package:      "TO-220AB",
-		DatasheetURL: "",
+		Manufacturer:    "Texas Instruments",
+		Description:     "1.5A Adjustable Voltage Regulator",
+		Category:        "Linear Regulators",
+		Package:         "TO-220AB",
+		DatasheetURL:    "",
+		LifecycleStatus: "active",
 		Parameters: []distributor.Parameter{
 			{Name: "output_current_max", Value: "1.5", Unit: "A"},
 			{Name: "output_voltage_min", Value: "1.25", Unit: "V"},
@@ -49,6 +50,9 @@ func (c *Client) EnrichPart(_ context.Context, mpn string, _ json.RawMessage) (*
 				StockAvailable: &stockZero,
 				Moq:            1,
 				FixedOrderCost: "0.0000",
+				PriceBreaks: []distributor.PriceBreak{
+					{BreakQty: 1, UnitPrice: "0.5000"},
+				},
 			},
 		},
 	}, nil
@@ -69,6 +73,9 @@ func (c *Client) RefreshListing(_ context.Context, sku string, _ json.RawMessage
 		StockAvailable: &stockZero,
 		Moq:            1,
 		FixedOrderCost: "0.0000",
+		PriceBreaks: []distributor.PriceBreak{
+			{BreakQty: 1, UnitPrice: "0.5000"},
+		},
 	}, nil
 }
 
@@ -145,7 +152,7 @@ func (c *Client) SearchParts(_ context.Context, q distributor.SearchQuery, _ jso
 			start = 0
 		}
 		if int(start) >= len(all) {
-			return &distributor.SearchResult{Products: nil, TotalCount: int32(len(all))}, nil
+			return nil, nil
 		}
 		end := int(start + limit)
 		if end > len(all) {
@@ -159,8 +166,5 @@ func (c *Client) SearchParts(_ context.Context, q distributor.SearchQuery, _ jso
 	}
 
 	// Everything else: no results.
-	return &distributor.SearchResult{
-		Products:   nil,
-		TotalCount: 0,
-	}, nil
+	return nil, nil
 }

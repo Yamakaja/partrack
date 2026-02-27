@@ -352,35 +352,28 @@ the `(team, part)` pair (see [datamodel.md](datamodel.md)):
 The review stage is where the user resolves ambiguous or unresolved BOM line
 items and confirms or corrects automatic assignments.
 
-### 5.1 Conceptual Line Item States
+### 5.1 Line Item Resolution State
 
-For UX and API design, each BOM line item can be thought of as being in one of
-these states:
+Each `bom_line_items` row carries a `resolution_state TEXT` column and an
+`ignored BOOLEAN` flag (both added in migration `000004`). The five states form
+a four-tier priority ladder:
 
-1. **Auto-resolved (SKU)**
-   - `resolved_part_id` set via Step 1.
-   - Resolution reason: `auto_sku`.
-2. **Auto-resolved (MPN)**
-   - `resolved_part_id` set via Step 2.
-   - Resolution reason: `auto_mpn_exact` or `auto_mpn_only` (with/without
-     manufacturer match).
-3. **Manually resolved**
-   - `resolved_part_id` set via the review UI.
-   - Resolution reason: `manual`.
-4. **Ambiguous**
-   - Auto-resolution found multiple plausible Parts; user must choose.
-   - Backend may track a list of candidate Part IDs for convenience, or the
-     UI can re-run the same search.
-5. **Unresolved**
-   - No candidate Part found, or only very low-confidence candidates.
-6. **Ignored**
-   - The user explicitly marked this line as “do not track / not procurable”.
-   - Ignored items do not participate in stock checks or shortfall
-     calculations.
+| Tier | `resolution_state` | `resolved_part_id` | Meaning |
+|------|--------------------|--------------------|---------|
+| 0 | `auto_sku` | set | Worker resolved the item via an exact `(distributor, sku)` lookup against `distributor_listings`. Highest confidence — no user action needed. |
+| 1 | `auto_mpn` | set | Worker found **exactly one** `parts` row matching the item's `mpn` (within global + team scope). Single-candidate sign-off — no user action needed. |
+| 2 | `ambiguous` | **null** | Worker found **more than one** Part matching the MPN. `resolved_part_id` is intentionally null until the user picks a candidate in the review UI. |
+| 3 | `null` | **null** | No match found yet. Item needs user attention: ignore it, link it to an existing Part, or import from a distributor. |
+| — | `manual` | set | User explicitly linked the item to a Part in the review UI. |
+| — | `ignored` | **null** | `ignored = TRUE`; item is excluded from stock checks and shortfall calculations. Can be toggled back by the user. |
 
-Implementation detail: these states can be derived from existing fields plus
-additional columns or JSON on `bom_line_items` later. For now they are a
-conceptual model for the review experience.
+Notes:
+
+- A `null` `resolution_state` with `ignored = FALSE` means the item is
+  **unresolved** (Tier 3).
+- `ambiguous` items remain unresolved (`resolved_part_id = null`) until the user
+  selects one candidate; at that point `resolution_state` is updated to `manual`.
+- An item is “ready” when `resolved_part_id IS NOT NULL OR ignored = TRUE`.
 
 ### 5.2 Review UI — General Behaviour
 
@@ -539,7 +532,7 @@ information for the frontend, for example:
   }
   ```
 
-- Periodic updates (current behaviour):
+- Periodic updates:
 
   ```jsonc
   {
@@ -550,21 +543,23 @@ information for the frontend, for example:
   }
   ```
 
-- Final event:
+- Final event (includes per-tier breakdown):
 
   ```jsonc
   {
     "status": "complete",
-    "resolved": 37,
+    "resolved_sku": 10,
+    "resolved_mpn": 27,
+    "ambiguous": 2,
+    "unresolved": 3,
     "total": 42,
     "job_id": "…"
   }
   ```
 
-Future extensions (optional):
-
-- Distinguish between `auto_resolved`, `ambiguous`, `unresolved` counts.
-- Publish a final summary with per-reason breakdown to display in the UI.
+The final event breakdown maps directly onto the §5.1 tier table:
+`resolved_sku` (Tier 0) + `resolved_mpn` (Tier 1) are auto-resolved;
+`ambiguous` (Tier 2) and `unresolved` (Tier 3) need review.
 
 ---
 
@@ -572,23 +567,15 @@ Future extensions (optional):
 
 This section captures intentionally unresolved details for future iterations.
 
-1. **Storing resolution reason / state**
-   - Should `bom_line_items` gain explicit fields like `resolved_reason` and
-     `ignored`? Or should the frontend derive state from a combination of
-     fields and separate tables (e.g. `bom_line_item_flags`)?
-2. **Multiple candidates for MPN matches**
-   - Where should candidate Part IDs live (ephemeral search vs persisted
-     suggestions)? For now, re-running the search in the review UI is
-     acceptable; persisting suggestions can come later if needed.
-3. **DNP / DNI semantics**
+1. **DNP / DNI semantics**
    - Many BOMs contain a “DNP” column. Do we want a dedicated column/flag on
      `bom_line_items` to model this, or treat it as a specific flavour of
      “ignored” set during review?
-4. **Heuristics for virtual components**
+2. **Heuristics for virtual components**
    - We may later add heuristics to pre-mark common virtual components as
      “probably ignored”, but the final decision should remain in the user’s
      control.
-5. **Multiple SKUs per line item**
+3. **Multiple SKUs per line item**
    - Some BOMs contain multiple supplier columns (SKU1, SKU2, …). The current
      UI supports a single `sku` + `distributor`; future work might extend the
      mapping stage to allow multiple potential SKUs per line item.

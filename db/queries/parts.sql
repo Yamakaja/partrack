@@ -89,7 +89,7 @@ WHERE id = $1 AND source_type = 'user';
 SELECT
     dl.id, dl.part_id, dl.distributor_id, d.name AS distributor_name,
     dl.sku, dl.packaging_type, dl.unit_price, dl.stock_available,
-    dl.moq, dl.fixed_order_cost, dl.last_refreshed_at
+    dl.moq, dl.fixed_order_cost, dl.price_breaks, dl.last_refreshed_at
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
 WHERE dl.part_id = $1
@@ -99,31 +99,35 @@ ORDER BY d.name, dl.packaging_type;
 SELECT id, part_id, distributor_id, sku FROM distributor_listings WHERE id = $1;
 
 -- name: UpsertListing :one
--- Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq.
+-- Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq/price_breaks.
 INSERT INTO distributor_listings (part_id, distributor_id, sku, packaging_type,
                                   unit_price, stock_available, moq, fixed_order_cost,
-                                  last_refreshed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                                  price_breaks, last_refreshed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 ON CONFLICT (distributor_id, sku) DO UPDATE
 SET unit_price        = EXCLUDED.unit_price,
     stock_available   = EXCLUDED.stock_available,
     moq               = EXCLUDED.moq,
     fixed_order_cost  = EXCLUDED.fixed_order_cost,
+    price_breaks      = EXCLUDED.price_breaks,
     last_refreshed_at = NOW()
 RETURNING id;
 
 -- name: SetPartEnriched :exec
--- Records which distributor last enriched this part and when.
+-- Records which distributor last enriched this part, when, and updates lifecycle_status
+-- if the distributor provides one (NULL keeps the existing value).
 UPDATE parts
 SET enrichment_source_id = $2,
-    enriched_at          = NOW()
+    enriched_at          = NOW(),
+    lifecycle_status     = COALESCE(sqlc.narg('lifecycle_status')::part_lifecycle_status, lifecycle_status)
 WHERE id = $1;
 
 -- name: UpdateListingData :exec
--- Writes refreshed price/stock data for a single listing.
+-- Writes refreshed price/stock/price_breaks data for a single listing.
 UPDATE distributor_listings
 SET unit_price        = $2,
     stock_available   = $3,
+    price_breaks      = $4,
     last_refreshed_at = NOW()
 WHERE id = $1;
 
@@ -154,3 +158,25 @@ WHERE mpn = $1
   AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
 ORDER BY scope DESC
 LIMIT 1;
+
+-- name: ListPartsByMPN :many
+-- Returns all parts matching an MPN (team-scoped before global, up to 10).
+-- More than one result indicates an ambiguous MPN within this team's context.
+SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
+FROM parts
+WHERE mpn = $1
+  AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+ORDER BY scope DESC
+LIMIT 10;
+
+-- name: ListPartsByMPNAndManufacturer :many
+-- Returns parts matching both MPN and manufacturer (case-insensitive ILIKE).
+-- Used as the first step in BOM import resolution before falling back to MPN-only.
+-- Avoids false ambiguity when the catalog has the same MPN from different manufacturers.
+SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
+FROM parts
+WHERE mpn = $1
+  AND manufacturer ILIKE $2
+  AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+ORDER BY scope DESC
+LIMIT 10;

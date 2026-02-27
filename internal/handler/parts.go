@@ -330,16 +330,17 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type listingItem struct {
-		ID              string  `json:"id"`
-		DistributorID   string  `json:"distributor_id"`
-		DistributorName string  `json:"distributor_name"`
-		Sku             string  `json:"sku"`
-		PackagingType   string  `json:"packaging_type"`
-		UnitPrice       *string `json:"unit_price"`
-		StockAvailable  *int32  `json:"stock_available"`
-		Moq             int32   `json:"moq"`
-		FixedOrderCost  *string `json:"fixed_order_cost"`
-		LastRefreshedAt *string `json:"last_refreshed_at"`
+		ID              string          `json:"id"`
+		DistributorID   string          `json:"distributor_id"`
+		DistributorName string          `json:"distributor_name"`
+		Sku             string          `json:"sku"`
+		PackagingType   string          `json:"packaging_type"`
+		UnitPrice       *string         `json:"unit_price"`
+		StockAvailable  *int32          `json:"stock_available"`
+		Moq             int32           `json:"moq"`
+		FixedOrderCost  *string         `json:"fixed_order_cost"`
+		PriceBreaks     json.RawMessage `json:"price_breaks"`
+		LastRefreshedAt *string         `json:"last_refreshed_at"`
 	}
 	listingItems := make([]listingItem, len(listings))
 	for i, l := range listings {
@@ -358,6 +359,7 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 			StockAvailable:  l.StockAvailable,
 			Moq:             l.Moq,
 			FixedOrderCost:  numericString(l.FixedOrderCost),
+			PriceBreaks:     json.RawMessage(l.PriceBreaks),
 			LastRefreshedAt: lastRef,
 		}
 	}
@@ -438,8 +440,9 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 }
 
 // EnrichPart handles POST /api/v1/parts/{partId}/enrich
-// Triggers re-enrichment from distributor APIs. Returns 202 with job_id.
-// Query: team_id (required) — the team whose distributor configs to use; caller must be a member.
+// Triggers enrichment from a specific distributor SKU. Returns 202 with job_id.
+// Query: team_id (required) — the team whose distributor config to use; caller must be a member.
+// Body: {sku, distributor_id} (both required).
 func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
 	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
@@ -455,6 +458,15 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(teamIDStr); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+		return
+	}
+
+	var req struct {
+		SKU           string `json:"sku"`
+		DistributorID string `json:"distributor_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SKU == "" || req.DistributorID == "" {
+		writeError(w, http.StatusBadRequest, "sku and distributor_id are required", "BAD_REQUEST")
 		return
 	}
 
@@ -490,7 +502,9 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := h.Worker.Enqueue(worker.JobPartEnrich, teamIDStr, map[string]string{
-		"part_id": partID.String(),
+		"part_id":        partID.String(),
+		"sku":            req.SKU,
+		"distributor_id": req.DistributorID,
 	})
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
@@ -615,16 +629,17 @@ func (h *Handler) ListListings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type item struct {
-		ID              string  `json:"id"`
-		DistributorID   string  `json:"distributor_id"`
-		DistributorName string  `json:"distributor_name"`
-		Sku             string  `json:"sku"`
-		PackagingType   string  `json:"packaging_type"`
-		UnitPrice       *string `json:"unit_price"`
-		StockAvailable  *int32  `json:"stock_available"`
-		Moq             int32   `json:"moq"`
-		FixedOrderCost  *string `json:"fixed_order_cost"`
-		LastRefreshedAt *string `json:"last_refreshed_at"`
+		ID              string          `json:"id"`
+		DistributorID   string          `json:"distributor_id"`
+		DistributorName string          `json:"distributor_name"`
+		Sku             string          `json:"sku"`
+		PackagingType   string          `json:"packaging_type"`
+		UnitPrice       *string         `json:"unit_price"`
+		StockAvailable  *int32          `json:"stock_available"`
+		Moq             int32           `json:"moq"`
+		FixedOrderCost  *string         `json:"fixed_order_cost"`
+		PriceBreaks     json.RawMessage `json:"price_breaks"`
+		LastRefreshedAt *string         `json:"last_refreshed_at"`
 	}
 	items := make([]item, len(listings))
 	for i, l := range listings {
@@ -643,6 +658,7 @@ func (h *Handler) ListListings(w http.ResponseWriter, r *http.Request) {
 			StockAvailable:  l.StockAvailable,
 			Moq:             l.Moq,
 			FixedOrderCost:  numericString(l.FixedOrderCost),
+			PriceBreaks:     json.RawMessage(l.PriceBreaks),
 			LastRefreshedAt: lastRef,
 		}
 	}

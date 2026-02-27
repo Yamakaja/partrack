@@ -285,7 +285,7 @@ const listListings = `-- name: ListListings :many
 SELECT
     dl.id, dl.part_id, dl.distributor_id, d.name AS distributor_name,
     dl.sku, dl.packaging_type, dl.unit_price, dl.stock_available,
-    dl.moq, dl.fixed_order_cost, dl.last_refreshed_at
+    dl.moq, dl.fixed_order_cost, dl.price_breaks, dl.last_refreshed_at
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
 WHERE dl.part_id = $1
@@ -303,6 +303,7 @@ type ListListingsRow struct {
 	StockAvailable  *int32             `json:"stock_available"`
 	Moq             int32              `json:"moq"`
 	FixedOrderCost  pgtype.Numeric     `json:"fixed_order_cost"`
+	PriceBreaks     []byte             `json:"price_breaks"`
 	LastRefreshedAt pgtype.Timestamptz `json:"last_refreshed_at"`
 }
 
@@ -326,6 +327,7 @@ func (q *Queries) ListListings(ctx context.Context, partID pgtype.UUID) ([]ListL
 			&i.StockAvailable,
 			&i.Moq,
 			&i.FixedOrderCost,
+			&i.PriceBreaks,
 			&i.LastRefreshedAt,
 		); err != nil {
 			return nil, err
@@ -476,21 +478,135 @@ func (q *Queries) ListParts(ctx context.Context, arg ListPartsParams) ([]ListPar
 	return items, nil
 }
 
+const listPartsByMPN = `-- name: ListPartsByMPN :many
+SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
+FROM parts
+WHERE mpn = $1
+  AND (scope = 'global' OR (scope = 'team' AND team_id = $2))
+ORDER BY scope DESC
+LIMIT 10
+`
+
+type ListPartsByMPNParams struct {
+	Mpn    *string     `json:"mpn"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type ListPartsByMPNRow struct {
+	ID              pgtype.UUID         `json:"id"`
+	Mpn             *string             `json:"mpn"`
+	Manufacturer    *string             `json:"manufacturer"`
+	Description     *string             `json:"description"`
+	Category        *string             `json:"category"`
+	Package         *string             `json:"package"`
+	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+}
+
+// Returns all parts matching an MPN (team-scoped before global, up to 10).
+// More than one result indicates an ambiguous MPN within this team's context.
+func (q *Queries) ListPartsByMPN(ctx context.Context, arg ListPartsByMPNParams) ([]ListPartsByMPNRow, error) {
+	rows, err := q.db.Query(ctx, listPartsByMPN, arg.Mpn, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPartsByMPNRow
+	for rows.Next() {
+		var i ListPartsByMPNRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.Description,
+			&i.Category,
+			&i.Package,
+			&i.LifecycleStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPartsByMPNAndManufacturer = `-- name: ListPartsByMPNAndManufacturer :many
+SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
+FROM parts
+WHERE mpn = $1
+  AND manufacturer ILIKE $2
+  AND (scope = 'global' OR (scope = 'team' AND team_id = $3))
+ORDER BY scope DESC
+LIMIT 10
+`
+
+type ListPartsByMPNAndManufacturerParams struct {
+	Mpn          *string     `json:"mpn"`
+	Manufacturer *string     `json:"manufacturer"`
+	TeamID       pgtype.UUID `json:"team_id"`
+}
+
+type ListPartsByMPNAndManufacturerRow struct {
+	ID              pgtype.UUID         `json:"id"`
+	Mpn             *string             `json:"mpn"`
+	Manufacturer    *string             `json:"manufacturer"`
+	Description     *string             `json:"description"`
+	Category        *string             `json:"category"`
+	Package         *string             `json:"package"`
+	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+}
+
+// Returns parts matching both MPN and manufacturer (case-insensitive ILIKE).
+// Used as the first step in BOM import resolution before falling back to MPN-only.
+// Avoids false ambiguity when the catalog has the same MPN from different manufacturers.
+func (q *Queries) ListPartsByMPNAndManufacturer(ctx context.Context, arg ListPartsByMPNAndManufacturerParams) ([]ListPartsByMPNAndManufacturerRow, error) {
+	rows, err := q.db.Query(ctx, listPartsByMPNAndManufacturer, arg.Mpn, arg.Manufacturer, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPartsByMPNAndManufacturerRow
+	for rows.Next() {
+		var i ListPartsByMPNAndManufacturerRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.Description,
+			&i.Category,
+			&i.Package,
+			&i.LifecycleStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setPartEnriched = `-- name: SetPartEnriched :exec
 UPDATE parts
 SET enrichment_source_id = $2,
-    enriched_at          = NOW()
+    enriched_at          = NOW(),
+    lifecycle_status     = COALESCE($3::part_lifecycle_status, lifecycle_status)
 WHERE id = $1
 `
 
 type SetPartEnrichedParams struct {
-	ID                 pgtype.UUID `json:"id"`
-	EnrichmentSourceID pgtype.UUID `json:"enrichment_source_id"`
+	ID                 pgtype.UUID             `json:"id"`
+	EnrichmentSourceID pgtype.UUID             `json:"enrichment_source_id"`
+	LifecycleStatus    NullPartLifecycleStatus `json:"lifecycle_status"`
 }
 
-// Records which distributor last enriched this part and when.
+// Records which distributor last enriched this part, when, and updates lifecycle_status
+// if the distributor provides one (NULL keeps the existing value).
 func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams) error {
-	_, err := q.db.Exec(ctx, setPartEnriched, arg.ID, arg.EnrichmentSourceID)
+	_, err := q.db.Exec(ctx, setPartEnriched, arg.ID, arg.EnrichmentSourceID, arg.LifecycleStatus)
 	return err
 }
 
@@ -498,6 +614,7 @@ const updateListingData = `-- name: UpdateListingData :exec
 UPDATE distributor_listings
 SET unit_price        = $2,
     stock_available   = $3,
+    price_breaks      = $4,
     last_refreshed_at = NOW()
 WHERE id = $1
 `
@@ -506,11 +623,17 @@ type UpdateListingDataParams struct {
 	ID             pgtype.UUID    `json:"id"`
 	UnitPrice      pgtype.Numeric `json:"unit_price"`
 	StockAvailable *int32         `json:"stock_available"`
+	PriceBreaks    []byte         `json:"price_breaks"`
 }
 
-// Writes refreshed price/stock data for a single listing.
+// Writes refreshed price/stock/price_breaks data for a single listing.
 func (q *Queries) UpdateListingData(ctx context.Context, arg UpdateListingDataParams) error {
-	_, err := q.db.Exec(ctx, updateListingData, arg.ID, arg.UnitPrice, arg.StockAvailable)
+	_, err := q.db.Exec(ctx, updateListingData,
+		arg.ID,
+		arg.UnitPrice,
+		arg.StockAvailable,
+		arg.PriceBreaks,
+	)
 	return err
 }
 
@@ -572,13 +695,14 @@ func (q *Queries) UpdatePart(ctx context.Context, arg UpdatePartParams) (Part, e
 const upsertListing = `-- name: UpsertListing :one
 INSERT INTO distributor_listings (part_id, distributor_id, sku, packaging_type,
                                   unit_price, stock_available, moq, fixed_order_cost,
-                                  last_refreshed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                                  price_breaks, last_refreshed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 ON CONFLICT (distributor_id, sku) DO UPDATE
 SET unit_price        = EXCLUDED.unit_price,
     stock_available   = EXCLUDED.stock_available,
     moq               = EXCLUDED.moq,
     fixed_order_cost  = EXCLUDED.fixed_order_cost,
+    price_breaks      = EXCLUDED.price_breaks,
     last_refreshed_at = NOW()
 RETURNING id
 `
@@ -592,9 +716,10 @@ type UpsertListingParams struct {
 	StockAvailable *int32         `json:"stock_available"`
 	Moq            int32          `json:"moq"`
 	FixedOrderCost pgtype.Numeric `json:"fixed_order_cost"`
+	PriceBreaks    []byte         `json:"price_breaks"`
 }
 
-// Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq.
+// Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq/price_breaks.
 func (q *Queries) UpsertListing(ctx context.Context, arg UpsertListingParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, upsertListing,
 		arg.PartID,
@@ -605,6 +730,7 @@ func (q *Queries) UpsertListing(ctx context.Context, arg UpsertListingParams) (p
 		arg.StockAvailable,
 		arg.Moq,
 		arg.FixedOrderCost,
+		arg.PriceBreaks,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)

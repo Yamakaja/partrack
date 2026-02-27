@@ -9,6 +9,7 @@ import (
 
 	"github.com/Yamakaja/partrack/internal/config"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,22 +17,24 @@ import (
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	DB          *pgxpool.Pool
-	Queries     *dbgen.Queries
-	Config      *config.Config
-	Worker      *worker.Queue
-	Cache       *middleware.AuthCache
-	oidcEntries map[string]*oidcEntry // populated by initOIDC() in auth.go
+	DB           *pgxpool.Pool
+	Queries      *dbgen.Queries
+	Config       *config.Config
+	Worker       *worker.Queue
+	Cache        *middleware.AuthCache
+	Distributors distributor.Registry
+	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
 }
 
 // New creates a Handler and initialises OIDC providers.
-func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middleware.AuthCache) *Handler {
+func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middleware.AuthCache, reg distributor.Registry) *Handler {
 	h := &Handler{
-		DB:      db,
-		Queries: dbgen.New(db),
-		Config:  cfg,
-		Worker:  q,
-		Cache:   cache,
+		DB:           db,
+		Queries:      dbgen.New(db),
+		Config:       cfg,
+		Worker:       q,
+		Cache:        cache,
+		Distributors: reg,
 	}
 	h.initOIDC()
 	return h
