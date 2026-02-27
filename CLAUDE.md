@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-partrack has completed the architecture and design phase and is now in **initial implementation**. The Go backend scaffold is in place; handler stubs return 501 and will be filled in progressively.
+partrack has completed the architecture and design phase and is now in **active implementation**. The core parts catalog, distributor listings, BOM import pipeline, and distributor enrichment API are implemented. Inventory, orders, builds, and cart handlers are largely stubs.
 
 ## Build & Run
 
@@ -30,10 +30,11 @@ internal/
   middleware/        # auth.go (session/token → User in ctx), team.go (min-role enforcement)
   handler/           # HTTP handlers; one file per domain group; all share handler.Handler struct
   worker/            # channel-based job queue + per-team SSE hub
+  distributor/       # Client interface + Registry; digikey/ and testclient/ are implementations
 db/
   db.go              # exports embed.FS for migrations (used by internal/db/migrate.go)
-  migrations/        # golang-migrate SQL files (000001_initial_schema.up/down.sql)
-  queries/           # sqlc .sql query files (empty until handlers are implemented)
+  migrations/        # golang-migrate SQL files (up/down pairs, numbered sequentially)
+  queries/           # sqlc .sql query files
 web/
   web.go             # exports embed.FS for frontend dist/
   dist/              # Vite build output (git-ignored; .gitkeep placeholder committed)
@@ -47,6 +48,8 @@ sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal
 - Team role enforcement: `middleware.RequireTeamRole("member")` etc. — injects `*middleware.TeamMembership` into ctx.
 - Background jobs: `h.Worker.Enqueue(worker.JobBOMImport, teamID, payload)` returns a job ID. Progress events are published via `h.Worker.Publish(ev)` and consumed by SSE subscribers.
 - `writeJSON` / `writeError` helpers are in `internal/handler/handler.go`.
+- Distributor integrations implement `distributor.Client` (`EnrichPart`, `RefreshListing`, `SearchParts`) and are registered in `distributor.Registry`. `EnrichPart` takes a **distributor SKU** (not MPN) — use `SearchParts` first for discovery. `POST /parts/{id}/enrich` requires `{"sku": "...", "distributor_id": "..."}` in the body plus `team_id` as a query param.
+- `distributor_listings.price_breaks` is stored as JSONB (`[]distributor.PriceBreak`). `parts.lifecycle_status` is updated by enrichment via `SetPartEnriched` with a nullable lifecycle param (empty string = leave unchanged).
 
 ## Design Documents
 
