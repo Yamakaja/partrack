@@ -4,6 +4,7 @@
 package digikey
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -138,6 +139,83 @@ func setHeaders(req *http.Request, creds Credentials, token string) {
 	}
 }
 
+// doPostJSON performs an authenticated POST with a JSON body, decoding a JSON response into out.
+// Returns (true, nil) on 200, (false, nil) on 404, (false, err) otherwise.
+// Handles 401 by re-fetching the token and retrying once; 429 by honouring Retry-After and retrying once.
+func (c *Client) doPostJSON(ctx context.Context, rawURL string, body any, creds Credentials, out any) (found bool, err error) {
+	token, err := c.getToken(ctx, creds)
+	if err != nil {
+		return false, err
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return false, fmt.Errorf("digikey: encode request body: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(buf))
+		if err != nil {
+			return false, fmt.Errorf("digikey: build request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		setHeaders(req, creds, token)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("digikey: request: %w", err)
+		}
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		switch resp.StatusCode {
+		case http.StatusOK:
+			if err := json.Unmarshal(bodyBytes, out); err != nil {
+				return false, fmt.Errorf("digikey: decode response: %w", err)
+			}
+			return true, nil
+
+		case http.StatusNotFound:
+			return false, nil
+
+		case http.StatusBadRequest:
+			return false, fmt.Errorf("digikey: 400 bad request: %s", bodyBytes)
+
+		case http.StatusUnauthorized:
+			if attempt == 0 {
+				c.invalidateToken(creds.ClientID)
+				token, err = c.getToken(ctx, creds)
+				if err != nil {
+					return false, err
+				}
+				continue
+			}
+			return false, fmt.Errorf("digikey: 401 unauthorized after token refresh")
+
+		case http.StatusTooManyRequests:
+			if attempt == 0 {
+				wait := 5 * time.Second
+				if ra := resp.Header.Get("Retry-After"); ra != "" {
+					if secs, err := strconv.Atoi(ra); err == nil {
+						wait = time.Duration(secs) * time.Second
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return false, ctx.Err()
+				case <-time.After(wait):
+				}
+				continue
+			}
+			return false, fmt.Errorf("digikey: 429 rate limited")
+
+		default:
+			return false, fmt.Errorf("digikey: unexpected status %d: %s", resp.StatusCode, bodyBytes)
+		}
+	}
+	return false, fmt.Errorf("digikey: max retries exceeded")
+}
+
 // doGet performs an authenticated GET, decoding a JSON response into out.
 // Returns (true, nil) on 200, (false, nil) on 404, (false, err) otherwise.
 // Handles 401 by re-fetching the token and retrying once; 429 by honouring Retry-After and retrying once.
@@ -216,13 +294,14 @@ type productDetailsResponse struct {
 }
 
 type product struct {
-	Manufacturer      nameObj            `json:"Manufacturer"`
-	Description       descriptionObj     `json:"Description"`
-	Category          nameObj            `json:"Category"`
-	DatasheetUrl      string             `json:"DatasheetUrl"`
-	Parameters        []parameterValue   `json:"Parameters"`
-	ProductVariations []productVariation `json:"ProductVariations"`
-	ProductStatus     statusObj          `json:"ProductStatus"`
+	Manufacturer           nameObj            `json:"Manufacturer"`
+	ManufacturerPartNumber string             `json:"ManufacturerPartNumber"`
+	Description            descriptionObj     `json:"Description"`
+	Category               nameObj            `json:"Category"`
+	DatasheetUrl           string             `json:"DatasheetUrl"`
+	Parameters             []parameterValue   `json:"Parameters"`
+	ProductVariations      []productVariation `json:"ProductVariations"`
+	ProductStatus          statusObj          `json:"ProductStatus"`
 }
 
 type nameObj struct {
@@ -245,13 +324,13 @@ type parameterValue struct {
 }
 
 type productVariation struct {
-	DigiKeyProductNumber           string       `json:"DigiKeyProductNumber"`
-	MarketPlace                    bool         `json:"MarketPlace"`
-	PackageType                    nameObj      `json:"PackageType"`
-	QuantityAvailableforPackageType int32       `json:"QuantityAvailableforPackageType"`
-	MinimumOrderQuantity           int32        `json:"MinimumOrderQuantity"`
-	StandardPricing                []priceBreak `json:"StandardPricing"`
-	MyPricing                      []priceBreak `json:"MyPricing"`
+	DigiKeyProductNumber            string       `json:"DigiKeyProductNumber"`
+	MarketPlace                     bool         `json:"MarketPlace"`
+	PackageType                     nameObj      `json:"PackageType"`
+	QuantityAvailableforPackageType int32        `json:"QuantityAvailableforPackageType"`
+	MinimumOrderQuantity            int32        `json:"MinimumOrderQuantity"`
+	StandardPricing                 []priceBreak `json:"StandardPricing"`
+	MyPricing                       []priceBreak `json:"MyPricing"`
 }
 
 type priceBreak struct {
@@ -268,14 +347,39 @@ type productPricing struct {
 }
 
 type pricingVariation struct {
-	DigiKeyProductNumber           string       `json:"DigiKeyProductNumber"`
-	MarketPlace                    bool         `json:"MarketPlace"`
-	PackageType                    nameObj      `json:"PackageType"`
-	QuantityAvailableforPackageType int32       `json:"QuantityAvailableforPackageType"`
-	MinimumOrderQuantity           int32        `json:"MinimumOrderQuantity"`
-	StandardPricing                []priceBreak `json:"StandardPricing"`
-	MyPricing                      []priceBreak `json:"MyPricing"`
+	DigiKeyProductNumber            string       `json:"DigiKeyProductNumber"`
+	MarketPlace                     bool         `json:"MarketPlace"`
+	PackageType                     nameObj      `json:"PackageType"`
+	QuantityAvailableforPackageType int32        `json:"QuantityAvailableforPackageType"`
+	MinimumOrderQuantity            int32        `json:"MinimumOrderQuantity"`
+	StandardPricing                 []priceBreak `json:"StandardPricing"`
+	MyPricing                       []priceBreak `json:"MyPricing"`
 }
+
+// keywordRequest mirrors the subset of DigiKey's KeywordRequest we care about.
+type keywordRequest struct {
+	Keywords             string                `json:"Keywords"`
+	Limit                int32                 `json:"Limit,omitempty"`
+	Offset               int32                 `json:"Offset,omitempty"`
+	FilterOptionsRequest *filterOptionsRequest `json:"FilterOptionsRequest,omitempty"`
+	SortOptions          *sortOptions          `json:"SortOptions,omitempty"`
+}
+
+// keywordResponse mirrors the parts of KeywordResponse we need.
+type keywordResponse struct {
+	Products                    []product        `json:"Products"`
+	ProductsCount               int32            `json:"ProductsCount"`
+	ExactMatches                []product        `json:"ExactMatches"`
+	FilterOptions               *filterOptions   `json:"FilterOptions,omitempty"`
+	SearchLocaleUsed            *isoSearchLocale `json:"SearchLocaleUsed,omitempty"`
+	AppliedParametricFiltersDto []parameterValue `json:"AppliedParametricFiltersDto,omitempty"`
+}
+
+// Placeholder types for fields we don't yet use but may in future.
+type filterOptionsRequest struct{}
+type sortOptions struct{}
+type filterOptions struct{}
+type isoSearchLocale struct{}
 
 // ---- distributor.Client implementation ----
 
@@ -399,6 +503,118 @@ func (c *Client) RefreshListing(ctx context.Context, sku string, rawCreds json.R
 		}
 	}
 	return nil, nil
+}
+
+// SearchParts performs a keyword / MPN / manufacturer search using DigiKey's
+// ProductSearch v4 KeywordSearch endpoint and maps results into the
+// distributor.SearchResult abstraction.
+func (c *Client) SearchParts(ctx context.Context, q distributor.SearchQuery, rawCreds json.RawMessage) (*distributor.SearchResult, error) {
+	if rawCreds == nil {
+		return nil, fmt.Errorf("digikey: credentials required")
+	}
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+
+	keywords := strings.TrimSpace(q.Keywords)
+	if keywords == "" {
+		return nil, nil
+	}
+
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	endpoint := baseURL(creds) + "/products/v4/search/keyword"
+	body := keywordRequest{
+		Keywords: keywords,
+		Limit:    limit,
+		Offset:   offset,
+	}
+
+	var resp keywordResponse
+	found, err := c.doPostJSON(ctx, endpoint, &body, creds, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if !found || len(resp.Products) == 0 {
+		return nil, nil
+	}
+
+	// Map products to SearchProduct slice.
+	products := make([]distributor.SearchProduct, 0, len(resp.Products))
+	for _, p := range resp.Products {
+		sp := distributor.SearchProduct{
+			MPN:          p.ManufacturerPartNumber,
+			Manufacturer: p.Manufacturer.Name,
+			Description:  p.Description.ProductDescription,
+			Category:     p.Category.Name,
+		}
+		if sp.Description == "" {
+			sp.Description = p.Description.DetailedDescription
+		}
+
+		// Extract package from Parameters similar to EnrichPart.
+		var packageCase, supplierPackage string
+		for _, param := range p.Parameters {
+			switch param.ParameterText {
+			case "Package / Case":
+				packageCase = param.ValueText
+			case "Supplier Device Package":
+				supplierPackage = param.ValueText
+			}
+		}
+		if packageCase != "" {
+			sp.Package = packageCase
+		} else if supplierPackage != "" {
+			sp.Package = supplierPackage
+		}
+
+		// Choose a primary variation (first non-marketplace) for SKU/price/stock.
+		for _, v := range p.ProductVariations {
+			if v.MarketPlace {
+				continue
+			}
+			sp.PrimarySKU = v.DigiKeyProductNumber
+			if len(v.StandardPricing) > 0 {
+				sp.UnitPrice = fmt.Sprintf("%.4f", v.StandardPricing[0].UnitPrice)
+			}
+			stock := v.QuantityAvailableforPackageType
+			sp.StockAvailable = &stock
+			break
+		}
+
+		products = append(products, sp)
+	}
+
+	// Compute ExactMatchIndices by correlating ExactMatches with Products.
+	exactIndices := make([]int, 0, len(resp.ExactMatches))
+	if len(resp.ExactMatches) > 0 {
+		for i, p := range resp.Products {
+			for _, em := range resp.ExactMatches {
+				if p.ManufacturerPartNumber == em.ManufacturerPartNumber &&
+					p.Manufacturer.Name == em.Manufacturer.Name {
+					exactIndices = append(exactIndices, i)
+					break
+				}
+			}
+		}
+	}
+
+	return &distributor.SearchResult{
+		Products:          products,
+		TotalCount:        resp.ProductsCount,
+		ExactMatchIndices: exactIndices,
+	}, nil
 }
 
 // ---- helpers ----

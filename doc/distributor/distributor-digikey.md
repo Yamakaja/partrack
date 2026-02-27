@@ -69,6 +69,108 @@ Every ProductSearch request should include:
 
 ---
 
+## Keyword-based parts search (`/products/v4/search/keyword`)
+
+ProductSearch v4 exposes a **keyword search** endpoint that returns a paged list of matching
+products for a free-text query. This is the primary building block for an interactive
+"search by MPN / manufacturer / keyword" experience in partrack.
+
+### Endpoint
+
+```
+POST https://api.digikey.com/products/v4/search/keyword
+```
+
+The swagger path is `/search/keyword` under the `/products/v4` base path.
+
+Authentication and locale headers are identical to other ProductSearch calls:
+
+- `Authorization: Bearer {access_token}`
+- `X-DIGIKEY-Client-Id`
+- `X-DIGIKEY-Locale-Site`
+- `X-DIGIKEY-Locale-Currency`
+- `X-DIGIKEY-Locale-Language`
+
+### Request body (`KeywordRequest`)
+
+The request body is a `KeywordRequest` object:
+
+```jsonc
+{
+  "Keywords": "string",        // up to 250 characters
+  "Limit": 20,                  // optional, 1–50
+  "Offset": 0,                  // optional, for pagination
+  "FilterOptionsRequest": { … },
+  "SortOptions": { … }
+}
+```
+
+Relevant fields for partrack:
+
+- **`Keywords`** — free-text search string. Typical patterns:
+  - Direct **MPN search**: `"CR2032"`, `"TPS7A4701RGWT"`
+  - **Manufacturer + MPN** to disambiguate: `"Panasonic CR2032"`, `"TI TPS7A4701"`
+  - **Generic keyword search**: `"10k 1% 0603 resistor"`, `"STM32F4 microcontroller"`
+- **`Limit`** — max number of products to return per page (1–50). The client should cap this
+  (e.g. 20) to keep responses snappy.
+- **`Offset`** — starting index for pagination. For a UI with "Load more" / next page buttons,
+  increment offset by `Limit`.
+- **`FilterOptionsRequest`** — advanced parametric filtering and category constraints. This can
+  be wired up later for faceted search (filter by category, in-stock only, etc.).
+- **`SortOptions`** — controls result ordering (e.g. by relevance, price, stock). The initial
+  partrack integration can rely on DigiKey defaults and introduce explicit sort controls later.
+
+### Response (`KeywordResponse`)
+
+The response is a `KeywordResponse`:
+
+```jsonc
+{
+  "Products": [ /* Product[] */ ],
+  "ProductsCount": 6463,
+  "ExactMatches": [ /* Product[] */ ],
+  "FilterOptions": { /* faceting metadata */ },
+  "SearchLocaleUsed": { /* effective locale */ },
+  "AppliedParametricFiltersDto": [ /* Parameter[] */ ]
+}
+```
+
+Key fields:
+
+- **`Products`** — array of `Product` summaries for the current page. The `Product` definition is
+  the same as used by `productdetails`, but the payload is tuned for search (no MyPricing).
+- **`ProductsCount`** — total number of matching products across all pages. Use this to drive
+  pagination controls and to show "N results" in the UI.
+- **`ExactMatches`** — array of `Product` objects that DigiKey considers exact matches for the
+  query (e.g. a single MPN or DigiKey part number). For MPN-based lookups, the client should
+  prioritise these entries (e.g. show them at the top of the results or auto-select when
+  unambiguous).
+- **`FilterOptions` / `AppliedParametricFiltersDto`** — structures describing available filters
+  and currently-applied parametric filters. These are useful for future faceted search but can be
+  ignored in the initial implementation.
+- **`SearchLocaleUsed`** — echoes the effective site/currency/language used for the search.
+
+### Intended use in partrack
+
+- Provide a **generic parts search** UI where a user can type an MPN, a manufacturer name, or
+  free-form descriptive text and browse matching DigiKey products.
+- For **MPN-centric workflows**, call `KeywordSearch` with `Keywords = "{manufacturer} {mpn}"`
+  when a manufacturer is known, so that `ExactMatches` is more likely to contain the correct
+  product.
+- When a user selects a search result, follow up with a `productdetails` call (see `EnrichPart`)
+  to retrieve full enrichment data and canonical listings (including lifecycle status and
+  packaging details).
+
+Important constraints:
+
+- **MyPricing is not returned** for keyword search — only `StandardPricing` is present. For
+  account-specific pricing (MyPricing) and full price/stock snapshots, continue to use
+  `productdetails` and `pricing` endpoints as described in `EnrichPart` and `RefreshListing`.
+- Keyword search is **discovery-focused**: it is intended for finding candidate products, not for
+  storing long-term price data.
+
+---
+
 ## EnrichPart
 
 ### Endpoint
