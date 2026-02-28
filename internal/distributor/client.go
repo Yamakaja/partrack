@@ -63,6 +63,7 @@ type SearchResult struct {
 
 // EnrichmentResult is the combined metadata and listings returned by EnrichPart.
 type EnrichmentResult struct {
+	MPN             string // manufacturer part number; empty to leave unchanged
 	Manufacturer    string
 	Description     string
 	Category        string

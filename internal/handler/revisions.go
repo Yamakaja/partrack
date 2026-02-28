@@ -292,6 +292,8 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		HasLinkedDistributor bool       `json:"has_linked_distributor"`
 		ResolvedPartID       *string    `json:"resolved_part_id"`
 		ResolvedPartMpn      *string    `json:"resolved_part_mpn"`
+		ResolutionState      *string    `json:"resolution_state"`
+		Ignored              bool       `json:"ignored"`
 		Substitutes          []subEntry `json:"substitutes"`
 	}
 
@@ -311,6 +313,8 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			HasLinkedDistributor: li.ResolvedDistributorID.Valid,
 			ResolvedPartID:       uuidPtrString(li.ResolvedPartID),
 			ResolvedPartMpn:      li.ResolvedPartMpn,
+			ResolutionState:      li.ResolutionState,
+			Ignored:              li.Ignored,
 			Substitutes:          subsByItem[id],
 		}
 		if itemsResp[i].Substitutes == nil {

@@ -214,6 +214,47 @@ func (q *Queries) GetRevision(ctx context.Context, arg GetRevisionParams) (GetRe
 	return i, err
 }
 
+const ignoreBOMLineItem = `-- name: IgnoreBOMLineItem :one
+UPDATE bom_line_items
+SET ignored = $1,
+    resolved_part_id = CASE WHEN $1::boolean THEN NULL ELSE resolved_part_id END,
+    resolution_state = CASE WHEN $1::boolean THEN 'ignored' ELSE NULL END
+WHERE id = $2 AND bom_revision_id = $3
+RETURNING id, reference_designators, quantity, raw_description,
+          resolved_part_id, resolution_state, ignored
+`
+
+type IgnoreBOMLineItemParams struct {
+	Ignored       bool        `json:"ignored"`
+	ID            pgtype.UUID `json:"id"`
+	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
+}
+
+type IgnoreBOMLineItemRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	ReferenceDesignators string      `json:"reference_designators"`
+	Quantity             int32       `json:"quantity"`
+	RawDescription       *string     `json:"raw_description"`
+	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
+	ResolutionState      *string     `json:"resolution_state"`
+	Ignored              bool        `json:"ignored"`
+}
+
+func (q *Queries) IgnoreBOMLineItem(ctx context.Context, arg IgnoreBOMLineItemParams) (IgnoreBOMLineItemRow, error) {
+	row := q.db.QueryRow(ctx, ignoreBOMLineItem, arg.Ignored, arg.ID, arg.BomRevisionID)
+	var i IgnoreBOMLineItemRow
+	err := row.Scan(
+		&i.ID,
+		&i.ReferenceDesignators,
+		&i.Quantity,
+		&i.RawDescription,
+		&i.ResolvedPartID,
+		&i.ResolutionState,
+		&i.Ignored,
+	)
+	return i, err
+}
+
 const listAllSubstitutesForRevision = `-- name: ListAllSubstitutesForRevision :many
 SELECT
     s.bom_line_item_id,

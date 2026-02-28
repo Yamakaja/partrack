@@ -31,6 +31,7 @@ func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*
 
 	stockZero := int32(0)
 	return &distributor.EnrichmentResult{
+		MPN:             "LM317TEST",
 		Manufacturer:    "Texas Instruments",
 		Description:     "1.5A Adjustable Voltage Regulator",
 		Category:        "Linear Regulators",

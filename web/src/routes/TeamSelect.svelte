@@ -34,7 +34,7 @@
       newTeamDesc = '';
       navigate(`/teams/${team.id}`);
     } catch {
-      pushToast({ type: 'error', message: 'Failed to create team' });
+      pushToast('error', 'Failed to create team');
     } finally {
       creating = false;
     }

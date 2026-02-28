@@ -4,7 +4,7 @@
   import { setAuth } from '$lib/stores/auth.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
 
-  let state = $state<'loading' | 'ready' | 'invalid' | 'done'>('loading');
+  let pageState = $state<'loading' | 'ready' | 'invalid' | 'done'>('loading');
   let displayName = $state('');
   let email = $state('');
   let expiresAt = $state('');
@@ -18,7 +18,7 @@
     const params = new URLSearchParams(window.location.search);
     token = params.get('token') ?? '';
     if (!token) {
-      state = 'invalid';
+      pageState = 'invalid';
       return;
     }
     try {
@@ -26,9 +26,9 @@
       displayName = info.display_name;
       email = info.email;
       expiresAt = new Date(info.expires_at).toLocaleString();
-      state = 'ready';
+      pageState = 'ready';
     } catch {
-      state = 'invalid';
+      pageState = 'invalid';
     }
   });
 
@@ -59,9 +59,9 @@
       <p class="mt-1 text-sm text-muted-foreground">Set your password</p>
     </div>
 
-    {#if state === 'loading'}
+    {#if pageState === 'loading'}
       <p class="text-sm text-muted-foreground">Verifying link…</p>
-    {:else if state === 'invalid'}
+    {:else if pageState === 'invalid'}
       <div class="rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-sm text-destructive">
         This link is invalid or has already been used.
       </div>

@@ -53,6 +53,8 @@ export interface BOMLineItem {
   has_linked_distributor: boolean;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
+  resolution_state: string | null;
+  ignored: boolean;
   substitutes: BOMSubstitute[];
 }
 

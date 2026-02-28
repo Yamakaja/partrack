@@ -12,8 +12,9 @@ import (
 )
 
 // UpdateBOMItem handles PATCH /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}
-// Body: {resolved_part_id?} — manually resolve or re-resolve a BOM line item.
-// Pass null to clear the resolution.
+// Body: {resolved_part_id?} — manually resolve or re-resolve a BOM line item (pass null to clear).
+//
+//	{ignored?} — toggle ignore state on the item.
 func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 	var revID pgtype.UUID
 	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
@@ -28,24 +29,60 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		ResolvedPartID *string `json:"resolved_part_id"`
+		Ignored        *bool   `json:"ignored"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
 		return
 	}
 
+	strPtr := func(s string) *string { return &s }
+
+	// Ignore/un-ignore path.
+	if body.Ignored != nil {
+		row, err := h.Queries.IgnoreBOMLineItem(r.Context(), dbgen.IgnoreBOMLineItemParams{
+			Ignored:       *body.Ignored,
+			ID:            itemID,
+			BomRevisionID: revID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":                    row.ID.String(),
+			"reference_designators": row.ReferenceDesignators,
+			"quantity":              row.Quantity,
+			"raw_description":       row.RawDescription,
+			"resolved_part_id":      uuidPtrString(row.ResolvedPartID),
+			"resolution_state":      row.ResolutionState,
+			"ignored":               row.Ignored,
+		})
+		return
+	}
+
+	// Resolve/clear path.
 	var resolvedPartID pgtype.UUID
-	if body.ResolvedPartID != nil {
+	var resolutionState *string
+	if body.ResolvedPartID != nil && *body.ResolvedPartID != "" {
 		if err := resolvedPartID.Scan(*body.ResolvedPartID); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid resolved_part_id", "BAD_REQUEST")
 			return
 		}
+		resolutionState = strPtr("manual")
 	}
+	// If body.ResolvedPartID is nil or empty, resolvedPartID stays zero (NULL) and
+	// resolutionState stays nil (NULL), which clears any prior resolution.
 
 	row, err := h.Queries.UpdateBOMLineItem(r.Context(), dbgen.UpdateBOMLineItemParams{
-		ResolvedPartID: resolvedPartID,
-		ID:             itemID,
-		BomRevisionID:  revID,
+		ResolvedPartID:  resolvedPartID,
+		ResolutionState: resolutionState,
+		ID:              itemID,
+		BomRevisionID:   revID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -62,6 +99,8 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 		"quantity":              row.Quantity,
 		"raw_description":       row.RawDescription,
 		"resolved_part_id":      uuidPtrString(row.ResolvedPartID),
+		"resolution_state":      row.ResolutionState,
+		"ignored":               false,
 	})
 }
 

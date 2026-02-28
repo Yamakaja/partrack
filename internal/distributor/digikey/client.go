@@ -351,6 +351,7 @@ func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMe
 
 	p := resp.Product
 	result := &distributor.EnrichmentResult{
+		MPN:             p.ManufacturerPartNumber,
 		Manufacturer:    p.Manufacturer.Name,
 		Description:     p.Description.ProductDescription,
 		Category:        p.Category.Name,

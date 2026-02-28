@@ -211,6 +211,7 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
 		"status":       "progress",
+		"resolved":     resolvedSKU + resolvedMPN,
 		"resolved_sku": resolvedSKU,
 		"resolved_mpn": resolvedMPN,
 		"ambiguous":    ambiguousCount,
@@ -312,6 +313,7 @@ func (q *Queue) handleBOMImport(job Job) {
 
 		q.publishProgress(job, "bom_import_progress", map[string]any{
 			"status":       "progress",
+			"resolved":     resolvedSKU + resolvedMPN,
 			"resolved_sku": resolvedSKU,
 			"resolved_mpn": resolvedMPN,
 			"ambiguous":    ambiguousCount,
@@ -329,6 +331,7 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
 		"status":       "complete",
+		"resolved":     resolvedSKU + resolvedMPN,
 		"resolved_sku": resolvedSKU,
 		"resolved_mpn": resolvedMPN,
 		"ambiguous":    ambiguousCount,
@@ -502,10 +505,16 @@ func (q *Queue) handlePartEnrich(job Job) {
 			Valid:               true,
 		}
 	}
+	var mpn *string
+	if result.MPN != "" {
+		s := result.MPN
+		mpn = &s
+	}
 	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
 		ID:                 partID,
 		EnrichmentSourceID: cfg.DistributorID,
 		LifecycleStatus:    lifecycleStatus,
+		Mpn:                mpn,
 	}); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
 		q.publishError(job, "failed to set enriched: "+err.Error())

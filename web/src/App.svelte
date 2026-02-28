@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, type Component } from 'svelte';
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-  import { currentRoute, matchRoute, navigate } from '$lib/router/index.svelte.js';
+  import { currentRoute, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
+  import { ModeWatcher } from 'mode-watcher';
   import AppShell from '$lib/components/layout/AppShell.svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
 
@@ -104,12 +105,13 @@
 </script>
 
 <QueryClientProvider client={queryClient}>
+  <ModeWatcher />
   {#if authStore.loading}
     <div class="flex h-screen items-center justify-center bg-background">
       <div class="text-muted-foreground text-sm">Loading…</div>
     </div>
   {:else if resolved}
-    {@const Cmp = resolved.component}
+    {@const Cmp = resolved.component as Component<RouteParams>}
     {#if isShellless}
       <Cmp {...resolved.params} />
     {:else}

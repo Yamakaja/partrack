@@ -15,7 +15,7 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    host: "172.17.0.2"
+    host: "aibox"
   },
   build: {
     outDir: 'dist',

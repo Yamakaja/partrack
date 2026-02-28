@@ -1,4 +1,4 @@
-import { navigate } from './index.js';
+import { navigate } from './index.svelte.js';
 import { authStore } from '$lib/stores/auth.svelte.js';
 
 export type Role = 'viewer' | 'member' | 'purchaser' | 'admin';

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -39,7 +40,13 @@ func (h *Handler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-events:
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, ev.Data)
+			wrapper := map[string]any{
+				"type":   ev.Type,
+				"job_id": ev.JobID,
+				"data":   json.RawMessage(ev.Data),
+			}
+			wrapperJSON, _ := json.Marshal(wrapper)
+			fmt.Fprintf(w, "data: %s\n\n", wrapperJSON)
 			flusher.Flush()
 		}
 	}

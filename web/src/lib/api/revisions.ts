@@ -58,7 +58,7 @@ export function updateRevision(teamId: string, projectId: string, revId: string,
   return request<Revision>('PATCH', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}`, body);
 }
 
-export function updateBOMLineItem(teamId: string, projectId: string, revId: string, itemId: string, body: { resolved_part_id?: string | null }) {
+export function updateBOMLineItem(teamId: string, projectId: string, revId: string, itemId: string, body: { resolved_part_id?: string | null; ignored?: boolean }) {
   return request<BOMLineItem>('PATCH', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}`, body);
 }
 

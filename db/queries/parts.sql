@@ -115,11 +115,12 @@ RETURNING id;
 
 -- name: SetPartEnriched :exec
 -- Records which distributor last enriched this part, when, and updates lifecycle_status
--- if the distributor provides one (NULL keeps the existing value).
+-- and mpn if the distributor provides them (NULL keeps the existing values).
 UPDATE parts
 SET enrichment_source_id = $2,
     enriched_at          = NOW(),
-    lifecycle_status     = COALESCE(sqlc.narg('lifecycle_status')::part_lifecycle_status, lifecycle_status)
+    lifecycle_status     = COALESCE(sqlc.narg('lifecycle_status')::part_lifecycle_status, lifecycle_status),
+    mpn                  = COALESCE(sqlc.narg('mpn'), mpn)
 WHERE id = $1;
 
 -- name: UpdateListingData :exec

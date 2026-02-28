@@ -50,9 +50,10 @@
 
 @layer base {
   body {
-    background-color: theme(--color-background);
-    color: theme(--color-foreground);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
   }
+
 }

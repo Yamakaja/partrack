@@ -593,7 +593,8 @@ const setPartEnriched = `-- name: SetPartEnriched :exec
 UPDATE parts
 SET enrichment_source_id = $2,
     enriched_at          = NOW(),
-    lifecycle_status     = COALESCE($3::part_lifecycle_status, lifecycle_status)
+    lifecycle_status     = COALESCE($3::part_lifecycle_status, lifecycle_status),
+    mpn                  = COALESCE($4, mpn)
 WHERE id = $1
 `
 
@@ -601,12 +602,18 @@ type SetPartEnrichedParams struct {
 	ID                 pgtype.UUID             `json:"id"`
 	EnrichmentSourceID pgtype.UUID             `json:"enrichment_source_id"`
 	LifecycleStatus    NullPartLifecycleStatus `json:"lifecycle_status"`
+	Mpn                *string                 `json:"mpn"`
 }
 
 // Records which distributor last enriched this part, when, and updates lifecycle_status
-// if the distributor provides one (NULL keeps the existing value).
+// and mpn if the distributor provides them (NULL keeps the existing values).
 func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams) error {
-	_, err := q.db.Exec(ctx, setPartEnriched, arg.ID, arg.EnrichmentSourceID, arg.LifecycleStatus)
+	_, err := q.db.Exec(ctx, setPartEnriched,
+		arg.ID,
+		arg.EnrichmentSourceID,
+		arg.LifecycleStatus,
+		arg.Mpn,
+	)
 	return err
 }
 

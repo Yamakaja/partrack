@@ -5,6 +5,8 @@
   let activeTeam = $derived(activeTeamStore.current);
   import { logout } from '$lib/api/auth.js';
   import { navigate } from '$lib/router/index.svelte.js';
+  import { toggleMode, mode } from 'mode-watcher';
+  import { Sun, Moon } from 'lucide-svelte';
   import TeamSwitcher from './TeamSwitcher.svelte';
 
   async function handleLogout() {
@@ -134,6 +136,13 @@
         Account
       </a>
     </div>
+    <button onclick={toggleMode} title="Toggle theme" class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent/50">
+      {#if mode.current === 'dark'}
+        <Sun class="size-4" />
+      {:else}
+        <Moon class="size-4" />
+      {/if}
+    </button>
     <button onclick={handleLogout} class="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent/50">
       Log out
     </button>

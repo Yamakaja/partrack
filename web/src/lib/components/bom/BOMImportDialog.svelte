@@ -132,7 +132,7 @@
     // Column mapping based on stored header names; we only apply this once we have parsed
     // the header row, so we store the config and use it during advanceToMap.
     _storedConfigForMapping = config;
-    distributorMappings = config.dist_mapping ?? {};
+    distributorMappings = config.mapping ?? {};
   }
 
   // Holds the last loaded bom_import_config so that advanceToMap can apply role mappings
@@ -321,7 +321,7 @@
           name_col:         nameIdx  >= 0 ? (headerRow[nameIdx]  ?? '') : '',
           sku_col:          skuIdx   >= 0 ? (headerRow[skuIdx]   ?? '') : '',
           distributor_col:  distIdx  >= 0 ? (headerRow[distIdx]  ?? '') : '',
-          dist_mapping: mapping
+          mapping: mapping
         },
         items,
       });

@@ -87,6 +87,15 @@ VALUES ($1, $2);
 DELETE FROM bom_line_item_substitutes
 WHERE bom_line_item_id = $1 AND part_id = $2;
 
+-- name: IgnoreBOMLineItem :one
+UPDATE bom_line_items
+SET ignored = sqlc.arg('ignored'),
+    resolved_part_id = CASE WHEN sqlc.arg('ignored')::boolean THEN NULL ELSE resolved_part_id END,
+    resolution_state = CASE WHEN sqlc.arg('ignored')::boolean THEN 'ignored' ELSE NULL END
+WHERE id = sqlc.arg('id') AND bom_revision_id = sqlc.arg('bom_revision_id')
+RETURNING id, reference_designators, quantity, raw_description,
+          resolved_part_id, resolution_state, ignored;
+
 -- name: GetInventoryQuantitiesForRevision :many
 SELECT ie.part_id, ie.quantity_on_hand
 FROM inventory_entries ie

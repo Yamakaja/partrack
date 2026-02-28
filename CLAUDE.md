@@ -19,6 +19,15 @@ Runtime requires:
 - `PARTRACK_DB_URL=postgres://...` or `database.url` in `config.yaml`
 - Migrations run automatically at startup via golang-migrate
 
+## Tests
+
+```bash
+PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack go test -p 1 ./...
+```
+
+- Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.
+- The test DB URL is `postgres://partrack:partrack@test-postgres/partrack`.
+
 ## Code Layout
 
 ```

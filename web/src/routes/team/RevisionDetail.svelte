@@ -32,6 +32,9 @@
   let jobDismissed = $state(false);
   let activeJobId = $derived(jobDismissed ? null : importJobId);
 
+  type FilterTab = 'all' | 'needs_attention' | 'auto' | 'ignored';
+  let activeFilter = $state<FilterTab>('all');
+
   let projectQuery = createQuery(() => ({
     queryKey: ['project', teamId, projectId],
     queryFn: () => getProject(teamId, projectId),
@@ -58,6 +61,29 @@
     return map;
   });
 
+  let allItems = $derived(revisionQuery.data?.items ?? []);
+
+  let isReady = $derived(
+    allItems.length > 0 && allItems.every(i => i.resolved_part_id != null || i.ignored)
+  );
+
+  let needsAttentionCount = $derived(
+    allItems.filter(i => !i.ignored && !i.resolved_part_id).length
+  );
+
+  let filteredItems = $derived((): BOMLineItem[] => {
+    switch (activeFilter) {
+      case 'needs_attention':
+        return allItems.filter(i => !i.ignored && !i.resolved_part_id);
+      case 'auto':
+        return allItems.filter(i => i.resolution_state === 'auto_sku' || i.resolution_state === 'auto_mpn');
+      case 'ignored':
+        return allItems.filter(i => i.ignored);
+      default:
+        return allItems;
+    }
+  });
+
   function handleImportComplete() {
     jobDismissed = true;
     qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
@@ -74,6 +100,16 @@
     }
   }
 
+  async function handleIgnore(itemId: string, ignored: boolean) {
+    try {
+      await updateBOMLineItem(teamId, projectId, revId, itemId, { ignored });
+      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+      pushToast('success', ignored ? 'Item ignored' : 'Item un-ignored');
+    } catch (err: any) {
+      pushToast('error', 'Failed to update line item', err.message);
+    }
+  }
+
   function handleSubstituteChange() {
     qc.invalidateQueries({ queryKey: ['substitutes', teamId, projectId, revId] });
   }
@@ -81,10 +117,12 @@
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');
 
-  function sortBomItems(items: BOMLineItem[]): BOMLineItem[] {
-    items.sort((a,b) => b.quantity - a.quantity);
-    return items;
-  }
+  const filterTabs: { id: FilterTab; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'needs_attention', label: 'Needs Attention' },
+    { id: 'auto', label: 'Auto-resolved' },
+    { id: 'ignored', label: 'Ignored' },
+  ];
 </script>
 
 <div class="flex flex-col h-full">
@@ -123,6 +161,13 @@
         {#if rev.is_active}
           <Badge variant="success">Active BOM</Badge>
         {/if}
+        {#if allItems.length > 0}
+          {#if isReady}
+            <Badge variant="success">Ready</Badge>
+          {:else}
+            <Badge variant="warning">Needs Attention{needsAttentionCount > 0 ? ` (${needsAttentionCount})` : ''}</Badge>
+          {/if}
+        {/if}
         <span>Imported by {rev.imported_by_display_name}</span>
         {#if rev.notes}
           <span>· {rev.notes}</span>
@@ -136,43 +181,64 @@
     {:else if revisionQuery.isError}
       <div class="text-sm text-destructive">Error: {revisionQuery.error.message}</div>
     {:else if revisionQuery.data}
-      {@const items = sortBomItems(revisionQuery.data.items)}
-      {#if items.length === 0}
+      {#if allItems.length === 0}
         <EmptyState
           title="No line items"
           description="This revision has no BOM line items."
         />
       {:else}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Manufacturer</TableHead>
-              <TableHead>MPN</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Reference Designators</TableHead>
-              <TableHead>Distributor Name</TableHead>
-              <TableHead>SKU</TableHead>
-              <TableHead class="text-center">Qty</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Resolve Part</TableHead>
-              <TableHead>Substitutes</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each items as item (item.id)}
-              <BOMLineItemRow
-                {item}
-                {teamId}
-                {projectId}
-                revisionId={revId}
-                substitutes={substituteMap().get(item.id) ?? []}
-                onresolve={handleResolve}
-                onsubstitutechange={handleSubstituteChange}
-              />
-            {/each}
-          </TableBody>
-        </Table>
+        <!-- Filter tabs -->
+        <div class="flex gap-1 border-b border-border pb-2">
+          {#each filterTabs as tab (tab.id)}
+            <button
+              type="button"
+              class="px-3 py-1 text-sm rounded-md transition-colors
+                     {activeFilter === tab.id
+                       ? 'bg-primary text-primary-foreground'
+                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
+              onclick={() => { activeFilter = tab.id; }}
+            >
+              {tab.label}
+            </button>
+          {/each}
+        </div>
+
+        {@const items = filteredItems().sort((a, b) => b.quantity - a.quantity)}
+        {#if items.length === 0}
+          <div class="text-sm text-muted-foreground py-4 text-center">No items in this filter.</div>
+        {:else}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Manufacturer</TableHead>
+                <TableHead>MPN</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Reference Designators</TableHead>
+                <TableHead>Distributor Name</TableHead>
+                <TableHead>SKU</TableHead>
+                <TableHead class="text-center">Qty</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Resolve Part</TableHead>
+                <TableHead>Substitutes</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {#each items as item (item.id)}
+                <BOMLineItemRow
+                  {item}
+                  {teamId}
+                  {projectId}
+                  revisionId={revId}
+                  substitutes={substituteMap().get(item.id) ?? []}
+                  onresolve={handleResolve}
+                  onignore={handleIgnore}
+                  onsubstitutechange={handleSubstituteChange}
+                />
+              {/each}
+            </TableBody>
+          </Table>
+        {/if}
       {/if}
     {/if}
   </div>
