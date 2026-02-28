@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Parameter } from '$lib/types/parts.js';
+  import type { Parameter, Listing } from '$lib/types/parts.js';
   import { Tabs, TabsList, TabsTrigger, TabsContent } from '$lib/components/ui/tabs/index.js';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -10,10 +10,14 @@
   let {
     partId,
     parameters,
+    preferredSourceId,
+    listings,
     onchange,
   }: {
     partId: string;
     parameters: { user_specified: Parameter[]; distributor_sourced: Parameter[] };
+    preferredSourceId?: string | null;
+    listings?: Listing[];
     onchange?: () => void;
   } = $props();
 
@@ -42,14 +46,71 @@
       pushToast('error', 'Failed to delete parameter', e.message);
     }
   }
+
+  // Combined parameter list with priority: user > preferred distributor > all distributors
+  let combined = $derived.by(() => {
+    const userNames = new Set((parameters.user_specified ?? []).map(p => p.name));
+    const userRows = (parameters.user_specified ?? []).map(p => ({ ...p, displaySource: 'User' }));
+
+    const sourced = parameters.distributor_sourced ?? [];
+    let distRows: (Parameter & { displaySource: string })[];
+    if (preferredSourceId) {
+      distRows = sourced
+        .filter(p => p.source_distributor_id === preferredSourceId && !userNames.has(p.name))
+        .map(p => ({ ...p, displaySource: p.source_distributor_name ?? '' }));
+    } else {
+      distRows = sourced
+        .filter(p => !userNames.has(p.name))
+        .map(p => ({ ...p, displaySource: p.source_distributor_name ?? '' }));
+    }
+    return [...userRows, ...distRows];
+  });
+
+  function listingTabLabel(listing: Listing): string {
+    const siblings = (listings ?? []).filter(l => l.distributor_id === listing.distributor_id);
+    if (siblings.length <= 1) return listing.distributor_name;
+    return `${listing.distributor_name} (${listing.packaging_type ?? listing.sku})`;
+  }
 </script>
 
-<Tabs value="user">
+<Tabs value="combined">
   <TabsList>
-    <TabsTrigger value="user">User-specified ({parameters.user_specified?.length ?? 0})</TabsTrigger>
-    <TabsTrigger value="distributor">Distributor ({parameters.distributor_sourced?.length ?? 0})</TabsTrigger>
+    <TabsTrigger value="combined">Unified</TabsTrigger>
+    <TabsTrigger value="user">User ({parameters.user_specified?.length ?? 0})</TabsTrigger>
+    {#each (listings ?? []) as listing (listing.id)}
+      <TabsTrigger value="dist-{listing.id}">{listingTabLabel(listing)}</TabsTrigger>
+    {/each}
   </TabsList>
 
+  <!-- Combined parameters tab -->
+  <TabsContent value="combined">
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>Value</TableHead>
+          <TableHead>Unit</TableHead>
+          <TableHead>Source</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {#each combined as param (param.id)}
+          <TableRow>
+            <TableCell class="font-mono text-xs">{param.name}</TableCell>
+            <TableCell>{param.value}</TableCell>
+            <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
+            <TableCell class="text-muted-foreground text-xs">{param.displaySource}</TableCell>
+          </TableRow>
+        {:else}
+          <TableRow>
+            <TableCell colspan={4} class="text-center text-muted-foreground py-8">No parameters</TableCell>
+          </TableRow>
+        {/each}
+      </TableBody>
+    </Table>
+  </TabsContent>
+
+  <!-- User-specified parameters tab -->
   <TabsContent value="user">
     <Table>
       <TableHeader>
@@ -102,26 +163,37 @@
     </div>
   </TabsContent>
 
-  <TabsContent value="distributor">
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Value</TableHead>
-          <TableHead>Unit</TableHead>
-          <TableHead>Source</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {#each (parameters.distributor_sourced ?? []) as param (param.id)}
+  <!-- Per-listing distributor parameter tabs -->
+  {#each (listings ?? []) as listing (listing.id)}
+    {@const distParams = (parameters.distributor_sourced ?? []).filter(p => p.source_distributor_id === listing.distributor_id)}
+    <TabsContent value="dist-{listing.id}">
+      <div class="flex gap-6 text-sm text-muted-foreground mb-3 px-1">
+        <span>SKU: <span class="font-mono text-foreground">{listing.sku}</span></span>
+        {#if listing.packaging_type}<span>Packaging: {listing.packaging_type}</span>{/if}
+        {#if listing.unit_price != null}<span>Price: ${parseFloat(listing.unit_price).toFixed(4)}</span>{/if}
+      </div>
+      <Table>
+        <TableHeader>
           <TableRow>
-            <TableCell class="font-mono text-xs">{param.name}</TableCell>
-            <TableCell>{param.value}</TableCell>
-            <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
-            <TableCell class="text-muted-foreground text-xs">{param.source_distributor_name ?? ''}</TableCell>
+            <TableHead>Name</TableHead>
+            <TableHead>Value</TableHead>
+            <TableHead>Unit</TableHead>
           </TableRow>
-        {/each}
-      </TableBody>
-    </Table>
-  </TabsContent>
+        </TableHeader>
+        <TableBody>
+          {#each distParams as param (param.id)}
+            <TableRow>
+              <TableCell class="font-mono text-xs">{param.name}</TableCell>
+              <TableCell>{param.value}</TableCell>
+              <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
+            </TableRow>
+          {:else}
+            <TableRow>
+              <TableCell colspan={3} class="text-center text-muted-foreground py-8">No parameters from this distributor</TableCell>
+            </TableRow>
+          {/each}
+        </TableBody>
+      </Table>
+    </TabsContent>
+  {/each}
 </Tabs>

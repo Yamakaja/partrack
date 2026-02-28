@@ -77,9 +77,6 @@
       <TableRow class={isPreferred ? 'bg-accent/30' : ''}>
         <TableCell class="font-medium">
           {listing.distributor_name}
-          {#if isPreferred}
-            <span class="ml-1.5 text-xs text-muted-foreground font-normal">(preferred)</span>
-          {/if}
         </TableCell>
         <TableCell class="font-mono text-xs">{listing.sku}</TableCell>
         <TableCell>{listing.packaging_type ?? '—'}</TableCell>

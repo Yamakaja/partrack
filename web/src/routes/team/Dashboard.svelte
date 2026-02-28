@@ -1,22 +1,22 @@
 <script lang="ts">
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import { linkAction } from '$lib/router/index.svelte.js';
-  import { Package, Archive, FolderOpen, ShoppingCart, ClipboardList, Hammer } from 'lucide-svelte';
+  import { Package, Warehouse, FolderOpen, ShoppingCart, ClipboardList, Hammer, PackageMinus } from 'lucide-svelte';
 
   let { teamId }: { teamId: string } = $props();
 
   const cards = [
     {
-      title: 'Parts Catalog',
+      title: 'Parts',
       description: 'Browse and manage the global and team parts catalog.',
       icon: Package,
       href: () => `/teams/${teamId}/parts`,
     },
     {
-      title: 'Inventory',
-      description: 'Track stock levels, locations, and reorder thresholds.',
-      icon: Archive,
-      href: () => `/teams/${teamId}/inventory`,
+      title: 'Storage',
+      description: 'Manage storage locations where parts are kept.',
+      icon: Warehouse,
+      href: () => `/teams/${teamId}/storage`,
     },
     {
       title: 'Projects',
@@ -41,6 +41,12 @@
       description: 'Record PCB assembly events and stock deductions.',
       icon: Hammer,
       href: () => `/teams/${teamId}/builds`,
+    },
+    {
+      title: 'Checkouts',
+      description: 'Record ad-hoc parts withdrawals not tied to a project.',
+      icon: PackageMinus,
+      href: () => `/teams/${teamId}/checkouts`,
     },
   ];
 </script>

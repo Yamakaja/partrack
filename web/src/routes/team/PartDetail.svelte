@@ -239,6 +239,8 @@
             <ParameterTable
               {partId}
               parameters={part.parameters ?? { user_specified: [], distributor_sourced: [] }}
+              preferredSourceId={part.preferred_parameter_source_id}
+              listings={part.listings ?? []}
               onchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
             />
           </TabsContent>
