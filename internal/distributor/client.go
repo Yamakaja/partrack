@@ -7,6 +7,20 @@ import (
 	"encoding/json"
 )
 
+// LifecycleStatus represents the lifecycle state of a part as reported by a distributor.
+// The zero value ("") means the distributor did not report a status and the existing
+// DB value should be left unchanged.
+type LifecycleStatus string
+
+const (
+	LifecycleStatusUnknown          LifecycleStatus = ""
+	LifecycleStatusActive           LifecycleStatus = "active"
+	LifecycleStatusNRND             LifecycleStatus = "nrnd"
+	LifecycleStatusObsolete         LifecycleStatus = "obsolete"
+	LifecycleStatusDeprecated       LifecycleStatus = "deprecated"
+	LifecycleStatusNoLongerAvailable LifecycleStatus = "no_longer_available"
+)
+
 // Parameter is a name/value/unit triple returned by distributor enrichment.
 type Parameter struct {
 	Name  string
@@ -69,7 +83,7 @@ type EnrichmentResult struct {
 	Category        string
 	Package         string
 	DatasheetURL    string
-	LifecycleStatus string // canonical DB enum value ("active", "nrnd", "obsolete", …) or "" to leave unchanged
+	LifecycleStatus LifecycleStatus // "" (LifecycleStatusUnknown) means leave the existing DB value unchanged
 	Parameters      []Parameter
 	Listings        []Listing
 }

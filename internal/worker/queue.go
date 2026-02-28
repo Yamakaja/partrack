@@ -205,6 +205,14 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	queries := dbgen.New(q.db)
 
+	// Pre-fetch distributor configs for step 2 (distributor API fallback).
+	distCfgByID := make(map[pgtype.UUID]*dbgen.ListEnabledDistributorConfigsForTeamRow)
+	if cfgs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID); err == nil {
+		for i := range cfgs {
+			distCfgByID[cfgs[i].DistributorID] = &cfgs[i]
+		}
+	}
+
 	items, err := queries.ListBOMLineItems(ctx, revID)
 	if err != nil {
 		q.publishError(job, "failed to list BOM line items: "+err.Error())
@@ -218,11 +226,13 @@ func (q *Queue) handleBOMImport(job Job) {
 	}
 
 	// Count items already resolved before this run.
-	resolvedSKU, resolvedMPN, resolvedPrior, ambiguousCount := 0, 0, 0, 0
+	resolvedSKU, resolvedMPN, resolvedPrior, resolvedDistributor, ambiguousCount := 0, 0, 0, 0, 0
 	for _, it := range items {
 		switch {
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
 			resolvedSKU++
+		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_distributor":
+			resolvedDistributor++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_mpn":
 			resolvedMPN++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_prior_revision":
@@ -234,8 +244,9 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
 		"status":                  "progress",
-		"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+		"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
 		"resolved_sku":            resolvedSKU,
+		"resolved_distributor":    resolvedDistributor,
 		"resolved_mpn":            resolvedMPN,
 		"resolved_prior_revision": resolvedPrior,
 		"ambiguous":               ambiguousCount,
@@ -267,7 +278,22 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
-		// 2a. MPN + Manufacturer (preferred — avoids false ambiguity from same MPN across manufacturers).
+		// 2. Distributor API fallback: SKU is known but not yet in our listings table.
+		// Query the distributor to find or create the part and attach the listing.
+		if resolutionState == nil && item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
+			if cfg, ok := distCfgByID[item.ResolvedDistributorID]; ok && cfg.ApiType != nil {
+				if client := q.distributors.Lookup(*cfg.ApiType); client != nil {
+					if result, err := client.EnrichPart(ctx, *item.Sku, json.RawMessage(cfg.ApiCredentials)); err == nil && result != nil {
+						if partID, err := q.applyEnrichmentResult(ctx, queries, teamID, cfg, result, item.Mpn, item.Manufacturer); err == nil {
+							resolvedPartID = partID
+							resolutionState = strPtr("auto_distributor")
+						}
+					}
+				}
+			}
+		}
+
+		// 3a. MPN + Manufacturer (preferred — avoids false ambiguity from same MPN across manufacturers).
 		if resolutionState == nil && item.Mpn != nil && *item.Mpn != "" &&
 			item.Manufacturer != nil && *item.Manufacturer != "" {
 			matched, err := queries.ListPartsByMPNAndManufacturer(ctx, dbgen.ListPartsByMPNAndManufacturerParams{
@@ -284,7 +310,7 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
-		// 2b. MPN only (fallback when manufacturer is absent or 2a found nothing).
+		// 3b. MPN only (fallback when manufacturer is absent or 3a found nothing).
 		if resolutionState == nil && item.Mpn != nil && *item.Mpn != "" {
 			matched, err := queries.ListPartsByMPN(ctx, dbgen.ListPartsByMPNParams{
 				Mpn:    item.Mpn,
@@ -299,7 +325,7 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
-		// 3. Prior-revision fallback: if the catalog is ambiguous, check whether a previous
+		// 4. Prior-revision fallback: if the catalog is ambiguous, check whether a previous
 		// revision of this project already resolved this MPN to a specific part.
 		if resolutionState != nil && *resolutionState == "ambiguous" && item.Mpn != nil && *item.Mpn != "" {
 			var priorPartID pgtype.UUID
@@ -349,6 +375,8 @@ func (q *Queue) handleBOMImport(job Job) {
 		switch *resolutionState {
 		case "auto_sku":
 			resolvedSKU++
+		case "auto_distributor":
+			resolvedDistributor++
 		case "auto_mpn":
 			resolvedMPN++
 		case "auto_prior_revision":
@@ -373,8 +401,9 @@ func (q *Queue) handleBOMImport(job Job) {
 
 		q.publishProgress(job, "bom_import_progress", map[string]any{
 			"status":                  "progress",
-			"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+			"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
 			"resolved_sku":            resolvedSKU,
+			"resolved_distributor":    resolvedDistributor,
 			"resolved_mpn":            resolvedMPN,
 			"resolved_prior_revision": resolvedPrior,
 			"ambiguous":               ambiguousCount,
@@ -392,8 +421,9 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
 		"status":                  "complete",
-		"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+		"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
 		"resolved_sku":            resolvedSKU,
+		"resolved_distributor":    resolvedDistributor,
 		"resolved_mpn":            resolvedMPN,
 		"resolved_prior_revision": resolvedPrior,
 		"ambiguous":               ambiguousCount,
@@ -601,6 +631,174 @@ func (q *Queue) handlePartEnrich(job Job) {
 
 	data, _ := json.Marshal(map[string]string{"part_id": partIDStr})
 	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, Data: data})
+}
+
+// applyEnrichmentResult finds or creates a part matching the enrichment result and
+// applies distributor data (listings, parameters, metadata) in a single transaction.
+//
+// If the part is found by MPN+manufacturer lookup it is reused; only its listings and
+// enrichment metadata are updated — existing parameters are left intact to avoid
+// overwriting previously curated data.
+// If no matching part exists in the catalog a new global-scoped part is created and
+// fully enriched (parameters + listings + metadata).
+//
+// fallbackMPN and fallbackManufacturer are used when the enrichment result itself
+// omits those fields. Returns an invalid pgtype.UUID and a non-nil error on failure.
+func (q *Queue) applyEnrichmentResult(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	teamID pgtype.UUID,
+	cfg *dbgen.ListEnabledDistributorConfigsForTeamRow,
+	result *distributor.EnrichmentResult,
+	fallbackMPN, fallbackManufacturer *string,
+) (pgtype.UUID, error) {
+	strOrNil := func(s string) *string {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+
+	mpn := strOrNil(result.MPN)
+	if mpn == nil {
+		mpn = fallbackMPN
+	}
+	manufacturer := strOrNil(result.Manufacturer)
+	if manufacturer == nil {
+		manufacturer = fallbackManufacturer
+	}
+
+	// 1. Try to find an existing part.
+	var partID pgtype.UUID
+	partIsNew := false
+
+	if mpn != nil && manufacturer != nil {
+		matched, err := queries.ListPartsByMPNAndManufacturer(ctx, dbgen.ListPartsByMPNAndManufacturerParams{
+			Mpn:          mpn,
+			Manufacturer: manufacturer,
+			TeamID:       teamID,
+		})
+		switch {
+		case err == nil && len(matched) == 1:
+			partID = matched[0].ID
+		case err == nil && len(matched) > 1:
+			return pgtype.UUID{}, fmt.Errorf("ambiguous: multiple parts match MPN %q manufacturer %q", *mpn, *manufacturer)
+		}
+	}
+	if !partID.Valid && mpn != nil {
+		matched, err := queries.ListPartsByMPN(ctx, dbgen.ListPartsByMPNParams{
+			Mpn:    mpn,
+			TeamID: teamID,
+		})
+		switch {
+		case err == nil && len(matched) == 1:
+			partID = matched[0].ID
+		case err == nil && len(matched) > 1:
+			return pgtype.UUID{}, fmt.Errorf("ambiguous: multiple parts match MPN %q", *mpn)
+		}
+	}
+
+	// 2. Create a new global-scoped part if none found.
+	if !partID.Valid {
+		lifecycleStatus := dbgen.PartLifecycleStatusActive
+		if result.LifecycleStatus != "" {
+			lifecycleStatus = dbgen.PartLifecycleStatus(result.LifecycleStatus)
+		}
+		part, err := queries.CreatePart(ctx, dbgen.CreatePartParams{
+			Scope:           dbgen.PartScopeGlobal,
+			TeamID:          pgtype.UUID{}, // NULL for global parts
+			Mpn:             mpn,
+			Manufacturer:    manufacturer,
+			Description:     strOrNil(result.Description),
+			Category:        strOrNil(result.Category),
+			Package:         strOrNil(result.Package),
+			DatasheetUrl:    strOrNil(result.DatasheetURL),
+			LifecycleStatus: lifecycleStatus,
+		})
+		if err != nil {
+			return pgtype.UUID{}, fmt.Errorf("create part: %w", err)
+		}
+		partID = part.ID
+		partIsNew = true
+	}
+
+	// 3. Apply enrichment data in a transaction.
+	tx, err := q.db.Begin(ctx)
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("begin tx: %w", err)
+	}
+	qtx := queries.WithTx(tx)
+
+	// For new parts only: insert parameters (plain INSERT; safe because the part has
+	// no prior rows). Existing parts keep their parameters to preserve curated data.
+	if partIsNew {
+		for _, p := range result.Parameters {
+			unit := strOrNil(p.Unit)
+			if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
+				PartID:              partID,
+				Name:                p.Name,
+				Value:               p.Value,
+				Unit:                unit,
+				SourceDistributorID: cfg.DistributorID,
+			}); err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				return pgtype.UUID{}, fmt.Errorf("insert parameter %q: %w", p.Name, err)
+			}
+		}
+	}
+
+	// Upsert listings — ON CONFLICT (distributor_id, sku) DO UPDATE, so existing
+	// listings for other SKUs or distributors are untouched.
+	for _, l := range result.Listings {
+		unitPrice, err := parseNumeric(l.UnitPrice)
+		if err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			return pgtype.UUID{}, fmt.Errorf("invalid unit_price %q: %w", l.UnitPrice, err)
+		}
+		fixedCost, err := parseNumeric(l.FixedOrderCost)
+		if err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			return pgtype.UUID{}, fmt.Errorf("invalid fixed_order_cost %q: %w", l.FixedOrderCost, err)
+		}
+		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
+		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
+			PartID:         partID,
+			DistributorID:  cfg.DistributorID,
+			Sku:            l.SKU,
+			PackagingType:  l.PackagingType,
+			UnitPrice:      unitPrice,
+			StockAvailable: l.StockAvailable,
+			Moq:            l.Moq,
+			FixedOrderCost: fixedCost,
+			PriceBreaks:    priceBreaksJSON,
+		}); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			return pgtype.UUID{}, fmt.Errorf("upsert listing %q: %w", l.SKU, err)
+		}
+	}
+
+	var enrichedLifecycle dbgen.NullPartLifecycleStatus
+	if result.LifecycleStatus != "" {
+		enrichedLifecycle = dbgen.NullPartLifecycleStatus{
+			PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
+			Valid:               true,
+		}
+	}
+	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
+		ID:                 partID,
+		EnrichmentSourceID: cfg.DistributorID,
+		LifecycleStatus:    enrichedLifecycle,
+		Mpn:                mpn,
+	}); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		return pgtype.UUID{}, fmt.Errorf("set enriched: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return pgtype.UUID{}, fmt.Errorf("commit: %w", err)
+	}
+
+	return partID, nil
 }
 
 func (q *Queue) handleListingRefresh(job Job) {

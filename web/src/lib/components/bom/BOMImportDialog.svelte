@@ -8,6 +8,7 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { Distributor } from '$lib/types/parts.js';
   import { listDistributors } from '$lib/api/distributors.js';
+  import { navigate } from '$lib/router/index.svelte.js';
 
   type ColumnRole = 'ignore' | 'designators' | 'quantity' | 'mpn' | 'description'
                | 'manufacturer' | 'name' | 'sku' | 'distributor';
@@ -24,7 +25,7 @@
     teamId: string;
     projectId: string;
     initialConfig?: BOMImportConfig | null;
-    oncomplete: (jobId: string, revisionId: string) => void;
+    oncomplete?: (jobId: string, revisionId: string) => void;
     trigger: import('svelte').Snippet<[() => void]>;
   } = $props();
 
@@ -327,8 +328,9 @@
       });
 
       open = false;
-      pushToast('info', 'BOM import started');
-      oncomplete(result.job_id, result.bom_revision_id);
+      const revPath = `/teams/${teamId}/projects/${projectId}/revisions/${result.bom_revision_id}`;
+      navigate(revPath);
+      history.replaceState(null, '', `${revPath}?import_job=${result.job_id}`);
     } catch (err: any) {
       pushToast('error', 'Import failed', err.message ?? String(err));
     } finally {

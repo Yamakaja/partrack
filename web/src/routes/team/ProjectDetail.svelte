@@ -6,7 +6,6 @@
   import { listDistributorConfigs } from '$lib/api/distributors.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
-  import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
   import BOMImportDialog from '$lib/components/bom/BOMImportDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -21,10 +20,6 @@
   let { teamId, projectId }: { teamId: string; projectId: string } = $props();
 
   const qc = useQueryClient();
-
-  // Running job state
-  let activeJobId = $state<string | null>(null);
-  let activeRevId = $state<string | null>(null);
 
   // Edit project dialog
   let editOpen = $state(false);
@@ -56,20 +51,8 @@
     queryFn: () => listDistributorConfigs(teamId),
   }));
 
-  function handleImportStarted(jobId: string, revisionId: string) {
-    activeJobId = jobId;
-    activeRevId = revisionId;
+  function handleImportStarted() {
     qc.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
-  }
-
-  function handleImportComplete() {
-    qc.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
-    pushToast('success', 'BOM import complete');
-    if (activeRevId) {
-      navigate(`/teams/${teamId}/projects/${projectId}/revisions/${activeRevId}`);
-    }
-    activeJobId = null;
-    activeRevId = null;
   }
 
   async function handleSetActive(e: MouseEvent, revId: string) {
@@ -230,15 +213,6 @@
           </div>
         {/if}
       </div>
-    {/if}
-
-    <!-- Import progress banner -->
-    {#if activeJobId}
-      <BOMImportProgress
-        {teamId}
-        jobId={activeJobId}
-        oncomplete={handleImportComplete}
-      />
     {/if}
 
     <!-- Revisions table -->

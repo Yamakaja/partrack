@@ -559,21 +559,21 @@ func extractPackage(params []parameterValue) string {
 	return supplierPackage
 }
 
-// mapProductStatus maps a DigiKey ProductStatus.Status string to a partrack
-// lifecycle_status enum value. Returns "" for unknown/unmapped values so the
+// mapProductStatus maps a DigiKey ProductStatus.Status string to a distributor
+// LifecycleStatus. Returns LifecycleStatusUnknown for unmapped values so the
 // caller leaves the existing DB value unchanged.
-func mapProductStatus(status string) string {
+func mapProductStatus(status string) distributor.LifecycleStatus {
 	switch status {
 	case "Active", "Preliminary", "Limited Supply":
-		return "active"
+		return distributor.LifecycleStatusActive
 	case "Not For New Designs":
-		return "nrnd"
+		return distributor.LifecycleStatusNRND
 	case "Discontinued", "Obsolete", "Last Time Buy":
-		return "obsolete"
+		return distributor.LifecycleStatusObsolete
 	case "Unavailable", "No Longer Available":
-		return "no_longer_available"
+		return distributor.LifecycleStatusNoLongerAvailable
 	default:
-		return ""
+		return distributor.LifecycleStatusUnknown
 	}
 }
 

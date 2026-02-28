@@ -43,7 +43,7 @@ func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*
 		Category:        "Linear Regulators",
 		Package:         "TO-220AB",
 		DatasheetURL:    "",
-		LifecycleStatus: "active",
+		LifecycleStatus: distributor.LifecycleStatusActive,
 		Parameters: []distributor.Parameter{
 			{Name: "output_current_max", Value: "1.5", Unit: "A"},
 			{Name: "output_voltage_min", Value: "1.25", Unit: "V"},

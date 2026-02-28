@@ -5,7 +5,9 @@
   import { getRevision, updateBOMLineItem } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
+  import { onMount } from 'svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
+  import BOMImportProgressModal from '$lib/components/bom/BOMImportProgressModal.svelte';
   import BOMLineItemRow from '$lib/components/bom/BOMLineItemRow.svelte';
   import BOMReviewDialog from '$lib/components/bom/BOMReviewDialog.svelte';
   import { Table, TableHeader, TableBody, TableHead, TableRow } from '$lib/components/ui/table/index.js';
@@ -32,6 +34,18 @@
   // Track whether the import job has been dismissed (completed)
   let jobDismissed = $state(false);
   let activeJobId = $derived(jobDismissed ? null : importJobId);
+
+  // Modal triggered by ?import_job query param when navigating from BOMImportDialog
+  let showImportModal = $state(false);
+  let modalJobId = $state('');
+
+  onMount(() => {
+    const jobParam = new URLSearchParams(window.location.search).get('import_job');
+    if (jobParam) {
+      modalJobId = jobParam;
+      showImportModal = true;
+    }
+  });
 
   type FilterTab = 'all' | 'needs_attention' | 'auto' | 'ignored';
   let activeFilter = $state<FilterTab>('all');
@@ -146,7 +160,7 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6 space-y-4">
-    <!-- Import progress banner -->
+    <!-- Import progress banner (fallback for jobs not initiated via the dialog) -->
     {#if activeJobId}
       <BOMImportProgress
         {teamId}
@@ -158,26 +172,33 @@
     <!-- Revision meta -->
     {#if revisionQuery.data}
       {@const rev = revisionQuery.data}
-      <div class="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
-        {#if rev.is_active}
-          <Badge variant="success">Active BOM</Badge>
-        {/if}
-        {#if allItems.length > 0}
-          {#if isReady}
-            <Badge variant="success">Ready</Badge>
-          {:else}
-            <Badge variant="warning">Needs Attention{needsAttentionCount > 0 ? ` (${needsAttentionCount})` : ''}</Badge>
-            {#if needsAttentionCount > 0}
-              <Button size="sm" variant="outline" onclick={startFullReview}>
-                Review ({needsAttentionCount})
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <!-- Left: status badges + review action -->
+        <div class="flex items-center gap-2">
+          {#if rev.is_active}
+            <Badge variant="success">Active BOM</Badge>
+          {/if}
+          {#if allItems.length > 0}
+            {#if isReady}
+              <Badge variant="success">Ready</Badge>
+            {:else}
+              <Button
+                size="sm"
+                onclick={startFullReview}
+                class="bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700"
+              >
+                {needsAttentionCount} {needsAttentionCount === 1 ? 'item' : 'items'} ready for review
               </Button>
             {/if}
           {/if}
-        {/if}
-        <span>Imported by {rev.imported_by_display_name}</span>
-        {#if rev.notes}
-          <span>· {rev.notes}</span>
-        {/if}
+        </div>
+        <!-- Right: importer info -->
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Imported by {rev.imported_by_display_name}</span>
+          {#if rev.notes}
+            <span>· {rev.notes}</span>
+          {/if}
+        </div>
       </div>
     {/if}
 
@@ -241,6 +262,23 @@
     {/if}
   </div>
 </div>
+
+{#if showImportModal}
+  <BOMImportProgressModal
+    {teamId}
+    jobId={modalJobId}
+    onStartReview={() => {
+      activeFilter = 'needs_attention';
+      showImportModal = false;
+      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+      startFullReview();
+    }}
+    onClose={() => {
+      showImportModal = false;
+      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+    }}
+  />
+{/if}
 
 <BOMReviewDialog
   items={reviewItems}
