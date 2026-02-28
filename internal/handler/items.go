@@ -11,6 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// parseItemNumeric converts a decimal string to pgtype.Numeric.
+func parseItemNumeric(s string) (pgtype.Numeric, error) {
+	var n pgtype.Numeric
+	if s == "" {
+		return n, nil
+	}
+	return n, n.Scan(s)
+}
+
 // UpdateBOMItem handles PATCH /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}
 // Body: {resolved_part_id?} — manually resolve or re-resolve a BOM line item (pass null to clear).
 //
@@ -208,4 +217,246 @@ func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// EnrichBOMItem handles POST /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}/enrich
+// Body: {sku, distributor_id} — fetches the SKU from the distributor API (find-or-create Part + Listings),
+// then resolves the BOM line item to that Part.
+func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var teamID, revID, itemID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
+	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+
+	var body struct {
+		SKU           string `json:"sku"`
+		DistributorID string `json:"distributor_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	if body.SKU == "" || body.DistributorID == "" {
+		writeError(w, http.StatusBadRequest, "sku and distributor_id are required", "BAD_REQUEST")
+		return
+	}
+
+	var distributorID pgtype.UUID
+	if err := distributorID.Scan(body.DistributorID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid distributor_id", "BAD_REQUEST")
+		return
+	}
+
+	strPtr := func(s string) *string {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+
+	// 1. Check for an existing local listing by (distributor_id, sku).
+	var resolvedPartID pgtype.UUID
+	var resolvedMPN, resolvedManufacturer string
+
+	listing, err := h.Queries.GetListingBySKUAndDistributorID(ctx, dbgen.GetListingBySKUAndDistributorIDParams{
+		Sku:           body.SKU,
+		DistributorID: distributorID,
+	})
+	if err == nil {
+		resolvedPartID = listing.PartID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// 2. If not found locally, call the distributor API.
+	if !resolvedPartID.Valid {
+		cfg, err := h.Queries.GetDistributorConfigForSearch(ctx, dbgen.GetDistributorConfigForSearchParams{
+			TeamID:        teamID,
+			DistributorID: distributorID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusUnprocessableEntity, "distributor not configured or not enabled", "NOT_CONFIGURED")
+			} else {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			}
+			return
+		}
+		if cfg.ApiType == nil {
+			writeError(w, http.StatusUnprocessableEntity, "distributor has no API integration", "NO_API")
+			return
+		}
+		client := h.Distributors.Lookup(*cfg.ApiType)
+		if client == nil {
+			writeError(w, http.StatusUnprocessableEntity, "no client registered for distributor", "NO_CLIENT")
+			return
+		}
+
+		result, err := client.EnrichPart(ctx, body.SKU, json.RawMessage(cfg.ApiCredentials))
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "distributor API error: "+err.Error(), "API_ERROR")
+			return
+		}
+		if result == nil {
+			writeError(w, http.StatusNotFound, "SKU not found at distributor", "NOT_FOUND")
+			return
+		}
+
+		resolvedMPN = result.MPN
+		resolvedManufacturer = result.Manufacturer
+
+		// Find existing part by (manufacturer, mpn) to avoid duplicates.
+		var existingPartID pgtype.UUID
+		if result.MPN != "" && result.Manufacturer != "" {
+			matched, err := h.Queries.ListPartsByMPNAndManufacturer(ctx, dbgen.ListPartsByMPNAndManufacturerParams{
+				Mpn:          strPtr(result.MPN),
+				Manufacturer: strPtr(result.Manufacturer),
+				TeamID:       teamID,
+			})
+			if err == nil && len(matched) > 0 {
+				existingPartID = matched[0].ID
+			}
+		}
+
+		tx, err := h.DB.Begin(ctx)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		qtx := h.Queries.WithTx(tx)
+
+		if !existingPartID.Valid {
+			newPart, err := qtx.CreatePart(ctx, dbgen.CreatePartParams{
+				Scope:           dbgen.PartScopeGlobal,
+				Mpn:             strPtr(result.MPN),
+				Manufacturer:    strPtr(result.Manufacturer),
+				Description:     strPtr(result.Description),
+				Category:        strPtr(result.Category),
+				Package:         strPtr(result.Package),
+				DatasheetUrl:    strPtr(result.DatasheetURL),
+				LifecycleStatus: dbgen.PartLifecycleStatusActive,
+			})
+			if err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				writeError(w, http.StatusInternalServerError, "failed to create part", "INTERNAL_ERROR")
+				return
+			}
+			existingPartID = newPart.ID
+		}
+
+		for _, l := range result.Listings {
+			unitPrice, err := parseItemNumeric(l.UnitPrice)
+			if err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				writeError(w, http.StatusInternalServerError, "invalid unit price from distributor", "INTERNAL_ERROR")
+				return
+			}
+			fixedCost, err := parseItemNumeric(l.FixedOrderCost)
+			if err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				writeError(w, http.StatusInternalServerError, "invalid fixed cost from distributor", "INTERNAL_ERROR")
+				return
+			}
+			priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
+			if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
+				PartID:         existingPartID,
+				DistributorID:  distributorID,
+				Sku:            l.SKU,
+				PackagingType:  l.PackagingType,
+				UnitPrice:      unitPrice,
+				StockAvailable: l.StockAvailable,
+				Moq:            l.Moq,
+				FixedOrderCost: fixedCost,
+				PriceBreaks:    priceBreaksJSON,
+			}); err != nil {
+				tx.Rollback(ctx) //nolint:errcheck
+				writeError(w, http.StatusInternalServerError, "failed to upsert listing", "INTERNAL_ERROR")
+				return
+			}
+		}
+
+		var lifecycleStatus dbgen.NullPartLifecycleStatus
+		if result.LifecycleStatus != "" {
+			lifecycleStatus = dbgen.NullPartLifecycleStatus{
+				PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
+				Valid:               true,
+			}
+		}
+		if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
+			ID:                 existingPartID,
+			EnrichmentSourceID: distributorID,
+			LifecycleStatus:    lifecycleStatus,
+			Mpn:                strPtr(result.MPN),
+		}); err != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			writeError(w, http.StatusInternalServerError, "failed to set enriched", "INTERNAL_ERROR")
+			return
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		resolvedPartID = existingPartID
+	}
+
+	// 3. Resolve the BOM line item.
+	manual := "manual"
+	if _, err := h.Queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
+		ResolvedPartID:  resolvedPartID,
+		ResolutionState: &manual,
+		ID:              itemID,
+		BomRevisionID:   revID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	// 4. Ensure inventory entry exists for (team, part).
+	_, err = h.Queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
+		TeamID: teamID,
+		PartID: resolvedPartID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, _ = h.Queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+			TeamID: teamID,
+			PartID: resolvedPartID,
+		})
+	}
+
+	// If we enriched a new part, fetch its actual MPN/manufacturer from DB.
+	if resolvedMPN == "" || resolvedManufacturer == "" {
+		part, err := h.Queries.GetPart(ctx, resolvedPartID)
+		if err == nil {
+			if part.Mpn != nil {
+				resolvedMPN = *part.Mpn
+			}
+			if part.Manufacturer != nil {
+				resolvedManufacturer = *part.Manufacturer
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"part_id":           resolvedPartID.String(),
+		"part_mpn":          resolvedMPN,
+		"part_manufacturer": resolvedManufacturer,
+	})
 }

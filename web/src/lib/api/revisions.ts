@@ -62,6 +62,20 @@ export function updateBOMLineItem(teamId: string, projectId: string, revId: stri
   return request<BOMLineItem>('PATCH', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}`, body);
 }
 
+export function enrichBOMLineItem(
+  teamId: string,
+  projectId: string,
+  revId: string,
+  itemId: string,
+  body: { sku: string; distributor_id: string },
+) {
+  return request<{ part_id: string; part_mpn: string; part_manufacturer: string }>(
+    'POST',
+    `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/enrich`,
+    body,
+  );
+}
+
 export interface SubstituteItem {
   bom_line_item_id: string;
   part_id: string;

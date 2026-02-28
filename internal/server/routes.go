@@ -137,6 +137,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/projects/{projectId}/revisions", h.ImportRevision)
 					r.Patch("/projects/{projectId}/revisions/{revId}", h.UpdateRevision)
 					r.Patch("/projects/{projectId}/revisions/{revId}/items/{itemId}", h.UpdateBOMItem)
+					r.Post("/projects/{projectId}/revisions/{revId}/items/{itemId}/enrich", h.EnrichBOMItem)
 					r.Post("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes", h.AddSubstitute)
 					r.Delete("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}", h.RemoveSubstitute)
 

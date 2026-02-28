@@ -11,7 +11,7 @@ let currentTeamId: string | null = null;
 let es: EventSource | null = null;
 const subscribers = new Map<string, SseCallback[]>(); // keyed by job_id
 
-function openForTeam(teamId: string) {
+export function openForTeam(teamId: string) {
   if (currentTeamId === teamId && es && es.readyState !== EventSource.CLOSED) return;
   closeSSE();
   currentTeamId = teamId;

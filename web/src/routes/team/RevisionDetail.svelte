@@ -2,11 +2,12 @@
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { getProject } from '$lib/api/projects.js';
   import type { BOMLineItem } from '$lib/types/projects.js';
-  import { getRevision, updateBOMLineItem, listAllSubstitutes, type SubstituteItem } from '$lib/api/revisions.js';
+  import { getRevision, updateBOMLineItem } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
   import BOMLineItemRow from '$lib/components/bom/BOMLineItemRow.svelte';
+  import BOMReviewDialog from '$lib/components/bom/BOMReviewDialog.svelte';
   import { Table, TableHeader, TableBody, TableHead, TableRow } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -35,6 +36,10 @@
   type FilterTab = 'all' | 'needs_attention' | 'auto' | 'ignored';
   let activeFilter = $state<FilterTab>('all');
 
+  // Review dialog state
+  let reviewOpen = $state(false);
+  let reviewItems = $state<BOMLineItem[]>([]);
+
   let projectQuery = createQuery(() => ({
     queryKey: ['project', teamId, projectId],
     queryFn: () => getProject(teamId, projectId),
@@ -44,22 +49,6 @@
     queryKey: ['revision', teamId, projectId, revId],
     queryFn: () => getRevision(teamId, projectId, revId),
   }));
-
-  let substitutesQuery = createQuery(() => ({
-    queryKey: ['substitutes', teamId, projectId, revId],
-    queryFn: () => listAllSubstitutes(teamId, projectId, revId),
-  }));
-
-  // Map from bom_line_item_id → substitute list for O(1) lookup per row.
-  let substituteMap = $derived(() => {
-    const map = new Map<string, SubstituteItem[]>();
-    for (const sub of substitutesQuery.data?.items ?? []) {
-      const existing = map.get(sub.bom_line_item_id) ?? [];
-      existing.push(sub);
-      map.set(sub.bom_line_item_id, existing);
-    }
-    return map;
-  });
 
   let allItems = $derived(revisionQuery.data?.items ?? []);
 
@@ -103,6 +92,7 @@
   async function handleIgnore(itemId: string, ignored: boolean) {
     try {
       await updateBOMLineItem(teamId, projectId, revId, itemId, { ignored });
+      reviewItems = reviewItems.map(i => i.id === itemId ? { ...i, ignored } : i);
       qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
       pushToast('success', ignored ? 'Item ignored' : 'Item un-ignored');
     } catch (err: any) {
@@ -110,8 +100,19 @@
     }
   }
 
-  function handleSubstituteChange() {
-    qc.invalidateQueries({ queryKey: ['substitutes', teamId, projectId, revId] });
+  function startFullReview() {
+    reviewItems = allItems.filter(i => !i.ignored && !i.resolved_part_id);
+    reviewOpen = true;
+  }
+
+  function startReviewForItem(itemId: string) {
+    const item = allItems.find(i => i.id === itemId);
+    reviewItems = item ? [item] : [];
+    reviewOpen = true;
+  }
+
+  function handleReviewClose() {
+    reviewOpen = false;
   }
 
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
@@ -157,7 +158,7 @@
     <!-- Revision meta -->
     {#if revisionQuery.data}
       {@const rev = revisionQuery.data}
-      <div class="flex items-center gap-3 text-sm text-muted-foreground">
+      <div class="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
         {#if rev.is_active}
           <Badge variant="success">Active BOM</Badge>
         {/if}
@@ -166,6 +167,11 @@
             <Badge variant="success">Ready</Badge>
           {:else}
             <Badge variant="warning">Needs Attention{needsAttentionCount > 0 ? ` (${needsAttentionCount})` : ''}</Badge>
+            {#if needsAttentionCount > 0}
+              <Button size="sm" variant="outline" onclick={startFullReview}>
+                Review ({needsAttentionCount})
+              </Button>
+            {/if}
           {/if}
         {/if}
         <span>Imported by {rev.imported_by_display_name}</span>
@@ -219,21 +225,13 @@
                 <TableHead>SKU</TableHead>
                 <TableHead class="text-center">Qty</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Resolve Part</TableHead>
-                <TableHead>Substitutes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {#each items as item (item.id)}
                 <BOMLineItemRow
                   {item}
-                  {teamId}
-                  {projectId}
-                  revisionId={revId}
-                  substitutes={substituteMap().get(item.id) ?? []}
-                  onresolve={handleResolve}
-                  onignore={handleIgnore}
-                  onsubstitutechange={handleSubstituteChange}
+                  onstatusclick={(id) => startReviewForItem(id)}
                 />
               {/each}
             </TableBody>
@@ -243,3 +241,14 @@
     {/if}
   </div>
 </div>
+
+<BOMReviewDialog
+  items={reviewItems}
+  {teamId}
+  {projectId}
+  revisionId={revId}
+  bind:open={reviewOpen}
+  onclose={handleReviewClose}
+  onresolve={handleResolve}
+  onignore={handleIgnore}
+/>

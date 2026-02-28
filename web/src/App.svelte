@@ -4,6 +4,7 @@
   import { currentRoute, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
+  import { openForTeam, closeSSE } from '$lib/api/sse.js';
   import { ModeWatcher } from 'mode-watcher';
   import AppShell from '$lib/components/layout/AppShell.svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
@@ -84,8 +85,13 @@
     const route = currentRoute();
     const r = resolve(route.path);
     const teamId = r?.params?.teamId;
-    if (teamId) setActiveTeam(teamId);
-    else clearActiveTeam();
+    if (teamId) {
+      setActiveTeam(teamId);
+      openForTeam(teamId);
+    } else {
+      clearActiveTeam();
+      closeSSE();
+    }
 
     const publicPaths = ['/login', '/reset-password'];
     if (!authStore.loading && !authStore.user && !publicPaths.includes(route.path)) {

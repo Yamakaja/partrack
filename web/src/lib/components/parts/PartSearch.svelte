@@ -7,11 +7,13 @@
     teamId,
     value = $bindable<PartSummary | null>(null),
     placeholder = 'Search parts by MPN…',
+    initialQuery = '',
     onselect,
   }: {
     teamId?: string;
     value?: PartSummary | null;
     placeholder?: string;
+    initialQuery?: string;
     onselect?: (part: PartSummary) => void;
   } = $props();
 
@@ -20,6 +22,13 @@
   let loading = $state(false);
   let open = $state(false);
   let timer: ReturnType<typeof setTimeout>;
+
+  $effect(() => {
+    if (initialQuery) {
+      query = initialQuery;
+      search(initialQuery);
+    }
+  });
 
   async function search(q: string) {
     if (!q || q.length < 2) { results = []; return; }
