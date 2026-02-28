@@ -71,6 +71,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Post("/parts/{partId}/parameters", h.CreateParameter)
 			r.Delete("/parts/{partId}/parameters/{parameterId}", h.DeleteParameter)
 			r.Get("/parts/{partId}/listings", h.ListListings)
+			r.Post("/parts/{partId}/listings", h.AddListing)
+			r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)
 			r.Post("/parts/{partId}/listings/{listingId}/refresh", h.RefreshListing)
 
 			// ── Team-scoped routes (require team membership) ─────────────────

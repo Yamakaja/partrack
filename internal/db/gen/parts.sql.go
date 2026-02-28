@@ -171,6 +171,15 @@ func (q *Queries) DeleteDistributorParameters(ctx context.Context, arg DeleteDis
 	return err
 }
 
+const deleteListing = `-- name: DeleteListing :exec
+DELETE FROM distributor_listings WHERE id = $1
+`
+
+func (q *Queries) DeleteListing(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteListing, id)
+	return err
+}
+
 const deleteParameter = `-- name: DeleteParameter :exec
 DELETE FROM part_parameters
 WHERE id = $1 AND source_type = 'user'
@@ -202,6 +211,30 @@ func (q *Queries) GetListing(ctx context.Context, id pgtype.UUID) (GetListingRow
 		&i.DistributorID,
 		&i.Sku,
 	)
+	return i, err
+}
+
+const getListingByPartAndID = `-- name: GetListingByPartAndID :one
+SELECT id, distributor_id, sku FROM distributor_listings
+WHERE id = $1 AND part_id = $2
+`
+
+type GetListingByPartAndIDParams struct {
+	ID     pgtype.UUID `json:"id"`
+	PartID pgtype.UUID `json:"part_id"`
+}
+
+type GetListingByPartAndIDRow struct {
+	ID            pgtype.UUID `json:"id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+	Sku           string      `json:"sku"`
+}
+
+// Fetches a listing row verifying it belongs to the given part.
+func (q *Queries) GetListingByPartAndID(ctx context.Context, arg GetListingByPartAndIDParams) (GetListingByPartAndIDRow, error) {
+	row := q.db.QueryRow(ctx, getListingByPartAndID, arg.ID, arg.PartID)
+	var i GetListingByPartAndIDRow
+	err := row.Scan(&i.ID, &i.DistributorID, &i.Sku)
 	return i, err
 }
 

@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/distributor"
 )
 
 const (
-	testSKU = "LM317-TEST-TUBE"
+	testSKU        = "LM317-TEST-TUBE"
+	simulateDelays = true
 )
 
 // Client is the test distributor implementation.
@@ -27,6 +29,10 @@ func New() *Client {
 func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*distributor.EnrichmentResult, error) {
 	if !strings.HasPrefix(strings.ToUpper(sku), "LM317") {
 		return nil, nil
+	}
+
+	if simulateDelays {
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	stockZero := int32(0)
@@ -66,6 +72,10 @@ func (c *Client) RefreshListing(_ context.Context, sku string, _ json.RawMessage
 		return nil, nil
 	}
 
+	if simulateDelays {
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	stockZero := int32(0)
 	return &distributor.Listing{
 		SKU:            testSKU,
@@ -88,6 +98,10 @@ func (c *Client) SearchParts(_ context.Context, q distributor.SearchQuery, _ jso
 	keywords := strings.ToUpper(strings.TrimSpace(q.Keywords))
 	if keywords == "" {
 		return nil, nil
+	}
+
+	if simulateDelays {
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	limit := q.Limit

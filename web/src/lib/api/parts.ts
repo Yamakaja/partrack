@@ -32,8 +32,16 @@ export function updatePart(partId: string, body: Partial<Part>) {
   return request<Part>('PATCH', `/api/v1/parts/${partId}`, body);
 }
 
-export function enrichPart(partId: string, teamId: string) {
-  return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/enrich?team_id=${teamId}`);
+export function enrichPart(partId: string, teamId: string, body: { sku: string; distributor_id: string }) {
+  return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/enrich?team_id=${teamId}`, body);
+}
+
+export function addListing(partId: string, body: { sku: string; distributor_id: string; team_id: string }) {
+  return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/listings`, body);
+}
+
+export function deleteListing(partId: string, listingId: string, teamId: string) {
+  return request<void>('DELETE', `/api/v1/parts/${partId}/listings/${listingId}?team_id=${teamId}`);
 }
 
 export function listParameters(partId: string) {

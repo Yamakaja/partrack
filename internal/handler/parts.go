@@ -600,13 +600,167 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID := h.Worker.Enqueue(worker.JobPartEnrich, teamIDStr, map[string]string{
-		"part_id":        partID.String(),
-		"sku":            req.SKU,
-		"distributor_id": req.DistributorID,
-		"user_id":        user.ID,
-	})
+	jobID := h.enqueueEnrich(teamIDStr, partID.String(), req.SKU, req.DistributorID, user.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// enqueueEnrich enqueues a JobPartEnrich worker task and returns the job ID.
+func (h *Handler) enqueueEnrich(teamID, partID, sku, distributorID, userID string) string {
+	return h.Worker.Enqueue(worker.JobPartEnrich, teamID, map[string]string{
+		"part_id":        partID,
+		"sku":            sku,
+		"distributor_id": distributorID,
+		"user_id":        userID,
+	})
+}
+
+// AddListing handles POST /api/v1/parts/{partId}/listings
+// Attaches a distributor listing to a part and triggers enrichment. Returns 202 with job_id.
+// Body: {sku, distributor_id, team_id} (all required).
+func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
+	var partID pgtype.UUID
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
+
+	var req struct {
+		SKU           string `json:"sku"`
+		DistributorID string `json:"distributor_id"`
+		TeamID        string `json:"team_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SKU == "" || req.DistributorID == "" || req.TeamID == "" {
+		writeError(w, http.StatusBadRequest, "sku, distributor_id, and team_id are required", "BAD_REQUEST")
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var teamID pgtype.UUID
+	if err := teamID.Scan(req.TeamID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
+		TeamID: teamID,
+		UserID: userID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if _, err := h.Queries.GetPart(r.Context(), partID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	jobID := h.enqueueEnrich(req.TeamID, partID.String(), req.SKU, req.DistributorID, user.ID)
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// DeleteListing handles DELETE /api/v1/parts/{partId}/listings/{listingId}
+// Removes a distributor listing and its distributor-sourced parameters. Returns 204.
+// Query: team_id (required) — the team whose membership is verified.
+func (h *Handler) DeleteListing(w http.ResponseWriter, r *http.Request) {
+	var partID pgtype.UUID
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
+	var listingID pgtype.UUID
+	if err := listingID.Scan(chi.URLParam(r, "listingId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid listing ID", "BAD_REQUEST")
+		return
+	}
+
+	teamIDStr := r.URL.Query().Get("team_id")
+	if teamIDStr == "" {
+		writeError(w, http.StatusBadRequest, "team_id query parameter is required", "BAD_REQUEST")
+		return
+	}
+	var teamID pgtype.UUID
+	if err := teamID.Scan(teamIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
+		TeamID: teamID,
+		UserID: userID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	listing, err := h.Queries.GetListingByPartAndID(r.Context(), dbgen.GetListingByPartAndIDParams{
+		ID:     listingID,
+		PartID: partID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "listing not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	qtx := h.Queries.WithTx(tx)
+	if err := qtx.DeleteDistributorParameters(r.Context(), dbgen.DeleteDistributorParametersParams{
+		PartID:              partID,
+		SourceDistributorID: listing.DistributorID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := qtx.DeleteListing(r.Context(), listingID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.publishEvent(r, "part_changed", teamIDStr, map[string]string{"part_id": partID.String()})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ListParameters handles GET /api/v1/parts/{partId}/parameters

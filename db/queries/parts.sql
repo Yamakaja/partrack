@@ -214,6 +214,14 @@ FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
 WHERE dl.id = $1;
 
+-- name: GetListingByPartAndID :one
+-- Fetches a listing row verifying it belongs to the given part.
+SELECT id, distributor_id, sku FROM distributor_listings
+WHERE id = $1 AND part_id = $2;
+
+-- name: DeleteListing :exec
+DELETE FROM distributor_listings WHERE id = $1;
+
 -- name: DeleteDistributorParameters :exec
 -- Removes all distributor-sourced parameters for a part from one distributor.
 -- Called before re-inserting fresh parameters from enrichment.

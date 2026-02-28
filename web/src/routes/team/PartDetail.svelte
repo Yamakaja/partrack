@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getPart, enrichPart } from '$lib/api/parts.js';
+  import { getPart } from '$lib/api/parts.js';
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
   import { listStorageLocations } from '$lib/api/storage.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -19,12 +19,11 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
-  import { ArrowLeft, Sparkles, PackagePlus } from 'lucide-svelte';
+  import { ArrowLeft, PackagePlus } from 'lucide-svelte';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
 
   const qc = useQueryClient();
-  let enriching = $state(false);
   let tracking = $state(false);
 
   // Adjust stock dialog
@@ -52,18 +51,6 @@
 
   let tracked = $derived(partQuery.data?.inventory_entry_id != null);
   let entryId = $derived(partQuery.data?.inventory_entry_id ?? '');
-
-  async function handleEnrich() {
-    enriching = true;
-    try {
-      const result = await enrichPart(partId, teamId);
-      pushToast('info', 'Enrichment started', `Job: ${result.job_id}`);
-    } catch (e: any) {
-      pushToast('error', 'Enrichment failed', e.message);
-    } finally {
-      enriching = false;
-    }
-  }
 
   async function handleStartTracking() {
     tracking = true;
@@ -149,10 +136,6 @@
         <Button variant="outline" size="sm" onclick={openEdit}>Edit Settings</Button>
         <Button variant="outline" size="sm" onclick={openAdjust}>Adjust Stock</Button>
       {/if}
-      <Button size="sm" disabled={enriching} onclick={handleEnrich}>
-        <Sparkles class="h-4 w-4 mr-1" />
-        {enriching ? 'Enriching…' : 'Enrich'}
-      </Button>
     {/snippet}
   </Topbar>
 
@@ -254,6 +237,8 @@
               preferredListingId={part.preferred_listing_id}
               onrefresh={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
               onpreferredchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+              ondelete={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+              onadd={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
             />
           </TabsContent>
 
