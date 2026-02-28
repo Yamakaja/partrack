@@ -13,27 +13,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type revisionSummary struct {
+	ItemCount       int64 `json:"item_count"`
+	ResolvedCount   int64 `json:"resolved_count"`
+	UnresolvedCount int64 `json:"unresolved_count"`
+	AmbiguousCount  int64 `json:"ambiguous_count"`
+}
+
 type projectListItem struct {
-	ID                     string  `json:"id"`
-	Name                   string  `json:"name"`
-	Description            *string `json:"description"`
-	Status                 string  `json:"status"`
-	ActiveBomRevisionID    *string `json:"active_bom_revision_id"`
-	ActiveBomRevisionLabel *string `json:"active_bom_revision_label"`
-	CreatedByDisplayName   string  `json:"created_by_display_name"`
-	CreatedAt              string  `json:"created_at"`
+	ID                        string  `json:"id"`
+	Name                      string  `json:"name"`
+	Description               *string `json:"description"`
+	Status                    string  `json:"status"`
+	ActiveBomRevisionID       *string `json:"active_bom_revision_id"`
+	ActiveBomRevisionLabel    *string `json:"active_bom_revision_label"`
+	PreferredDistributorID    *string `json:"preferred_distributor_id"`
+	SourceURL                 *string `json:"source_url"`
+	ProjectManagerID          *string `json:"project_manager_id"`
+	ProjectManagerDisplayName *string `json:"project_manager_display_name"`
+	CreatedByDisplayName      string  `json:"created_by_display_name"`
+	CreatedAt                 string  `json:"created_at"`
 }
 
 type projectDetail struct {
-	ID                     string          `json:"id"`
-	Name                   string          `json:"name"`
-	Description            *string         `json:"description"`
-	Status                 string          `json:"status"`
-	ActiveBomRevisionID    *string         `json:"active_bom_revision_id"`
-	ActiveBomRevisionLabel *string         `json:"active_bom_revision_label"`
-	BomImportConfig        json.RawMessage `json:"bom_import_config"`
-	CreatedByDisplayName   string          `json:"created_by_display_name"`
-	CreatedAt              string          `json:"created_at"`
+	ID                        string           `json:"id"`
+	Name                      string           `json:"name"`
+	Description               *string          `json:"description"`
+	Status                    string           `json:"status"`
+	ActiveBomRevisionID       *string          `json:"active_bom_revision_id"`
+	ActiveBomRevisionLabel    *string          `json:"active_bom_revision_label"`
+	BomImportConfig           json.RawMessage  `json:"bom_import_config"`
+	PreferredDistributorID    *string          `json:"preferred_distributor_id"`
+	SourceURL                 *string          `json:"source_url"`
+	ProjectManagerID          *string          `json:"project_manager_id"`
+	ProjectManagerDisplayName *string          `json:"project_manager_display_name"`
+	CreatedByDisplayName      string           `json:"created_by_display_name"`
+	CreatedAt                 string           `json:"created_at"`
+	ActiveRevisionSummary     *revisionSummary `json:"active_revision_summary"`
 }
 
 func uuidPtrString(u pgtype.UUID) *string {
@@ -86,14 +102,18 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	items := make([]projectListItem, len(rows))
 	for i, p := range rows {
 		items[i] = projectListItem{
-			ID:                     p.ID.String(),
-			Name:                   p.Name,
-			Description:            p.Description,
-			Status:                 string(p.Status),
-			ActiveBomRevisionID:    uuidPtrString(p.ActiveBomRevisionID),
-			ActiveBomRevisionLabel: p.ActiveBomRevisionLabel,
-			CreatedByDisplayName:   p.CreatedByDisplayName,
-			CreatedAt:              p.CreatedAt.Time.UTC().Format(time.RFC3339),
+			ID:                        p.ID.String(),
+			Name:                      p.Name,
+			Description:               p.Description,
+			Status:                    string(p.Status),
+			ActiveBomRevisionID:       uuidPtrString(p.ActiveBomRevisionID),
+			ActiveBomRevisionLabel:    p.ActiveBomRevisionLabel,
+			PreferredDistributorID:    uuidPtrString(p.PreferredDistributorID),
+			SourceURL:                 p.SourceUrl,
+			ProjectManagerID:          uuidPtrString(p.ProjectManagerID),
+			ProjectManagerDisplayName: p.ProjectManagerDisplayName,
+			CreatedByDisplayName:      p.CreatedByDisplayName,
+			CreatedAt:                 p.CreatedAt.Time.UTC().Format(time.RFC3339),
 		}
 	}
 
@@ -106,7 +126,7 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateProject handles POST /api/v1/teams/{teamId}/projects
-// Body: {name, description?}
+// Body: {name, description?, preferred_distributor_id?, source_url?, project_manager_id?}
 func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -126,8 +146,11 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string  `json:"name"`
-		Description *string `json:"description"`
+		Name                   string  `json:"name"`
+		Description            *string `json:"description"`
+		PreferredDistributorID *string `json:"preferred_distributor_id"`
+		SourceURL              *string `json:"source_url"`
+		ProjectManagerID       *string `json:"project_manager_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -138,11 +161,29 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var preferredDistributorID pgtype.UUID
+	if body.PreferredDistributorID != nil {
+		if err := preferredDistributorID.Scan(*body.PreferredDistributorID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid preferred_distributor_id", "BAD_REQUEST")
+			return
+		}
+	}
+	var projectManagerID pgtype.UUID
+	if body.ProjectManagerID != nil {
+		if err := projectManagerID.Scan(*body.ProjectManagerID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid project_manager_id", "BAD_REQUEST")
+			return
+		}
+	}
+
 	p, err := h.Queries.CreateProject(r.Context(), dbgen.CreateProjectParams{
-		TeamID:      teamID,
-		Name:        body.Name,
-		Description: body.Description,
-		CreatedBy:   userID,
+		TeamID:                 teamID,
+		Name:                   body.Name,
+		Description:            body.Description,
+		PreferredDistributorID: preferredDistributorID,
+		SourceUrl:              body.SourceURL,
+		ProjectManagerID:       projectManagerID,
+		CreatedBy:              userID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -156,6 +197,9 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		"status":                   string(p.Status),
 		"active_bom_revision_id":   uuidPtrString(p.ActiveBomRevisionID),
 		"bom_import_config":        json.RawMessage(p.BomImportConfig),
+		"preferred_distributor_id": uuidPtrString(p.PreferredDistributorID),
+		"source_url":               p.SourceUrl,
+		"project_manager_id":       uuidPtrString(p.ProjectManagerID),
 		"created_at":               p.CreatedAt.Time.UTC().Format(time.RFC3339),
 	})
 }
@@ -186,21 +230,38 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var summary *revisionSummary
+	if p.ActiveBomRevisionID.Valid {
+		summary = &revisionSummary{
+			ItemCount:       p.RevItemCount,
+			ResolvedCount:   p.RevResolvedCount,
+			UnresolvedCount: p.RevUnresolvedCount,
+			AmbiguousCount:  p.RevAmbiguousCount,
+		}
+	}
+
 	writeJSON(w, http.StatusOK, projectDetail{
-		ID:                     p.ID.String(),
-		Name:                   p.Name,
-		Description:            p.Description,
-		Status:                 string(p.Status),
-		ActiveBomRevisionID:    uuidPtrString(p.ActiveBomRevisionID),
-		ActiveBomRevisionLabel: p.ActiveBomRevisionLabel,
-		BomImportConfig:        json.RawMessage(p.BomImportConfig),
-		CreatedByDisplayName:   p.CreatedByDisplayName,
-		CreatedAt:              p.CreatedAt.Time.UTC().Format(time.RFC3339),
+		ID:                        p.ID.String(),
+		Name:                      p.Name,
+		Description:               p.Description,
+		Status:                    string(p.Status),
+		ActiveBomRevisionID:       uuidPtrString(p.ActiveBomRevisionID),
+		ActiveBomRevisionLabel:    p.ActiveBomRevisionLabel,
+		BomImportConfig:           json.RawMessage(p.BomImportConfig),
+		PreferredDistributorID:    uuidPtrString(p.PreferredDistributorID),
+		SourceURL:                 p.SourceUrl,
+		ProjectManagerID:          uuidPtrString(p.ProjectManagerID),
+		ProjectManagerDisplayName: p.ProjectManagerDisplayName,
+		CreatedByDisplayName:      p.CreatedByDisplayName,
+		CreatedAt:                 p.CreatedAt.Time.UTC().Format(time.RFC3339),
+		ActiveRevisionSummary:     summary,
 	})
 }
 
 // UpdateProject handles PATCH /api/v1/teams/{teamId}/projects/{projectId}
-// Patchable: name, description, status, active_bom_revision_id, bom_import_config
+// Patchable: name, description, status, active_bom_revision_id, bom_import_config,
+//
+//	preferred_distributor_id, source_url, project_manager_id
 func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -261,6 +322,41 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	var preferredDistributorID pgtype.UUID
+	if v, ok := rawBody["preferred_distributor_id"]; ok {
+		var s *string
+		if err := json.Unmarshal(v, &s); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid preferred_distributor_id", "BAD_REQUEST")
+			return
+		}
+		if s != nil {
+			if err := preferredDistributorID.Scan(*s); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid preferred_distributor_id", "BAD_REQUEST")
+				return
+			}
+		}
+	}
+	var sourceURL *string
+	if v, ok := rawBody["source_url"]; ok {
+		if err := json.Unmarshal(v, &sourceURL); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid source_url", "BAD_REQUEST")
+			return
+		}
+	}
+	var projectManagerID pgtype.UUID
+	if v, ok := rawBody["project_manager_id"]; ok {
+		var s *string
+		if err := json.Unmarshal(v, &s); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid project_manager_id", "BAD_REQUEST")
+			return
+		}
+		if s != nil {
+			if err := projectManagerID.Scan(*s); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid project_manager_id", "BAD_REQUEST")
+				return
+			}
+		}
+	}
 
 	// Handle three-state bom_import_config: absent=keep, null=clear, object=set.
 	configRaw, hasConfig := rawBody["bom_import_config"]
@@ -272,6 +368,9 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		updatedStatus      dbgen.ProjectStatus
 		updatedBomRevID    pgtype.UUID
 		updatedConfig      []byte
+		updatedPrefDistID  pgtype.UUID
+		updatedSourceURL   *string
+		updatedProjMgrID   pgtype.UUID
 		updatedCreatedAt   pgtype.Timestamptz
 	)
 
@@ -282,13 +381,16 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			configBytes = []byte(configRaw)
 		}
 		row, err := h.Queries.UpdateProject(r.Context(), dbgen.UpdateProjectParams{
-			Name:                name,
-			Description:         description,
-			Status:              statusFilter,
-			ActiveBomRevisionID: activeBomRevisionID,
-			BomImportConfig:     configBytes,
-			ID:                  projectID,
-			TeamID:              teamID,
+			Name:                   name,
+			Description:            description,
+			Status:                 statusFilter,
+			ActiveBomRevisionID:    activeBomRevisionID,
+			PreferredDistributorID: preferredDistributorID,
+			SourceUrl:              sourceURL,
+			ProjectManagerID:       projectManagerID,
+			BomImportConfig:        configBytes,
+			ID:                     projectID,
+			TeamID:                 teamID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -304,15 +406,21 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		updatedStatus = row.Status
 		updatedBomRevID = row.ActiveBomRevisionID
 		updatedConfig = row.BomImportConfig
+		updatedPrefDistID = row.PreferredDistributorID
+		updatedSourceURL = row.SourceUrl
+		updatedProjMgrID = row.ProjectManagerID
 		updatedCreatedAt = row.CreatedAt
 	} else {
 		row, err := h.Queries.UpdateProjectKeepConfig(r.Context(), dbgen.UpdateProjectKeepConfigParams{
-			Name:                name,
-			Description:         description,
-			Status:              statusFilter,
-			ActiveBomRevisionID: activeBomRevisionID,
-			ID:                  projectID,
-			TeamID:              teamID,
+			Name:                   name,
+			Description:            description,
+			Status:                 statusFilter,
+			ActiveBomRevisionID:    activeBomRevisionID,
+			PreferredDistributorID: preferredDistributorID,
+			SourceUrl:              sourceURL,
+			ProjectManagerID:       projectManagerID,
+			ID:                     projectID,
+			TeamID:                 teamID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -328,16 +436,22 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		updatedStatus = row.Status
 		updatedBomRevID = row.ActiveBomRevisionID
 		updatedConfig = row.BomImportConfig
+		updatedPrefDistID = row.PreferredDistributorID
+		updatedSourceURL = row.SourceUrl
+		updatedProjMgrID = row.ProjectManagerID
 		updatedCreatedAt = row.CreatedAt
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                     updatedID.String(),
-		"name":                   updatedName,
-		"description":            updatedDescription,
-		"status":                 string(updatedStatus),
-		"active_bom_revision_id": uuidPtrString(updatedBomRevID),
-		"bom_import_config":      json.RawMessage(updatedConfig),
-		"created_at":             updatedCreatedAt.Time.UTC().Format(time.RFC3339),
+		"id":                       updatedID.String(),
+		"name":                     updatedName,
+		"description":              updatedDescription,
+		"status":                   string(updatedStatus),
+		"active_bom_revision_id":   uuidPtrString(updatedBomRevID),
+		"bom_import_config":        json.RawMessage(updatedConfig),
+		"preferred_distributor_id": uuidPtrString(updatedPrefDistID),
+		"source_url":               updatedSourceURL,
+		"project_manager_id":       uuidPtrString(updatedProjMgrID),
+		"created_at":               updatedCreatedAt.Time.UTC().Format(time.RFC3339),
 	})
 }

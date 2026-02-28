@@ -5,7 +5,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { createParameter, deleteParameter } from '$lib/api/parts.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Plus, Trash2 } from 'lucide-svelte';
+  import { Plus, Trash2, Pencil } from 'lucide-svelte';
 
   let {
     partId,
@@ -26,12 +26,43 @@
   let newValue = $state('');
   let newUnit = $state('');
 
+  // Which tab triggered the add form (so we show it in the right place)
+  let addingFrom = $state<'user' | 'combined'>('user');
+
+  // Override state: when set, pre-fills the add form for the combined tab
+  let overrideParam = $state<{ name: string; value: string; unit: string } | null>(null);
+
+  function startOverride(param: Parameter & { displaySource: string }) {
+    overrideParam = { name: param.name, value: param.value, unit: param.unit ?? '' };
+    newName = param.name;
+    newValue = param.value;
+    newUnit = param.unit ?? '';
+    addingFrom = 'combined';
+    addingParam = true;
+  }
+
+  function startAdd(from: 'user' | 'combined') {
+    overrideParam = null;
+    newName = '';
+    newValue = '';
+    newUnit = '';
+    addingFrom = from;
+    addingParam = true;
+  }
+
+  function cancelAdd() {
+    addingParam = false;
+    overrideParam = null;
+    newName = '';
+    newValue = '';
+    newUnit = '';
+  }
+
   async function addParam() {
     if (!newName.trim() || !newValue.trim()) return;
     try {
       await createParameter(partId, { name: newName.trim(), value: newValue.trim(), unit: newUnit.trim() || undefined });
-      newName = ''; newValue = ''; newUnit = '';
-      addingParam = false;
+      cancelAdd();
       onchange?.();
     } catch (e: any) {
       pushToast('error', 'Failed to add parameter', e.message);
@@ -91,6 +122,7 @@
           <TableHead>Value</TableHead>
           <TableHead>Unit</TableHead>
           <TableHead>Source</TableHead>
+          <TableHead class="w-10"></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -100,14 +132,47 @@
             <TableCell>{param.value}</TableCell>
             <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
             <TableCell class="text-muted-foreground text-xs">{param.displaySource}</TableCell>
+            <TableCell>
+              {#if param.displaySource !== 'User'}
+                <Button variant="ghost" size="icon" title="Override with user value" onclick={() => startOverride(param)}>
+                  <Pencil class="h-3.5 w-3.5" />
+                </Button>
+              {/if}
+            </TableCell>
           </TableRow>
         {:else}
           <TableRow>
-            <TableCell colspan={4} class="text-center text-muted-foreground py-8">No parameters</TableCell>
+            <TableCell colspan={5} class="text-center text-muted-foreground py-8">No parameters</TableCell>
           </TableRow>
         {/each}
+        {#if addingParam && addingFrom === 'combined'}
+          <TableRow>
+            <TableCell>
+              <input bind:value={newName} placeholder="name" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+            </TableCell>
+            <TableCell>
+              <input bind:value={newValue} placeholder="value" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+            </TableCell>
+            <TableCell>
+              <input bind:value={newUnit} placeholder="unit" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+            </TableCell>
+            <TableCell class="text-muted-foreground text-xs">User</TableCell>
+            <TableCell>
+              <Button size="sm" onclick={addParam}>Save</Button>
+            </TableCell>
+          </TableRow>
+        {/if}
       </TableBody>
     </Table>
+    <div class="mt-2">
+      {#if !addingParam || addingFrom !== 'combined'}
+        <Button variant="outline" size="sm" onclick={() => startAdd('combined')}>
+          <Plus class="h-3.5 w-3.5 mr-1" /> Add parameter
+        </Button>
+      {:else}
+        <Button variant="ghost" size="sm" onclick={cancelAdd}>Cancel</Button>
+      {/if}
+    </div>
   </TabsContent>
 
   <!-- User-specified parameters tab -->
@@ -134,7 +199,7 @@
             </TableCell>
           </TableRow>
         {/each}
-        {#if addingParam}
+        {#if addingParam && addingFrom === 'user'}
           <TableRow>
             <TableCell>
               <input bind:value={newName} placeholder="name" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
@@ -153,12 +218,12 @@
       </TableBody>
     </Table>
     <div class="mt-2">
-      {#if !addingParam}
-        <Button variant="outline" size="sm" onclick={() => (addingParam = true)}>
+      {#if !addingParam || addingFrom !== 'user'}
+        <Button variant="outline" size="sm" onclick={() => startAdd('user')}>
           <Plus class="h-3.5 w-3.5 mr-1" /> Add parameter
         </Button>
       {:else}
-        <Button variant="ghost" size="sm" onclick={() => (addingParam = false)}>Cancel</Button>
+        <Button variant="ghost" size="sm" onclick={cancelAdd}>Cancel</Button>
       {/if}
     </div>
   </TabsContent>

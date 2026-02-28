@@ -264,6 +264,29 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 		lifecycleStatus = dbgen.PartLifecycleStatus(req.LifecycleStatus)
 	}
 
+	// Prevent duplicate parts: if MPN + manufacturer are both provided, check for an existing match.
+	if req.Mpn != nil && *req.Mpn != "" && req.Manufacturer != nil && *req.Manufacturer != "" {
+		matched, err := h.Queries.ListPartsByMPNAndManufacturer(r.Context(), dbgen.ListPartsByMPNAndManufacturerParams{
+			Mpn:          req.Mpn,
+			Manufacturer: req.Manufacturer,
+			TeamID:       teamID,
+		})
+		if err == nil && len(matched) > 0 {
+			existing := matched[0]
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "A part with this MPN and manufacturer already exists",
+				"code":  "PART_EXISTS",
+				"existing_part": map[string]any{
+					"id":           existing.ID.String(),
+					"mpn":          existing.Mpn,
+					"manufacturer": existing.Manufacturer,
+					"description":  existing.Description,
+				},
+			})
+			return
+		}
+	}
+
 	part, err := h.Queries.CreatePart(r.Context(), dbgen.CreatePartParams{
 		Scope:           dbgen.PartScope(req.Scope),
 		TeamID:          teamID,

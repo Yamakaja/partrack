@@ -548,15 +548,18 @@ type PasswordResetToken struct {
 }
 
 type Project struct {
-	ID                  pgtype.UUID        `json:"id"`
-	TeamID              pgtype.UUID        `json:"team_id"`
-	Name                string             `json:"name"`
-	Description         *string            `json:"description"`
-	Status              ProjectStatus      `json:"status"`
-	ActiveBomRevisionID pgtype.UUID        `json:"active_bom_revision_id"`
-	BomImportConfig     []byte             `json:"bom_import_config"`
-	CreatedBy           pgtype.UUID        `json:"created_by"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	TeamID                 pgtype.UUID        `json:"team_id"`
+	Name                   string             `json:"name"`
+	Description            *string            `json:"description"`
+	Status                 ProjectStatus      `json:"status"`
+	ActiveBomRevisionID    pgtype.UUID        `json:"active_bom_revision_id"`
+	BomImportConfig        []byte             `json:"bom_import_config"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
+	SourceUrl              *string            `json:"source_url"`
+	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
 }
 
 type Session struct {

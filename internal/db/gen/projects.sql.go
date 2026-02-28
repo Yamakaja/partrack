@@ -30,27 +30,49 @@ func (q *Queries) CountProjects(ctx context.Context, arg CountProjectsParams) (i
 }
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO projects (team_id, name, description, created_by)
-VALUES ($1, $2, $3, $4)
+INSERT INTO projects (team_id, name, description, preferred_distributor_id, source_url, project_manager_id, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, team_id, name, description, status, active_bom_revision_id,
-          bom_import_config, created_by, created_at
+          bom_import_config, preferred_distributor_id, source_url, project_manager_id,
+          created_by, created_at
 `
 
 type CreateProjectParams struct {
-	TeamID      pgtype.UUID `json:"team_id"`
-	Name        string      `json:"name"`
-	Description *string     `json:"description"`
-	CreatedBy   pgtype.UUID `json:"created_by"`
+	TeamID                 pgtype.UUID `json:"team_id"`
+	Name                   string      `json:"name"`
+	Description            *string     `json:"description"`
+	PreferredDistributorID pgtype.UUID `json:"preferred_distributor_id"`
+	SourceUrl              *string     `json:"source_url"`
+	ProjectManagerID       pgtype.UUID `json:"project_manager_id"`
+	CreatedBy              pgtype.UUID `json:"created_by"`
 }
 
-func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
+type CreateProjectRow struct {
+	ID                     pgtype.UUID        `json:"id"`
+	TeamID                 pgtype.UUID        `json:"team_id"`
+	Name                   string             `json:"name"`
+	Description            *string            `json:"description"`
+	Status                 ProjectStatus      `json:"status"`
+	ActiveBomRevisionID    pgtype.UUID        `json:"active_bom_revision_id"`
+	BomImportConfig        []byte             `json:"bom_import_config"`
+	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
+	SourceUrl              *string            `json:"source_url"`
+	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error) {
 	row := q.db.QueryRow(ctx, createProject,
 		arg.TeamID,
 		arg.Name,
 		arg.Description,
+		arg.PreferredDistributorID,
+		arg.SourceUrl,
+		arg.ProjectManagerID,
 		arg.CreatedBy,
 	)
-	var i Project
+	var i CreateProjectRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -59,6 +81,9 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.Status,
 		&i.ActiveBomRevisionID,
 		&i.BomImportConfig,
+		&i.PreferredDistributorID,
+		&i.SourceUrl,
+		&i.ProjectManagerID,
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)
@@ -71,11 +96,29 @@ SELECT
     p.active_bom_revision_id,
     br.label AS active_bom_revision_label,
     p.bom_import_config,
+    p.preferred_distributor_id,
+    p.source_url,
+    p.project_manager_id,
+    pm.display_name AS project_manager_display_name,
     u.display_name AS created_by_display_name,
-    p.created_at
+    p.created_at,
+    rs.item_count AS rev_item_count,
+    rs.resolved_count AS rev_resolved_count,
+    rs.unresolved_count AS rev_unresolved_count,
+    rs.ambiguous_count AS rev_ambiguous_count
 FROM projects p
 LEFT JOIN bom_revisions br ON br.id = p.active_bom_revision_id
 JOIN users u ON u.id = p.created_by
+LEFT JOIN users pm ON pm.id = p.project_manager_id
+LEFT JOIN LATERAL (
+    SELECT
+        COUNT(*)::bigint AS item_count,
+        COUNT(*) FILTER (WHERE resolved_part_id IS NOT NULL)::bigint AS resolved_count,
+        COUNT(*) FILTER (WHERE resolved_part_id IS NULL)::bigint AS unresolved_count,
+        COUNT(*) FILTER (WHERE resolution_state = 'ambiguous')::bigint AS ambiguous_count
+    FROM bom_line_items
+    WHERE bom_revision_id = p.active_bom_revision_id
+) rs ON TRUE
 WHERE p.id = $1 AND p.team_id = $2
 `
 
@@ -85,15 +128,23 @@ type GetProjectParams struct {
 }
 
 type GetProjectRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Name                   string             `json:"name"`
-	Description            *string            `json:"description"`
-	Status                 ProjectStatus      `json:"status"`
-	ActiveBomRevisionID    pgtype.UUID        `json:"active_bom_revision_id"`
-	ActiveBomRevisionLabel *string            `json:"active_bom_revision_label"`
-	BomImportConfig        []byte             `json:"bom_import_config"`
-	CreatedByDisplayName   string             `json:"created_by_display_name"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	ID                        pgtype.UUID        `json:"id"`
+	Name                      string             `json:"name"`
+	Description               *string            `json:"description"`
+	Status                    ProjectStatus      `json:"status"`
+	ActiveBomRevisionID       pgtype.UUID        `json:"active_bom_revision_id"`
+	ActiveBomRevisionLabel    *string            `json:"active_bom_revision_label"`
+	BomImportConfig           []byte             `json:"bom_import_config"`
+	PreferredDistributorID    pgtype.UUID        `json:"preferred_distributor_id"`
+	SourceUrl                 *string            `json:"source_url"`
+	ProjectManagerID          pgtype.UUID        `json:"project_manager_id"`
+	ProjectManagerDisplayName *string            `json:"project_manager_display_name"`
+	CreatedByDisplayName      string             `json:"created_by_display_name"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	RevItemCount              int64              `json:"rev_item_count"`
+	RevResolvedCount          int64              `json:"rev_resolved_count"`
+	RevUnresolvedCount        int64              `json:"rev_unresolved_count"`
+	RevAmbiguousCount         int64              `json:"rev_ambiguous_count"`
 }
 
 func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (GetProjectRow, error) {
@@ -107,8 +158,16 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (GetProj
 		&i.ActiveBomRevisionID,
 		&i.ActiveBomRevisionLabel,
 		&i.BomImportConfig,
+		&i.PreferredDistributorID,
+		&i.SourceUrl,
+		&i.ProjectManagerID,
+		&i.ProjectManagerDisplayName,
 		&i.CreatedByDisplayName,
 		&i.CreatedAt,
+		&i.RevItemCount,
+		&i.RevResolvedCount,
+		&i.RevUnresolvedCount,
+		&i.RevAmbiguousCount,
 	)
 	return i, err
 }
@@ -118,11 +177,16 @@ SELECT
     p.id, p.name, p.description, p.status,
     p.active_bom_revision_id,
     br.label AS active_bom_revision_label,
+    p.preferred_distributor_id,
+    p.source_url,
+    p.project_manager_id,
+    pm.display_name AS project_manager_display_name,
     u.display_name AS created_by_display_name,
     p.created_at
 FROM projects p
 LEFT JOIN bom_revisions br ON br.id = p.active_bom_revision_id
 JOIN users u ON u.id = p.created_by
+LEFT JOIN users pm ON pm.id = p.project_manager_id
 WHERE p.team_id = $1
   AND ($2::project_status IS NULL OR p.status = $2)
 ORDER BY p.created_at DESC
@@ -137,14 +201,18 @@ type ListProjectsParams struct {
 }
 
 type ListProjectsRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Name                   string             `json:"name"`
-	Description            *string            `json:"description"`
-	Status                 ProjectStatus      `json:"status"`
-	ActiveBomRevisionID    pgtype.UUID        `json:"active_bom_revision_id"`
-	ActiveBomRevisionLabel *string            `json:"active_bom_revision_label"`
-	CreatedByDisplayName   string             `json:"created_by_display_name"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	ID                        pgtype.UUID        `json:"id"`
+	Name                      string             `json:"name"`
+	Description               *string            `json:"description"`
+	Status                    ProjectStatus      `json:"status"`
+	ActiveBomRevisionID       pgtype.UUID        `json:"active_bom_revision_id"`
+	ActiveBomRevisionLabel    *string            `json:"active_bom_revision_label"`
+	PreferredDistributorID    pgtype.UUID        `json:"preferred_distributor_id"`
+	SourceUrl                 *string            `json:"source_url"`
+	ProjectManagerID          pgtype.UUID        `json:"project_manager_id"`
+	ProjectManagerDisplayName *string            `json:"project_manager_display_name"`
+	CreatedByDisplayName      string             `json:"created_by_display_name"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]ListProjectsRow, error) {
@@ -168,6 +236,10 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]L
 			&i.Status,
 			&i.ActiveBomRevisionID,
 			&i.ActiveBomRevisionLabel,
+			&i.PreferredDistributorID,
+			&i.SourceUrl,
+			&i.ProjectManagerID,
+			&i.ProjectManagerDisplayName,
 			&i.CreatedByDisplayName,
 			&i.CreatedAt,
 		); err != nil {
@@ -215,34 +287,44 @@ func (q *Queries) SetProjectBOMImportConfig(ctx context.Context, arg SetProjectB
 
 const updateProject = `-- name: UpdateProject :one
 UPDATE projects
-SET name                   = COALESCE($1, name),
-    description            = COALESCE($2, description),
-    status                 = COALESCE($3::project_status, status),
-    active_bom_revision_id = COALESCE($4, active_bom_revision_id),
-    bom_import_config      = $5
-WHERE id = $6 AND team_id = $7
-RETURNING id, name, description, status, active_bom_revision_id, bom_import_config, created_by, created_at
+SET name                     = COALESCE($1, name),
+    description              = COALESCE($2, description),
+    status                   = COALESCE($3::project_status, status),
+    active_bom_revision_id   = COALESCE($4, active_bom_revision_id),
+    preferred_distributor_id = COALESCE($5, preferred_distributor_id),
+    source_url               = COALESCE($6, source_url),
+    project_manager_id       = COALESCE($7, project_manager_id),
+    bom_import_config        = $8
+WHERE id = $9 AND team_id = $10
+RETURNING id, name, description, status, active_bom_revision_id, bom_import_config,
+          preferred_distributor_id, source_url, project_manager_id, created_by, created_at
 `
 
 type UpdateProjectParams struct {
-	Name                *string           `json:"name"`
-	Description         *string           `json:"description"`
-	Status              NullProjectStatus `json:"status"`
-	ActiveBomRevisionID pgtype.UUID       `json:"active_bom_revision_id"`
-	BomImportConfig     []byte            `json:"bom_import_config"`
-	ID                  pgtype.UUID       `json:"id"`
-	TeamID              pgtype.UUID       `json:"team_id"`
+	Name                   *string           `json:"name"`
+	Description            *string           `json:"description"`
+	Status                 NullProjectStatus `json:"status"`
+	ActiveBomRevisionID    pgtype.UUID       `json:"active_bom_revision_id"`
+	PreferredDistributorID pgtype.UUID       `json:"preferred_distributor_id"`
+	SourceUrl              *string           `json:"source_url"`
+	ProjectManagerID       pgtype.UUID       `json:"project_manager_id"`
+	BomImportConfig        []byte            `json:"bom_import_config"`
+	ID                     pgtype.UUID       `json:"id"`
+	TeamID                 pgtype.UUID       `json:"team_id"`
 }
 
 type UpdateProjectRow struct {
-	ID                  pgtype.UUID        `json:"id"`
-	Name                string             `json:"name"`
-	Description         *string            `json:"description"`
-	Status              ProjectStatus      `json:"status"`
-	ActiveBomRevisionID pgtype.UUID        `json:"active_bom_revision_id"`
-	BomImportConfig     []byte             `json:"bom_import_config"`
-	CreatedBy           pgtype.UUID        `json:"created_by"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	Name                   string             `json:"name"`
+	Description            *string            `json:"description"`
+	Status                 ProjectStatus      `json:"status"`
+	ActiveBomRevisionID    pgtype.UUID        `json:"active_bom_revision_id"`
+	BomImportConfig        []byte             `json:"bom_import_config"`
+	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
+	SourceUrl              *string            `json:"source_url"`
+	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (UpdateProjectRow, error) {
@@ -251,6 +333,9 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (U
 		arg.Description,
 		arg.Status,
 		arg.ActiveBomRevisionID,
+		arg.PreferredDistributorID,
+		arg.SourceUrl,
+		arg.ProjectManagerID,
 		arg.BomImportConfig,
 		arg.ID,
 		arg.TeamID,
@@ -263,6 +348,9 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (U
 		&i.Status,
 		&i.ActiveBomRevisionID,
 		&i.BomImportConfig,
+		&i.PreferredDistributorID,
+		&i.SourceUrl,
+		&i.ProjectManagerID,
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)
@@ -271,32 +359,42 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (U
 
 const updateProjectKeepConfig = `-- name: UpdateProjectKeepConfig :one
 UPDATE projects
-SET name                   = COALESCE($1, name),
-    description            = COALESCE($2, description),
-    status                 = COALESCE($3::project_status, status),
-    active_bom_revision_id = COALESCE($4, active_bom_revision_id)
-WHERE id = $5 AND team_id = $6
-RETURNING id, name, description, status, active_bom_revision_id, bom_import_config, created_by, created_at
+SET name                     = COALESCE($1, name),
+    description              = COALESCE($2, description),
+    status                   = COALESCE($3::project_status, status),
+    active_bom_revision_id   = COALESCE($4, active_bom_revision_id),
+    preferred_distributor_id = COALESCE($5, preferred_distributor_id),
+    source_url               = COALESCE($6, source_url),
+    project_manager_id       = COALESCE($7, project_manager_id)
+WHERE id = $8 AND team_id = $9
+RETURNING id, name, description, status, active_bom_revision_id, bom_import_config,
+          preferred_distributor_id, source_url, project_manager_id, created_by, created_at
 `
 
 type UpdateProjectKeepConfigParams struct {
-	Name                *string           `json:"name"`
-	Description         *string           `json:"description"`
-	Status              NullProjectStatus `json:"status"`
-	ActiveBomRevisionID pgtype.UUID       `json:"active_bom_revision_id"`
-	ID                  pgtype.UUID       `json:"id"`
-	TeamID              pgtype.UUID       `json:"team_id"`
+	Name                   *string           `json:"name"`
+	Description            *string           `json:"description"`
+	Status                 NullProjectStatus `json:"status"`
+	ActiveBomRevisionID    pgtype.UUID       `json:"active_bom_revision_id"`
+	PreferredDistributorID pgtype.UUID       `json:"preferred_distributor_id"`
+	SourceUrl              *string           `json:"source_url"`
+	ProjectManagerID       pgtype.UUID       `json:"project_manager_id"`
+	ID                     pgtype.UUID       `json:"id"`
+	TeamID                 pgtype.UUID       `json:"team_id"`
 }
 
 type UpdateProjectKeepConfigRow struct {
-	ID                  pgtype.UUID        `json:"id"`
-	Name                string             `json:"name"`
-	Description         *string            `json:"description"`
-	Status              ProjectStatus      `json:"status"`
-	ActiveBomRevisionID pgtype.UUID        `json:"active_bom_revision_id"`
-	BomImportConfig     []byte             `json:"bom_import_config"`
-	CreatedBy           pgtype.UUID        `json:"created_by"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	Name                   string             `json:"name"`
+	Description            *string            `json:"description"`
+	Status                 ProjectStatus      `json:"status"`
+	ActiveBomRevisionID    pgtype.UUID        `json:"active_bom_revision_id"`
+	BomImportConfig        []byte             `json:"bom_import_config"`
+	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
+	SourceUrl              *string            `json:"source_url"`
+	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) UpdateProjectKeepConfig(ctx context.Context, arg UpdateProjectKeepConfigParams) (UpdateProjectKeepConfigRow, error) {
@@ -305,6 +403,9 @@ func (q *Queries) UpdateProjectKeepConfig(ctx context.Context, arg UpdateProject
 		arg.Description,
 		arg.Status,
 		arg.ActiveBomRevisionID,
+		arg.PreferredDistributorID,
+		arg.SourceUrl,
+		arg.ProjectManagerID,
 		arg.ID,
 		arg.TeamID,
 	)
@@ -316,6 +417,9 @@ func (q *Queries) UpdateProjectKeepConfig(ctx context.Context, arg UpdateProject
 		&i.Status,
 		&i.ActiveBomRevisionID,
 		&i.BomImportConfig,
+		&i.PreferredDistributorID,
+		&i.SourceUrl,
+		&i.ProjectManagerID,
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)

@@ -10,7 +10,7 @@
   import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Plus } from 'lucide-svelte';
+  import { Plus, ClipboardCheck } from 'lucide-svelte';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -110,14 +110,18 @@
                 </TableCell>
                 <TableCell>
                   <Button
-                    variant="ghost"
+                    variant={project.active_bom_revision_id ? 'default' : 'ghost'}
                     size="sm"
+                    disabled={!project.active_bom_revision_id}
+                    title={project.active_bom_revision_id ? undefined : 'No active BOM revision'}
                     onclick={(e: MouseEvent) => {
                       e.stopPropagation();
-                      navigate(`/teams/${teamId}/projects/${project.id}`);
+                      if (project.active_bom_revision_id) {
+                        navigate(`/teams/${teamId}/projects/${project.id}/revisions/${project.active_bom_revision_id}/stock`);
+                      }
                     }}
                   >
-                    View
+                    <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
                   </Button>
                 </TableCell>
               </TableRow>

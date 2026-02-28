@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getPart } from '$lib/api/parts.js';
+  import { getPart, updatePart } from '$lib/api/parts.js';
+  import type { LifecycleStatus } from '$lib/types/parts.js';
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
   import { listStorageLocations } from '$lib/api/storage.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -9,7 +10,6 @@
   import AdjustmentHistory from '$lib/components/inventory/AdjustmentHistory.svelte';
   import ParameterTable from '$lib/components/parts/ParameterTable.svelte';
   import ListingTable from '$lib/components/parts/ListingTable.svelte';
-  import { Tabs, TabsList, TabsTrigger, TabsContent } from '$lib/components/ui/tabs/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
@@ -19,7 +19,7 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
-  import { ArrowLeft, PackagePlus } from 'lucide-svelte';
+  import { ArrowLeft, PackagePlus, Pencil } from 'lucide-svelte';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
 
@@ -38,6 +38,15 @@
   let editMinStock = $state('');
   let editReorderQty = $state('');
   let editSaving = $state(false);
+
+  // Edit part dialog
+  let editPartOpen = $state(false);
+  let editDescription = $state('');
+  let editCategory = $state('');
+  let editPackage = $state('');
+  let editDatasheetUrl = $state('');
+  let editLifecycleStatus = $state<LifecycleStatus | undefined>(undefined);
+  let editPartSaving = $state(false);
 
   let partQuery = createQuery(() => ({
     queryKey: ['part', partId, teamId],
@@ -79,6 +88,39 @@
     editMinStock = part.minimum_stock_quantity != null ? String(part.minimum_stock_quantity) : '';
     editReorderQty = part.reorder_quantity != null ? String(part.reorder_quantity) : '';
     editOpen = true;
+  }
+
+  function openEditPart() {
+    const part = partQuery.data;
+    if (!part) return;
+    editDescription = part.description ?? '';
+    editCategory = part.category ?? '';
+    editPackage = part.package ?? '';
+    editDatasheetUrl = part.datasheet_url ?? '';
+    editLifecycleStatus = part.lifecycle_status ?? 'active';
+    editPartOpen = true;
+  }
+
+  async function handleEditPartSave(e: Event) {
+    e.preventDefault();
+    editPartSaving = true;
+    try {
+      await updatePart(partId, {
+        description: editDescription || undefined,
+        category: editCategory || undefined,
+        package: editPackage || undefined,
+        datasheet_url: editDatasheetUrl || undefined,
+        lifecycle_status: editLifecycleStatus || undefined,
+      });
+      editPartOpen = false;
+      qc.invalidateQueries({ queryKey: ['part', partId, teamId] });
+      qc.invalidateQueries({ queryKey: ['parts', teamId] });
+      pushToast('success', 'Part updated');
+    } catch (err: any) {
+      pushToast('error', 'Failed to update part', err.message);
+    } finally {
+      editPartSaving = false;
+    }
   }
 
   async function handleAdjust(e: Event) {
@@ -132,6 +174,11 @@
       <Button variant="outline" size="sm" onclick={() => navigate(`/teams/${teamId}/parts`)}>
         <ArrowLeft class="h-4 w-4 mr-1" /> Back
       </Button>
+      {#if partQuery.data}
+        <Button variant="outline" size="sm" onclick={openEditPart}>
+          <Pencil class="h-4 w-4 mr-1" /> Edit Part
+        </Button>
+      {/if}
       {#if tracked}
         <Button variant="outline" size="sm" onclick={openEdit}>Edit Settings</Button>
         <Button variant="outline" size="sm" onclick={openAdjust}>Adjust Stock</Button>
@@ -208,46 +255,39 @@
           {/if}
         </div>
 
-        <!-- Tabs -->
-        <Tabs value="parameters">
-          <TabsList>
-            <TabsTrigger value="parameters">Parameters</TabsTrigger>
-            <TabsTrigger value="listings">Listings ({part.listings?.length ?? 0})</TabsTrigger>
-            {#if tracked}
-              <TabsTrigger value="history">History</TabsTrigger>
-            {/if}
-          </TabsList>
+        <!-- Stacked sections -->
+        <section class="space-y-2">
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Listings</h3>
+          <ListingTable
+            {partId}
+            {teamId}
+            listings={part.listings ?? []}
+            {entryId}
+            preferredListingId={part.preferred_listing_id}
+            onrefresh={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+            onpreferredchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+            ondelete={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+            onadd={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+          />
+        </section>
 
-          <TabsContent value="parameters">
-            <ParameterTable
-              {partId}
-              parameters={part.parameters ?? { user_specified: [], distributor_sourced: [] }}
-              preferredSourceId={part.preferred_parameter_source_id}
-              listings={part.listings ?? []}
-              onchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
-            />
-          </TabsContent>
+        <section class="space-y-2">
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Parameters</h3>
+          <ParameterTable
+            {partId}
+            parameters={part.parameters ?? { user_specified: [], distributor_sourced: [] }}
+            preferredSourceId={part.preferred_parameter_source_id}
+            listings={part.listings ?? []}
+            onchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+          />
+        </section>
 
-          <TabsContent value="listings">
-            <ListingTable
-              {partId}
-              {teamId}
-              listings={part.listings ?? []}
-              {entryId}
-              preferredListingId={part.preferred_listing_id}
-              onrefresh={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
-              onpreferredchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
-              ondelete={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
-              onadd={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
-            />
-          </TabsContent>
-
-          {#if tracked}
-            <TabsContent value="history">
-              <AdjustmentHistory {entryId} {teamId} />
-            </TabsContent>
-          {/if}
-        </Tabs>
+        {#if tracked}
+          <section class="space-y-2">
+            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">History</h3>
+            <AdjustmentHistory {entryId} {teamId} />
+          </section>
+        {/if}
       </div>
     {/if}
   </div>
@@ -280,6 +320,54 @@
           </Dialog.Close>
           <Button type="submit" disabled={adjusting || !adjustDelta || adjustDelta === '0'}>
             {adjusting ? 'Adjusting…' : 'Apply'}
+          </Button>
+        </div>
+      </form>
+    </Dialog.Content>
+  </Dialog.Portal>
+</Dialog.Root>
+
+<!-- Edit Part Dialog -->
+<Dialog.Root bind:open={editPartOpen}>
+  <Dialog.Portal>
+    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+      <Dialog.Title class="text-lg font-semibold mb-4">Edit Part</Dialog.Title>
+      <form onsubmit={handleEditPartSave} class="space-y-3">
+        <div class="space-y-1">
+          <Label for="ep-desc">Description</Label>
+          <Input id="ep-desc" bind:value={editDescription} placeholder="e.g. 10kΩ 1% 0402 resistor" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="space-y-1">
+            <Label for="ep-category">Category</Label>
+            <Input id="ep-category" bind:value={editCategory} placeholder="e.g. Resistor" />
+          </div>
+          <div class="space-y-1">
+            <Label for="ep-package">Package</Label>
+            <Input id="ep-package" bind:value={editPackage} placeholder="e.g. 0402" />
+          </div>
+        </div>
+        <div class="space-y-1">
+          <Label for="ep-datasheet">Datasheet URL</Label>
+          <Input id="ep-datasheet" type="url" bind:value={editDatasheetUrl} placeholder="https://…" />
+        </div>
+        <div class="space-y-1">
+          <Label for="ep-lifecycle">Lifecycle Status</Label>
+          <Select id="ep-lifecycle" bind:value={editLifecycleStatus}>
+            <option value="active">Active</option>
+            <option value="nrnd">NRND</option>
+            <option value="obsolete">Obsolete</option>
+            <option value="deprecated">Deprecated</option>
+            <option value="no_longer_available">No Longer Available</option>
+          </Select>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <Dialog.Close>
+            <Button variant="outline" type="button">Cancel</Button>
+          </Dialog.Close>
+          <Button type="submit" disabled={editPartSaving}>
+            {editPartSaving ? 'Saving…' : 'Save Changes'}
           </Button>
         </div>
       </form>

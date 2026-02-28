@@ -1,8 +1,8 @@
 # partrack — Conceptual Data Model
 
 > This document describes the core entities partrack needs to store and their relationships.
-> It is intentionally not a database schema — field types, indexes, and constraints will be defined later.
 > Auditing (user attribution on events) is acknowledged as a future concern and is excluded here.
+> May be out of date with the actual code base. Always check schema definitions in /db to cross check.
 
 ---
 

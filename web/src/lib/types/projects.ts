@@ -1,20 +1,37 @@
 export interface Project {
   id: string;
-  team_id: string;
   name: string;
   description: string | null;
+  status: 'active' | 'archived' | 'completed';
   active_bom_revision_id: string | null;
+  active_bom_revision_label: string | null;
   bom_import_config: Record<string, string> | null;
+  preferred_distributor_id: string | null;
+  source_url: string | null;
+  project_manager_id: string | null;
+  project_manager_display_name: string | null;
+  created_by_display_name: string;
   created_at: string;
-  created_by: string;
+  active_revision_summary: {
+    item_count: number;
+    resolved_count: number;
+    unresolved_count: number;
+    ambiguous_count: number;
+  } | null;
 }
 
 export interface ProjectSummary {
   id: string;
   name: string;
   description: string | null;
+  status: 'active' | 'archived' | 'completed';
   active_bom_revision_id: string | null;
   active_bom_revision_label: string | null;
+  preferred_distributor_id: string | null;
+  source_url: string | null;
+  project_manager_id: string | null;
+  project_manager_display_name: string | null;
+  created_by_display_name: string;
   created_at: string;
 }
 

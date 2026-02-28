@@ -14,7 +14,18 @@ export function getProject(teamId: string, projectId: string) {
   return request<Project>('GET', `/api/v1/teams/${teamId}/projects/${projectId}`);
 }
 
-export function updateProject(teamId: string, projectId: string, body: { name?: string; description?: string }) {
+export function updateProject(
+  teamId: string,
+  projectId: string,
+  body: {
+    name?: string;
+    description?: string;
+    status?: 'active' | 'archived' | 'completed';
+    preferred_distributor_id?: string | null;
+    source_url?: string | null;
+    project_manager_id?: string | null;
+  },
+) {
   return request<Project>('PATCH', `/api/v1/teams/${teamId}/projects/${projectId}`, body);
 }
 

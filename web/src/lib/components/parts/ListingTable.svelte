@@ -17,6 +17,7 @@
     listings,
     entryId,
     preferredListingId,
+    preferredDistributorId,
     onrefresh,
     onpreferredchange,
     ondelete,
@@ -27,11 +28,22 @@
     listings: Listing[];
     entryId?: string | null;
     preferredListingId?: string | null;
+    preferredDistributorId?: string | null;
     onrefresh?: () => void;
     onpreferredchange?: () => void;
     ondelete?: () => void;
     onadd?: () => void;
   } = $props();
+
+  let sortedListings = $derived(
+    preferredDistributorId
+      ? [...listings].sort((a, b) => {
+          const aPreferred = a.distributor_id === preferredDistributorId ? 0 : 1;
+          const bPreferred = b.distributor_id === preferredDistributorId ? 0 : 1;
+          return aPreferred - bPreferred;
+        })
+      : listings,
+  );
 
   let refreshing = $state<Set<string>>(new Set());
   let enrichingListing = $state<Set<string>>(new Set());
@@ -126,7 +138,7 @@
       </TableRow>
     </TableHeader>
     <TableBody>
-      {#each listings as listing (listing.id)}
+      {#each sortedListings as listing (listing.id)}
         {@const isPreferred = listing.id === preferredListingId}
         <TableRow class={isPreferred ? 'bg-accent/30' : ''}>
           <TableCell class="font-medium">

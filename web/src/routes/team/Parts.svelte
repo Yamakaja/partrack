@@ -17,6 +17,7 @@
   import { Select } from '$lib/components/ui/select/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { ApiError } from '$lib/api/client.js';
   import { Plus } from 'lucide-svelte';
 
   let { teamId }: { teamId: string } = $props();
@@ -28,6 +29,7 @@
   let offset = $state(0);
   let createOpen = $state(false);
   let createMode = $state<'manual' | 'import'>('manual');
+  let duplicateFound = $state<{ id: string; mpn: string | null; manufacturer: string | null; description: string | null } | null>(null);
 
   // Create part — manual mode
   let newMpn = $state('');
@@ -64,6 +66,7 @@
   function resetDialog() {
     newMpn = ''; newManufacturer = ''; newDescription = ''; newScope = 'team';
     importKeywords = ''; importResults = []; importSelected = null; importDistributorId = ''; importScope = 'team';
+    duplicateFound = null;
   }
 
   async function doImportSearch() {
@@ -109,6 +112,7 @@
   async function handleCreate(e: Event) {
     e.preventDefault();
     creating = true;
+    duplicateFound = null;
     try {
       await createPart({
         scope: newScope,
@@ -121,8 +125,12 @@
       resetDialog();
       qc.invalidateQueries({ queryKey: ['parts', teamId] });
       pushToast('success', 'Part created');
-    } catch (e: any) {
-      pushToast('error', 'Failed to create part', e.message);
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === 'PART_EXISTS') {
+        duplicateFound = (err.data as any).existing_part;
+      } else {
+        pushToast('error', 'Failed to create part', err.message);
+      }
     } finally {
       creating = false;
     }
@@ -133,26 +141,42 @@
     if (!importSelected) return;
     importing = true;
     try {
-      const part = await createPart({
-        scope: importScope,
-        team_id: importScope === 'team' ? teamId : undefined,
-        mpn: importSelected.mpn || undefined,
-        manufacturer: importSelected.manufacturer || undefined,
-        description: importSelected.description || undefined,
-        category: importSelected.category || undefined,
-        package: importSelected.package || undefined,
-      });
-      await addListing(part.id, {
+      let partId: string;
+      let isExisting = false;
+      try {
+        const part = await createPart({
+          scope: importScope,
+          team_id: importScope === 'team' ? teamId : undefined,
+          mpn: importSelected.mpn || undefined,
+          manufacturer: importSelected.manufacturer || undefined,
+          description: importSelected.description || undefined,
+          category: importSelected.category || undefined,
+          package: importSelected.package || undefined,
+        });
+        partId = part.id;
+      } catch (err: any) {
+        if (err instanceof ApiError && err.code === 'PART_EXISTS') {
+          partId = (err.data as any).existing_part.id;
+          isExisting = true;
+        } else {
+          throw err;
+        }
+      }
+      await addListing(partId, {
         sku: importSelected.primary_sku,
         distributor_id: importDistributorId,
         team_id: teamId,
       });
       createOpen = false;
       resetDialog();
-      pushToast('success', 'Part imported', 'Parameters will populate shortly.');
-      navigate(`/teams/${teamId}/parts/${part.id}`);
-    } catch (e: any) {
-      pushToast('error', 'Failed to import part', e.message);
+      if (isExisting) {
+        pushToast('success', 'Listing added to existing part', 'Parameters will populate shortly.');
+      } else {
+        pushToast('success', 'Part imported', 'Parameters will populate shortly.');
+      }
+      navigate(`/teams/${teamId}/parts/${partId}`);
+    } catch (err: any) {
+      pushToast('error', 'Failed to import part', err.message);
     } finally {
       importing = false;
     }
@@ -279,19 +303,36 @@
           </div>
           <div class="space-y-1">
             <Label for="mpn">MPN</Label>
-            <Input id="mpn" bind:value={newMpn} placeholder="e.g. LM317T" />
+            <Input id="mpn" bind:value={newMpn} placeholder="e.g. LM317T" oninput={() => (duplicateFound = null)} />
           </div>
           <div class="space-y-1">
             <Label for="mfr">Manufacturer</Label>
-            <Input id="mfr" bind:value={newManufacturer} placeholder="e.g. Texas Instruments" />
+            <Input id="mfr" bind:value={newManufacturer} placeholder="e.g. Texas Instruments" oninput={() => (duplicateFound = null)} />
           </div>
           <div class="space-y-1">
             <Label for="desc">Description</Label>
             <Input id="desc" bind:value={newDescription} placeholder="Short description" />
           </div>
+          {#if duplicateFound}
+            <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
+              <p class="font-medium text-amber-800 dark:text-amber-200">This part already exists</p>
+              <p class="mt-0.5 text-amber-700 dark:text-amber-300">
+                {duplicateFound.mpn ?? ''}
+                {#if duplicateFound.manufacturer} · {duplicateFound.manufacturer}{/if}
+                {#if duplicateFound.description} — {duplicateFound.description}{/if}
+              </p>
+              <Button
+                size="sm"
+                class="mt-2"
+                onclick={() => { createOpen = false; resetDialog(); navigate(`/teams/${teamId}/parts/${duplicateFound!.id}`); }}
+              >
+                Open existing part
+              </Button>
+            </div>
+          {/if}
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" type="button" onclick={() => (createOpen = false)}>Cancel</Button>
-            <Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create'}</Button>
+            <Button type="submit" disabled={creating || !!duplicateFound}>{creating ? 'Creating…' : 'Create'}</Button>
           </div>
         </form>
 
