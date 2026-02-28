@@ -170,7 +170,7 @@
       createOpen = false;
       resetDialog();
       if (isExisting) {
-        pushToast('success', 'Listing added to existing part', 'Parameters will populate shortly.');
+        pushToast('success', 'Part already exists', 'Listing data will be refreshed shortly.');
       } else {
         pushToast('success', 'Part imported', 'Parameters will populate shortly.');
       }
@@ -324,7 +324,7 @@
               <Button
                 size="sm"
                 class="mt-2"
-                onclick={() => { createOpen = false; resetDialog(); navigate(`/teams/${teamId}/parts/${duplicateFound!.id}`); }}
+                onclick={() => { const id = duplicateFound!.id; createOpen = false; resetDialog(); navigate(`/teams/${teamId}/parts/${id}`); }}
               >
                 Open existing part
               </Button>

@@ -5,7 +5,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { createParameter, deleteParameter } from '$lib/api/parts.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Plus, Trash2, Pencil } from 'lucide-svelte';
+  import { Plus, Trash2, Pencil, Check, X } from 'lucide-svelte';
 
   let {
     partId,
@@ -21,28 +21,45 @@
     onchange?: () => void;
   } = $props();
 
+  // Inline edit state — tracks which param row is being edited
+  let editingParamId = $state<string | null>(null);
+  let editName = $state('');
+  let editValue = $state('');
+  let editUnit = $state('');
+  let editNameReadonly = $state(false); // true when overriding a distributor param
+
+  // Add-new state (appended row at bottom of table)
   let addingParam = $state(false);
+  let addingFrom = $state<'user' | 'combined'>('user');
   let newName = $state('');
   let newValue = $state('');
   let newUnit = $state('');
 
-  // Which tab triggered the add form (so we show it in the right place)
-  let addingFrom = $state<'user' | 'combined'>('user');
+  function startInlineEdit(param: Parameter, nameReadonly: boolean) {
+    editingParamId = param.id;
+    editName = param.name;
+    editValue = param.value;
+    editUnit = param.unit ?? '';
+    editNameReadonly = nameReadonly;
+  }
 
-  // Override state: when set, pre-fills the add form for the combined tab
-  let overrideParam = $state<{ name: string; value: string; unit: string } | null>(null);
+  function cancelInlineEdit() {
+    editingParamId = null;
+  }
 
-  function startOverride(param: Parameter & { displaySource: string }) {
-    overrideParam = { name: param.name, value: param.value, unit: param.unit ?? '' };
-    newName = param.name;
-    newValue = param.value;
-    newUnit = param.unit ?? '';
-    addingFrom = 'combined';
-    addingParam = true;
+  async function saveInlineEdit() {
+    if (!editName.trim() || !editValue.trim()) return;
+    try {
+      await createParameter(partId, { name: editName.trim(), value: editValue.trim(), unit: editUnit.trim() || undefined });
+      editingParamId = null;
+      onchange?.();
+    } catch (e: any) {
+      pushToast('error', 'Failed to save parameter', e.message);
+    }
   }
 
   function startAdd(from: 'user' | 'combined') {
-    overrideParam = null;
+    editingParamId = null;
     newName = '';
     newValue = '';
     newUnit = '';
@@ -52,7 +69,6 @@
 
   function cancelAdd() {
     addingParam = false;
-    overrideParam = null;
     newName = '';
     newValue = '';
     newUnit = '';
@@ -67,6 +83,16 @@
     } catch (e: any) {
       pushToast('error', 'Failed to add parameter', e.message);
     }
+  }
+
+  function handleEditKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') saveInlineEdit();
+    else if (e.key === 'Escape') cancelInlineEdit();
+  }
+
+  function handleAddKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') addParam();
+    else if (e.key === 'Escape') cancelAdd();
   }
 
   async function removeParam(paramId: string) {
@@ -122,24 +148,52 @@
           <TableHead>Value</TableHead>
           <TableHead>Unit</TableHead>
           <TableHead>Source</TableHead>
-          <TableHead class="w-10"></TableHead>
+          <TableHead class="w-20"></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {#each combined as param (param.id)}
-          <TableRow>
-            <TableCell class="font-mono text-xs">{param.name}</TableCell>
-            <TableCell>{param.value}</TableCell>
-            <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
-            <TableCell class="text-muted-foreground text-xs">{param.displaySource}</TableCell>
-            <TableCell>
-              {#if param.displaySource !== 'User'}
-                <Button variant="ghost" size="icon" title="Override with user value" onclick={() => startOverride(param)}>
+          {#if editingParamId === param.id}
+            <TableRow>
+              <TableCell>
+                <input bind:value={editName} placeholder="name" readonly={editNameReadonly} onkeydown={handleEditKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs font-mono {editNameReadonly ? 'opacity-60' : ''}" />
+              </TableCell>
+              <TableCell>
+                <input bind:value={editValue} placeholder="value" onkeydown={handleEditKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              </TableCell>
+              <TableCell>
+                <input bind:value={editUnit} placeholder="unit" onkeydown={handleEditKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              </TableCell>
+              <TableCell class="text-muted-foreground text-xs">User</TableCell>
+              <TableCell>
+                <div class="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" title="Save" onclick={saveInlineEdit}>
+                    <Check class="h-3.5 w-3.5 text-green-600" />
+                  </Button>
+                  <Button variant="ghost" size="icon" title="Cancel" onclick={cancelInlineEdit}>
+                    <X class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          {:else}
+            <TableRow>
+              <TableCell class="font-mono text-xs">{param.name}</TableCell>
+              <TableCell>{param.value}</TableCell>
+              <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
+              <TableCell class="text-muted-foreground text-xs">{param.displaySource}</TableCell>
+              <TableCell>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title={param.displaySource === 'User' ? 'Edit' : 'Override with user value'}
+                  onclick={() => startInlineEdit(param, param.displaySource !== 'User')}
+                >
                   <Pencil class="h-3.5 w-3.5" />
                 </Button>
-              {/if}
-            </TableCell>
-          </TableRow>
+              </TableCell>
+            </TableRow>
+          {/if}
         {:else}
           <TableRow>
             <TableCell colspan={5} class="text-center text-muted-foreground py-8">No parameters</TableCell>
@@ -148,13 +202,13 @@
         {#if addingParam && addingFrom === 'combined'}
           <TableRow>
             <TableCell>
-              <input bind:value={newName} placeholder="name" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              <input bind:value={newName} placeholder="name" onkeydown={handleAddKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs font-mono" />
             </TableCell>
             <TableCell>
-              <input bind:value={newValue} placeholder="value" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              <input bind:value={newValue} placeholder="value" onkeydown={handleAddKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
             </TableCell>
             <TableCell>
-              <input bind:value={newUnit} placeholder="unit" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              <input bind:value={newUnit} placeholder="unit" onkeydown={handleAddKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
             </TableCell>
             <TableCell class="text-muted-foreground text-xs">User</TableCell>
             <TableCell>
@@ -183,32 +237,65 @@
           <TableHead>Name</TableHead>
           <TableHead>Value</TableHead>
           <TableHead>Unit</TableHead>
-          <TableHead class="w-10"></TableHead>
+          <TableHead class="w-20"></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {#each (parameters.user_specified ?? []) as param (param.id)}
+          {#if editingParamId === param.id}
+            <TableRow>
+              <TableCell>
+                <input bind:value={editName} placeholder="name" readonly={editNameReadonly} onkeydown={handleEditKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs font-mono {editNameReadonly ? 'opacity-60' : ''}" />
+              </TableCell>
+              <TableCell>
+                <input bind:value={editValue} placeholder="value" onkeydown={handleEditKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              </TableCell>
+              <TableCell>
+                <input bind:value={editUnit} placeholder="unit" onkeydown={handleEditKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              </TableCell>
+              <TableCell>
+                <div class="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" title="Save" onclick={saveInlineEdit}>
+                    <Check class="h-3.5 w-3.5 text-green-600" />
+                  </Button>
+                  <Button variant="ghost" size="icon" title="Cancel" onclick={cancelInlineEdit}>
+                    <X class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          {:else}
+            <TableRow>
+              <TableCell class="font-mono text-xs">{param.name}</TableCell>
+              <TableCell>{param.value}</TableCell>
+              <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
+              <TableCell>
+                <div class="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" title="Edit" onclick={() => startInlineEdit(param, false)}>
+                    <Pencil class="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onclick={() => removeParam(param.id)}>
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          {/if}
+        {:else}
           <TableRow>
-            <TableCell class="font-mono text-xs">{param.name}</TableCell>
-            <TableCell>{param.value}</TableCell>
-            <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
-            <TableCell>
-              <Button variant="ghost" size="icon" onclick={() => removeParam(param.id)}>
-                <Trash2 class="h-3.5 w-3.5" />
-              </Button>
-            </TableCell>
+            <TableCell colspan={4} class="text-center text-muted-foreground py-8">No user parameters</TableCell>
           </TableRow>
         {/each}
         {#if addingParam && addingFrom === 'user'}
           <TableRow>
             <TableCell>
-              <input bind:value={newName} placeholder="name" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              <input bind:value={newName} placeholder="name" onkeydown={handleAddKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs font-mono" />
             </TableCell>
             <TableCell>
-              <input bind:value={newValue} placeholder="value" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              <input bind:value={newValue} placeholder="value" onkeydown={handleAddKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
             </TableCell>
             <TableCell>
-              <input bind:value={newUnit} placeholder="unit" class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
+              <input bind:value={newUnit} placeholder="unit" onkeydown={handleAddKey} class="w-full rounded border border-input bg-background px-2 py-1 text-xs" />
             </TableCell>
             <TableCell>
               <Button size="sm" onclick={addParam}>Save</Button>

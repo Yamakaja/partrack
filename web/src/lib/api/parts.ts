@@ -66,3 +66,8 @@ export function refreshListing(partId: string, listingId: string, teamId?: strin
   const q = teamId ? `?team_id=${teamId}` : '';
   return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/listings/${listingId}/refresh${q}`);
 }
+
+export function refreshAllListings(partId: string, teamId?: string) {
+  const q = teamId ? `?team_id=${teamId}` : '';
+  return request<{ job_ids: string[] }>('POST', `/api/v1/parts/${partId}/listings/refresh${q}`);
+}

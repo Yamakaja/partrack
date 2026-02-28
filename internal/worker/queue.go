@@ -592,18 +592,15 @@ func (q *Queue) handlePartEnrich(job Job) {
 	}
 
 	q.publishProgress(job, "part_enrichment_progress", map[string]any{
-		"status":         "done",
+		"status":         "complete",
+		"job_id":         job.ID,
 		"distributor_id": distIDStr,
 		"listings":       len(result.Listings),
 		"parameters":     len(result.Parameters),
 	})
-	q.publishProgress(job, "part_enrichment_progress", map[string]any{
-		"status": "complete",
-		"job_id": job.ID,
-	})
 
 	data, _ := json.Marshal(map[string]string{"part_id": partIDStr})
-	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: data})
+	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, Data: data})
 }
 
 func (q *Queue) handleListingRefresh(job Job) {
@@ -703,7 +700,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 	})
 
 	data, _ := json.Marshal(map[string]string{"part_id": payload["part_id"]})
-	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: data})
+	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, Data: data})
 }
 
 func (q *Queue) handleUnknown(job Job) {

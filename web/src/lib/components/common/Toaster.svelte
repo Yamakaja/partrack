@@ -1,18 +1,20 @@
 <script lang="ts">
   import { toasts, dismissToast } from '$lib/stores/toasts.svelte.js';
-  import { X, CheckCircle, AlertCircle, Info } from 'lucide-svelte';
+  import { X, CheckCircle, AlertCircle, Info, TriangleAlert } from 'lucide-svelte';
   import { cn } from '$lib/utils/cn.js';
 
   const icons = {
     success: CheckCircle,
     error: AlertCircle,
     info: Info,
+    warning: TriangleAlert,
   };
 
   const variants: Record<string, string> = {
     success: 'border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100',
     error: 'border-destructive/30 bg-destructive/10 text-destructive',
     info: 'border-border bg-card text-foreground',
+    warning: 'border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-100',
   };
 </script>
 

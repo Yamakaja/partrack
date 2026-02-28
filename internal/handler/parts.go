@@ -970,3 +970,33 @@ func (h *Handler) RefreshListing(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
+
+// RefreshAllListings handles POST /api/v1/parts/{partId}/listings/refresh
+// Enqueues a stock/price refresh for every listing on the part. Returns 202 with job IDs.
+func (h *Handler) RefreshAllListings(w http.ResponseWriter, r *http.Request) {
+	var partID pgtype.UUID
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
+
+	listings, err := h.Queries.ListListings(r.Context(), partID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	teamID := r.URL.Query().Get("team_id")
+	userID := userIDFromContext(r)
+	jobIDs := make([]string, 0, len(listings))
+	for _, l := range listings {
+		jobID := h.Worker.Enqueue(worker.JobListingRefresh, teamID, map[string]string{
+			"listing_id":     l.ID.String(),
+			"part_id":        l.PartID.String(),
+			"distributor_id": l.DistributorID.String(),
+			"user_id":        userID,
+		})
+		jobIDs = append(jobIDs, jobID)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_ids": jobIDs})
+}

@@ -3,8 +3,9 @@
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
-  import { refreshListing, enrichPart, deleteListing } from '$lib/api/parts.js';
+  import { refreshAllListings, enrichPart, deleteListing } from '$lib/api/parts.js';
   import { updateInventoryEntry } from '$lib/api/inventory.js';
+  import { subscribeSSE } from '$lib/api/sse.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { RefreshCw, Star, Sparkles, Trash2, Plus } from 'lucide-svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -45,7 +46,7 @@
       : listings,
   );
 
-  let refreshing = $state<Set<string>>(new Set());
+  let refreshingAll = $state(false);
   let enrichingListing = $state<Set<string>>(new Set());
   let deleting = $state<Set<string>>(new Set());
   let settingPreferred = $state(false);
@@ -53,17 +54,33 @@
   let confirmDeleteId = $state<string | null>(null);
   let confirmDeleteOpen = $state(false);
 
-  async function doRefresh(listingId: string) {
-    refreshing = new Set([...refreshing, listingId]);
+  async function doRefreshAll() {
+    if (!teamId) return;
+    refreshingAll = true;
     try {
-      await refreshListing(partId, listingId, teamId);
-      onrefresh?.();
+      const { job_ids } = await refreshAllListings(partId, teamId);
+      const total = job_ids.length;
+      if (total === 0) return;
+      let completed = 0;
+      let failed = 0;
+      for (const jobId of job_ids) {
+        const unsub = subscribeSSE(teamId, jobId, (ev) => {
+          if ((ev.data.status as string) === 'error') failed++;
+          completed++;
+          unsub();
+          if (completed === total) {
+            if (failed > 0) {
+              pushToast('warning', 'Stock refresh incomplete', `${failed} of ${total} listing${total !== 1 ? 's' : ''} failed`);
+            } else {
+              pushToast('success', 'Stock refreshed', `${total} listing${total !== 1 ? 's' : ''} updated`);
+            }
+          }
+        });
+      }
     } catch (e: any) {
       pushToast('error', 'Refresh failed', e.message);
     } finally {
-      const s = new Set(refreshing);
-      s.delete(listingId);
-      refreshing = s;
+      refreshingAll = false;
     }
   }
 
@@ -71,9 +88,21 @@
     if (!teamId) return;
     enrichingListing = new Set([...enrichingListing, listing.id]);
     try {
-      await enrichPart(partId, teamId, { sku: listing.sku, distributor_id: listing.distributor_id });
+      const { job_id } = await enrichPart(partId, teamId, { sku: listing.sku, distributor_id: listing.distributor_id });
       pushToast('info', 'Parameter refresh started', 'Parameters will update shortly.');
-      onrefresh?.();
+      const unsub = subscribeSSE(teamId, job_id, (ev) => {
+        const status = ev.data.status as string;
+        if (status === 'complete') {
+          pushToast('success', 'Parameters updated', `${ev.data.parameters ?? 0} parameters, ${ev.data.listings ?? 0} listings`);
+          unsub();
+        } else if (status === 'not_found') {
+          pushToast('warning', 'Part not found at distributor');
+          unsub();
+        } else if (status === 'error') {
+          pushToast('error', 'Parameter refresh failed', String(ev.data.error ?? ''));
+          unsub();
+        }
+      });
     } catch (e: any) {
       pushToast('error', 'Refresh failed', e.message);
     } finally {
@@ -117,7 +146,12 @@
 
 <div class="space-y-2">
   {#if teamId}
-    <div class="flex justify-end">
+    <div class="flex justify-end gap-2">
+      {#if listings.length > 0}
+        <Button size="sm" variant="outline" disabled={refreshingAll} onclick={doRefreshAll}>
+          <RefreshCw class="h-3.5 w-3.5 mr-1 {refreshingAll ? 'animate-spin' : ''}" /> Refresh Stock
+        </Button>
+      {/if}
       <Button size="sm" variant="outline" onclick={() => (addListingOpen = true)}>
         <Plus class="h-3.5 w-3.5 mr-1" /> Add Listing
       </Button>
@@ -179,15 +213,6 @@
                   <Star class="h-3.5 w-3.5 {isPreferred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}" />
                 </Button>
               {/if}
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={refreshing.has(listing.id)}
-                onclick={() => doRefresh(listing.id)}
-                title="Refresh stock data"
-              >
-                <RefreshCw class="h-3.5 w-3.5 {refreshing.has(listing.id) ? 'animate-spin' : ''}" />
-              </Button>
               {#if teamId}
                 <Button
                   variant="ghost"
