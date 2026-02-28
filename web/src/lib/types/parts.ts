@@ -16,6 +16,20 @@ export interface Part {
   enriched_at: string | null;
   preferred_parameter_source_id: string | null;
   created_at: string;
+  // Inventory fields — present when team_id is passed to GET /parts/:id
+  inventory_entry_id: string | null;
+  quantity_on_hand: number | null;
+  minimum_stock_quantity: number | null;
+  reorder_quantity: number | null;
+  preferred_listing_id: string | null;
+  storage_location_id: string | null;
+  storage_location_label: string | null;
+  // Embedded from GET /parts/:id
+  listings: Listing[];
+  parameters: {
+    user_specified: Parameter[];
+    distributor_sourced: Parameter[];
+  };
 }
 
 export interface PartSummary {
@@ -29,6 +43,12 @@ export interface PartSummary {
   package: string | null;
   lifecycle_status: LifecycleStatus | null;
   created_at: string;
+  // Inventory fields — present when team_id is passed to GET /parts
+  inventory_entry_id: string | null;
+  quantity_on_hand: number | null;
+  minimum_stock_quantity: number | null;
+  reorder_quantity: number | null;
+  storage_location_label: string | null;
 }
 
 export interface Parameter {
@@ -44,7 +64,7 @@ export interface Parameter {
 
 export interface Listing {
   id: string;
-  part_id: string;
+  part_id?: string;
   distributor_id: string;
   distributor_name: string;
   sku: string;

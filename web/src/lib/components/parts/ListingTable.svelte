@@ -4,22 +4,30 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { refreshListing } from '$lib/api/parts.js';
+  import { updateInventoryEntry } from '$lib/api/inventory.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { RefreshCw } from 'lucide-svelte';
+  import { RefreshCw, Star } from 'lucide-svelte';
 
   let {
     partId,
     teamId,
     listings,
+    entryId,
+    preferredListingId,
     onrefresh,
+    onpreferredchange,
   }: {
     partId: string;
     teamId?: string;
     listings: Listing[];
+    entryId?: string | null;
+    preferredListingId?: string | null;
     onrefresh?: () => void;
+    onpreferredchange?: () => void;
   } = $props();
 
   let refreshing = $state<Set<string>>(new Set());
+  let settingPreferred = $state(false);
 
   async function doRefresh(listingId: string) {
     refreshing = new Set([...refreshing, listingId]);
@@ -32,6 +40,21 @@
       const s = new Set(refreshing);
       s.delete(listingId);
       refreshing = s;
+    }
+  }
+
+  async function setPreferred(listingId: string) {
+    if (!teamId || !entryId) return;
+    settingPreferred = true;
+    // Toggle: clicking the already-preferred listing clears it.
+    const newId = listingId === preferredListingId ? null : listingId;
+    try {
+      await updateInventoryEntry(teamId, entryId, { preferred_listing_id: newId });
+      onpreferredchange?.();
+    } catch (e: any) {
+      pushToast('error', 'Failed to update preferred listing', e.message);
+    } finally {
+      settingPreferred = false;
     }
   }
 </script>
@@ -50,8 +73,14 @@
   </TableHeader>
   <TableBody>
     {#each listings as listing (listing.id)}
-      <TableRow>
-        <TableCell class="font-medium">{listing.distributor_name}</TableCell>
+      {@const isPreferred = listing.id === preferredListingId}
+      <TableRow class={isPreferred ? 'bg-accent/30' : ''}>
+        <TableCell class="font-medium">
+          {listing.distributor_name}
+          {#if isPreferred}
+            <span class="ml-1.5 text-xs text-muted-foreground font-normal">(preferred)</span>
+          {/if}
+        </TableCell>
         <TableCell class="font-mono text-xs">{listing.sku}</TableCell>
         <TableCell>{listing.packaging_type ?? '—'}</TableCell>
         <TableCell>
@@ -72,15 +101,28 @@
         </TableCell>
         <TableCell>{listing.moq ?? 1}</TableCell>
         <TableCell>
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={refreshing.has(listing.id)}
-            onclick={() => doRefresh(listing.id)}
-            title="Refresh stock data"
-          >
-            <RefreshCw class="h-3.5 w-3.5 {refreshing.has(listing.id) ? 'animate-spin' : ''}" />
-          </Button>
+          <div class="flex items-center gap-1">
+            {#if entryId}
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={settingPreferred}
+                onclick={() => setPreferred(listing.id)}
+                title={isPreferred ? 'Clear preferred listing' : 'Set as preferred listing'}
+              >
+                <Star class="h-3.5 w-3.5 {isPreferred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}" />
+              </Button>
+            {/if}
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={refreshing.has(listing.id)}
+              onclick={() => doRefresh(listing.id)}
+              title="Refresh stock data"
+            >
+              <RefreshCw class="h-3.5 w-3.5 {refreshing.has(listing.id) ? 'animate-spin' : ''}" />
+            </Button>
+          </div>
         </TableCell>
       </TableRow>
     {:else}

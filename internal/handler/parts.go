@@ -119,13 +119,13 @@ func toPartFullResponse(p dbgen.Part) partFullResponse {
 }
 
 // ListParts handles GET /api/v1/parts
-// Query: team_id?, q?, category?, package?, mpn?, lifecycle_status?, scope?, limit, offset
+// Query: team_id?, q?, category?, package?, mpn?, lifecycle_status?, scope?, stock_status?, limit, offset
 func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, offset := parsePaginationParams(r)
 
-	params := dbgen.ListPartsParams{Limit: limit, Offset: offset}
-	countParams := dbgen.CountPartsParams{}
+	params := dbgen.ListPartsWithInventoryParams{Limit: limit, Offset: offset}
+	countParams := dbgen.CountPartsWithInventoryParams{}
 
 	if v := q.Get("team_id"); v != "" {
 		var teamID pgtype.UUID
@@ -162,40 +162,58 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		params.FilterScope = dbgen.NullPartScope{PartScope: dbgen.PartScope(v), Valid: true}
 		countParams.FilterScope = params.FilterScope
 	}
+	if v := q.Get("stock_status"); v != "" {
+		params.StockStatus = &v
+		countParams.StockStatus = &v
+	}
 
-	total, err := h.Queries.CountParts(r.Context(), countParams)
+	total, err := h.Queries.CountPartsWithInventory(r.Context(), countParams)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	parts, err := h.Queries.ListParts(r.Context(), params)
+	parts, err := h.Queries.ListPartsWithInventory(r.Context(), params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
 	type item struct {
-		ID              string  `json:"id"`
-		Scope           string  `json:"scope"`
-		Mpn             *string `json:"mpn"`
-		Manufacturer    *string `json:"manufacturer"`
-		Description     *string `json:"description"`
-		Category        *string `json:"category"`
-		Package         *string `json:"package"`
-		LifecycleStatus string  `json:"lifecycle_status"`
+		ID                   string  `json:"id"`
+		Scope                string  `json:"scope"`
+		Mpn                  *string `json:"mpn"`
+		Manufacturer         *string `json:"manufacturer"`
+		Description          *string `json:"description"`
+		Category             *string `json:"category"`
+		Package              *string `json:"package"`
+		LifecycleStatus      string  `json:"lifecycle_status"`
+		InventoryEntryID     *string `json:"inventory_entry_id"`
+		QuantityOnHand       *int32  `json:"quantity_on_hand"`
+		MinimumStockQuantity *int32  `json:"minimum_stock_quantity"`
+		ReorderQuantity      *int32  `json:"reorder_quantity"`
+		StorageLocationLabel *string `json:"storage_location_label"`
 	}
 	items := make([]item, len(parts))
 	for i, p := range parts {
-		items[i] = item{
-			ID:              p.ID.String(),
-			Scope:           string(p.Scope),
-			Mpn:             p.Mpn,
-			Manufacturer:    p.Manufacturer,
-			Description:     p.Description,
-			Category:        p.Category,
-			Package:         p.Package,
-			LifecycleStatus: string(p.LifecycleStatus),
+		it := item{
+			ID:                   p.ID.String(),
+			Scope:                string(p.Scope),
+			Mpn:                  p.Mpn,
+			Manufacturer:         p.Manufacturer,
+			Description:          p.Description,
+			Category:             p.Category,
+			Package:              p.Package,
+			LifecycleStatus:      string(p.LifecycleStatus),
+			QuantityOnHand:       p.QuantityOnHand,
+			MinimumStockQuantity: p.MinimumStockQuantity,
+			ReorderQuantity:      p.ReorderQuantity,
+			StorageLocationLabel: p.StorageLocationLabel,
 		}
+		if p.InventoryEntryID.Valid {
+			s := p.InventoryEntryID.String()
+			it.InventoryEntryID = &s
+		}
+		items[i] = it
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"total": total, "limit": limit, "offset": offset, "items": items,
@@ -262,11 +280,15 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if part.TeamID.Valid {
+		h.publishEvent(r, "part_changed", part.TeamID.String(), map[string]string{"part_id": part.ID.String()})
+	}
 	w.Header().Set("Location", "/api/v1/parts/"+part.ID.String())
 	writeJSON(w, http.StatusCreated, toPartFullResponse(part))
 }
 
 // GetPart handles GET /api/v1/parts/{partId}
+// Query: team_id? — when provided, inventory data for the team is included in the response.
 func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
 	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
@@ -274,14 +296,73 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	part, err := h.Queries.GetPart(r.Context(), partID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+	// Inventory fields, populated when team_id is present.
+	var (
+		inventoryEntryID     *string
+		quantityOnHand       *int32
+		minimumStockQuantity *int32
+		reorderQuantity      *int32
+		preferredListingID   *string
+		storageLocationID    *string
+		storageLocationLabel *string
+	)
+
+	teamIDStr := r.URL.Query().Get("team_id")
+	var partBase dbgen.Part
+	if teamIDStr != "" {
+		var teamID pgtype.UUID
+		if err := teamID.Scan(teamIDStr); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
+		row, err := h.Queries.GetPartWithInventory(r.Context(), dbgen.GetPartWithInventoryParams{
+			ID: partID, TeamID: teamID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		// Reconstruct a Part for the shared helper.
+		partBase = dbgen.Part{
+			ID: row.ID, Scope: row.Scope, TeamID: row.TeamID,
+			Mpn: row.Mpn, Manufacturer: row.Manufacturer, Description: row.Description,
+			Category: row.Category, Package: row.Package, DatasheetUrl: row.DatasheetUrl,
+			LifecycleStatus: row.LifecycleStatus,
+			EnrichmentSourceID: row.EnrichmentSourceID, EnrichedAt: row.EnrichedAt,
+			PreferredParameterSourceID: row.PreferredParameterSourceID,
+			CreatedAt: row.CreatedAt,
+		}
+		if row.InventoryEntryID.Valid {
+			s := row.InventoryEntryID.String()
+			inventoryEntryID = &s
+		}
+		quantityOnHand = row.QuantityOnHand
+		minimumStockQuantity = row.MinimumStockQuantity
+		reorderQuantity = row.ReorderQuantity
+		if row.PreferredListingID.Valid {
+			s := row.PreferredListingID.String()
+			preferredListingID = &s
+		}
+		if row.StorageLocationID.Valid {
+			s := row.StorageLocationID.String()
+			storageLocationID = &s
+		}
+		storageLocationLabel = row.StorageLocationLabel
+	} else {
+		var err error
+		partBase, err = h.Queries.GetPart(r.Context(), partID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
 	}
 
 	params, err := h.Queries.ListParameters(r.Context(), partID)
@@ -364,7 +445,7 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	base := toPartFullResponse(part)
+	base := toPartFullResponse(partBase)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":                            base.ID,
 		"scope":                         base.Scope,
@@ -380,6 +461,13 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		"enriched_at":                   base.EnrichedAt,
 		"preferred_parameter_source_id": base.PreferredParameterSourceID,
 		"created_at":                    base.CreatedAt,
+		"inventory_entry_id":            inventoryEntryID,
+		"quantity_on_hand":              quantityOnHand,
+		"minimum_stock_quantity":        minimumStockQuantity,
+		"reorder_quantity":              reorderQuantity,
+		"preferred_listing_id":          preferredListingID,
+		"storage_location_id":           storageLocationID,
+		"storage_location_label":        storageLocationLabel,
 		"parameters": map[string]any{
 			"user_specified":      userParams,
 			"distributor_sourced": distParams,
@@ -435,6 +523,17 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
+	}
+	// Broadcast to the owning team (team-scoped), or to a team_id provided by the caller
+	// as a routing hint (global parts edited in a team context).
+	teamTarget := ""
+	if part.TeamID.Valid {
+		teamTarget = part.TeamID.String()
+	} else if v := r.URL.Query().Get("team_id"); v != "" {
+		teamTarget = v
+	}
+	if teamTarget != "" {
+		h.publishEvent(r, "part_changed", teamTarget, map[string]string{"part_id": part.ID.String()})
 	}
 	writeJSON(w, http.StatusOK, toPartFullResponse(part))
 }
@@ -505,6 +604,7 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 		"part_id":        partID.String(),
 		"sku":            req.SKU,
 		"distributor_id": req.DistributorID,
+		"user_id":        user.ID,
 	})
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
@@ -689,6 +789,7 @@ func (h *Handler) RefreshListing(w http.ResponseWriter, r *http.Request) {
 		"listing_id":     listing.ID.String(),
 		"part_id":        listing.PartID.String(),
 		"distributor_id": listing.DistributorID.String(),
+		"user_id":        userIDFromContext(r),
 	})
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }

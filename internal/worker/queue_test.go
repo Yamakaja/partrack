@@ -61,7 +61,7 @@ func TestHandlePartEnrich_LM317(t *testing.T) {
 	partID := testutil.CreatePart(t, testDB, "global", "LM317T", nil)
 
 	q := newTestQueue(testDB)
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 
 	q.process(Job{
@@ -121,7 +121,7 @@ func TestHandlePartEnrich_UnknownSKU(t *testing.T) {
 	partID := testutil.CreatePart(t, testDB, "global", "BC547", nil)
 
 	q := newTestQueue(testDB)
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 
 	q.process(Job{
@@ -165,7 +165,7 @@ func TestHandlePartEnrich_NoMPN(t *testing.T) {
 	}
 
 	q := newTestQueue(testDB)
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 
 	q.process(Job{
@@ -188,7 +188,7 @@ func TestHandlePartEnrich_InvalidPayload(t *testing.T) {
 	teamID := testutil.CreateTeam(t, testDB, userID, "admin", "bad-payload-team")
 
 	q := newTestQueue(testDB)
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 
 	// Wrong payload type — not map[string]string.
@@ -224,7 +224,7 @@ func TestHandleListingRefresh_LM317(t *testing.T) {
 	}
 
 	q := newTestQueue(testDB)
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 
 	q.process(Job{
@@ -256,7 +256,7 @@ func TestHandleListingRefresh_NotFound(t *testing.T) {
 	teamID := testutil.CreateTeam(t, testDB, userID, "admin", "notfound-team")
 
 	q := newTestQueue(testDB)
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 
 	q.process(Job{

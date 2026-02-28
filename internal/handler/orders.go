@@ -238,6 +238,7 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -263,6 +264,7 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -307,6 +309,8 @@ func (h *Handler) ExportOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 
 	filename := fmt.Sprintf("order-%s-%s.csv", order.DistributorName, order.CreatedAt.Time.UTC().Format("2006-01-02"))
 	w.Header().Set("Content-Type", "text/csv")
@@ -384,6 +388,8 @@ func (h *Handler) LinkOrderReference(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 
 	resp := map[string]any{
 		"id":                   row.ID.String(),
@@ -543,6 +549,9 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": li.PartID.String(), "entry_id": invEntry.ID.String()})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"line_item_id":        updatedLI.ID.String(),

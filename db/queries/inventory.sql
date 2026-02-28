@@ -56,10 +56,18 @@ WHERE ie.id = $1 AND ie.team_id = $2;
 
 -- name: UpdateInventoryEntry :one
 UPDATE inventory_entries
-SET storage_location_id    = COALESCE(sqlc.narg('storage_location_id'), storage_location_id),
-    preferred_listing_id   = COALESCE(sqlc.narg('preferred_listing_id'), preferred_listing_id),
-    minimum_stock_quantity = COALESCE(sqlc.narg('minimum_stock_quantity'), minimum_stock_quantity),
-    reorder_quantity       = COALESCE(sqlc.narg('reorder_quantity'), reorder_quantity)
+SET storage_location_id    = CASE WHEN sqlc.arg('set_storage_location_id')::bool
+                                  THEN sqlc.narg('storage_location_id')::uuid
+                                  ELSE storage_location_id    END,
+    preferred_listing_id   = CASE WHEN sqlc.arg('set_preferred_listing_id')::bool
+                                  THEN sqlc.narg('preferred_listing_id')::uuid
+                                  ELSE preferred_listing_id   END,
+    minimum_stock_quantity = CASE WHEN sqlc.arg('set_minimum_stock_quantity')::bool
+                                  THEN sqlc.narg('minimum_stock_quantity')
+                                  ELSE minimum_stock_quantity END,
+    reorder_quantity       = CASE WHEN sqlc.arg('set_reorder_quantity')::bool
+                                  THEN sqlc.narg('reorder_quantity')
+                                  ELSE reorder_quantity       END
 WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
 RETURNING id, team_id, part_id, quantity_on_hand, storage_location_id,
           preferred_listing_id, minimum_stock_quantity, reorder_quantity;

@@ -1,7 +1,6 @@
 export interface SseEvent {
   type: string;
   job_id: string;
-  team_id: string;
   data: Record<string, unknown>;
 }
 
@@ -10,6 +9,7 @@ type SseCallback = (event: SseEvent) => void;
 let currentTeamId: string | null = null;
 let es: EventSource | null = null;
 const subscribers = new Map<string, SseCallback[]>(); // keyed by job_id
+const typeSubscribers = new Map<string, SseCallback[]>(); // keyed by event type
 
 export function openForTeam(teamId: string) {
   if (currentTeamId === teamId && es && es.readyState !== EventSource.CLOSED) return;
@@ -21,6 +21,8 @@ export function openForTeam(teamId: string) {
       const event: SseEvent = JSON.parse(e.data);
       const cbs = subscribers.get(event.job_id) ?? [];
       cbs.forEach((cb) => cb(event));
+      const typeCbs = typeSubscribers.get(event.type) ?? [];
+      typeCbs.forEach((cb) => cb(event));
     } catch {
       /* ignore malformed */
     }
@@ -46,9 +48,26 @@ export function subscribeSSE(
   };
 }
 
+export function subscribeSSEType(
+  teamId: string,
+  eventType: string,
+  callback: SseCallback,
+): () => void {
+  openForTeam(teamId);
+  const existing = typeSubscribers.get(eventType) ?? [];
+  typeSubscribers.set(eventType, [...existing, callback]);
+  return () => {
+    const cbs = typeSubscribers.get(eventType) ?? [];
+    const filtered = cbs.filter((cb) => cb !== callback);
+    if (filtered.length === 0) typeSubscribers.delete(eventType);
+    else typeSubscribers.set(eventType, filtered);
+  };
+}
+
 export function closeSSE() {
   es?.close();
   es = null;
   currentTeamId = null;
   subscribers.clear();
+  typeSubscribers.clear();
 }

@@ -165,6 +165,7 @@ func (h *Handler) CreateInventoryEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": entry.PartID.String(), "entry_id": entry.ID.String()})
 	writeJSON(w, http.StatusCreated, inventoryEntryResponse(entry))
 }
 
@@ -228,41 +229,71 @@ func (h *Handler) UpdateInventoryEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		StorageLocationID    *string `json:"storage_location_id"`
-		PreferredListingID   *string `json:"preferred_listing_id"`
-		MinimumStockQuantity *int32  `json:"minimum_stock_quantity"`
-		ReorderQuantity      *int32  `json:"reorder_quantity"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Decode into a raw map to distinguish absent fields (keep current value)
+	// from explicitly-null fields (clear to NULL) from value fields (update).
+	var rawReq map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&rawReq); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
 		return
 	}
 
-	var storLocID pgtype.UUID
-	if req.StorageLocationID != nil {
-		if err := storLocID.Scan(*req.StorageLocationID); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid storage_location_id", "BAD_REQUEST")
-			return
+	params := dbgen.UpdateInventoryEntryParams{ID: entryID, TeamID: teamID}
+
+	if raw, ok := rawReq["storage_location_id"]; ok {
+		params.SetStorageLocationID = true
+		if string(raw) != "null" {
+			var s string
+			if err := json.Unmarshal(raw, &s); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid storage_location_id", "BAD_REQUEST")
+				return
+			}
+			if err := params.StorageLocationID.Scan(s); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid storage_location_id", "BAD_REQUEST")
+				return
+			}
 		}
 	}
 
-	var prefListID pgtype.UUID
-	if req.PreferredListingID != nil {
-		if err := prefListID.Scan(*req.PreferredListingID); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid preferred_listing_id", "BAD_REQUEST")
-			return
+	if raw, ok := rawReq["preferred_listing_id"]; ok {
+		params.SetPreferredListingID = true
+		if string(raw) != "null" {
+			var s string
+			if err := json.Unmarshal(raw, &s); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid preferred_listing_id", "BAD_REQUEST")
+				return
+			}
+			if err := params.PreferredListingID.Scan(s); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid preferred_listing_id", "BAD_REQUEST")
+				return
+			}
 		}
 	}
 
-	entry, err := h.Queries.UpdateInventoryEntry(r.Context(), dbgen.UpdateInventoryEntryParams{
-		ID:                   entryID,
-		TeamID:               teamID,
-		StorageLocationID:    storLocID,
-		PreferredListingID:   prefListID,
-		MinimumStockQuantity: req.MinimumStockQuantity,
-		ReorderQuantity:      req.ReorderQuantity,
-	})
+	if raw, ok := rawReq["minimum_stock_quantity"]; ok {
+		params.SetMinimumStockQuantity = true
+		if string(raw) != "null" {
+			var n int32
+			if err := json.Unmarshal(raw, &n); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid minimum_stock_quantity", "BAD_REQUEST")
+				return
+			}
+			params.MinimumStockQuantity = &n
+		}
+	}
+
+	if raw, ok := rawReq["reorder_quantity"]; ok {
+		params.SetReorderQuantity = true
+		if string(raw) != "null" {
+			var n int32
+			if err := json.Unmarshal(raw, &n); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid reorder_quantity", "BAD_REQUEST")
+				return
+			}
+			params.ReorderQuantity = &n
+		}
+	}
+
+	entry, err := h.Queries.UpdateInventoryEntry(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "inventory entry not found", "NOT_FOUND")
@@ -272,6 +303,7 @@ func (h *Handler) UpdateInventoryEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": entry.PartID.String(), "entry_id": entry.ID.String()})
 	writeJSON(w, http.StatusOK, inventoryEntryResponse(entry))
 }
 
@@ -386,6 +418,20 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the inventory entry so we can include part_id in the SSE event.
+	invEntry, err := h.Queries.GetInventoryEntry(r.Context(), dbgen.GetInventoryEntryParams{
+		ID:     entryID,
+		TeamID: teamID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "inventory entry not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	tx, err := h.DB.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -419,6 +465,8 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": invEntry.PartID.String(), "entry_id": entryID.String()})
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":                 adj.ID.String(),

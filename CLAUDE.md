@@ -26,7 +26,7 @@ PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go
 ```
 
 - Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.
-- The test DB URL is `postgres://partrack:partrack@test-postgres/partrack`.
+- The test DB URL is `postgres://partrack:partrack@test-postgres/partrack-test`.
 
 ## Code Layout
 
@@ -56,7 +56,8 @@ sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal
 - Authentication middleware (`middleware.Authenticate`) injects `*middleware.User` into the request context. Retrieve it with `middleware.UserFromContext(ctx)`.
 - Team role enforcement: `middleware.RequireTeamRole("member")` etc. — injects `*middleware.TeamMembership` into ctx.
 - Background jobs: `h.Worker.Enqueue(worker.JobBOMImport, teamID, payload)` returns a job ID. Progress events are published via `h.Worker.Publish(ev)` and consumed by SSE subscribers.
-- `writeJSON` / `writeError` helpers are in `internal/handler/handler.go`.
+- **SSE entity-change events**: every successful mutation publishes a lightweight event (`part_changed`, `inventory_changed`, `cart_changed`, `order_changed`, `storage_changed`, `project_changed`) via `h.publishEvent(r, type, teamID, data)` in `internal/handler/handler.go`. The worker queue skips delivery to the acting user's own SSE channel (`worker.Event.UserID`). Async job completions (`handlePartEnrich`, `handleListingRefresh`, `handleBOMImport`) publish via `q.Publish` with `payload["user_id"]`. The frontend subscribes in `web/src/lib/cache/invalidation.ts` and calls `queryClient.invalidateQueries` on receipt.
+- `writeJSON` / `writeError` / `userIDFromContext` / `publishEvent` helpers are in `internal/handler/handler.go`.
 - Distributor integrations implement `distributor.Client` (`EnrichPart`, `RefreshListing`, `SearchParts`) and are registered in `distributor.Registry`. `EnrichPart` takes a **distributor SKU** (not MPN) — use `SearchParts` first for discovery. `POST /parts/{id}/enrich` requires `{"sku": "...", "distributor_id": "..."}` in the body plus `team_id` as a query param.
 - `distributor_listings.price_breaks` is stored as JSONB (`[]distributor.PriceBreak`). `parts.lifecycle_status` is updated by enrichment via `SetPartEnriched` with a nullable lifecycle param (empty string = leave unchanged).
 

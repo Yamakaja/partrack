@@ -41,6 +41,13 @@ type Event struct {
 	Data   json.RawMessage `json:"data"`
 	JobID  string          `json:"job_id,omitempty"`
 	TeamID string          `json:"-"` // routing only; not serialised
+	UserID string          `json:"-"` // skip delivery to this user's channel; empty = send to all
+}
+
+// subscription pairs an SSE channel with the user who owns the connection.
+type subscription struct {
+	userID string
+	ch     chan Event
 }
 
 // Queue is a channel-based job dispatcher with an integrated SSE hub.
@@ -48,7 +55,7 @@ type Event struct {
 // fanned out to all active SSE subscribers for the relevant team.
 type Queue struct {
 	jobs         chan Job
-	subscribers  map[string][]chan Event // keyed by team ID
+	subscribers  map[string][]subscription // keyed by team ID
 	mu           sync.RWMutex
 	db           *pgxpool.Pool
 	distributors distributor.Registry
@@ -58,7 +65,7 @@ type Queue struct {
 func New(workers int, db *pgxpool.Pool, reg distributor.Registry) *Queue {
 	q := &Queue{
 		jobs:         make(chan Job, 64),
-		subscribers:  make(map[string][]chan Event),
+		subscribers:  make(map[string][]subscription),
 		db:           db,
 		distributors: reg,
 	}
@@ -85,11 +92,14 @@ func (q *Queue) Enqueue(jobType JobType, teamID string, payload any) string {
 }
 
 // Subscribe registers a channel to receive SSE events for a team.
+// userID identifies the connected user so that Publish can skip sending
+// entity-change events back to the user who caused them.
 // The returned cancel function must be called when the SSE connection closes.
-func (q *Queue) Subscribe(teamID string) (<-chan Event, func()) {
+func (q *Queue) Subscribe(teamID, userID string) (<-chan Event, func()) {
 	ch := make(chan Event, 16)
+	sub := subscription{userID: userID, ch: ch}
 	q.mu.Lock()
-	q.subscribers[teamID] = append(q.subscribers[teamID], ch)
+	q.subscribers[teamID] = append(q.subscribers[teamID], sub)
 	q.mu.Unlock()
 
 	cancel := func() {
@@ -97,7 +107,7 @@ func (q *Queue) Subscribe(teamID string) (<-chan Event, func()) {
 		defer q.mu.Unlock()
 		subs := q.subscribers[teamID]
 		for i, s := range subs {
-			if s == ch {
+			if s.ch == ch {
 				q.subscribers[teamID] = append(subs[:i], subs[i+1:]...)
 				close(ch)
 				break
@@ -108,13 +118,18 @@ func (q *Queue) Subscribe(teamID string) (<-chan Event, func()) {
 }
 
 // Publish sends an event to all SSE subscribers of the event's team.
+// If ev.UserID is non-empty, the subscriber whose userID matches is skipped
+// (the acting user's own mutations are handled by client-side cache invalidation).
 func (q *Queue) Publish(ev Event) {
 	q.mu.RLock()
 	subs := q.subscribers[ev.TeamID]
 	q.mu.RUnlock()
-	for _, ch := range subs {
+	for _, sub := range subs {
+		if ev.UserID != "" && sub.userID == ev.UserID {
+			continue
+		}
 		select {
-		case ch <- ev:
+		case sub.ch <- ev:
 		default:
 			// drop if subscriber is too slow
 		}
@@ -386,6 +401,9 @@ func (q *Queue) handleBOMImport(job Job) {
 		"total":                   len(items),
 		"job_id":                  job.ID,
 	})
+
+	projData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"]})
+	q.Publish(Event{Type: "project_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: projData})
 }
 
 func (q *Queue) handlePartEnrich(job Job) {
@@ -583,6 +601,9 @@ func (q *Queue) handlePartEnrich(job Job) {
 		"status": "complete",
 		"job_id": job.ID,
 	})
+
+	data, _ := json.Marshal(map[string]string{"part_id": partIDStr})
+	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: data})
 }
 
 func (q *Queue) handleListingRefresh(job Job) {
@@ -680,6 +701,9 @@ func (q *Queue) handleListingRefresh(job Job) {
 		"stock_available": result.StockAvailable,
 		"unit_price":      result.UnitPrice,
 	})
+
+	data, _ := json.Marshal(map[string]string{"part_id": payload["part_id"]})
+	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: data})
 }
 
 func (q *Queue) handleUnknown(job Job) {

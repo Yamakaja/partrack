@@ -78,6 +78,7 @@ func (h *Handler) CreateStorageLocation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.publishEvent(r, "storage_changed", teamID.String(), map[string]string{})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":          loc.ID.String(),
 		"team_id":     loc.TeamID.String(),
@@ -122,6 +123,7 @@ func (h *Handler) UpdateStorageLocation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.publishEvent(r, "storage_changed", teamID.String(), map[string]string{})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":          loc.ID.String(),
 		"team_id":     loc.TeamID.String(),
@@ -159,5 +161,7 @@ func (h *Handler) DeleteStorageLocation(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	h.publishEvent(r, "storage_changed", teamID.String(), map[string]string{})
 	w.WriteHeader(http.StatusNoContent)
 }

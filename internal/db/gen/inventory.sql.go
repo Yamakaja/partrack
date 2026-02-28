@@ -431,29 +431,45 @@ func (q *Queries) ReplenishPreview(ctx context.Context, teamID pgtype.UUID) ([]R
 
 const updateInventoryEntry = `-- name: UpdateInventoryEntry :one
 UPDATE inventory_entries
-SET storage_location_id    = COALESCE($1, storage_location_id),
-    preferred_listing_id   = COALESCE($2, preferred_listing_id),
-    minimum_stock_quantity = COALESCE($3, minimum_stock_quantity),
-    reorder_quantity       = COALESCE($4, reorder_quantity)
-WHERE id = $5 AND team_id = $6
+SET storage_location_id    = CASE WHEN $1::bool
+                                  THEN $2::uuid
+                                  ELSE storage_location_id    END,
+    preferred_listing_id   = CASE WHEN $3::bool
+                                  THEN $4::uuid
+                                  ELSE preferred_listing_id   END,
+    minimum_stock_quantity = CASE WHEN $5::bool
+                                  THEN $6
+                                  ELSE minimum_stock_quantity END,
+    reorder_quantity       = CASE WHEN $7::bool
+                                  THEN $8
+                                  ELSE reorder_quantity       END
+WHERE id = $9 AND team_id = $10
 RETURNING id, team_id, part_id, quantity_on_hand, storage_location_id,
           preferred_listing_id, minimum_stock_quantity, reorder_quantity
 `
 
 type UpdateInventoryEntryParams struct {
-	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
-	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
-	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
-	ReorderQuantity      *int32      `json:"reorder_quantity"`
-	ID                   pgtype.UUID `json:"id"`
-	TeamID               pgtype.UUID `json:"team_id"`
+	SetStorageLocationID    bool        `json:"set_storage_location_id"`
+	StorageLocationID       pgtype.UUID `json:"storage_location_id"`
+	SetPreferredListingID   bool        `json:"set_preferred_listing_id"`
+	PreferredListingID      pgtype.UUID `json:"preferred_listing_id"`
+	SetMinimumStockQuantity bool        `json:"set_minimum_stock_quantity"`
+	MinimumStockQuantity    *int32      `json:"minimum_stock_quantity"`
+	SetReorderQuantity      bool        `json:"set_reorder_quantity"`
+	ReorderQuantity         *int32      `json:"reorder_quantity"`
+	ID                      pgtype.UUID `json:"id"`
+	TeamID                  pgtype.UUID `json:"team_id"`
 }
 
 func (q *Queries) UpdateInventoryEntry(ctx context.Context, arg UpdateInventoryEntryParams) (InventoryEntry, error) {
 	row := q.db.QueryRow(ctx, updateInventoryEntry,
+		arg.SetStorageLocationID,
 		arg.StorageLocationID,
+		arg.SetPreferredListingID,
 		arg.PreferredListingID,
+		arg.SetMinimumStockQuantity,
 		arg.MinimumStockQuantity,
+		arg.SetReorderQuantity,
 		arg.ReorderQuantity,
 		arg.ID,
 		arg.TeamID,

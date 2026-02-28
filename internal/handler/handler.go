@@ -56,3 +56,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
+
+// userIDFromContext returns the authenticated user's ID, or "" if not present.
+func userIDFromContext(r *http.Request) string {
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		return u.ID
+	}
+	return ""
+}
+
+// publishEvent marshals data and publishes a team-scoped SSE event, skipping the acting user's channel.
+func (h *Handler) publishEvent(r *http.Request, eventType, teamID string, data map[string]string) {
+	d, _ := json.Marshal(data)
+	h.Worker.Publish(worker.Event{Type: eventType, TeamID: teamID, UserID: userIDFromContext(r), Data: d})
+}

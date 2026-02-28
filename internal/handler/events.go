@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -32,7 +33,8 @@ func (h *Handler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	teamID := chi.URLParam(r, "teamId")
-	events, cancel := h.Worker.Subscribe(teamID)
+	user := middleware.UserFromContext(r.Context())
+	events, cancel := h.Worker.Subscribe(teamID, user.ID)
 	defer cancel()
 
 	for {

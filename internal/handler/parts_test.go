@@ -140,7 +140,7 @@ func TestUpdatePart(t *testing.T) {
 // event arrives for teamID, or fails the test after 5 seconds.
 func waitEnrich(t *testing.T, q *worker.Queue, teamID string) {
 	t.Helper()
-	ch, cancel := q.Subscribe(teamID)
+	ch, cancel := q.Subscribe(teamID, "")
 	defer cancel()
 	deadline := time.After(5 * time.Second)
 	for {

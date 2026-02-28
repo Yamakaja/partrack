@@ -219,6 +219,7 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	jobID := h.Worker.Enqueue(worker.JobBOMImport, teamID.String(), map[string]string{
 		"bom_revision_id": rev.ID.String(),
 		"project_id":      projectID.String(),
+		"user_id":         user.ID,
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{

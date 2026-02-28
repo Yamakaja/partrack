@@ -51,6 +51,56 @@ func (q *Queries) CountParts(ctx context.Context, arg CountPartsParams) (int64, 
 	return count, err
 }
 
+const countPartsWithInventory = `-- name: CountPartsWithInventory :one
+SELECT COUNT(*) FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
+WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
+  AND ($2::text IS NULL
+       OR p.mpn ILIKE '%' || $2 || '%'
+       OR p.description ILIKE '%' || $2 || '%'
+       OR p.manufacturer ILIKE '%' || $2 || '%')
+  AND ($3::text IS NULL OR p.mpn = $3)
+  AND ($4::text IS NULL OR p.category = $4)
+  AND ($5::text IS NULL OR p.package = $5)
+  AND ($6::part_lifecycle_status IS NULL
+       OR p.lifecycle_status = $6)
+  AND ($7::part_scope IS NULL OR p.scope = $7)
+  AND (
+      $8::text IS NULL
+      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
+      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ($8::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ($8::text = 'not_tracked'  AND ie.id IS NULL)
+  )
+`
+
+type CountPartsWithInventoryParams struct {
+	TeamID          pgtype.UUID             `json:"team_id"`
+	Q               *string                 `json:"q"`
+	MpnExact        *string                 `json:"mpn_exact"`
+	Category        *string                 `json:"category"`
+	Package         *string                 `json:"package"`
+	LifecycleStatus NullPartLifecycleStatus `json:"lifecycle_status"`
+	FilterScope     NullPartScope           `json:"filter_scope"`
+	StockStatus     *string                 `json:"stock_status"`
+}
+
+func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWithInventoryParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPartsWithInventory,
+		arg.TeamID,
+		arg.Q,
+		arg.MpnExact,
+		arg.Category,
+		arg.Package,
+		arg.LifecycleStatus,
+		arg.FilterScope,
+		arg.StockStatus,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPart = `-- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
                    datasheet_url, lifecycle_status)
@@ -250,6 +300,83 @@ func (q *Queries) GetPartByMPN(ctx context.Context, arg GetPartByMPNParams) (Get
 		&i.Category,
 		&i.Package,
 		&i.LifecycleStatus,
+	)
+	return i, err
+}
+
+const getPartWithInventory = `-- name: GetPartWithInventory :one
+SELECT
+    p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
+    p.category, p.package, p.datasheet_url, p.lifecycle_status,
+    p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at,
+    ie.id                  AS inventory_entry_id,
+    ie.quantity_on_hand,
+    ie.minimum_stock_quantity,
+    ie.reorder_quantity,
+    ie.preferred_listing_id,
+    ie.storage_location_id,
+    sl.label               AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE p.id = $2
+`
+
+type GetPartWithInventoryParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+type GetPartWithInventoryRow struct {
+	ID                         pgtype.UUID         `json:"id"`
+	Scope                      PartScope           `json:"scope"`
+	TeamID                     pgtype.UUID         `json:"team_id"`
+	Mpn                        *string             `json:"mpn"`
+	Manufacturer               *string             `json:"manufacturer"`
+	Description                *string             `json:"description"`
+	Category                   *string             `json:"category"`
+	Package                    *string             `json:"package"`
+	DatasheetUrl               *string             `json:"datasheet_url"`
+	LifecycleStatus            PartLifecycleStatus `json:"lifecycle_status"`
+	EnrichmentSourceID         pgtype.UUID         `json:"enrichment_source_id"`
+	EnrichedAt                 pgtype.Timestamptz  `json:"enriched_at"`
+	PreferredParameterSourceID pgtype.UUID         `json:"preferred_parameter_source_id"`
+	CreatedAt                  pgtype.Timestamptz  `json:"created_at"`
+	InventoryEntryID           pgtype.UUID         `json:"inventory_entry_id"`
+	QuantityOnHand             *int32              `json:"quantity_on_hand"`
+	MinimumStockQuantity       *int32              `json:"minimum_stock_quantity"`
+	ReorderQuantity            *int32              `json:"reorder_quantity"`
+	PreferredListingID         pgtype.UUID         `json:"preferred_listing_id"`
+	StorageLocationID          pgtype.UUID         `json:"storage_location_id"`
+	StorageLocationLabel       *string             `json:"storage_location_label"`
+}
+
+// Like GetPart but LEFT JOINs the team's inventory entry and storage location.
+func (q *Queries) GetPartWithInventory(ctx context.Context, arg GetPartWithInventoryParams) (GetPartWithInventoryRow, error) {
+	row := q.db.QueryRow(ctx, getPartWithInventory, arg.TeamID, arg.ID)
+	var i GetPartWithInventoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.TeamID,
+		&i.Mpn,
+		&i.Manufacturer,
+		&i.Description,
+		&i.Category,
+		&i.Package,
+		&i.DatasheetUrl,
+		&i.LifecycleStatus,
+		&i.EnrichmentSourceID,
+		&i.EnrichedAt,
+		&i.PreferredParameterSourceID,
+		&i.CreatedAt,
+		&i.InventoryEntryID,
+		&i.QuantityOnHand,
+		&i.MinimumStockQuantity,
+		&i.ReorderQuantity,
+		&i.PreferredListingID,
+		&i.StorageLocationID,
+		&i.StorageLocationLabel,
 	)
 	return i, err
 }
@@ -578,6 +705,120 @@ func (q *Queries) ListPartsByMPNAndManufacturer(ctx context.Context, arg ListPar
 			&i.Category,
 			&i.Package,
 			&i.LifecycleStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPartsWithInventory = `-- name: ListPartsWithInventory :many
+SELECT
+    p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
+    p.category, p.package, p.lifecycle_status, p.created_at,
+    ie.id            AS inventory_entry_id,
+    ie.quantity_on_hand,
+    ie.minimum_stock_quantity,
+    ie.reorder_quantity,
+    sl.label         AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
+  AND ($2::text IS NULL
+       OR p.mpn ILIKE '%' || $2 || '%'
+       OR p.description ILIKE '%' || $2 || '%'
+       OR p.manufacturer ILIKE '%' || $2 || '%')
+  AND ($3::text IS NULL OR p.mpn = $3)
+  AND ($4::text IS NULL OR p.category = $4)
+  AND ($5::text IS NULL OR p.package = $5)
+  AND ($6::part_lifecycle_status IS NULL
+       OR p.lifecycle_status = $6)
+  AND ($7::part_scope IS NULL OR p.scope = $7)
+  AND (
+      $8::text IS NULL
+      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
+      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ($8::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ($8::text = 'not_tracked'  AND ie.id IS NULL)
+  )
+ORDER BY p.mpn NULLS LAST, p.id
+LIMIT $10 OFFSET $9
+`
+
+type ListPartsWithInventoryParams struct {
+	TeamID          pgtype.UUID             `json:"team_id"`
+	Q               *string                 `json:"q"`
+	MpnExact        *string                 `json:"mpn_exact"`
+	Category        *string                 `json:"category"`
+	Package         *string                 `json:"package"`
+	LifecycleStatus NullPartLifecycleStatus `json:"lifecycle_status"`
+	FilterScope     NullPartScope           `json:"filter_scope"`
+	StockStatus     *string                 `json:"stock_status"`
+	Offset          int32                   `json:"offset"`
+	Limit           int32                   `json:"limit"`
+}
+
+type ListPartsWithInventoryRow struct {
+	ID                   pgtype.UUID         `json:"id"`
+	Scope                PartScope           `json:"scope"`
+	TeamID               pgtype.UUID         `json:"team_id"`
+	Mpn                  *string             `json:"mpn"`
+	Manufacturer         *string             `json:"manufacturer"`
+	Description          *string             `json:"description"`
+	Category             *string             `json:"category"`
+	Package              *string             `json:"package"`
+	LifecycleStatus      PartLifecycleStatus `json:"lifecycle_status"`
+	CreatedAt            pgtype.Timestamptz  `json:"created_at"`
+	InventoryEntryID     pgtype.UUID         `json:"inventory_entry_id"`
+	QuantityOnHand       *int32              `json:"quantity_on_hand"`
+	MinimumStockQuantity *int32              `json:"minimum_stock_quantity"`
+	ReorderQuantity      *int32              `json:"reorder_quantity"`
+	StorageLocationLabel *string             `json:"storage_location_label"`
+}
+
+// Like ListParts but LEFT JOINs the team's inventory entry for each part.
+// All inventory fields are NULL for parts that are not tracked by the team.
+func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithInventoryParams) ([]ListPartsWithInventoryRow, error) {
+	rows, err := q.db.Query(ctx, listPartsWithInventory,
+		arg.TeamID,
+		arg.Q,
+		arg.MpnExact,
+		arg.Category,
+		arg.Package,
+		arg.LifecycleStatus,
+		arg.FilterScope,
+		arg.StockStatus,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPartsWithInventoryRow
+	for rows.Next() {
+		var i ListPartsWithInventoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.TeamID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.Description,
+			&i.Category,
+			&i.Package,
+			&i.LifecycleStatus,
+			&i.CreatedAt,
+			&i.InventoryEntryID,
+			&i.QuantityOnHand,
+			&i.MinimumStockQuantity,
+			&i.ReorderQuantity,
+			&i.StorageLocationLabel,
 		); err != nil {
 			return nil, err
 		}

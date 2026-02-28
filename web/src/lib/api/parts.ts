@@ -10,6 +10,7 @@ export interface ListPartsParams {
   package?: string;
   lifecycle_status?: string;
   scope?: string;
+  stock_status?: string;
   limit?: number;
   offset?: number;
 }
@@ -18,8 +19,9 @@ export function listParts(params: ListPartsParams = {}) {
   return request<PaginatedResponse<PartSummary>>('GET', `/api/v1/parts?${qs(params)}`);
 }
 
-export function getPart(partId: string) {
-  return request<Part>('GET', `/api/v1/parts/${partId}`);
+export function getPart(partId: string, teamId?: string) {
+  const q = teamId ? `?team_id=${teamId}` : '';
+  return request<Part>('GET', `/api/v1/parts/${partId}${q}`);
 }
 
 export function createPart(body: Partial<Part>) {

@@ -54,11 +54,6 @@
           {isActive(teamPath('parts')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Parts
       </a>
-      <a href={teamPath('inventory')} use:linkAction
-        class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('inventory')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
-        Inventory
-      </a>
       <a href={teamPath('storage')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
           {isActive(teamPath('storage')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">

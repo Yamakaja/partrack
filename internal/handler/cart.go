@@ -12,6 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// publishCartChanged notifies other team members that the cart has been modified.
+func (h *Handler) publishCartChanged(r *http.Request, teamID pgtype.UUID) {
+	h.publishEvent(r, "cart_changed", teamID.String(), map[string]string{})
+}
+
 func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 	return map[string]any{
 		"id":                       i.ID.String(),
@@ -68,6 +73,7 @@ func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishCartChanged(r, teamID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -129,6 +135,7 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":                      item.ID.String(),
 		"part_id":                 item.PartID.String(),
@@ -217,6 +224,7 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishCartChanged(r, teamID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -241,6 +249,7 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishCartChanged(r, teamID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -328,6 +337,7 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 		addedCount++
 	}
 
+	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
 }
 
@@ -371,6 +381,7 @@ func (h *Handler) AddLowStock(w http.ResponseWriter, r *http.Request) {
 		addedCount++
 	}
 
+	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
 }
 
@@ -477,6 +488,9 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	h.publishCartChanged(r, teamID)
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{})
 
 	if orderIDs == nil {
 		orderIDs = []string{}

@@ -5,6 +5,11 @@
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
   import { openForTeam, closeSSE } from '$lib/api/sse.js';
+  import {
+    initCacheInvalidation,
+    activateTeamInvalidation,
+    deactivateTeamInvalidation,
+  } from '$lib/cache/invalidation.js';
   import { ModeWatcher } from 'mode-watcher';
   import AppShell from '$lib/components/layout/AppShell.svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
@@ -12,8 +17,6 @@
   import Login from './routes/Login.svelte';
   import TeamSelect from './routes/TeamSelect.svelte';
   import Dashboard from './routes/team/Dashboard.svelte';
-  import Inventory from './routes/team/Inventory.svelte';
-  import InventoryEntry from './routes/team/InventoryEntry.svelte';
   import Parts from './routes/team/Parts.svelte';
   import PartDetail from './routes/team/PartDetail.svelte';
   import Storage from './routes/team/Storage.svelte';
@@ -42,6 +45,8 @@
     },
   });
 
+  initCacheInvalidation(queryClient);
+
   // Route table: ordered most-specific first.
   const ROUTES = [
     { pattern: '/login',                                                                  component: Login },
@@ -51,8 +56,6 @@
     { pattern: '/settings/profile',                                                       component: Profile },
     { pattern: '/settings/sessions',                                                      component: Sessions },
     { pattern: '/settings/tokens',                                                        component: Tokens },
-    { pattern: '/teams/:teamId/inventory/:entryId',                                       component: InventoryEntry },
-    { pattern: '/teams/:teamId/inventory',                                                component: Inventory },
     { pattern: '/teams/:teamId/parts/:partId',                                            component: PartDetail },
     { pattern: '/teams/:teamId/parts',                                                    component: Parts },
     { pattern: '/teams/:teamId/storage',                                                  component: Storage },
@@ -83,14 +86,25 @@
 
   $effect(() => {
     const route = currentRoute();
+
+    // Redirect legacy inventory routes to the unified parts view.
+    const invMatch = matchRoute('/teams/:teamId/inventory', route.path)
+      ?? matchRoute('/teams/:teamId/inventory/:entryId', route.path);
+    if (invMatch) {
+      navigate(`/teams/${invMatch.teamId}/parts`, true);
+      return;
+    }
+
     const r = resolve(route.path);
     const teamId = r?.params?.teamId;
     if (teamId) {
       setActiveTeam(teamId);
       openForTeam(teamId);
+      activateTeamInvalidation(teamId);
     } else {
       clearActiveTeam();
       closeSSE();
+      deactivateTeamInvalidation();
     }
 
     const publicPaths = ['/login', '/reset-password'];

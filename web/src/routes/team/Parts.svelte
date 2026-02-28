@@ -6,6 +6,7 @@
   import Pagination from '$lib/components/common/Pagination.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
+  import StockBadge from '$lib/components/inventory/StockBadge.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Dialog as DialogPrimitive } from 'bits-ui';
@@ -20,6 +21,7 @@
 
   const qc = useQueryClient();
   let q = $state('');
+  let stockStatus = $state('');
   let limit = $state(50);
   let offset = $state(0);
   let createOpen = $state(false);
@@ -32,12 +34,23 @@
   let creating = $state(false);
 
   let query = createQuery(() => ({
-    queryKey: ['parts', teamId, q, limit, offset],
-    queryFn: () => listParts({ team_id: teamId, q: q || undefined, limit, offset }),
+    queryKey: ['parts', teamId, q, stockStatus, limit, offset],
+    queryFn: () => listParts({
+      team_id: teamId,
+      q: q || undefined,
+      stock_status: stockStatus || undefined,
+      limit,
+      offset,
+    }),
   }));
 
   function handleSearch(v: string) {
     q = v;
+    offset = 0;
+  }
+
+  function handleStockFilter(e: Event) {
+    stockStatus = (e.target as HTMLSelectElement).value;
     offset = 0;
   }
 
@@ -65,7 +78,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <Topbar title="Parts Catalog">
+  <Topbar title="Parts">
     {#snippet actions()}
       <Button size="sm" onclick={() => (createOpen = true)}>
         <Plus class="h-4 w-4 mr-1" /> Add Part
@@ -74,7 +87,20 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6 space-y-4">
-    <SearchInput placeholder="Search by MPN, description, or manufacturer…" onchange={handleSearch} />
+    <div class="flex flex-wrap items-center gap-3">
+      <SearchInput placeholder="Search by MPN, description, or manufacturer…" onchange={handleSearch} />
+      <select
+        value={stockStatus}
+        onchange={handleStockFilter}
+        class="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <option value="">All parts</option>
+        <option value="in_stock">In stock</option>
+        <option value="low_stock">Low stock</option>
+        <option value="out_of_stock">Out of stock</option>
+        <option value="not_tracked">Not tracked</option>
+      </select>
+    </div>
 
     {#if query.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
@@ -85,7 +111,7 @@
       {#if data.items.length === 0}
         <EmptyState
           title="No parts found"
-          description={q ? 'Try a different search term.' : 'Add your first part to get started.'}
+          description={q || stockStatus ? 'Try adjusting your filters.' : 'Add your first part to get started.'}
         />
       {:else}
         <Table>
@@ -96,7 +122,8 @@
               <TableHead>Description</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Scope</TableHead>
+              <TableHead class="text-right">Qty</TableHead>
+              <TableHead>Stock</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -110,7 +137,19 @@
                 <TableCell class="max-w-xs truncate text-muted-foreground">{part.description ?? '—'}</TableCell>
                 <TableCell>{part.category ?? '—'}</TableCell>
                 <TableCell><LifecycleBadge status={part.lifecycle_status} /></TableCell>
-                <TableCell class="capitalize text-muted-foreground">{part.scope}</TableCell>
+                <TableCell class="text-right font-medium tabular-nums">
+                  {part.inventory_entry_id != null ? (part.quantity_on_hand ?? 0) : '—'}
+                </TableCell>
+                <TableCell>
+                  {#if part.inventory_entry_id != null}
+                    <StockBadge
+                      quantity_on_hand={part.quantity_on_hand ?? 0}
+                      minimum_stock_quantity={part.minimum_stock_quantity}
+                    />
+                  {:else}
+                    <span class="text-xs text-muted-foreground">Not tracked</span>
+                  {/if}
+                </TableCell>
               </TableRow>
             {/each}
           </TableBody>

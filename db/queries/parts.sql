@@ -32,11 +32,86 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
        OR lifecycle_status = sqlc.narg('lifecycle_status'))
   AND (sqlc.narg('filter_scope')::part_scope IS NULL OR scope = sqlc.narg('filter_scope'));
 
+-- name: ListPartsWithInventory :many
+-- Like ListParts but LEFT JOINs the team's inventory entry for each part.
+-- All inventory fields are NULL for parts that are not tracked by the team.
+SELECT
+    p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
+    p.category, p.package, p.lifecycle_status, p.created_at,
+    ie.id            AS inventory_entry_id,
+    ie.quantity_on_hand,
+    ie.minimum_stock_quantity,
+    ie.reorder_quantity,
+    sl.label         AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
+  AND (sqlc.narg('q')::text IS NULL
+       OR p.mpn ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.description ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%')
+  AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
+  AND (sqlc.narg('category')::text IS NULL OR p.category = sqlc.narg('category'))
+  AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
+  AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
+       OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
+  AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
+  AND (
+      sqlc.narg('stock_status')::text IS NULL
+      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
+      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR (sqlc.narg('stock_status')::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR (sqlc.narg('stock_status')::text = 'not_tracked'  AND ie.id IS NULL)
+  )
+ORDER BY p.mpn NULLS LAST, p.id
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountPartsWithInventory :one
+SELECT COUNT(*) FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
+WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
+  AND (sqlc.narg('q')::text IS NULL
+       OR p.mpn ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.description ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%')
+  AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
+  AND (sqlc.narg('category')::text IS NULL OR p.category = sqlc.narg('category'))
+  AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
+  AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
+       OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
+  AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
+  AND (
+      sqlc.narg('stock_status')::text IS NULL
+      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
+      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR (sqlc.narg('stock_status')::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR (sqlc.narg('stock_status')::text = 'not_tracked'  AND ie.id IS NULL)
+  );
+
 -- name: GetPart :one
 SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
        datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
        preferred_parameter_source_id, created_at
 FROM parts WHERE id = $1;
+
+-- name: GetPartWithInventory :one
+-- Like GetPart but LEFT JOINs the team's inventory entry and storage location.
+SELECT
+    p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
+    p.category, p.package, p.datasheet_url, p.lifecycle_status,
+    p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at,
+    ie.id                  AS inventory_entry_id,
+    ie.quantity_on_hand,
+    ie.minimum_stock_quantity,
+    ie.reorder_quantity,
+    ie.preferred_listing_id,
+    ie.storage_location_id,
+    sl.label               AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE p.id = sqlc.arg('id');
 
 -- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
