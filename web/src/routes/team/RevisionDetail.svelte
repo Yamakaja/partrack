@@ -65,7 +65,7 @@
       case 'needs_attention':
         return allItems.filter(i => !i.ignored && !i.resolved_part_id);
       case 'auto':
-        return allItems.filter(i => i.resolution_state === 'auto_sku' || i.resolution_state === 'auto_mpn');
+        return allItems.filter(i => i.resolution_state === 'auto_sku' || i.resolution_state === 'auto_mpn' || i.resolution_state === 'auto_prior_revision');
       case 'ignored':
         return allItems.filter(i => i.ignored);
       default:

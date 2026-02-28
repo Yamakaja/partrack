@@ -22,7 +22,7 @@ Runtime requires:
 ## Tests
 
 ```bash
-PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack go test -p 1 ./...
+PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go test -p 1 ./...
 ```
 
 - Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.

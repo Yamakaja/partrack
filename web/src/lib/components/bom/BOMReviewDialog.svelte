@@ -93,9 +93,10 @@
       ? currentItem.resolution_state === 'ambiguous'
         ? { label: 'Ambiguous',  variant: 'warning'   as BadgeVariant }
         : { label: 'Unresolved', variant: 'outline'   as BadgeVariant }
-    : currentItem.resolution_state === 'auto_sku' ? { label: 'Auto (SKU)', variant: 'success' as BadgeVariant }
-    : currentItem.resolution_state === 'auto_mpn' ? { label: 'Auto (MPN)', variant: 'success' as BadgeVariant }
-    : currentItem.resolution_state === 'manual'   ? { label: 'Manual',     variant: 'success' as BadgeVariant }
+    : currentItem.resolution_state === 'auto_sku'           ? { label: 'Auto (SKU)',   variant: 'success' as BadgeVariant }
+    : currentItem.resolution_state === 'auto_mpn'           ? { label: 'Auto (MPN)',   variant: 'success' as BadgeVariant }
+    : currentItem.resolution_state === 'auto_prior_revision'? { label: 'Auto (Prior)', variant: 'success' as BadgeVariant }
+    : currentItem.resolution_state === 'manual'             ? { label: 'Manual',       variant: 'success' as BadgeVariant }
     :                                               { label: 'Resolved',   variant: 'success' as BadgeVariant }
   );
 

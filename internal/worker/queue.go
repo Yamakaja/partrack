@@ -196,27 +196,36 @@ func (q *Queue) handleBOMImport(job Job) {
 		return
 	}
 
+	projectID, err := queries.GetRevisionProjectID(ctx, revID)
+	if err != nil {
+		q.publishError(job, "failed to get revision project: "+err.Error())
+		return
+	}
+
 	// Count items already resolved before this run.
-	resolvedSKU, resolvedMPN, ambiguousCount := 0, 0, 0
+	resolvedSKU, resolvedMPN, resolvedPrior, ambiguousCount := 0, 0, 0, 0
 	for _, it := range items {
 		switch {
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
 			resolvedSKU++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_mpn":
 			resolvedMPN++
+		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_prior_revision":
+			resolvedPrior++
 		case it.ResolutionState != nil && *it.ResolutionState == "ambiguous":
 			ambiguousCount++
 		}
 	}
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
-		"status":       "progress",
-		"resolved":     resolvedSKU + resolvedMPN,
-		"resolved_sku": resolvedSKU,
-		"resolved_mpn": resolvedMPN,
-		"ambiguous":    ambiguousCount,
-		"total":        len(items),
-		"job_id":       job.ID,
+		"status":                  "progress",
+		"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+		"resolved_sku":            resolvedSKU,
+		"resolved_mpn":            resolvedMPN,
+		"resolved_prior_revision": resolvedPrior,
+		"ambiguous":               ambiguousCount,
+		"total":                   len(items),
+		"job_id":                  job.ID,
 	})
 
 	strPtr := func(s string) *string { return &s }
@@ -275,6 +284,40 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
+		// 3. Prior-revision fallback: if the catalog is ambiguous, check whether a previous
+		// revision of this project already resolved this MPN to a specific part.
+		if resolutionState != nil && *resolutionState == "ambiguous" && item.Mpn != nil && *item.Mpn != "" {
+			var priorPartID pgtype.UUID
+
+			// Prefer MPN+manufacturer match for precision.
+			if item.Manufacturer != nil && *item.Manufacturer != "" {
+				if id, err := queries.GetPriorRevisionPartByMPNAndManufacturer(ctx, dbgen.GetPriorRevisionPartByMPNAndManufacturerParams{
+					ProjectID:         projectID,
+					CurrentRevisionID: revID,
+					Mpn:               item.Mpn,
+					Manufacturer:      item.Manufacturer,
+				}); err == nil {
+					priorPartID = id
+				}
+			}
+
+			// Fall back to MPN-only if no match yet.
+			if !priorPartID.Valid {
+				if id, err := queries.GetPriorRevisionPartByMPN(ctx, dbgen.GetPriorRevisionPartByMPNParams{
+					ProjectID:         projectID,
+					CurrentRevisionID: revID,
+					Mpn:               item.Mpn,
+				}); err == nil {
+					priorPartID = id
+				}
+			}
+
+			if priorPartID.Valid {
+				resolvedPartID = priorPartID
+				resolutionState = strPtr("auto_prior_revision")
+			}
+		}
+
 		if resolutionState == nil {
 			continue // no match and not ambiguous; leave for manual resolution
 		}
@@ -293,6 +336,8 @@ func (q *Queue) handleBOMImport(job Job) {
 			resolvedSKU++
 		case "auto_mpn":
 			resolvedMPN++
+		case "auto_prior_revision":
+			resolvedPrior++
 		case "ambiguous":
 			ambiguousCount++
 		}
@@ -312,13 +357,14 @@ func (q *Queue) handleBOMImport(job Job) {
 		}
 
 		q.publishProgress(job, "bom_import_progress", map[string]any{
-			"status":       "progress",
-			"resolved":     resolvedSKU + resolvedMPN,
-			"resolved_sku": resolvedSKU,
-			"resolved_mpn": resolvedMPN,
-			"ambiguous":    ambiguousCount,
-			"total":        len(items),
-			"job_id":       job.ID,
+			"status":                  "progress",
+			"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+			"resolved_sku":            resolvedSKU,
+			"resolved_mpn":            resolvedMPN,
+			"resolved_prior_revision": resolvedPrior,
+			"ambiguous":               ambiguousCount,
+			"total":                   len(items),
+			"job_id":                  job.ID,
 		})
 	}
 
@@ -330,14 +376,15 @@ func (q *Queue) handleBOMImport(job Job) {
 	}
 
 	q.publishProgress(job, "bom_import_progress", map[string]any{
-		"status":       "complete",
-		"resolved":     resolvedSKU + resolvedMPN,
-		"resolved_sku": resolvedSKU,
-		"resolved_mpn": resolvedMPN,
-		"ambiguous":    ambiguousCount,
-		"unresolved":   unresolvedCount,
-		"total":        len(items),
-		"job_id":       job.ID,
+		"status":                  "complete",
+		"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+		"resolved_sku":            resolvedSKU,
+		"resolved_mpn":            resolvedMPN,
+		"resolved_prior_revision": resolvedPrior,
+		"ambiguous":               ambiguousCount,
+		"unresolved":              unresolvedCount,
+		"total":                   len(items),
+		"job_id":                  job.ID,
 	})
 }
 

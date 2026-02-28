@@ -175,6 +175,63 @@ func (q *Queries) GetInventoryQuantitiesForRevision(ctx context.Context, arg Get
 	return items, nil
 }
 
+const getPriorRevisionPartByMPN = `-- name: GetPriorRevisionPartByMPN :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id        = $1
+  AND br.id               != $2
+  AND bli.mpn              = $3
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1
+`
+
+type GetPriorRevisionPartByMPNParams struct {
+	ProjectID         pgtype.UUID `json:"project_id"`
+	CurrentRevisionID pgtype.UUID `json:"current_revision_id"`
+	Mpn               *string     `json:"mpn"`
+}
+
+func (q *Queries) GetPriorRevisionPartByMPN(ctx context.Context, arg GetPriorRevisionPartByMPNParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPriorRevisionPartByMPN, arg.ProjectID, arg.CurrentRevisionID, arg.Mpn)
+	var resolved_part_id pgtype.UUID
+	err := row.Scan(&resolved_part_id)
+	return resolved_part_id, err
+}
+
+const getPriorRevisionPartByMPNAndManufacturer = `-- name: GetPriorRevisionPartByMPNAndManufacturer :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id        = $1
+  AND br.id               != $2
+  AND bli.mpn              = $3
+  AND bli.manufacturer ILIKE $4
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1
+`
+
+type GetPriorRevisionPartByMPNAndManufacturerParams struct {
+	ProjectID         pgtype.UUID `json:"project_id"`
+	CurrentRevisionID pgtype.UUID `json:"current_revision_id"`
+	Mpn               *string     `json:"mpn"`
+	Manufacturer      *string     `json:"manufacturer"`
+}
+
+func (q *Queries) GetPriorRevisionPartByMPNAndManufacturer(ctx context.Context, arg GetPriorRevisionPartByMPNAndManufacturerParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPriorRevisionPartByMPNAndManufacturer,
+		arg.ProjectID,
+		arg.CurrentRevisionID,
+		arg.Mpn,
+		arg.Manufacturer,
+	)
+	var resolved_part_id pgtype.UUID
+	err := row.Scan(&resolved_part_id)
+	return resolved_part_id, err
+}
+
 const getRevision = `-- name: GetRevision :one
 SELECT
     br.id, br.label, br.imported_at, br.notes,
@@ -212,6 +269,17 @@ func (q *Queries) GetRevision(ctx context.Context, arg GetRevisionParams) (GetRe
 		&i.IsActive,
 	)
 	return i, err
+}
+
+const getRevisionProjectID = `-- name: GetRevisionProjectID :one
+SELECT project_id FROM bom_revisions WHERE id = $1
+`
+
+func (q *Queries) GetRevisionProjectID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getRevisionProjectID, id)
+	var project_id pgtype.UUID
+	err := row.Scan(&project_id)
+	return project_id, err
 }
 
 const ignoreBOMLineItem = `-- name: IgnoreBOMLineItem :one

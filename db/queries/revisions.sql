@@ -96,6 +96,32 @@ WHERE id = sqlc.arg('id') AND bom_revision_id = sqlc.arg('bom_revision_id')
 RETURNING id, reference_designators, quantity, raw_description,
           resolved_part_id, resolution_state, ignored;
 
+-- name: GetRevisionProjectID :one
+SELECT project_id FROM bom_revisions WHERE id = $1;
+
+-- name: GetPriorRevisionPartByMPNAndManufacturer :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id        = @project_id
+  AND br.id               != @current_revision_id
+  AND bli.mpn              = @mpn
+  AND bli.manufacturer ILIKE @manufacturer
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1;
+
+-- name: GetPriorRevisionPartByMPN :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id        = @project_id
+  AND br.id               != @current_revision_id
+  AND bli.mpn              = @mpn
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1;
+
 -- name: GetInventoryQuantitiesForRevision :many
 SELECT ie.part_id, ie.quantity_on_hand
 FROM inventory_entries ie

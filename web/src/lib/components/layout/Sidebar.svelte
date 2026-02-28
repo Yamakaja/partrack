@@ -20,7 +20,8 @@
   }
 
   function teamPath(sub: string): string {
-    return activeTeam ? `/teams/${activeTeam.teamId}/${sub}` : '#';
+    if (!activeTeam) return '#';
+    return sub ? `/teams/${activeTeam.teamId}/${sub}` : `/teams/${activeTeam.teamId}`;
   }
 </script>
 
@@ -42,72 +43,72 @@
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
           {isActive(`/teams/${activeTeam.teamId}`) && currentRoute().path === `/teams/${activeTeam.teamId}`
             ? 'bg-accent text-accent-foreground font-medium'
-            : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+            : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Dashboard
       </a>
 
-      <div class="pt-2 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Catalog</div>
+      <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Catalog</div>
 
       <a href={teamPath('parts')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('parts')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('parts')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Parts
       </a>
       <a href={teamPath('inventory')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('inventory')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('inventory')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Inventory
       </a>
       <a href={teamPath('storage')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('storage')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('storage')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Storage
       </a>
 
-      <div class="pt-2 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</div>
+      <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</div>
 
       <a href={teamPath('projects')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('projects')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('projects')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Projects
       </a>
 
-      <div class="pt-2 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Procurement</div>
+      <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Procurement</div>
 
       <a href={teamPath('cart')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('cart')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('cart')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Cart
       </a>
       <a href={teamPath('orders')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('orders')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('orders')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Orders
       </a>
 
-      <div class="pt-2 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Assembly</div>
+      <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Assembly</div>
 
       <a href={teamPath('builds')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('builds')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('builds')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Builds
       </a>
       <a href={teamPath('checkouts')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('checkouts')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive(teamPath('checkouts')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Checkouts
       </a>
 
       {#if activeTeam.role === 'admin'}
-        <div class="pt-2 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Settings</div>
+        <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Settings</div>
         <a href={teamPath('settings/members')} use:linkAction
           class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-            {isActive(teamPath('settings/members')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+            {isActive(teamPath('settings/members')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
           Members
         </a>
         <a href={teamPath('settings/distributors')} use:linkAction
           class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-            {isActive(teamPath('settings/distributors')) ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+            {isActive(teamPath('settings/distributors')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
           Distributors
         </a>
       {/if}
@@ -122,7 +123,7 @@
       <div class="pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Administration</div>
       <a href="/admin/users" use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive('/admin') ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}">
+          {isActive('/admin') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Users
       </a>
     </div>
