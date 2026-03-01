@@ -27,7 +27,9 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 		"listing_sku":              i.ListingSku,
 		"listing_distributor_name": i.ListingDistributorName,
 		"listing_distributor_id":   uuidPtrString(i.ListingDistributorID),
-		"listing_unit_price":       numericString(i.ListingUnitPrice),
+		"unit_price":               numericString(i.ListingUnitPrice),
+		"price_breaks":             json.RawMessage(i.ListingPriceBreaks),
+		"fixed_order_cost":         numericString(i.ListingFixedOrderCost),
 		"source":                   string(i.Source),
 		"source_bom_line_item_id":  uuidPtrString(i.SourceBomLineItemID),
 	}

@@ -7,6 +7,11 @@ export type OrderStatus =
 
 export type CartItemSource = 'bom_shortfall' | 'low_stock' | 'manual';
 
+export interface PriceBreak {
+  break_qty: number;
+  unit_price: string;
+}
+
 export interface CartItem {
   id: string;
   part_id: string;
@@ -17,20 +22,13 @@ export interface CartItem {
   listing_sku: string | null;
   listing_distributor_name: string | null;
   unit_price: string | null;
+  price_breaks: PriceBreak[];
+  fixed_order_cost: string | null;
   source: CartItemSource;
 }
 
 export interface Cart {
   items: CartItem[];
-  distributor_totals: DistributorTotal[];
-}
-
-export interface DistributorTotal {
-  distributor_id: string | null;
-  distributor_name: string | null;
-  subtotal: string;
-  fixed_order_cost: string;
-  total: string;
 }
 
 export interface Order {

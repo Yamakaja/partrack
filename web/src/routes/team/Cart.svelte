@@ -102,10 +102,19 @@
     }
   }
 
+  function effectiveUnitPrice(item: CartItem): number {
+    let price = item.unit_price ? parseFloat(item.unit_price) : NaN;
+    for (const pb of item.price_breaks ?? []) {
+      if (item.quantity >= pb.break_qty) price = parseFloat(pb.unit_price);
+    }
+    return isNaN(price) ? 0 : price;
+  }
+
   function calcSubtotal(item: CartItem): string | null {
-    if (!item.unit_price) return null;
-    const total = parseFloat(item.unit_price) * item.quantity;
-    return isNaN(total) ? null : total.toFixed(2);
+    if (!item.unit_price && !(item.price_breaks?.length)) return null;
+    const price = effectiveUnitPrice(item);
+    if (price === 0) return null;
+    return (price * item.quantity).toFixed(2);
   }
 
   let distributorGroups = $derived.by(() => {
@@ -117,6 +126,23 @@
       groups.get(key)!.push(item);
     }
     return groups;
+  });
+
+  let distributorTotals = $derived.by(() => {
+    const result = new Map<string, { subtotal: string; fixed_order_cost: string; total: string }>();
+    for (const [dist, items] of distributorGroups) {
+      let subtotal = 0;
+      let fixedCost = 0;
+      for (const item of items) {
+        subtotal += effectiveUnitPrice(item) * item.quantity;
+        const fc = parseFloat(item.fixed_order_cost ?? '0');
+        if (!isNaN(fc) && fc > fixedCost) fixedCost = fc;
+      }
+      const s = subtotal.toFixed(2);
+      const f = fixedCost.toFixed(2);
+      result.set(dist, { subtotal: s, fixed_order_cost: f, total: (subtotal + fixedCost).toFixed(2) });
+    }
+    return result;
   });
 </script>
 
@@ -166,9 +192,7 @@
         </EmptyState>
       {:else}
         {#each [...distributorGroups.entries()] as [distributor, items]}
-          {@const distTotal = cart.distributor_totals.find(
-            dt => dt.distributor_name === distributor || (!dt.distributor_name && distributor === 'No Distributor')
-          )}
+          {@const distTotal = distributorTotals.get(distributor)}
           <div class="space-y-2">
             <div class="flex items-center justify-between">
               <h2 class="text-sm font-semibold">{distributor}</h2>

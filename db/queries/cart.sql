@@ -15,6 +15,8 @@ SELECT
     d.name AS listing_distributor_name,
     d.id AS listing_distributor_id,
     dl.unit_price AS listing_unit_price,
+    dl.price_breaks AS listing_price_breaks,
+    dl.fixed_order_cost AS listing_fixed_order_cost,
     cli.source,
     cli.source_bom_line_item_id
 FROM cart_line_items cli
