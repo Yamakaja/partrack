@@ -76,6 +76,16 @@ export interface Listing {
   last_refreshed_at: string | null;
 }
 
+export interface CredentialField {
+  key: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  secret: boolean;
+  required: boolean;
+  type?: 'string' | 'bool';
+}
+
 export interface Distributor {
   id: string;
   name: string;

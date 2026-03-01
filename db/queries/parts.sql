@@ -59,8 +59,8 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
   AND (
       sqlc.narg('stock_status')::text IS NULL
-      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
-      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0)
+      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
       OR (sqlc.narg('stock_status')::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR (sqlc.narg('stock_status')::text = 'not_tracked'  AND ie.id IS NULL)
   )
@@ -83,8 +83,8 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
   AND (
       sqlc.narg('stock_status')::text IS NULL
-      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
-      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0)
+      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
       OR (sqlc.narg('stock_status')::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR (sqlc.narg('stock_status')::text = 'not_tracked'  AND ie.id IS NULL)
   );

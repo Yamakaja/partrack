@@ -26,6 +26,22 @@ func (q *Queries) DeleteDistributorConfig(ctx context.Context, arg DeleteDistrib
 	return err
 }
 
+const getDistributor = `-- name: GetDistributor :one
+SELECT id, name, website, api_type FROM distributors WHERE id = $1
+`
+
+func (q *Queries) GetDistributor(ctx context.Context, id pgtype.UUID) (Distributor, error) {
+	row := q.db.QueryRow(ctx, getDistributor, id)
+	var i Distributor
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Website,
+		&i.ApiType,
+	)
+	return i, err
+}
+
 const getDistributorConfigForSearch = `-- name: GetDistributorConfigForSearch :one
 SELECT d.api_type, dc.api_credentials
 FROM distributor_configs dc

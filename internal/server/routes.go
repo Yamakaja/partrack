@@ -60,6 +60,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 			// 6. Distributors (global read)
 			r.Get("/distributors", h.ListDistributors)
+			r.Get("/distributors/{distributorId}/credential-spec", h.GetDistributorCredentialSpec)
 
 			// 7. Parts catalog (global + team-scoped reads)
 			r.Get("/parts", h.ListParts)
@@ -78,6 +79,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Use(mw.RequireTeamRole("viewer"))
 
 					r.Get("/", h.GetTeam)
+					r.Get("/dashboard", h.GetDashboard)
 
 					// 8. Inventory
 					r.Get("/inventory", h.ListInventory)

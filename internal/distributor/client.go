@@ -88,10 +88,26 @@ type EnrichmentResult struct {
 	Listings        []Listing
 }
 
+// CredentialField describes one field in a distributor's credential form.
+type CredentialField struct {
+	Key         string `json:"key"`         // JSON key in stored credentials blob
+	Label       string `json:"label"`       // Human-readable label shown in the UI
+	Description string `json:"description"` // Help text displayed below the input
+	Placeholder string `json:"placeholder"` // HTML placeholder attribute
+	Secret      bool   `json:"secret"`      // Render as a password input when true
+	Required    bool   `json:"required"`
+	Type        string `json:"type"` // "string" (default) or "bool" (renders as checkbox)
+}
+
 // Client must be implemented by every distributor integration.
 // credentials is the raw JSONB from distributor_configs.api_credentials;
 // it is nil for distributors that require no authentication.
 type Client interface {
+	// CredentialSpec returns the list of fields required to configure this distributor.
+	// The frontend uses this to render a typed form instead of a raw JSON textarea.
+	// Return nil or an empty slice when no credentials are needed.
+	CredentialSpec() []CredentialField
+
 	// EnrichPart fetches full product metadata and listings for a specific distributor SKU.
 	// The SKU must be chosen unambiguously by the caller (e.g. selected from SearchParts results).
 	// Returns nil, nil if the SKU is not found.

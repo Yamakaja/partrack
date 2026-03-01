@@ -35,6 +35,11 @@ export interface ProjectSummary {
   created_at: string;
 }
 
+export function projectStatusVariant(status: string): 'success' | 'outline' | 'secondary' {
+  if (status === 'active' || status === 'completed') return 'success';
+  return 'secondary';
+}
+
 export interface Revision {
   id: string;
   label: string;
@@ -98,3 +103,4 @@ export interface StockCheckResult {
   fully_buildable: number;
   items: StockCheckItem[];
 }
+

@@ -67,8 +67,8 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   AND ($7::part_scope IS NULL OR p.scope = $7)
   AND (
       $8::text IS NULL
-      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
-      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0)
+      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
       OR ($8::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR ($8::text = 'not_tracked'  AND ie.id IS NULL)
   )
@@ -774,8 +774,8 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   AND ($7::part_scope IS NULL OR p.scope = $7)
   AND (
       $8::text IS NULL
-      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0 AND (ie.minimum_stock_quantity IS NULL OR ie.quantity_on_hand >= ie.minimum_stock_quantity))
-      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand > 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0)
+      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
       OR ($8::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR ($8::text = 'not_tracked'  AND ie.id IS NULL)
   )

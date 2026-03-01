@@ -42,6 +42,44 @@ func (h *Handler) ListDistributors(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetDistributorCredentialSpec handles GET /api/v1/distributors/{distributorId}/credential-spec
+// Returns the list of credential fields the distributor's Client requires.
+// Returns an empty array when the distributor has no API integration or no registered client.
+func (h *Handler) GetDistributorCredentialSpec(w http.ResponseWriter, r *http.Request) {
+	var id pgtype.UUID
+	if err := id.Scan(chi.URLParam(r, "distributorId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid distributor ID", "BAD_REQUEST")
+		return
+	}
+
+	dist, err := h.Queries.GetDistributor(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "distributor not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if dist.ApiType == nil {
+		writeJSON(w, http.StatusOK, []distributor.CredentialField{})
+		return
+	}
+
+	client := h.Distributors.Lookup(*dist.ApiType)
+	if client == nil {
+		writeJSON(w, http.StatusOK, []distributor.CredentialField{})
+		return
+	}
+
+	spec := client.CredentialSpec()
+	if spec == nil {
+		spec = []distributor.CredentialField{}
+	}
+	writeJSON(w, http.StatusOK, spec)
+}
+
 // ListDistributorConfigs handles GET /api/v1/teams/{teamId}/distributor-configs
 func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID

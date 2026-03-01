@@ -1,5 +1,5 @@
 import { request } from './client.js';
-import type { Distributor, DistributorConfig } from '$lib/types/parts.js';
+import type { Distributor, DistributorConfig, CredentialField } from '$lib/types/parts.js';
 import type { PaginatedResponse } from '$lib/types/common.js';
 
 export interface DistributorSearchProduct {
@@ -44,6 +44,10 @@ export function upsertDistributorConfig(
 
 export function deleteDistributorConfig(teamId: string, distributorId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/distributor-configs/${distributorId}`);
+}
+
+export function getCredentialSpec(distributorId: string) {
+  return request<CredentialField[]>('GET', `/api/v1/distributors/${distributorId}/credential-spec`);
 }
 
 export function searchDistributor(

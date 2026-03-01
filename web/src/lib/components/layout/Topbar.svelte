@@ -1,5 +1,6 @@
 <script lang="ts">
   import { type Snippet } from 'svelte';
+  import { linkAction } from '$lib/router/index.svelte';
 
   let {
     title,
@@ -21,7 +22,7 @@
         {#each breadcrumbs as crumb, i}
           {#if i > 0}<span class="select-none">/</span>{/if}
           {#if crumb.href}
-            <a href={crumb.href} class="hover:text-foreground transition-colors">{crumb.label}</a>
+            <a href={crumb.href} use:linkAction class="hover:text-foreground transition-colors">{crumb.label}</a>
           {:else}
             <span>{crumb.label}</span>
           {/if}

@@ -17,6 +17,7 @@
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Upload, Pencil } from 'lucide-svelte';
+  import {  projectStatusVariant } from '$lib/types/projects';
 
   let { teamId, projectId }: { teamId: string; projectId: string } = $props();
 
@@ -112,12 +113,6 @@
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
-  const STATUS_LABELS: Record<string, string> = {
-    active: 'In Development',
-    completed: 'In Production',
-    archived: 'Archived',
-  };
-
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let enabledDistributors = $derived(
     (distributorConfigsQuery.data?.items ?? []).filter((d) => d.enabled),
@@ -133,7 +128,7 @@
   >
     {#snippet badges()}
       {#if projectQuery.data}
-        <Badge variant="outline">{STATUS_LABELS[projectQuery.data.status] ?? projectQuery.data.status}</Badge>
+        <Badge variant={projectStatusVariant(projectQuery.data.status)} class="capitalize">{projectQuery.data.status}</Badge>
       {/if}
     {/snippet}
     {#snippet actions()}
@@ -156,7 +151,7 @@
     <!-- Project metadata card -->
     {#if projectQuery.data}
       {@const proj = projectQuery.data}
-      <MetadataCard title={proj.name} description={proj.description}>
+      <MetadataCard title={proj.name} description={proj.description ?? undefined}>
         {#snippet right()}
           <Button variant="outline" size="sm" onclick={openEdit}>
             <Pencil class="h-4 w-4 mr-1" /> Edit
@@ -331,8 +326,8 @@
             bind:value={editStatus}
             class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
-            <option value="active">In Development</option>
-            <option value="completed">In Production</option>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
             <option value="archived">Archived</option>
           </select>
         </div>

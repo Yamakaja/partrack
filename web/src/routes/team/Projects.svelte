@@ -11,6 +11,8 @@
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus, ClipboardCheck } from 'lucide-svelte';
+  import Badge from '$lib/components/ui/badge/Badge.svelte';
+  import { projectStatusVariant } from '$lib/types/projects';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -87,6 +89,7 @@
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Description</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Active BOM</TableHead>
               <TableHead>Created</TableHead>
               <TableHead></TableHead>
@@ -101,6 +104,9 @@
                 <TableCell class="font-medium">{project.name}</TableCell>
                 <TableCell class="max-w-xs truncate text-muted-foreground">
                   {project.description ?? '—'}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={projectStatusVariant(project.status)} class="capitalize">{project.status}</Badge>
                 </TableCell>
                 <TableCell class="text-muted-foreground text-sm">
                   {project.active_bom_revision_label ?? '—'}

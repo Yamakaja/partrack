@@ -327,6 +327,18 @@ type isoSearchLocale struct{}
 
 // ---- distributor.Client implementation ----
 
+// CredentialSpec describes the fields required to configure a DigiKey API integration.
+func (c *Client) CredentialSpec() []distributor.CredentialField {
+	return []distributor.CredentialField{
+		{Key: "client_id", Label: "Client ID", Required: true, Secret: false, Description: "DigiKey API application Client ID"},
+		{Key: "client_secret", Label: "Client Secret", Required: true, Secret: true, Description: "DigiKey API application Client Secret"},
+		{Key: "locale_site", Label: "Locale Site", Required: false, Secret: false, Placeholder: "US", Description: "DigiKey site (US, CA, UK, etc.). Defaults to US."},
+		{Key: "locale_currency", Label: "Currency", Required: false, Secret: false, Placeholder: "USD"},
+		{Key: "locale_language", Label: "Language", Required: false, Secret: false, Placeholder: "en"},
+		{Key: "sandbox", Label: "Sandbox Mode", Required: false, Secret: false, Description: "Use DigiKey sandbox API (for testing)", Type: "bool"},
+	}
+}
+
 // EnrichPart fetches full product metadata and listings for a specific DigiKey SKU.
 // The SKU must be chosen unambiguously by the caller (e.g. selected from SearchParts results).
 // Returns nil, nil if the SKU is not found.

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { listDistributors, listDistributorConfigs, upsertDistributorConfig, deleteDistributorConfig } from '$lib/api/distributors.js';
+  import { listDistributors, listDistributorConfigs, upsertDistributorConfig, deleteDistributorConfig, getCredentialSpec } from '$lib/api/distributors.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
@@ -11,7 +11,7 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Settings } from 'lucide-svelte';
-  import type { Distributor, DistributorConfig } from '$lib/types/parts.js';
+  import type { Distributor, DistributorConfig, CredentialField } from '$lib/types/parts.js';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -44,8 +44,14 @@
   let cfgEnabled = $state(false);
   let cfgPreferred = $state(false);
   let cfgCacheDuration = $state('3600');
-  let cfgCredentials = $state('');
+  let configHasCredentials = $state(false);
   let saving = $state(false);
+
+  // Credential spec state
+  let credentialSpec = $state<CredentialField[] | null>(null);
+  let specLoading = $state(false);
+  let credentialValues = $state<Record<string, string | boolean>>({});
+  let showSecret = $state<Record<string, boolean>>({});
 
   // Delete confirm
   let deleteConfirmOpen = $state(false);
@@ -57,8 +63,22 @@
     cfgEnabled = config?.enabled ?? false;
     cfgPreferred = config?.preferred ?? false;
     cfgCacheDuration = String(config?.cache_duration_seconds ?? 3600);
-    cfgCredentials = '';
+    configHasCredentials = config?.has_credentials ?? false;
+    credentialSpec = null;
+    credentialValues = {};
+    showSecret = {};
     configureOpen = true;
+
+    specLoading = true;
+    getCredentialSpec(dist.id)
+      .then(spec => {
+        credentialSpec = spec ?? [];
+        credentialValues = Object.fromEntries(
+          (spec ?? []).map(f => [f.key, f.type === 'bool' ? false : ''])
+        );
+      })
+      .catch(() => { credentialSpec = []; })
+      .finally(() => { specLoading = false; });
   }
 
   async function handleSaveConfig(e: Event) {
@@ -69,15 +89,25 @@
       pushToast('error', 'Invalid cache duration');
       return;
     }
+
     let credentials: Record<string, unknown> | null | undefined = undefined;
-    if (cfgCredentials.trim()) {
-      try {
-        credentials = JSON.parse(cfgCredentials.trim());
-      } catch {
-        pushToast('error', 'Invalid JSON in credentials field');
-        return;
+    if (credentialSpec && credentialSpec.length > 0) {
+      const obj: Record<string, unknown> = {};
+      for (const field of credentialSpec) {
+        const val = credentialValues[field.key];
+        if (field.type === 'bool') {
+          obj[field.key] = val;
+        } else if (typeof val === 'string' && val.trim() !== '') {
+          obj[field.key] = val.trim();
+        }
+        // skip empty optional fields; empty required fields are left out (server validates)
+      }
+      // Only submit credentials if at least one field has a non-default value
+      if (Object.entries(obj).some(([, v]) => v !== '' && v !== false)) {
+        credentials = obj;
       }
     }
+
     saving = true;
     try {
       await upsertDistributorConfig(teamId, configuringDistributor.id, {
@@ -225,17 +255,55 @@
             placeholder="3600"
           />
         </div>
-        <div class="space-y-1">
-          <Label for="api-credentials">API Credentials (JSON, optional)</Label>
-          <textarea
-            id="api-credentials"
-            bind:value={cfgCredentials}
-            placeholder={`{"api_key": "..."}`}
-            rows="4"
-            class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
-          ></textarea>
-          <p class="text-xs text-muted-foreground">Leave blank to keep existing credentials.</p>
-        </div>
+
+        <!-- Credential fields -->
+        {#if specLoading}
+          <p class="text-xs text-muted-foreground">Loading credential fields…</p>
+        {:else if credentialSpec !== null && credentialSpec.length === 0}
+          {#if configuringDistributor?.api_type}
+            <p class="text-xs text-muted-foreground">No API credentials required for this distributor.</p>
+          {/if}
+        {:else if credentialSpec !== null && credentialSpec.length > 0}
+          {#if configHasCredentials}
+            <p class="text-xs text-muted-foreground">Credentials are already configured. Fill in all fields to replace them, or leave blank to keep existing.</p>
+          {/if}
+          {#each credentialSpec as field (field.key)}
+            <div class="space-y-1">
+              <Label for={`cred-${field.key}`}>{field.label}{field.required ? ' *' : ''}</Label>
+              {#if field.type === 'bool'}
+                <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    id={`cred-${field.key}`}
+                    bind:checked={credentialValues[field.key] as boolean}
+                    class="h-4 w-4 rounded border-input"
+                  />
+                  {field.label}
+                </label>
+              {:else}
+                <div class="relative">
+                  <Input
+                    id={`cred-${field.key}`}
+                    type={field.secret && !showSecret[field.key] ? 'password' : 'text'}
+                    bind:value={credentialValues[field.key] as string}
+                    placeholder={field.placeholder ?? ''}
+                  />
+                  {#if field.secret}
+                    <button
+                      type="button"
+                      class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                      onclick={() => { showSecret[field.key] = !showSecret[field.key]; }}
+                    >{showSecret[field.key] ? 'Hide' : 'Show'}</button>
+                  {/if}
+                </div>
+              {/if}
+              {#if field.description}
+                <p class="text-xs text-muted-foreground">{field.description}</p>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onclick={() => { configureOpen = false; }}>Cancel</Button>
           <Button type="submit" disabled={saving}>

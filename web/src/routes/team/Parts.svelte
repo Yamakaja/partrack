@@ -16,6 +16,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Select } from '$lib/components/ui/select/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
+  import { consumePartsStockStatus } from '$lib/stores/navState.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { ApiError } from '$lib/api/client.js';
   import { Plus } from 'lucide-svelte';
@@ -24,7 +25,7 @@
 
   const qc = useQueryClient();
   let q = $state('');
-  let stockStatus = $state('');
+  let stockStatus = $state(consumePartsStockStatus());
   let limit = $state(50);
   let offset = $state(0);
   let createOpen = $state(false);

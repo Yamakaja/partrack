@@ -24,6 +24,14 @@ func New() *Client {
 	return &Client{}
 }
 
+// CredentialSpec returns a minimal credential spec so the test distributor exercises
+// the credential form UI in development environments.
+func (c *Client) CredentialSpec() []distributor.CredentialField {
+	return []distributor.CredentialField{
+		{Key: "api_key", Label: "API Key", Required: true, Secret: true, Description: "Test distributor API key (any value accepted)"},
+	}
+}
+
 // EnrichPart returns enrichment data for the LM317-TEST-TUBE SKU (and any SKU that
 // starts with "LM317" for convenience in tests). Returns nil for all other SKUs.
 func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*distributor.EnrichmentResult, error) {

@@ -3,6 +3,9 @@
 -- name: ListDistributors :many
 SELECT id, name, website, api_type FROM distributors ORDER BY name;
 
+-- name: GetDistributor :one
+SELECT id, name, website, api_type FROM distributors WHERE id = $1;
+
 -- name: ListDistributorConfigs :many
 SELECT
     dc.id,
