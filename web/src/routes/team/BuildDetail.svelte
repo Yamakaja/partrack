@@ -26,7 +26,6 @@
       title={build.project_name}
       breadcrumbs={[
         { label: 'Builds', href: `/teams/${teamId}/builds` },
-        { label: build.project_name },
       ]}
     />
 

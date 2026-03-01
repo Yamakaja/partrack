@@ -289,7 +289,7 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		Manufacturer         *string    `json:"manufacturer"`
 		MPN                  *string    `json:"mpn"`
 		SKU                  *string    `json:"sku"`
-		DistributorName      *string    `json:"distributor_name"`
+		DistributorName      string     `json:"distributor_name"`
 		HasLinkedDistributor bool       `json:"has_linked_distributor"`
 		ResolvedPartID       *string    `json:"resolved_part_id"`
 		ResolvedPartMpn      *string    `json:"resolved_part_mpn"`

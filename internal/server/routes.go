@@ -66,15 +66,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Post("/parts", h.CreatePart)
 			r.Get("/parts/{partId}", h.GetPart)
 			r.Patch("/parts/{partId}", h.UpdatePart)
-			r.Post("/parts/{partId}/enrich", h.EnrichPart)
 			r.Get("/parts/{partId}/parameters", h.ListParameters)
 			r.Post("/parts/{partId}/parameters", h.CreateParameter)
 			r.Delete("/parts/{partId}/parameters/{parameterId}", h.DeleteParameter)
 			r.Get("/parts/{partId}/listings", h.ListListings)
-			r.Post("/parts/{partId}/listings", h.AddListing)
-			r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)
-			r.Post("/parts/{partId}/listings/refresh", h.RefreshAllListings)
-			r.Post("/parts/{partId}/listings/{listingId}/refresh", h.RefreshListing)
 
 			// ── Team-scoped routes (require team membership) ─────────────────
 			r.Route("/teams/{teamId}", func(r chi.Router) {
@@ -143,6 +138,13 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/projects/{projectId}/revisions/{revId}/items/{itemId}/enrich", h.EnrichBOMItem)
 					r.Post("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes", h.AddSubstitute)
 					r.Delete("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}", h.RemoveSubstitute)
+
+					// Parts (team-scoped mutations)
+					r.Post("/parts/{partId}/enrich", h.EnrichPart)
+					r.Post("/parts/{partId}/listings", h.AddListing)
+					r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)
+					r.Post("/parts/{partId}/listings/refresh", h.RefreshAllListings)
+					r.Post("/parts/{partId}/listings/{listingId}/refresh", h.RefreshListing)
 
 					// Builds
 					r.Post("/builds/preview", h.PreviewBuild)

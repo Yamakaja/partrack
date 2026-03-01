@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
@@ -250,11 +251,30 @@ func (q *Queue) handleBOMImport(job Job) {
 		"resolved_mpn":            resolvedMPN,
 		"resolved_prior_revision": resolvedPrior,
 		"ambiguous":               ambiguousCount,
+		"no_match":                0,
 		"total":                   len(items),
 		"job_id":                  job.ID,
 	})
 
 	strPtr := func(s string) *string { return &s }
+
+	noMatchCount := 0
+	lastPublish := time.Now()
+
+	publishProgress := func(status string) {
+		q.publishProgress(job, "bom_import_progress", map[string]any{
+			"status":                  status,
+			"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
+			"resolved_sku":            resolvedSKU,
+			"resolved_distributor":    resolvedDistributor,
+			"resolved_mpn":            resolvedMPN,
+			"resolved_prior_revision": resolvedPrior,
+			"ambiguous":               ambiguousCount,
+			"no_match":                noMatchCount,
+			"total":                   len(items),
+			"job_id":                  job.ID,
+		})
+	}
 
 	for _, item := range items {
 		if item.ResolvedPartID.Valid {
@@ -325,29 +345,32 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
-		// 4. Prior-revision fallback: if the catalog is ambiguous, check whether a previous
-		// revision of this project already resolved this MPN to a specific part.
-		if resolutionState != nil && *resolutionState == "ambiguous" && item.Mpn != nil && *item.Mpn != "" {
+		// 4. Prior-revision fallback: if automatic resolution found nothing or was ambiguous,
+		// check whether a previous revision of this project already resolved this item.
+		if resolutionState == nil || *resolutionState == "ambiguous" {
 			var priorPartID pgtype.UUID
 
-			// Prefer MPN+manufacturer match for precision.
-			if item.Manufacturer != nil && *item.Manufacturer != "" {
-				if id, err := queries.GetPriorRevisionPartByMPNAndManufacturer(ctx, dbgen.GetPriorRevisionPartByMPNAndManufacturerParams{
-					ProjectID:         projectID,
-					CurrentRevisionID: revID,
-					Mpn:               item.Mpn,
-					Manufacturer:      item.Manufacturer,
-				}); err == nil {
-					priorPartID = id
+			// 4a. MPN-based: prefer MPN+manufacturer for precision, fall back to MPN-only.
+			if item.Mpn != nil && *item.Mpn != "" {
+				if item.Manufacturer != nil && *item.Manufacturer != "" {
+					if id, err := queries.GetPriorRevisionPartByMPNAndManufacturer(ctx, dbgen.GetPriorRevisionPartByMPNAndManufacturerParams{
+						ProjectID:         projectID,
+						CurrentRevisionID: revID,
+						Mpn:               item.Mpn,
+						Manufacturer:      item.Manufacturer,
+					}); err == nil {
+						priorPartID = id
+					}
 				}
 			}
 
-			// Fall back to MPN-only if no match yet.
-			if !priorPartID.Valid {
-				if id, err := queries.GetPriorRevisionPartByMPN(ctx, dbgen.GetPriorRevisionPartByMPNParams{
+			// 4b. SKU+distributor fallback: covers items with no MPN.
+			if !priorPartID.Valid && item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
+				if id, err := queries.GetPriorRevisionPartBySKU(ctx, dbgen.GetPriorRevisionPartBySKUParams{
 					ProjectID:         projectID,
 					CurrentRevisionID: revID,
-					Mpn:               item.Mpn,
+					Sku:               item.Sku,
+					DistributorID:     item.ResolvedDistributorID,
 				}); err == nil {
 					priorPartID = id
 				}
@@ -360,77 +383,53 @@ func (q *Queue) handleBOMImport(job Job) {
 		}
 
 		if resolutionState == nil {
-			continue // no match and not ambiguous; leave for manual resolution
-		}
+			// No match found — count and fall through to rate-limited progress update.
+			noMatchCount++
+		} else {
+			if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
+				ResolvedPartID:  resolvedPartID,
+				ResolutionState: resolutionState,
+				ID:              item.ID,
+				BomRevisionID:   revID,
+			}); err != nil {
+				continue // non-fatal; skip progress update for this item
+			}
 
-		if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
-			ResolvedPartID:  resolvedPartID,
-			ResolutionState: resolutionState,
-			ID:              item.ID,
-			BomRevisionID:   revID,
-		}); err != nil {
-			continue // non-fatal
-		}
+			switch *resolutionState {
+			case "auto_sku":
+				resolvedSKU++
+			case "auto_distributor":
+				resolvedDistributor++
+			case "auto_mpn":
+				resolvedMPN++
+			case "auto_prior_revision":
+				resolvedPrior++
+			case "ambiguous":
+				ambiguousCount++
+			}
 
-		switch *resolutionState {
-		case "auto_sku":
-			resolvedSKU++
-		case "auto_distributor":
-			resolvedDistributor++
-		case "auto_mpn":
-			resolvedMPN++
-		case "auto_prior_revision":
-			resolvedPrior++
-		case "ambiguous":
-			ambiguousCount++
-		}
-
-		if resolvedPartID.Valid {
-			// Ensure team has an inventory entry for this part.
-			_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
-				TeamID: teamID,
-				PartID: resolvedPartID,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				_, _ = queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+			if resolvedPartID.Valid {
+				// Ensure team has an inventory entry for this part.
+				_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
 					TeamID: teamID,
 					PartID: resolvedPartID,
 				})
+				if errors.Is(err, pgx.ErrNoRows) {
+					_, _ = queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+						TeamID: teamID,
+						PartID: resolvedPartID,
+					})
+				}
 			}
 		}
 
-		q.publishProgress(job, "bom_import_progress", map[string]any{
-			"status":                  "progress",
-			"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
-			"resolved_sku":            resolvedSKU,
-			"resolved_distributor":    resolvedDistributor,
-			"resolved_mpn":            resolvedMPN,
-			"resolved_prior_revision": resolvedPrior,
-			"ambiguous":               ambiguousCount,
-			"total":                   len(items),
-			"job_id":                  job.ID,
-		})
-	}
-
-	unresolvedCount := 0
-	for _, it := range items {
-		if !it.ResolvedPartID.Valid && it.ResolutionState == nil {
-			unresolvedCount++
+		if time.Since(lastPublish) >= 100*time.Millisecond {
+			publishProgress("progress")
+			lastPublish = time.Now()
 		}
 	}
 
-	q.publishProgress(job, "bom_import_progress", map[string]any{
-		"status":                  "complete",
-		"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
-		"resolved_sku":            resolvedSKU,
-		"resolved_distributor":    resolvedDistributor,
-		"resolved_mpn":            resolvedMPN,
-		"resolved_prior_revision": resolvedPrior,
-		"ambiguous":               ambiguousCount,
-		"unresolved":              unresolvedCount,
-		"total":                   len(items),
-		"job_id":                  job.ID,
-	})
+	publishProgress("complete")
 
 	projData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"]})
 	q.Publish(Event{Type: "project_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: projData})

@@ -47,12 +47,14 @@ RETURNING id;
 SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
-    bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
+    bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
+    COALESCE(d.name, bli.distributor_name) AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
+LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 WHERE bli.bom_revision_id = $1
 ORDER BY bli.id;
 
@@ -111,13 +113,14 @@ WHERE br.project_id        = @project_id
 ORDER BY br.imported_at DESC
 LIMIT 1;
 
--- name: GetPriorRevisionPartByMPN :one
+-- name: GetPriorRevisionPartBySKU :one
 SELECT bli.resolved_part_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
-WHERE br.project_id        = @project_id
-  AND br.id               != @current_revision_id
-  AND bli.mpn              = @mpn
+WHERE br.project_id              = @project_id
+  AND br.id                     != @current_revision_id
+  AND bli.sku                    = @sku
+  AND bli.resolved_distributor_id = @distributor_id
   AND bli.resolved_part_id IS NOT NULL
 ORDER BY br.imported_at DESC
 LIMIT 1;

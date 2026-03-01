@@ -61,6 +61,10 @@ sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal
 - Distributor integrations implement `distributor.Client` (`EnrichPart`, `RefreshListing`, `SearchParts`) and are registered in `distributor.Registry`. `EnrichPart` takes a **distributor SKU** (not MPN) — use `SearchParts` first for discovery. `POST /parts/{id}/enrich` requires `{"sku": "...", "distributor_id": "..."}` in the body plus `team_id` as a query param.
 - `distributor_listings.price_breaks` is stored as JSONB (`[]distributor.PriceBreak`). `parts.lifecycle_status` is updated by enrichment via `SetPartEnriched` with a nullable lifecycle param (empty string = leave unchanged).
 
+## UX Patterns
+
+- See doc/ux.md
+
 ## Design Documents
 
 Read these in order when onboarding to the project:

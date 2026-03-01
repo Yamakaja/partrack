@@ -102,7 +102,6 @@
       { label: 'Projects', href: `/teams/${teamId}/projects` },
       { label: projectName, href: `/teams/${teamId}/projects/${projectId}` },
       { label: revisionLabel, href: `/teams/${teamId}/projects/${projectId}/revisions/${revId}` },
-      { label: 'Stock Check' },
     ]}
   >
     {#snippet actions()}

@@ -33,15 +33,15 @@ export function updatePart(partId: string, body: Partial<Part>) {
 }
 
 export function enrichPart(partId: string, teamId: string, body: { sku: string; distributor_id: string }) {
-  return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/enrich?team_id=${teamId}`, body);
+  return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/enrich`, body);
 }
 
-export function addListing(partId: string, body: { sku: string; distributor_id: string; team_id: string }) {
-  return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/listings`, body);
+export function addListing(partId: string, teamId: string, body: { sku: string; distributor_id: string }) {
+  return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/listings`, body);
 }
 
 export function deleteListing(partId: string, listingId: string, teamId: string) {
-  return request<void>('DELETE', `/api/v1/parts/${partId}/listings/${listingId}?team_id=${teamId}`);
+  return request<void>('DELETE', `/api/v1/teams/${teamId}/parts/${partId}/listings/${listingId}`);
 }
 
 export function listParameters(partId: string) {
@@ -62,12 +62,10 @@ export function listListings(partId: string) {
   return request<{ items: Listing[] }>('GET', `/api/v1/parts/${partId}/listings`);
 }
 
-export function refreshListing(partId: string, listingId: string, teamId?: string) {
-  const q = teamId ? `?team_id=${teamId}` : '';
-  return request<{ job_id: string }>('POST', `/api/v1/parts/${partId}/listings/${listingId}/refresh${q}`);
+export function refreshListing(partId: string, listingId: string, teamId: string) {
+  return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/listings/${listingId}/refresh`);
 }
 
-export function refreshAllListings(partId: string, teamId?: string) {
-  const q = teamId ? `?team_id=${teamId}` : '';
-  return request<{ job_ids: string[] }>('POST', `/api/v1/parts/${partId}/listings/refresh${q}`);
+export function refreshAllListings(partId: string, teamId: string) {
+  return request<{ job_ids: string[] }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/listings/refresh`);
 }

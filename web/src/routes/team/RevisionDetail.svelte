@@ -2,8 +2,9 @@
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { getProject } from '$lib/api/projects.js';
   import type { BOMLineItem } from '$lib/types/projects.js';
-  import { getRevision, updateBOMLineItem } from '$lib/api/revisions.js';
+  import { getRevision, updateBOMLineItem, updateRevision } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import { onMount } from 'svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
@@ -13,9 +14,11 @@
   import { Table, TableHeader, TableBody, TableHead, TableRow } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { ClipboardCheck } from 'lucide-svelte';
+  import { ClipboardCheck, Pencil } from 'lucide-svelte';
 
   let {
     teamId,
@@ -129,6 +132,42 @@
     reviewOpen = false;
   }
 
+  // Inline editing
+  let editing = $state(false);
+  let editLabel = $state('');
+  let editNotes = $state('');
+  let editSaving = $state(false);
+
+  function openEdit() {
+    const rev = revisionQuery.data;
+    if (!rev) return;
+    editLabel = rev.label;
+    editNotes = rev.notes ?? '';
+    editing = true;
+  }
+
+  async function handleEditSave(e: Event) {
+    e.preventDefault();
+    editSaving = true;
+    try {
+      await updateRevision(teamId, projectId, revId, {
+        label: editLabel.trim() || undefined,
+        notes: editNotes.trim() || undefined,
+      });
+      editing = false;
+      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+      pushToast('success', 'Revision updated');
+    } catch (err: any) {
+      pushToast('error', 'Failed to update revision', err.message);
+    } finally {
+      editSaving = false;
+    }
+  }
+
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');
 
@@ -146,10 +185,27 @@
     breadcrumbs={[
       { label: 'Projects', href: `/teams/${teamId}/projects` },
       { label: projectName, href: `/teams/${teamId}/projects/${projectId}` },
-      { label: revisionLabel },
     ]}
   >
+    {#snippet badges()}
+      {#if revisionQuery.data}
+        {#if revisionQuery.data.is_active}<Badge variant="success">Active BOM</Badge>{/if}
+        {#if isReady}<Badge variant="success">Ready</Badge>{:else}<Badge variant="warning">Unresolved Items</Badge>{/if}
+      {/if}
+    {/snippet}
     {#snippet actions()}
+      {#if allItems.length > 0}
+        {#if !isReady}
+          <Button
+            size="sm"
+            onclick={startFullReview}
+            class="bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700"
+          >
+            {needsAttentionCount} {needsAttentionCount === 1 ? 'item' : 'items'} ready for review
+          </Button>
+        {/if}
+      {/if}
+
       <Button
         size="sm"
         onclick={() => navigate(`/teams/${teamId}/projects/${projectId}/revisions/${revId}/stock`)}
@@ -169,37 +225,58 @@
       />
     {/if}
 
-    <!-- Revision meta -->
+    <!-- Revision metadata card -->
     {#if revisionQuery.data}
       {@const rev = revisionQuery.data}
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <!-- Left: status badges + review action -->
-        <div class="flex items-center gap-2">
-          {#if rev.is_active}
-            <Badge variant="success">Active BOM</Badge>
+      <MetadataCard
+        title={editing ? '' : rev.label}
+        description={(!editing && rev.notes) ? rev.notes : undefined}
+      >
+        {#snippet right()}
+          {#if !editing}
+            <Button variant="outline" size="sm" onclick={openEdit}>
+              <Pencil class="h-4 w-4 mr-1" /> Edit
+            </Button>
           {/if}
-          {#if allItems.length > 0}
-            {#if isReady}
-              <Badge variant="success">Ready</Badge>
-            {:else}
-              <Button
-                size="sm"
-                onclick={startFullReview}
-                class="bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700"
-              >
-                {needsAttentionCount} {needsAttentionCount === 1 ? 'item' : 'items'} ready for review
+        {/snippet}
+
+        {#if editing}
+          <form onsubmit={handleEditSave} class="space-y-3">
+            <div class="space-y-1">
+              <Label class="text-xs">Label</Label>
+              <Input bind:value={editLabel} class="h-8 text-sm max-w-xs" />
+            </div>
+            <div class="space-y-1">
+              <Label class="text-xs">Notes</Label>
+              <textarea
+                bind:value={editNotes}
+                rows={3}
+                placeholder="Optional notes…"
+                class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              ></textarea>
+            </div>
+            <div class="flex gap-2">
+              <Button type="submit" size="sm" disabled={editSaving}>
+                {editSaving ? 'Saving…' : 'Save'}
               </Button>
-            {/if}
-          {/if}
-        </div>
-        <!-- Right: importer info -->
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>Imported by {rev.imported_by_display_name}</span>
-          {#if rev.notes}
-            <span>· {rev.notes}</span>
-          {/if}
-        </div>
-      </div>
+              <Button type="button" variant="outline" size="sm" onclick={() => { editing = false; }}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        {:else}
+          <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+            <div>
+              <span class="text-muted-foreground">Imported by:</span>
+              <span class="font-medium ml-1">{rev.imported_by_display_name}</span>
+            </div>
+            <div>
+              <span class="text-muted-foreground">Imported:</span>
+              <span class="font-medium ml-1">{formatDate(rev.imported_at)}</span>
+            </div>
+          </div>
+        {/if}
+      </MetadataCard>
     {/if}
 
     <!-- BOM line items table -->
@@ -242,7 +319,7 @@
                 <TableHead>MPN</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Reference Designators</TableHead>
-                <TableHead>Distributor Name</TableHead>
+                <TableHead>Distributor</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead class="text-center">Qty</TableHead>
                 <TableHead>Status</TableHead>
@@ -267,10 +344,10 @@
   <BOMImportProgressModal
     {teamId}
     jobId={modalJobId}
-    onStartReview={() => {
+    onStartReview={async () => {
       activeFilter = 'needs_attention';
+      await qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
       showImportModal = false;
-      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
       startFullReview();
     }}
     onClose={() => {

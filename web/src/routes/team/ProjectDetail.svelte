@@ -5,6 +5,7 @@
   import { listMembers } from '$lib/api/teams.js';
   import { listDistributorConfigs } from '$lib/api/distributors.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportDialog from '$lib/components/bom/BOMImportDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
@@ -128,9 +129,13 @@
     title={projectName}
     breadcrumbs={[
       { label: 'Projects', href: `/teams/${teamId}/projects` },
-      { label: projectName },
     ]}
   >
+    {#snippet badges()}
+      {#if projectQuery.data}
+        <Badge variant="outline">{STATUS_LABELS[projectQuery.data.status] ?? projectQuery.data.status}</Badge>
+      {/if}
+    {/snippet}
     {#snippet actions()}
       <BOMImportDialog
         {teamId}
@@ -151,21 +156,12 @@
     <!-- Project metadata card -->
     {#if projectQuery.data}
       {@const proj = projectQuery.data}
-      <div class="rounded-lg border border-border bg-card p-4 space-y-3">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <h2 class="text-xl font-bold">{proj.name}</h2>
-              <Badge variant="outline">{STATUS_LABELS[proj.status] ?? proj.status}</Badge>
-            </div>
-            {#if proj.description}
-              <p class="text-sm text-muted-foreground mt-1">{proj.description}</p>
-            {/if}
-          </div>
+      <MetadataCard title={proj.name} description={proj.description}>
+        {#snippet right()}
           <Button variant="outline" size="sm" onclick={openEdit}>
             <Pencil class="h-4 w-4 mr-1" /> Edit
           </Button>
-        </div>
+        {/snippet}
 
         <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
           <div>
@@ -195,24 +191,26 @@
           {/if}
         </div>
 
-        {#if proj.active_revision_summary}
-          {@const s = proj.active_revision_summary}
-          <div class="grid grid-cols-3 gap-4 pt-3 border-t border-border">
-            <div>
-              <p class="text-xs text-muted-foreground mb-0.5">BOM Items</p>
-              <p class="text-xl font-bold tabular-nums">{s.item_count}</p>
+        {#snippet footer()}
+          {#if proj.active_revision_summary}
+            {@const s = proj.active_revision_summary}
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <p class="text-xs text-muted-foreground mb-0.5">BOM Items</p>
+                <p class="text-xl font-bold tabular-nums">{s.item_count}</p>
+              </div>
+              <div>
+                <p class="text-xs text-muted-foreground mb-0.5">Resolved</p>
+                <p class="text-xl font-bold tabular-nums text-green-600">{s.resolved_count}</p>
+              </div>
+              <div>
+                <p class="text-xs text-muted-foreground mb-0.5">Unresolved</p>
+                <p class="text-xl font-bold tabular-nums {s.unresolved_count > 0 ? 'text-destructive' : ''}">{s.unresolved_count}</p>
+              </div>
             </div>
-            <div>
-              <p class="text-xs text-muted-foreground mb-0.5">Resolved</p>
-              <p class="text-xl font-bold tabular-nums text-green-600">{s.resolved_count}</p>
-            </div>
-            <div>
-              <p class="text-xs text-muted-foreground mb-0.5">Unresolved</p>
-              <p class="text-xl font-bold tabular-nums {s.unresolved_count > 0 ? 'text-destructive' : ''}">{s.unresolved_count}</p>
-            </div>
-          </div>
-        {/if}
-      </div>
+          {/if}
+        {/snippet}
+      </MetadataCard>
     {/if}
 
     <!-- Revisions table -->

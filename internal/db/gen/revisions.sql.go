@@ -175,31 +175,6 @@ func (q *Queries) GetInventoryQuantitiesForRevision(ctx context.Context, arg Get
 	return items, nil
 }
 
-const getPriorRevisionPartByMPN = `-- name: GetPriorRevisionPartByMPN :one
-SELECT bli.resolved_part_id
-FROM bom_line_items bli
-JOIN bom_revisions br ON br.id = bli.bom_revision_id
-WHERE br.project_id        = $1
-  AND br.id               != $2
-  AND bli.mpn              = $3
-  AND bli.resolved_part_id IS NOT NULL
-ORDER BY br.imported_at DESC
-LIMIT 1
-`
-
-type GetPriorRevisionPartByMPNParams struct {
-	ProjectID         pgtype.UUID `json:"project_id"`
-	CurrentRevisionID pgtype.UUID `json:"current_revision_id"`
-	Mpn               *string     `json:"mpn"`
-}
-
-func (q *Queries) GetPriorRevisionPartByMPN(ctx context.Context, arg GetPriorRevisionPartByMPNParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, getPriorRevisionPartByMPN, arg.ProjectID, arg.CurrentRevisionID, arg.Mpn)
-	var resolved_part_id pgtype.UUID
-	err := row.Scan(&resolved_part_id)
-	return resolved_part_id, err
-}
-
 const getPriorRevisionPartByMPNAndManufacturer = `-- name: GetPriorRevisionPartByMPNAndManufacturer :one
 SELECT bli.resolved_part_id
 FROM bom_line_items bli
@@ -226,6 +201,38 @@ func (q *Queries) GetPriorRevisionPartByMPNAndManufacturer(ctx context.Context, 
 		arg.CurrentRevisionID,
 		arg.Mpn,
 		arg.Manufacturer,
+	)
+	var resolved_part_id pgtype.UUID
+	err := row.Scan(&resolved_part_id)
+	return resolved_part_id, err
+}
+
+const getPriorRevisionPartBySKU = `-- name: GetPriorRevisionPartBySKU :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id              = $1
+  AND br.id                     != $2
+  AND bli.sku                    = $3
+  AND bli.resolved_distributor_id = $4
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1
+`
+
+type GetPriorRevisionPartBySKUParams struct {
+	ProjectID         pgtype.UUID `json:"project_id"`
+	CurrentRevisionID pgtype.UUID `json:"current_revision_id"`
+	Sku               *string     `json:"sku"`
+	DistributorID     pgtype.UUID `json:"distributor_id"`
+}
+
+func (q *Queries) GetPriorRevisionPartBySKU(ctx context.Context, arg GetPriorRevisionPartBySKUParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPriorRevisionPartBySKU,
+		arg.ProjectID,
+		arg.CurrentRevisionID,
+		arg.Sku,
+		arg.DistributorID,
 	)
 	var resolved_part_id pgtype.UUID
 	err := row.Scan(&resolved_part_id)
@@ -364,12 +371,14 @@ const listBOMLineItems = `-- name: ListBOMLineItems :many
 SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
-    bli.part_name, bli.manufacturer, bli.mpn, bli.sku, bli.distributor_name,
+    bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
+    COALESCE(d.name, bli.distributor_name) AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
+LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 WHERE bli.bom_revision_id = $1
 ORDER BY bli.id
 `
@@ -384,7 +393,7 @@ type ListBOMLineItemsRow struct {
 	Manufacturer          *string     `json:"manufacturer"`
 	Mpn                   *string     `json:"mpn"`
 	Sku                   *string     `json:"sku"`
-	DistributorName       *string     `json:"distributor_name"`
+	DistributorName       string      `json:"distributor_name"`
 	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
 	ResolutionState       *string     `json:"resolution_state"`
 	Ignored               bool        `json:"ignored"`

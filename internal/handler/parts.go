@@ -254,6 +254,23 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
 			return
 		}
+		user := middleware.UserFromContext(r.Context())
+		var userID pgtype.UUID
+		if err := userID.Scan(user.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
+			TeamID: teamID,
+			UserID: userID,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
 	default:
 		writeError(w, http.StatusBadRequest, "scope must be 'global' or 'team'", "BAD_REQUEST")
 		return
@@ -507,6 +524,36 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For team-scoped parts, verify the caller is a member of the owning team.
+	existing, err := h.Queries.GetPart(r.Context(), partID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if existing.Scope == dbgen.PartScopeTeam {
+		user := middleware.UserFromContext(r.Context())
+		var userID pgtype.UUID
+		if err := userID.Scan(user.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
+			TeamID: existing.TeamID,
+			UserID: userID,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
 	var req struct {
 		Description                *string `json:"description"`
 		Category                   *string `json:"category"`
@@ -561,9 +608,8 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toPartFullResponse(part))
 }
 
-// EnrichPart handles POST /api/v1/parts/{partId}/enrich
+// EnrichPart handles POST /api/v1/teams/{teamId}/parts/{partId}/enrich
 // Triggers enrichment from a specific distributor SKU. Returns 202 with job_id.
-// Query: team_id (required) — the team whose distributor config to use; caller must be a member.
 // Body: {sku, distributor_id} (both required).
 func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
@@ -572,16 +618,7 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamIDStr := r.URL.Query().Get("team_id")
-	if teamIDStr == "" {
-		writeError(w, http.StatusBadRequest, "team_id query parameter is required", "BAD_REQUEST")
-		return
-	}
-	var teamID pgtype.UUID
-	if err := teamID.Scan(teamIDStr); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
-		return
-	}
+	teamIDStr := chi.URLParam(r, "teamId")
 
 	var req struct {
 		SKU           string `json:"sku"`
@@ -589,28 +626,6 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SKU == "" || req.DistributorID == "" {
 		writeError(w, http.StatusBadRequest, "sku and distributor_id are required", "BAD_REQUEST")
-		return
-	}
-
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
-		return
-	}
-	var userID pgtype.UUID
-	if err := userID.Scan(user.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
-		TeamID: teamID,
-		UserID: userID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
@@ -623,6 +638,7 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := middleware.UserFromContext(r.Context())
 	jobID := h.enqueueEnrich(teamIDStr, partID.String(), req.SKU, req.DistributorID, user.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
@@ -637,9 +653,9 @@ func (h *Handler) enqueueEnrich(teamID, partID, sku, distributorID, userID strin
 	})
 }
 
-// AddListing handles POST /api/v1/parts/{partId}/listings
+// AddListing handles POST /api/v1/teams/{teamId}/parts/{partId}/listings
 // Attaches a distributor listing to a part and triggers enrichment. Returns 202 with job_id.
-// Body: {sku, distributor_id, team_id} (all required).
+// Body: {sku, distributor_id} (both required).
 func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
 	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
@@ -647,40 +663,14 @@ func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	teamIDStr := chi.URLParam(r, "teamId")
+
 	var req struct {
 		SKU           string `json:"sku"`
 		DistributorID string `json:"distributor_id"`
-		TeamID        string `json:"team_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SKU == "" || req.DistributorID == "" || req.TeamID == "" {
-		writeError(w, http.StatusBadRequest, "sku, distributor_id, and team_id are required", "BAD_REQUEST")
-		return
-	}
-
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
-		return
-	}
-	var teamID pgtype.UUID
-	if err := teamID.Scan(req.TeamID); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
-		return
-	}
-	var userID pgtype.UUID
-	if err := userID.Scan(user.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
-		TeamID: teamID,
-		UserID: userID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SKU == "" || req.DistributorID == "" {
+		writeError(w, http.StatusBadRequest, "sku and distributor_id are required", "BAD_REQUEST")
 		return
 	}
 
@@ -693,13 +683,13 @@ func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID := h.enqueueEnrich(req.TeamID, partID.String(), req.SKU, req.DistributorID, user.ID)
+	user := middleware.UserFromContext(r.Context())
+	jobID := h.enqueueEnrich(teamIDStr, partID.String(), req.SKU, req.DistributorID, user.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-// DeleteListing handles DELETE /api/v1/parts/{partId}/listings/{listingId}
+// DeleteListing handles DELETE /api/v1/teams/{teamId}/parts/{partId}/listings/{listingId}
 // Removes a distributor listing and its distributor-sourced parameters. Returns 204.
-// Query: team_id (required) — the team whose membership is verified.
 func (h *Handler) DeleteListing(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
 	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
@@ -712,38 +702,7 @@ func (h *Handler) DeleteListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamIDStr := r.URL.Query().Get("team_id")
-	if teamIDStr == "" {
-		writeError(w, http.StatusBadRequest, "team_id query parameter is required", "BAD_REQUEST")
-		return
-	}
-	var teamID pgtype.UUID
-	if err := teamID.Scan(teamIDStr); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
-		return
-	}
-
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
-		return
-	}
-	var userID pgtype.UUID
-	if err := userID.Scan(user.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
-		TeamID: teamID,
-		UserID: userID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
+	teamIDStr := chi.URLParam(r, "teamId")
 
 	listing, err := h.Queries.GetListingByPartAndID(r.Context(), dbgen.GetListingByPartAndIDParams{
 		ID:     listingID,
@@ -942,7 +901,7 @@ func (h *Handler) ListListings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-// RefreshListing handles POST /api/v1/parts/{partId}/listings/{listingId}/refresh
+// RefreshListing handles POST /api/v1/teams/{teamId}/parts/{partId}/listings/{listingId}/refresh
 // Triggers price/stock refresh for one listing. Returns 202 with job_id.
 func (h *Handler) RefreshListing(w http.ResponseWriter, r *http.Request) {
 	var listingID pgtype.UUID
@@ -961,7 +920,7 @@ func (h *Handler) RefreshListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := r.URL.Query().Get("team_id") // optional; used for SSE routing only
+	teamID := chi.URLParam(r, "teamId")
 	jobID := h.Worker.Enqueue(worker.JobListingRefresh, teamID, map[string]string{
 		"listing_id":     listing.ID.String(),
 		"part_id":        listing.PartID.String(),
@@ -971,7 +930,7 @@ func (h *Handler) RefreshListing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-// RefreshAllListings handles POST /api/v1/parts/{partId}/listings/refresh
+// RefreshAllListings handles POST /api/v1/teams/{teamId}/parts/{partId}/listings/refresh
 // Enqueues a stock/price refresh for every listing on the part. Returns 202 with job IDs.
 func (h *Handler) RefreshAllListings(w http.ResponseWriter, r *http.Request) {
 	var partID pgtype.UUID
@@ -986,7 +945,7 @@ func (h *Handler) RefreshAllListings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := r.URL.Query().Get("team_id")
+	teamID := chi.URLParam(r, "teamId")
 	userID := userIDFromContext(r)
 	jobIDs := make([]string, 0, len(listings))
 	for _, l := range listings {

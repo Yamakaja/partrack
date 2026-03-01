@@ -66,7 +66,7 @@ export interface BOMLineItem {
   manufacturer: string | null;
   mpn: string | null;
   sku: string | null;
-  distributor_name: string | null;
+  distributor_name: string;
   has_linked_distributor: boolean;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;

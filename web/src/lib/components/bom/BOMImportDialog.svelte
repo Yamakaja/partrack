@@ -104,6 +104,7 @@
 
   // Revision details
   let label = $state('');
+  let notes = $state('');
   let importing = $state(false);
 
   let fileInputEl: HTMLInputElement;
@@ -140,9 +141,6 @@
   // based on the stored header names.
   let _storedConfigForMapping: BOMImportConfig | null | undefined = null;
 
-  // Apply initial configuration once when the component is created.
-  applyInitialConfig(initialConfig);
-
   // Re-parse whenever any option or raw text changes.
   $effect(() => {
     // Reference all parse-option reactive vars to establish dependencies.
@@ -169,8 +167,13 @@
     comments = '';
     skipFirstLines = 0;
     label = '';
+    notes = '';
     columnRoles = [];
     step = 'parse';
+
+    // Re-apply the project's saved import config (overrides defaults above).
+    // By the time the user can select a file, initialConfig is loaded.
+    applyInitialConfig(initialConfig);
 
     rawText = await file.text();
     open = true;
@@ -306,6 +309,7 @@
 
       const result = await importRevision(teamId, projectId, {
         label: label.trim(),
+        notes: notes.trim() || undefined,
         set_active: true,
         bom_import_config: {
           delimiter,
@@ -426,7 +430,7 @@
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
     <Dialog.Content
       class="fixed left-1/2 top-1/2 z-50 flex w-[90vw] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-background shadow-lg"
-      style="max-height: 85vh;"
+      style="height: min(85vh, 800px);"
     >
       <!-- Dialog header -->
       <div class="flex shrink-0 items-center justify-between border-b border-border px-6 pb-4 pt-5 gap-6">
@@ -674,6 +678,15 @@
             <div class="space-y-1">
               <Label class="text-xs">Revision label</Label>
               <Input bind:value={label} placeholder="e.g. v1.0, Rev A" class="h-8 text-sm max-w-xs" />
+            </div>
+            <div class="space-y-1">
+              <Label class="text-xs">Notes (optional)</Label>
+              <textarea
+                bind:value={notes}
+                rows={3}
+                placeholder="Any notes about this revision…"
+                class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              ></textarea>
             </div>
           </div>
         </div>

@@ -120,7 +120,6 @@
       title={order.distributor_name}
       breadcrumbs={[
         { label: 'Orders', href: `/teams/${teamId}/orders` },
-        { label: order.distributor_name },
       ]}
     >
       {#snippet actions()}

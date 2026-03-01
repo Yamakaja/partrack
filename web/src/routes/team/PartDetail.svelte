@@ -5,6 +5,7 @@
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
   import { listStorageLocations } from '$lib/api/storage.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
   import AdjustmentHistory from '$lib/components/inventory/AdjustmentHistory.svelte';
@@ -167,9 +168,20 @@
     title={partQuery.data?.mpn ?? 'Part Detail'}
     breadcrumbs={[
       { label: 'Parts', href: `/teams/${teamId}/parts` },
-      { label: partQuery.data?.mpn ?? '…' },
     ]}
   >
+    {#snippet badges()}
+      {#if partQuery.data}
+        <LifecycleBadge status={partQuery.data.lifecycle_status} />
+        <Badge variant="outline" class="capitalize">{partQuery.data.scope}</Badge>
+        {#if tracked}
+          <StockBadge
+            quantity_on_hand={partQuery.data.quantity_on_hand ?? 0}
+            minimum_stock_quantity={partQuery.data.minimum_stock_quantity}
+          />
+        {/if}
+      {/if}
+    {/snippet}
     {#snippet actions()}
       <Button variant="outline" size="sm" onclick={() => navigate(`/teams/${teamId}/parts`)}>
         <ArrowLeft class="h-4 w-4 mr-1" /> Back
@@ -196,24 +208,7 @@
       {@const part = partQuery.data}
       <div class="space-y-6">
         <!-- Overview card -->
-        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
-          <div class="flex items-start justify-between">
-            <div>
-              <div class="flex items-center gap-2">
-                <h2 class="text-xl font-bold font-mono">{part.mpn ?? '—'}</h2>
-                <LifecycleBadge status={part.lifecycle_status} />
-                <Badge variant="outline" class="capitalize">{part.scope}</Badge>
-                {#if tracked}
-                  <StockBadge
-                    quantity_on_hand={part.quantity_on_hand ?? 0}
-                    minimum_stock_quantity={part.minimum_stock_quantity}
-                  />
-                {/if}
-              </div>
-              <p class="text-muted-foreground mt-1">{part.description ?? '—'}</p>
-            </div>
-          </div>
-
+        <MetadataCard title={part.mpn ?? '—'} titleClass="font-mono" description={part.description ?? '—'}>
           <!-- Part metadata -->
           <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div><span class="text-muted-foreground">Manufacturer:</span> <span class="font-medium">{part.manufacturer ?? '—'}</span></div>
@@ -224,36 +219,37 @@
             {/if}
           </div>
 
-          <!-- Inventory panel -->
-          {#if tracked}
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-3 border-t border-border">
-              <div>
-                <p class="text-xs text-muted-foreground mb-0.5">Quantity on Hand</p>
-                <p class="text-2xl font-bold tabular-nums">{part.quantity_on_hand ?? 0}</p>
+          {#snippet footer()}
+            {#if tracked}
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div>
+                  <p class="text-xs text-muted-foreground mb-0.5">Quantity on Hand</p>
+                  <p class="text-2xl font-bold tabular-nums">{part.quantity_on_hand ?? 0}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
+                  <p class="text-sm font-medium">{part.storage_location_label ?? '—'}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground mb-0.5">Min Stock</p>
+                  <p class="text-sm font-medium">{part.minimum_stock_quantity ?? '—'}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground mb-0.5">Reorder Qty</p>
+                  <p class="text-sm font-medium">{part.reorder_quantity ?? '—'}</p>
+                </div>
               </div>
-              <div>
-                <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
-                <p class="text-sm font-medium">{part.storage_location_label ?? '—'}</p>
+            {:else}
+              <div class="flex items-center gap-3">
+                <p class="text-sm text-muted-foreground">Stock not tracked for this part.</p>
+                <Button size="sm" variant="outline" disabled={tracking} onclick={handleStartTracking}>
+                  <PackagePlus class="h-4 w-4 mr-1" />
+                  {tracking ? 'Enabling…' : 'Start Tracking'}
+                </Button>
               </div>
-              <div>
-                <p class="text-xs text-muted-foreground mb-0.5">Min Stock</p>
-                <p class="text-sm font-medium">{part.minimum_stock_quantity ?? '—'}</p>
-              </div>
-              <div>
-                <p class="text-xs text-muted-foreground mb-0.5">Reorder Qty</p>
-                <p class="text-sm font-medium">{part.reorder_quantity ?? '—'}</p>
-              </div>
-            </div>
-          {:else}
-            <div class="pt-3 border-t border-border flex items-center gap-3">
-              <p class="text-sm text-muted-foreground">Stock not tracked for this part.</p>
-              <Button size="sm" variant="outline" disabled={tracking} onclick={handleStartTracking}>
-                <PackagePlus class="h-4 w-4 mr-1" />
-                {tracking ? 'Enabling…' : 'Start Tracking'}
-              </Button>
-            </div>
-          {/if}
-        </div>
+            {/if}
+          {/snippet}
+        </MetadataCard>
 
         <!-- Stacked sections -->
         <section class="space-y-2">

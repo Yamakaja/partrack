@@ -15,7 +15,7 @@
   let resolved = $state(0);
   let total = $state(0);
   let ambiguous = $state(0);
-  let unresolved = $state(0);
+  let noMatch = $state(0);
   let done = $state(false);
   let error = $state('');
 
@@ -24,9 +24,9 @@
       const d = event.data;
       if (d?.resolved !== undefined) resolved = d.resolved as number;
       if (d?.total !== undefined) total = d.total as number;
+      if (d?.ambiguous !== undefined) ambiguous = d.ambiguous as number;
+      if (d?.no_match !== undefined) noMatch = d.no_match as number;
       if (d?.status === 'complete') {
-        if (d?.ambiguous !== undefined) ambiguous = d.ambiguous as number;
-        if (d?.unresolved !== undefined) unresolved = d.unresolved as number;
         done = true;
         oncomplete?.();
       } else if (d?.status === 'error') {
@@ -36,12 +36,14 @@
     return unsub;
   });
 
-  let pct = $derived(total > 0 ? Math.round((resolved / total) * 100) : 0);
+  let resolvedPct   = $derived(total > 0 ? (resolved   / total) * 100 : 0);
+  let ambiguousPct  = $derived(total > 0 ? (ambiguous  / total) * 100 : 0);
+  let noMatchPct    = $derived(total > 0 ? (noMatch    / total) * 100 : 0);
 
   let completionDetail = $derived(() => {
     const parts: string[] = [];
     if (ambiguous > 0) parts.push(`${ambiguous} ambiguous`);
-    if (unresolved > 0) parts.push(`${unresolved} unresolved`);
+    if (noMatch > 0) parts.push(`${noMatch} unresolved`);
     return parts.length > 0 ? ` (${parts.join(', ')})` : '';
   });
 </script>
@@ -58,12 +60,11 @@
     <span class="text-muted-foreground">
       Importing BOM…
       {#if total > 0}
-        {resolved}/{total} resolved
-        <span class="ml-2 inline-block h-1.5 w-24 overflow-hidden rounded-full bg-border">
-          <span
-            class="block h-full rounded-full bg-primary transition-all"
-            style="width: {pct}%"
-          ></span>
+        {resolved}/{total} resolved{#if noMatch > 0}, {noMatch} no match{/if}
+        <span class="ml-2 inline-flex h-1.5 w-24 overflow-hidden rounded-full bg-border">
+          <span class="h-full bg-green-500 transition-all" style="width: {resolvedPct}%"></span>
+          <span class="h-full bg-amber-500 transition-all" style="width: {ambiguousPct}%"></span>
+          <span class="h-full bg-destructive transition-all" style="width: {noMatchPct}%"></span>
         </span>
       {/if}
     </span>

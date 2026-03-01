@@ -3,6 +3,7 @@
   import { getInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
   import { listStorageLocations } from '$lib/api/storage.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import AdjustmentHistory from '$lib/components/inventory/AdjustmentHistory.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -98,9 +99,16 @@
     title={entryQuery.data?.part_mpn ?? 'Inventory Entry'}
     breadcrumbs={[
       { label: 'Inventory', href: `/teams/${teamId}/inventory` },
-      { label: entryQuery.data?.part_mpn ?? '…' },
     ]}
   >
+    {#snippet badges()}
+      {#if entryQuery.data}
+        <StockBadge
+          quantity_on_hand={entryQuery.data.quantity_on_hand}
+          minimum_stock_quantity={entryQuery.data.minimum_stock_quantity}
+        />
+      {/if}
+    {/snippet}
     {#snippet actions()}
       <Button variant="outline" size="sm" onclick={openEdit}>Edit Settings</Button>
       <Button size="sm" onclick={openAdjust}>Adjust Stock</Button>
@@ -116,39 +124,28 @@
       {@const entry = entryQuery.data}
 
       <!-- Part info + stock info card -->
-      <div class="rounded-lg border border-border bg-card p-5 space-y-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <h2 class="text-xl font-bold font-mono">{entry.part_mpn ?? '—'}</h2>
-            {#if entry.part_description}
-              <p class="text-muted-foreground mt-0.5 text-sm">{entry.part_description}</p>
-            {/if}
+      <MetadataCard title={entry.part_mpn ?? '—'} titleClass="font-mono" description={entry.part_description}>
+        {#snippet footer()}
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <p class="text-xs text-muted-foreground mb-0.5">Quantity on Hand</p>
+              <p class="text-2xl font-bold tabular-nums">{entry.quantity_on_hand}</p>
+            </div>
+            <div>
+              <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
+              <p class="text-sm font-medium">{entry.storage_location_label ?? '—'}</p>
+            </div>
+            <div>
+              <p class="text-xs text-muted-foreground mb-0.5">Min Stock</p>
+              <p class="text-sm font-medium">{entry.minimum_stock_quantity ?? '—'}</p>
+            </div>
+            <div>
+              <p class="text-xs text-muted-foreground mb-0.5">Reorder Qty</p>
+              <p class="text-sm font-medium">{entry.reorder_quantity ?? '—'}</p>
+            </div>
           </div>
-          <StockBadge
-            quantity_on_hand={entry.quantity_on_hand}
-            minimum_stock_quantity={entry.minimum_stock_quantity}
-          />
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-border">
-          <div>
-            <p class="text-xs text-muted-foreground mb-0.5">Quantity on Hand</p>
-            <p class="text-2xl font-bold tabular-nums">{entry.quantity_on_hand}</p>
-          </div>
-          <div>
-            <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
-            <p class="text-sm font-medium">{entry.storage_location_label ?? '—'}</p>
-          </div>
-          <div>
-            <p class="text-xs text-muted-foreground mb-0.5">Min Stock</p>
-            <p class="text-sm font-medium">{entry.minimum_stock_quantity ?? '—'}</p>
-          </div>
-          <div>
-            <p class="text-xs text-muted-foreground mb-0.5">Reorder Qty</p>
-            <p class="text-sm font-medium">{entry.reorder_quantity ?? '—'}</p>
-          </div>
-        </div>
-      </div>
+        {/snippet}
+      </MetadataCard>
 
       <!-- Adjustment history -->
       <AdjustmentHistory {entryId} {teamId} />

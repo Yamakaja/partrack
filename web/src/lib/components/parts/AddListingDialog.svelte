@@ -77,10 +77,9 @@
     if (!selectedResult) return;
     adding = true;
     try {
-      await addListing(partId, {
+      await addListing(partId, teamId, {
         sku: selectedResult.primary_sku,
         distributor_id: selectedDistributorId,
-        team_id: teamId,
       });
       pushToast('info', 'Listing added', 'Parameters will populate shortly.');
       open = false;

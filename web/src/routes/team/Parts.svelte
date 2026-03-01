@@ -162,10 +162,9 @@
           throw err;
         }
       }
-      await addListing(partId, {
+      await addListing(partId, teamId, {
         sku: importSelected.primary_sku,
         distributor_id: importDistributorId,
-        team_id: teamId,
       });
       createOpen = false;
       resetDialog();

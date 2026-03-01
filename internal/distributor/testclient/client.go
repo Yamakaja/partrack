@@ -27,12 +27,12 @@ func New() *Client {
 // EnrichPart returns enrichment data for the LM317-TEST-TUBE SKU (and any SKU that
 // starts with "LM317" for convenience in tests). Returns nil for all other SKUs.
 func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*distributor.EnrichmentResult, error) {
-	if !strings.HasPrefix(strings.ToUpper(sku), "LM317") {
-		return nil, nil
+	if simulateDelays {
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	if simulateDelays {
-		time.Sleep(500 * time.Millisecond)
+	if !strings.HasPrefix(strings.ToUpper(sku), "LM317") {
+		return nil, nil
 	}
 
 	stockZero := int32(0)
@@ -68,12 +68,12 @@ func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*
 // RefreshListing returns updated stock data for the LM317 test SKU.
 // Returns nil for any other SKU.
 func (c *Client) RefreshListing(_ context.Context, sku string, _ json.RawMessage) (*distributor.Listing, error) {
-	if sku != testSKU {
-		return nil, nil
-	}
-
 	if simulateDelays {
 		time.Sleep(100 * time.Millisecond)
+	}
+
+	if sku != testSKU {
+		return nil, nil
 	}
 
 	stockZero := int32(0)

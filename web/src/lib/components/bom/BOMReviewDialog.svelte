@@ -180,6 +180,7 @@
 
 <Dialog bind:open class="max-w-2xl" title="BOM Review">
   {#snippet children()}
+    <div class="flex flex-col min-h-[540px]">
     {#if !currentItem}
       <p class="text-sm text-muted-foreground">No items to review.</p>
       <div class="mt-4 flex justify-end">
@@ -242,7 +243,7 @@
       </div>
 
       <!-- Actions -->
-      <div class="space-y-2">
+      <div class="space-y-2 flex-1">
         <!-- Choose from local library -->
         <div class="border border-border rounded-md">
           <div class="px-3 py-2 text-sm font-medium">Choose from local library</div>
@@ -415,5 +416,6 @@
         </div>
       </div>
     {/if}
+    </div>
   {/snippet}
 </Dialog>
