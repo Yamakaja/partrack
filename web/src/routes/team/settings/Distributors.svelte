@@ -74,7 +74,17 @@
       .then(spec => {
         credentialSpec = spec ?? [];
         credentialValues = Object.fromEntries(
-          (spec ?? []).map(f => [f.key, f.type === 'bool' ? false : ''])
+          (spec ?? []).map(f => {
+            if (f.type === 'bool') {
+              const stored = config?.api_credentials?.[f.key];
+              return [f.key, typeof stored === 'boolean' ? stored : false];
+            }
+            if (f.secret) {
+              return [f.key, '']; // never pre-populate secret fields
+            }
+            const stored = config?.api_credentials?.[f.key];
+            return [f.key, typeof stored === 'string' ? stored : ''];
+          })
         );
       })
       .catch(() => { credentialSpec = []; })
@@ -97,15 +107,13 @@
         const val = credentialValues[field.key];
         if (field.type === 'bool') {
           obj[field.key] = val;
-        } else if (typeof val === 'string' && val.trim() !== '') {
-          obj[field.key] = val.trim();
+        } else {
+          obj[field.key] = typeof val === 'string' ? val.trim() : '';
         }
-        // skip empty optional fields; empty required fields are left out (server validates)
       }
-      // Only submit credentials if at least one field has a non-default value
-      if (Object.entries(obj).some(([, v]) => v !== '' && v !== false)) {
-        credentials = obj;
-      }
+      // Always send the credentials object when a spec exists so the backend
+      // can perform field-level merging (preserving existing secret values).
+      credentials = obj;
     }
 
     saving = true;

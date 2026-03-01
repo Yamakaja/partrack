@@ -68,6 +68,32 @@ func (q *Queries) GetDistributorConfigForSearch(ctx context.Context, arg GetDist
 	return i, err
 }
 
+const getDistributorConfigRaw = `-- name: GetDistributorConfigRaw :one
+SELECT d.api_type, dc.api_credentials
+FROM distributor_configs dc
+JOIN distributors d ON d.id = dc.distributor_id
+WHERE dc.team_id = $1 AND dc.distributor_id = $2
+`
+
+type GetDistributorConfigRawParams struct {
+	TeamID        pgtype.UUID `json:"team_id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+}
+
+type GetDistributorConfigRawRow struct {
+	ApiType        *string `json:"api_type"`
+	ApiCredentials []byte  `json:"api_credentials"`
+}
+
+// Returns api_type and raw credentials for a team+distributor config.
+// Used by the upsert handler to merge-preserve existing secret field values.
+func (q *Queries) GetDistributorConfigRaw(ctx context.Context, arg GetDistributorConfigRawParams) (GetDistributorConfigRawRow, error) {
+	row := q.db.QueryRow(ctx, getDistributorConfigRaw, arg.TeamID, arg.DistributorID)
+	var i GetDistributorConfigRawRow
+	err := row.Scan(&i.ApiType, &i.ApiCredentials)
+	return i, err
+}
+
 const getListingBySKUAndDistributorID = `-- name: GetListingBySKUAndDistributorID :one
 SELECT id, part_id
 FROM distributor_listings
@@ -123,10 +149,12 @@ SELECT
     dc.id,
     dc.distributor_id,
     d.name  AS distributor_name,
+    d.api_type,
     dc.enabled,
     dc.preferred,
     dc.cache_duration_seconds,
-    (dc.api_credentials IS NOT NULL) AS has_credentials
+    (dc.api_credentials IS NOT NULL) AS has_credentials,
+    dc.api_credentials
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1
@@ -137,10 +165,12 @@ type ListDistributorConfigsRow struct {
 	ID                   pgtype.UUID `json:"id"`
 	DistributorID        pgtype.UUID `json:"distributor_id"`
 	DistributorName      string      `json:"distributor_name"`
+	ApiType              *string     `json:"api_type"`
 	Enabled              bool        `json:"enabled"`
 	Preferred            bool        `json:"preferred"`
 	CacheDurationSeconds int32       `json:"cache_duration_seconds"`
 	HasCredentials       interface{} `json:"has_credentials"`
+	ApiCredentials       []byte      `json:"api_credentials"`
 }
 
 func (q *Queries) ListDistributorConfigs(ctx context.Context, teamID pgtype.UUID) ([]ListDistributorConfigsRow, error) {
@@ -156,10 +186,12 @@ func (q *Queries) ListDistributorConfigs(ctx context.Context, teamID pgtype.UUID
 			&i.ID,
 			&i.DistributorID,
 			&i.DistributorName,
+			&i.ApiType,
 			&i.Enabled,
 			&i.Preferred,
 			&i.CacheDurationSeconds,
 			&i.HasCredentials,
+			&i.ApiCredentials,
 		); err != nil {
 			return nil, err
 		}

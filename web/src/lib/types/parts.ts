@@ -101,4 +101,5 @@ export interface DistributorConfig {
   preferred: boolean;
   cache_duration_seconds: number;
   has_credentials: boolean;
+  api_credentials?: Record<string, unknown> | null;
 }

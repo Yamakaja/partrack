@@ -11,14 +11,24 @@ SELECT
     dc.id,
     dc.distributor_id,
     d.name  AS distributor_name,
+    d.api_type,
     dc.enabled,
     dc.preferred,
     dc.cache_duration_seconds,
-    (dc.api_credentials IS NOT NULL) AS has_credentials
+    (dc.api_credentials IS NOT NULL) AS has_credentials,
+    dc.api_credentials
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1
 ORDER BY d.name;
+
+-- name: GetDistributorConfigRaw :one
+-- Returns api_type and raw credentials for a team+distributor config.
+-- Used by the upsert handler to merge-preserve existing secret field values.
+SELECT d.api_type, dc.api_credentials
+FROM distributor_configs dc
+JOIN distributors d ON d.id = dc.distributor_id
+WHERE dc.team_id = $1 AND dc.distributor_id = $2;
 
 -- name: UpsertDistributorConfig :one
 -- Updates api_credentials to the supplied value (pass NULL to clear).

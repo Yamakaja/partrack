@@ -95,17 +95,18 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 	}
 
 	type item struct {
-		DistributorID        string `json:"distributor_id"`
-		DistributorName      string `json:"distributor_name"`
-		Enabled              bool   `json:"enabled"`
-		Preferred            bool   `json:"preferred"`
-		CacheDurationSeconds int32  `json:"cache_duration_seconds"`
-		HasCredentials       bool   `json:"has_credentials"`
+		DistributorID        string         `json:"distributor_id"`
+		DistributorName      string         `json:"distributor_name"`
+		Enabled              bool           `json:"enabled"`
+		Preferred            bool           `json:"preferred"`
+		CacheDurationSeconds int32          `json:"cache_duration_seconds"`
+		HasCredentials       bool           `json:"has_credentials"`
+		ApiCredentials       map[string]any `json:"api_credentials,omitempty"`
 	}
 	items := make([]item, len(configs))
 	for i, c := range configs {
 		hasCreds, _ := c.HasCredentials.(bool)
-		items[i] = item{
+		it := item{
 			DistributorID:        c.DistributorID.String(),
 			DistributorName:      c.DistributorName,
 			Enabled:              c.Enabled,
@@ -113,6 +114,27 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 			CacheDurationSeconds: c.CacheDurationSeconds,
 			HasCredentials:       hasCreds,
 		}
+		// Include non-secret credential fields so the frontend can pre-populate the form.
+		if len(c.ApiCredentials) > 0 && c.ApiType != nil {
+			if client := h.Distributors.Lookup(*c.ApiType); client != nil {
+				secretKeys := make(map[string]bool)
+				for _, f := range client.CredentialSpec() {
+					if f.Secret {
+						secretKeys[f.Key] = true
+					}
+				}
+				var creds map[string]any
+				if err := json.Unmarshal(c.ApiCredentials, &creds); err == nil {
+					for k := range secretKeys {
+						delete(creds, k)
+					}
+					if len(creds) > 0 {
+						it.ApiCredentials = creds
+					}
+				}
+			}
+		}
+		items[i] = it
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -182,10 +204,58 @@ func (h *Handler) UpsertDistributorConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// api_credentials key was present — set to provided value (null to clear).
+	// api_credentials key was present — merge submitted values with existing,
+	// preserving existing values for secret fields that were left blank.
 	var apiCredentials []byte
 	if string(raw["api_credentials"]) != "null" {
-		apiCredentials = []byte(raw["api_credentials"])
+		submitted := raw["api_credentials"]
+
+		// Fetch existing credentials + api_type to enable field-level merging.
+		existing, rawErr := h.Queries.GetDistributorConfigRaw(r.Context(), dbgen.GetDistributorConfigRawParams{
+			TeamID:        teamID,
+			DistributorID: distributorID,
+		})
+		if rawErr != nil && !errors.Is(rawErr, pgx.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		// Unmarshal both submitted and existing credentials.
+		var submittedMap map[string]any
+		if err := json.Unmarshal(submitted, &submittedMap); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid api_credentials", "BAD_REQUEST")
+			return
+		}
+
+		// Merge: for secret fields with an empty/absent submitted value, keep the existing value.
+		if !errors.Is(rawErr, pgx.ErrNoRows) && len(existing.ApiCredentials) > 0 && existing.ApiType != nil {
+			if client := h.Distributors.Lookup(*existing.ApiType); client != nil {
+				var existingMap map[string]any
+				if err := json.Unmarshal(existing.ApiCredentials, &existingMap); err == nil {
+					for _, f := range client.CredentialSpec() {
+						if !f.Secret {
+							continue
+						}
+						submitted, hasKey := submittedMap[f.Key]
+						isEmpty := !hasKey || submitted == "" || submitted == nil
+						if isEmpty {
+							if existingVal, ok := existingMap[f.Key]; ok {
+								submittedMap[f.Key] = existingVal
+							} else {
+								delete(submittedMap, f.Key)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		merged, err := json.Marshal(submittedMap)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		apiCredentials = merged
 	}
 
 	row, err := h.Queries.UpsertDistributorConfig(r.Context(), dbgen.UpsertDistributorConfigParams{
