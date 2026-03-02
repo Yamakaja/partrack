@@ -23,7 +23,11 @@ func main() {
 
 	reg := distributor.NewRegistry()
 	reg.Register("test", testclient.New())
-	reg.Register("digikey", digikey.New())
+	dk := digikey.New()
+	if os.Getenv("PARTRACK_DIGIKEY_DEBUG") != "" {
+		dk.SetDebug(true)
+	}
+	reg.Register("digikey", dk)
 
 	q := worker.New(4, pool, reg)
 

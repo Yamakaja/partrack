@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,9 +33,16 @@ type Credentials struct {
 
 // Client is the DigiKey distributor implementation.
 type Client struct {
-	mu         sync.Mutex
-	tokens     map[string]*cachedToken // keyed by client_id
-	httpClient *http.Client
+	mu          sync.Mutex
+	tokens      map[string]*cachedToken // keyed by client_id
+	httpClient  *http.Client
+	debug       bool
+	searchCache sync.Map // key: clientID+"/"+sku → searchCacheEntry
+}
+
+type searchCacheEntry struct {
+	product   product
+	expiresAt time.Time
 }
 
 type cachedToken struct {
@@ -48,6 +56,13 @@ func New() *Client {
 		tokens:     make(map[string]*cachedToken),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// SetDebug enables or disables verbose request/response logging for all DigiKey API calls.
+// When enabled, each call logs the method, URL, request headers, request body,
+// response status, and response body. Intended for debugging credential and API issues only.
+func (c *Client) SetDebug(enabled bool) {
+	c.debug = enabled
 }
 
 // ---- host helpers ----
@@ -87,7 +102,12 @@ func (c *Client) getToken(ctx context.Context, creds Credentials) (string, error
 	form.Set("client_id", creds.ClientID)
 	form.Set("client_secret", creds.ClientSecret)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL(creds), strings.NewReader(form.Encode()))
+	tokenURLStr := tokenURL(creds)
+	if c.debug {
+		log.Printf("digikey [token] POST %s  client_id=%s sandbox=%v", tokenURLStr, creds.ClientID, creds.Sandbox)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURLStr, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("digikey: build token request: %w", err)
 	}
@@ -100,6 +120,9 @@ func (c *Client) getToken(ctx context.Context, creds Credentials) (string, error
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	if c.debug {
+		log.Printf("digikey [token] response status=%d body=%s", resp.StatusCode, body)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("digikey: token endpoint %d: %s", resp.StatusCode, body)
 	}
@@ -151,12 +174,14 @@ func (c *Client) doRequest(ctx context.Context, method, rawURL string, body any,
 
 	for attempt := 0; attempt < 2; attempt++ {
 		var bodyReader io.Reader
+		var encodedBody []byte
 		if body != nil {
-			buf, err := json.Marshal(body)
+			var err error
+			encodedBody, err = json.Marshal(body)
 			if err != nil {
 				return false, fmt.Errorf("digikey: encode request body: %w", err)
 			}
-			bodyReader = bytes.NewReader(buf)
+			bodyReader = bytes.NewReader(encodedBody)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
@@ -168,12 +193,26 @@ func (c *Client) doRequest(ctx context.Context, method, rawURL string, body any,
 		}
 		setHeaders(req, creds, token)
 
+		if c.debug {
+			log.Printf("digikey [request] attempt=%d %s %s", attempt+1, method, rawURL)
+			for k, vs := range req.Header {
+				log.Printf("digikey [request]   %s: %s", k, strings.Join(vs, ", "))
+			}
+			if encodedBody != nil {
+				log.Printf("digikey [request] body=%s", encodedBody)
+			}
+		}
+
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			return false, fmt.Errorf("digikey: request: %w", err)
 		}
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+
+		if c.debug {
+			log.Printf("digikey [response] status=%d body=%s", resp.StatusCode, respBody)
+		}
 
 		switch resp.StatusCode {
 		case http.StatusOK:
@@ -239,7 +278,7 @@ type productDetailsResponse struct {
 
 type product struct {
 	Manufacturer           nameObj            `json:"Manufacturer"`
-	ManufacturerPartNumber string             `json:"ManufacturerPartNumber"`
+	ManufacturerPartNumber string             `json:"ManufacturerProductNumber"`
 	Description            descriptionObj     `json:"Description"`
 	Category               nameObj            `json:"Category"`
 	DatasheetUrl           string             `json:"DatasheetUrl"`
@@ -339,29 +378,8 @@ func (c *Client) CredentialSpec() []distributor.CredentialField {
 	}
 }
 
-// EnrichPart fetches full product metadata and listings for a specific DigiKey SKU.
-// The SKU must be chosen unambiguously by the caller (e.g. selected from SearchParts results).
-// Returns nil, nil if the SKU is not found.
-func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMessage) (*distributor.EnrichmentResult, error) {
-	if rawCreds == nil {
-		return nil, fmt.Errorf("digikey: credentials required")
-	}
-	var creds Credentials
-	if err := json.Unmarshal(rawCreds, &creds); err != nil {
-		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
-	}
-
-	endpoint := baseURL(creds) + "/products/v4/search/" + url.PathEscape(sku) + "/productdetails"
-	var resp productDetailsResponse
-	found, err := c.doGet(ctx, endpoint, creds, &resp)
-	if err != nil {
-		return nil, err
-	}
-	if !found || resp.Product == nil {
-		return nil, nil
-	}
-
-	p := resp.Product
+// mapProductToEnrichment converts a DigiKey product struct to an EnrichmentResult.
+func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 	result := &distributor.EnrichmentResult{
 		MPN:             p.ManufacturerPartNumber,
 		Manufacturer:    p.Manufacturer.Name,
@@ -379,7 +397,6 @@ func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMe
 		if param.ValueText == "" || param.ValueText == "-" {
 			continue
 		}
-
 		p2 := distributor.Parameter{
 			Name:  param.ParameterText,
 			Value: param.ValueText,
@@ -410,7 +427,42 @@ func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMe
 		result.Listings = append(result.Listings, listing)
 	}
 
-	return result, nil
+	return result
+}
+
+// EnrichPart fetches full product metadata and listings for a specific DigiKey SKU.
+// The SKU must be chosen unambiguously by the caller (e.g. selected from SearchParts results).
+// Returns nil, nil if the SKU is not found.
+func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMessage) (*distributor.EnrichmentResult, error) {
+	if rawCreds == nil {
+		return nil, fmt.Errorf("digikey: credentials required")
+	}
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+
+	// Check search result cache before making an API call.
+	cacheKey := creds.ClientID + "/" + sku
+	if v, ok := c.searchCache.Load(cacheKey); ok {
+		entry := v.(searchCacheEntry)
+		if time.Now().Before(entry.expiresAt) {
+			return mapProductToEnrichment(&entry.product), nil
+		}
+		c.searchCache.Delete(cacheKey)
+	}
+
+	endpoint := baseURL(creds) + "/products/v4/search/" + url.PathEscape(sku) + "/productdetails"
+	var resp productDetailsResponse
+	found, err := c.doGet(ctx, endpoint, creds, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if !found || resp.Product == nil {
+		return nil, nil
+	}
+
+	return mapProductToEnrichment(resp.Product), nil
 }
 
 // RefreshListing fetches current stock and price for sku from DigiKey.
@@ -525,6 +577,18 @@ func (c *Client) SearchParts(ctx context.Context, q distributor.SearchQuery, raw
 		}
 
 		products = append(products, sp)
+
+		// Cache the full product by each variant SKU so EnrichPart can skip an API call.
+		expiry := time.Now().Add(1 * time.Hour)
+		for _, v := range p.ProductVariations {
+			if v.MarketPlace {
+				continue
+			}
+			c.searchCache.Store(creds.ClientID+"/"+v.DigiKeyProductNumber, searchCacheEntry{
+				product:   p,
+				expiresAt: expiry,
+			})
+		}
 	}
 
 	// Compute ExactMatchIndices by correlating ExactMatches with Products.
