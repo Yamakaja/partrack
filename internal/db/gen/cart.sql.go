@@ -11,6 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearBomShortfallItems = `-- name: ClearBomShortfallItems :exec
+DELETE FROM cart_line_items
+WHERE shopping_cart_id = $1 AND source = 'bom_shortfall'
+`
+
+func (q *Queries) ClearBomShortfallItems(ctx context.Context, shoppingCartID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearBomShortfallItems, shoppingCartID)
+	return err
+}
+
 const clearCart = `-- name: ClearCart :exec
 DELETE FROM cart_line_items
 WHERE shopping_cart_id = (SELECT id FROM shopping_carts WHERE team_id = $1)
@@ -18,6 +28,15 @@ WHERE shopping_cart_id = (SELECT id FROM shopping_carts WHERE team_id = $1)
 
 func (q *Queries) ClearCart(ctx context.Context, teamID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, clearCart, teamID)
+	return err
+}
+
+const clearPendingBuilds = `-- name: ClearPendingBuilds :exec
+DELETE FROM cart_pending_builds WHERE shopping_cart_id = $1
+`
+
+func (q *Queries) ClearPendingBuilds(ctx context.Context, shoppingCartID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearPendingBuilds, shoppingCartID)
 	return err
 }
 
@@ -47,6 +66,21 @@ type DeleteCartItemParams struct {
 
 func (q *Queries) DeleteCartItem(ctx context.Context, arg DeleteCartItemParams) error {
 	_, err := q.db.Exec(ctx, deleteCartItem, arg.ID, arg.TeamID)
+	return err
+}
+
+const deletePendingBuild = `-- name: DeletePendingBuild :exec
+DELETE FROM cart_pending_builds
+WHERE shopping_cart_id = $1 AND bom_revision_id = $2
+`
+
+type DeletePendingBuildParams struct {
+	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
+	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
+}
+
+func (q *Queries) DeletePendingBuild(ctx context.Context, arg DeletePendingBuildParams) error {
+	_, err := q.db.Exec(ctx, deletePendingBuild, arg.ShoppingCartID, arg.BomRevisionID)
 	return err
 }
 
@@ -184,6 +218,49 @@ func (q *Queries) GetCartItemsForConvert(ctx context.Context, teamID pgtype.UUID
 	return items, nil
 }
 
+const getInventoryQuantitiesForParts = `-- name: GetInventoryQuantitiesForParts :many
+SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
+FROM inventory_entries ie
+WHERE ie.team_id = $1 AND ie.part_id = ANY($2::uuid[])
+`
+
+type GetInventoryQuantitiesForPartsParams struct {
+	TeamID  pgtype.UUID   `json:"team_id"`
+	Column2 []pgtype.UUID `json:"column_2"`
+}
+
+type GetInventoryQuantitiesForPartsRow struct {
+	PartID               pgtype.UUID `json:"part_id"`
+	QuantityOnHand       int32       `json:"quantity_on_hand"`
+	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
+	ReorderQuantity      *int32      `json:"reorder_quantity"`
+}
+
+func (q *Queries) GetInventoryQuantitiesForParts(ctx context.Context, arg GetInventoryQuantitiesForPartsParams) ([]GetInventoryQuantitiesForPartsRow, error) {
+	rows, err := q.db.Query(ctx, getInventoryQuantitiesForParts, arg.TeamID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetInventoryQuantitiesForPartsRow
+	for rows.Next() {
+		var i GetInventoryQuantitiesForPartsRow
+		if err := rows.Scan(
+			&i.PartID,
+			&i.QuantityOnHand,
+			&i.MinimumStockQuantity,
+			&i.ReorderQuantity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getListingsForCartResolution = `-- name: GetListingsForCartResolution :many
 SELECT
     dl.id              AS listing_id,
@@ -267,6 +344,52 @@ func (q *Queries) GetOrCreateCart(ctx context.Context, teamID pgtype.UUID) (Shop
 	var i ShoppingCart
 	err := row.Scan(&i.ID, &i.TeamID)
 	return i, err
+}
+
+const getPendingBuildsForCart = `-- name: GetPendingBuildsForCart :many
+SELECT cpb.id, cpb.shopping_cart_id, cpb.bom_revision_id, cpb.build_quantity,
+       br.label AS revision_label, p.name AS project_name
+FROM cart_pending_builds cpb
+JOIN bom_revisions br ON br.id = cpb.bom_revision_id
+JOIN projects p       ON p.id  = br.project_id
+WHERE cpb.shopping_cart_id = $1
+ORDER BY cpb.id
+`
+
+type GetPendingBuildsForCartRow struct {
+	ID             pgtype.UUID `json:"id"`
+	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
+	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
+	BuildQuantity  int32       `json:"build_quantity"`
+	RevisionLabel  string      `json:"revision_label"`
+	ProjectName    string      `json:"project_name"`
+}
+
+func (q *Queries) GetPendingBuildsForCart(ctx context.Context, shoppingCartID pgtype.UUID) ([]GetPendingBuildsForCartRow, error) {
+	rows, err := q.db.Query(ctx, getPendingBuildsForCart, shoppingCartID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPendingBuildsForCartRow
+	for rows.Next() {
+		var i GetPendingBuildsForCartRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ShoppingCartID,
+			&i.BomRevisionID,
+			&i.BuildQuantity,
+			&i.RevisionLabel,
+			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateCartItemListing = `-- name: UpdateCartItemListing :one
@@ -380,6 +503,32 @@ func (q *Queries) UpsertCartItem(ctx context.Context, arg UpsertCartItemParams) 
 		&i.ListingID,
 		&i.Source,
 		&i.SourceBomLineItemID,
+	)
+	return i, err
+}
+
+const upsertPendingBuild = `-- name: UpsertPendingBuild :one
+INSERT INTO cart_pending_builds (shopping_cart_id, bom_revision_id, build_quantity)
+VALUES ($1, $2, $3)
+ON CONFLICT (shopping_cart_id, bom_revision_id)
+DO UPDATE SET build_quantity = EXCLUDED.build_quantity
+RETURNING id, shopping_cart_id, bom_revision_id, build_quantity
+`
+
+type UpsertPendingBuildParams struct {
+	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
+	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
+	BuildQuantity  int32       `json:"build_quantity"`
+}
+
+func (q *Queries) UpsertPendingBuild(ctx context.Context, arg UpsertPendingBuildParams) (CartPendingBuild, error) {
+	row := q.db.QueryRow(ctx, upsertPendingBuild, arg.ShoppingCartID, arg.BomRevisionID, arg.BuildQuantity)
+	var i CartPendingBuild
+	err := row.Scan(
+		&i.ID,
+		&i.ShoppingCartID,
+		&i.BomRevisionID,
+		&i.BuildQuantity,
 	)
 	return i, err
 }

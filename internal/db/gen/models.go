@@ -421,6 +421,13 @@ type CartLineItem struct {
 	SourceBomLineItemID pgtype.UUID    `json:"source_bom_line_item_id"`
 }
 
+type CartPendingBuild struct {
+	ID             pgtype.UUID `json:"id"`
+	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
+	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
+	BuildQuantity  int32       `json:"build_quantity"`
+}
+
 type Distributor struct {
 	ID      pgtype.UUID `json:"id"`
 	Name    string      `json:"name"`

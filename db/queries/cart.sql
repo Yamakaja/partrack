@@ -81,6 +81,38 @@ LEFT JOIN distributor_listings dl ON dl.id = cli.listing_id
 WHERE sc.team_id = $1
 ORDER BY dl.distributor_id NULLS LAST, cli.id;
 
+-- name: UpsertPendingBuild :one
+INSERT INTO cart_pending_builds (shopping_cart_id, bom_revision_id, build_quantity)
+VALUES ($1, $2, $3)
+ON CONFLICT (shopping_cart_id, bom_revision_id)
+DO UPDATE SET build_quantity = EXCLUDED.build_quantity
+RETURNING id, shopping_cart_id, bom_revision_id, build_quantity;
+
+-- name: GetPendingBuildsForCart :many
+SELECT cpb.id, cpb.shopping_cart_id, cpb.bom_revision_id, cpb.build_quantity,
+       br.label AS revision_label, p.name AS project_name
+FROM cart_pending_builds cpb
+JOIN bom_revisions br ON br.id = cpb.bom_revision_id
+JOIN projects p       ON p.id  = br.project_id
+WHERE cpb.shopping_cart_id = $1
+ORDER BY cpb.id;
+
+-- name: ClearBomShortfallItems :exec
+DELETE FROM cart_line_items
+WHERE shopping_cart_id = $1 AND source = 'bom_shortfall';
+
+-- name: GetInventoryQuantitiesForParts :many
+SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
+FROM inventory_entries ie
+WHERE ie.team_id = $1 AND ie.part_id = ANY($2::uuid[]);
+
+-- name: DeletePendingBuild :exec
+DELETE FROM cart_pending_builds
+WHERE shopping_cart_id = $1 AND bom_revision_id = $2;
+
+-- name: ClearPendingBuilds :exec
+DELETE FROM cart_pending_builds WHERE shopping_cart_id = $1;
+
 -- name: GetListingsForCartResolution :many
 SELECT
     dl.id              AS listing_id,

@@ -5,11 +5,28 @@ export type OrderStatus =
   | 'partially_received'
   | 'received';
 
-export type CartItemSource = 'bom_shortfall' | 'low_stock' | 'manual';
+export type CartItemSource = 'bom_shortfall' | 'inventory_maintenance' | 'manual';
 
 export interface PriceBreak {
   break_qty: number;
   unit_price: string;
+}
+
+export interface ResolvedListing {
+  listing_id: string;
+  distributor_id: string;
+  distributor_name: string;
+  sku: string;
+  unit_price: string | null;
+  fixed_order_cost: string | null;
+  moq: number;
+}
+
+export interface PendingBuild {
+  bom_revision_id: string;
+  revision_label: string;
+  project_name: string;
+  build_quantity: number;
 }
 
 export interface CartItem {
@@ -25,10 +42,12 @@ export interface CartItem {
   price_breaks: PriceBreak[];
   fixed_order_cost: string | null;
   source: CartItemSource;
+  resolved_listing: ResolvedListing | null;
 }
 
 export interface Cart {
   items: CartItem[];
+  pending_builds: PendingBuild[];
 }
 
 export interface Order {

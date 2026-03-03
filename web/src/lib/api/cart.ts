@@ -31,3 +31,9 @@ export function addLowStock(teamId: string) {
 export function convertCart(teamId: string) {
   return request<{ order_ids: string[] }>('POST', `/api/v1/teams/${teamId}/cart/convert`);
 }
+
+export function removePendingBuild(teamId: string, revisionId: string) {
+  return request<{ added_count: number }>(
+    'DELETE', `/api/v1/teams/${teamId}/cart/pending-builds/${revisionId}`,
+  );
+}

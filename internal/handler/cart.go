@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -36,6 +37,118 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 	}
 }
 
+// recomputeBomShortfalls clears all bom_shortfall cart items for the given cart
+// and re-inserts them by aggregating demand across ALL pending builds, then
+// subtracting current inventory once. manual and inventory_maintenance items
+// are not touched. q must be the transaction-bound queries object when called
+// inside a transaction.
+func (h *Handler) recomputeBomShortfalls(
+	ctx context.Context,
+	q *dbgen.Queries,
+	cartID pgtype.UUID,
+	teamID pgtype.UUID,
+) (int, error) {
+	pendingBuilds, err := q.GetPendingBuildsForCart(ctx, cartID)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(pendingBuilds) == 0 {
+		return 0, q.ClearBomShortfallItems(ctx, cartID)
+	}
+
+	// Aggregate total demand per part across all pending builds.
+	demandByPart := make(map[string]int32)
+	for _, pb := range pendingBuilds {
+		lineItems, err := q.ListBOMLineItems(ctx, pb.BomRevisionID)
+		if err != nil {
+			return 0, err
+		}
+		for _, li := range lineItems {
+			if !li.ResolvedPartID.Valid || li.Ignored {
+				continue
+			}
+			demandByPart[li.ResolvedPartID.String()] += li.Quantity * pb.BuildQuantity
+		}
+	}
+
+	if len(demandByPart) == 0 {
+		return 0, q.ClearBomShortfallItems(ctx, cartID)
+	}
+
+	// Fetch inventory for all relevant parts in one query.
+	partIDs := make([]pgtype.UUID, 0, len(demandByPart))
+	for pidStr := range demandByPart {
+		var pid pgtype.UUID
+		_ = pid.Scan(pidStr)
+		partIDs = append(partIDs, pid)
+	}
+
+	invRows, err := q.GetInventoryQuantitiesForParts(ctx, dbgen.GetInventoryQuantitiesForPartsParams{
+		TeamID:  teamID,
+		Column2: partIDs,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	type invEntry struct {
+		quantityOnHand       int32
+		minimumStockQuantity *int32
+		reorderQuantity      *int32
+	}
+	invByPart := make(map[string]invEntry, len(invRows))
+	for _, row := range invRows {
+		invByPart[row.PartID.String()] = invEntry{
+			quantityOnHand:       row.QuantityOnHand,
+			minimumStockQuantity: row.MinimumStockQuantity,
+			reorderQuantity:      row.ReorderQuantity,
+		}
+	}
+
+	if err := q.ClearBomShortfallItems(ctx, cartID); err != nil {
+		return 0, err
+	}
+
+	addedCount := 0
+	for pidStr, required := range demandByPart {
+		inv := invByPart[pidStr]
+		stock := inv.quantityOnHand
+		postBuild := stock - required
+
+		var cartQty int32
+		if inv.minimumStockQuantity != nil && postBuild < *inv.minimumStockQuantity {
+			rawQty := *inv.minimumStockQuantity - postBuild
+			if inv.reorderQuantity != nil {
+				cartQty = *inv.reorderQuantity
+			} else {
+				cartQty = rawQty
+			}
+		} else if stock < required {
+			cartQty = required - stock
+		} else {
+			continue
+		}
+
+		var partID pgtype.UUID
+		_ = partID.Scan(pidStr)
+
+		// source_bom_line_item_id is intentionally null: with multiple pending builds
+		// a single shortfall item cannot be attributed to one BOM line item.
+		if _, err := q.UpsertCartItem(ctx, dbgen.UpsertCartItemParams{
+			ShoppingCartID: cartID,
+			PartID:         partID,
+			Quantity:       cartQty,
+			Source:         dbgen.CartItemSourceBomShortfall,
+		}); err != nil {
+			return addedCount, err
+		}
+		addedCount++
+	}
+
+	return addedCount, nil
+}
+
 // GetCart handles GET /api/v1/teams/{teamId}/cart
 func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
@@ -44,12 +157,19 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.Queries.GetOrCreateCart(r.Context(), teamID); err != nil {
+	cart, err := h.Queries.GetOrCreateCart(r.Context(), teamID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
 	rows, err := h.Queries.GetCartItems(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	pendingBuilds, err := h.Queries.GetPendingBuildsForCart(r.Context(), cart.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -84,7 +204,20 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		items[i] = m
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	pbResp := make([]map[string]any, len(pendingBuilds))
+	for i, pb := range pendingBuilds {
+		pbResp[i] = map[string]any{
+			"bom_revision_id": pb.BomRevisionID.String(),
+			"revision_label":  pb.RevisionLabel,
+			"project_name":    pb.ProjectName,
+			"build_quantity":  pb.BuildQuantity,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":          items,
+		"pending_builds": pbResp,
+	})
 }
 
 // ClearCart handles DELETE /api/v1/teams/{teamId}/cart
@@ -95,7 +228,32 @@ func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.ClearCart(r.Context(), teamID); err != nil {
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	qtx := h.Queries.WithTx(tx)
+
+	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := qtx.ClearCart(r.Context(), teamID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := qtx.ClearPendingBuilds(r.Context(), cart.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
@@ -285,7 +443,8 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // AddShortfalls handles POST /api/v1/teams/{teamId}/cart/add-shortfall
-// Body: {bom_revision_id, build_quantity}. Merges BOM shortfalls and restock gaps into the cart.
+// Body: {bom_revision_id, build_quantity}. Registers the pending build and
+// recomputes all bom_shortfall cart items across every pending build.
 func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -316,84 +475,92 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type liResult struct {
-		items []dbgen.ListBOMLineItemsRow
-		err   error
-	}
-	type invResult struct {
-		rows []dbgen.GetInventoryQuantitiesForRevisionRow
-		err  error
-	}
-	liCh := make(chan liResult, 1)
-	invCh := make(chan invResult, 1)
-	go func() {
-		items, err := h.Queries.ListBOMLineItems(r.Context(), revID)
-		liCh <- liResult{items, err}
-	}()
-	go func() {
-		rows, err := h.Queries.GetInventoryQuantitiesForRevision(r.Context(),
-			dbgen.GetInventoryQuantitiesForRevisionParams{
-				BomRevisionID: revID,
-				TeamID:        teamID,
-			})
-		invCh <- invResult{rows, err}
-	}()
-	liRes := <-liCh
-	invRes := <-invCh
-	if liRes.err != nil || invRes.err != nil {
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	lineItems := liRes.items
+	defer tx.Rollback(r.Context()) //nolint:errcheck
 
-	invByPart := make(map[string]dbgen.GetInventoryQuantitiesForRevisionRow)
-	for _, row := range invRes.rows {
-		invByPart[row.PartID.String()] = row
-	}
+	qtx := h.Queries.WithTx(tx)
 
-	cart, err := h.Queries.GetOrCreateCart(r.Context(), teamID)
+	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	addedCount := 0
-	for _, li := range lineItems {
-		if !li.ResolvedPartID.Valid {
-			continue
-		}
-		required := li.Quantity * body.BuildQuantity
-		inv := invByPart[li.ResolvedPartID.String()]
-		stock := inv.QuantityOnHand
-		postBuild := stock - required
+	if _, err := qtx.UpsertPendingBuild(r.Context(), dbgen.UpsertPendingBuildParams{
+		ShoppingCartID: cart.ID,
+		BomRevisionID:  revID,
+		BuildQuantity:  body.BuildQuantity,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
 
-		var cartQty int32
-		if inv.MinimumStockQuantity != nil && postBuild < *inv.MinimumStockQuantity {
-			// Post-build stock would be below minimum — top up to min_stock_qty.
-			rawQty := *inv.MinimumStockQuantity - postBuild
-			if inv.ReorderQuantity != nil {
-				cartQty = *inv.ReorderQuantity
-			} else {
-				cartQty = rawQty
-			}
-		} else if stock < required {
-			cartQty = required - stock
-		} else {
-			continue
-		}
+	addedCount, err := h.recomputeBomShortfalls(r.Context(), qtx, cart.ID, teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
 
-		_, err := h.Queries.UpsertCartItem(r.Context(), dbgen.UpsertCartItemParams{
-			ShoppingCartID:      cart.ID,
-			PartID:              li.ResolvedPartID,
-			Quantity:            cartQty,
-			Source:              dbgen.CartItemSourceBomShortfall,
-			SourceBomLineItemID: li.ID,
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		addedCount++
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.CartResolver.Invalidate(teamID.String())
+	h.publishCartChanged(r, teamID)
+	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
+}
+
+// RemovePendingBuild handles DELETE /api/v1/teams/{teamId}/cart/pending-builds/{revisionId}
+// Removes a pending build and recomputes all bom_shortfall cart items.
+func (h *Handler) RemovePendingBuild(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var revID pgtype.UUID
+	if err := revID.Scan(chi.URLParam(r, "revisionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	qtx := h.Queries.WithTx(tx)
+
+	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := qtx.DeletePendingBuild(r.Context(), dbgen.DeletePendingBuildParams{
+		ShoppingCartID: cart.ID,
+		BomRevisionID:  revID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	addedCount, err := h.recomputeBomShortfalls(r.Context(), qtx, cart.ID, teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
 	}
 
 	h.CartResolver.Invalidate(teamID.String())
@@ -583,6 +750,17 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := qtx.ClearCart(r.Context(), teamID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := qtx.ClearPendingBuilds(r.Context(), cart.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}

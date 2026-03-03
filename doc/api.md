@@ -2,6 +2,8 @@
 
 > REST API reference for partrack. Consumed by the Svelte frontend and by external API token clients.
 
+POTENTIALLY OUTDATED!
+
 ---
 
 ## 1. Conventions
@@ -1258,8 +1260,6 @@ Get the team's cart with all line items and per-distributor cost totals.
 **Response `200`**
 ```json
 {
-  "id": "uuid",
-  "team_id": "uuid",
   "items": [
     {
       "id": "uuid",
@@ -1271,26 +1271,27 @@ Get the team's cart with all line items and per-distributor cost totals.
       "listing_distributor_name": "DigiKey",
       "listing_unit_price": "0.0120",
       "source": "bom_shortfall",
-      "source_bom_line_item_id": "uuid"
+      "source_bom_line_item_id": null
     }
   ],
-  "distributor_totals": [
+  "pending_builds": [
     {
-      "distributor_id": "uuid",
-      "distributor_name": "DigiKey",
-      "subtotal": "6.0000",
-      "unassigned_item_count": 0
+      "bom_revision_id": "uuid",
+      "revision_label": "v1.2",
+      "project_name": "Main Board",
+      "build_quantity": 10
     }
-  ],
-  "unassigned_item_count": 1
+  ]
 }
 ```
+
+`pending_builds` lists the BOM revisions currently driving `bom_shortfall` cart items. `source_bom_line_item_id` is `null` when the item's shortfall is aggregated across multiple pending builds.
 
 ---
 
 ### `DELETE /api/v1/teams/{teamId}/cart`
 
-Clear all items from the cart.
+Clear all items from the cart. Also clears all pending builds.
 
 **Min role:** P
 
@@ -1340,18 +1341,39 @@ Remove an item from the cart.
 
 ---
 
-### `POST /api/v1/teams/{teamId}/cart/add-shortfalls`
+### `POST /api/v1/teams/{teamId}/cart/add-shortfall`
 
-Add BOM shortfalls to the cart. Merges quantities for items already in the cart. Respects `reorder_quantity` minimums from each inventory entry.
+Register a BOM revision as a pending build and recompute all `bom_shortfall` cart items.
+Demand is aggregated across every pending build before subtracting on-hand inventory,
+so overlapping parts are never double-counted. Calling this endpoint again with the same
+`bom_revision_id` replaces its `build_quantity` and recomputes. `manual` and
+`inventory_maintenance` cart items are not affected.
 
 **Min role:** P
 
 **Request body**
 ```json
-{ "bom_revision_id": "uuid", "build_qty": 10 }
+{ "bom_revision_id": "uuid", "build_quantity": 10 }
 ```
 
-**Response `200`** — updated cart (same shape as `GET /cart`).
+**Response `200`**
+```json
+{ "added_count": 3 }
+```
+
+---
+
+### `DELETE /api/v1/teams/{teamId}/cart/pending-builds/{revisionId}`
+
+Remove a BOM revision from the pending-builds list and recompute all `bom_shortfall` cart items.
+`manual` and `inventory_maintenance` items are not affected.
+
+**Min role:** P
+
+**Response `200`**
+```json
+{ "added_count": 2 }
+```
 
 ---
 
@@ -1367,7 +1389,7 @@ Add all inventory entries below their minimum stock quantity to the cart. Merges
 
 ### `POST /api/v1/teams/{teamId}/cart/convert`
 
-Convert the cart to draft orders. Items are grouped by distributor; one `Draft` order is created per distributor. The converted items are removed from the cart.
+Convert the cart to draft orders. Items are grouped by distributor; one `Draft` order is created per distributor. The cart items and all pending builds are cleared on success.
 
 **Min role:** P
 
