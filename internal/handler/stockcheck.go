@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// StockCheck handles GET /api/v1/teams/{teamId}/projects/{projectId}/stock-check
-// Query: build_qty (required). The build_qty is ephemeral — not stored.
-// Returns per-line-item status against the project's active BOM revision.
+// StockCheck handles GET /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/stock-check
+// Query: build_quantity (required). The build_quantity is ephemeral — not stored.
+// Returns per-line-item status for the specified BOM revision.
 func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -25,41 +25,28 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
 		return
 	}
+	var revID pgtype.UUID
+	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
 
-	buildQtyStr := r.URL.Query().Get("build_qty")
+	buildQtyStr := r.URL.Query().Get("build_quantity")
 	if buildQtyStr == "" {
-		writeError(w, http.StatusBadRequest, "build_qty is required", "BAD_REQUEST")
+		writeError(w, http.StatusBadRequest, "build_quantity is required", "BAD_REQUEST")
 		return
 	}
 	buildQty64, err := strconv.ParseInt(buildQtyStr, 10, 32)
 	if err != nil || buildQty64 <= 0 {
-		writeError(w, http.StatusBadRequest, "build_qty must be a positive integer", "BAD_REQUEST")
+		writeError(w, http.StatusBadRequest, "build_quantity must be a positive integer", "BAD_REQUEST")
 		return
 	}
 	buildQty := int32(buildQty64)
 
-	// Fetch the project to get active_bom_revision_id.
-	project, err := h.Queries.GetProject(r.Context(), dbgen.GetProjectParams{
-		ID:     projectID,
-		TeamID: teamID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "project not found", "NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
+	// Fetch all data in parallel — GetRevision validates the revision belongs to this project.
+	type revResult struct {
+		err error
 	}
-
-	if !project.ActiveBomRevisionID.Valid {
-		writeError(w, http.StatusUnprocessableEntity, "project has no active BOM revision", "NO_ACTIVE_BOM")
-		return
-	}
-
-	revID := project.ActiveBomRevisionID
-
-	// Fetch line items, inventory quantities, and substitutes in parallel.
 	type lineItemsResult struct {
 		items []dbgen.ListBOMLineItemsRow
 		err   error
@@ -73,10 +60,18 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		err  error
 	}
 
+	revCh := make(chan revResult, 1)
 	liCh := make(chan lineItemsResult, 1)
 	invCh := make(chan inventoryResult, 1)
 	subsCh := make(chan subsResult, 1)
 
+	go func() {
+		_, err := h.Queries.GetRevision(r.Context(), dbgen.GetRevisionParams{
+			ID:        revID,
+			ProjectID: projectID,
+		})
+		revCh <- revResult{err}
+	}()
 	go func() {
 		items, err := h.Queries.ListBOMLineItems(r.Context(), revID)
 		liCh <- lineItemsResult{items, err}
@@ -94,114 +89,139 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		subsCh <- subsResult{rows, err}
 	}()
 
+	revRes := <-revCh
 	liRes := <-liCh
 	invRes := <-invCh
 	subsRes := <-subsCh
 
+	if revRes.err != nil {
+		if errors.Is(revRes.err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "revision not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
 	if liRes.err != nil || invRes.err != nil || subsRes.err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	// Build lookup maps.
-	stockByPart := make(map[string]int32)
+	// Build lookup map: part_id → full inventory row (for stock + min/reorder quantities).
+	invByPart := make(map[string]dbgen.GetInventoryQuantitiesForRevisionRow)
 	for _, row := range invRes.rows {
-		stockByPart[row.PartID.String()] = row.QuantityOnHand
+		invByPart[row.PartID.String()] = row
 	}
 
-	type subInfo struct {
-		PartID  string  `json:"part_id"`
-		PartMpn *string `json:"part_mpn"`
-		Stock   *int32  `json:"stock_on_hand"`
-	}
-	subsByItem := make(map[string][]subInfo)
+	// Build substitute stock lookup (for status checking only).
+	subStockByItem := make(map[string]int32) // item_id → best substitute stock
 	for _, s := range subsRes.rows {
 		key := s.BomLineItemID.String()
 		pid := s.PartID.String()
-		var stockPtr *int32
-		if stock, ok := stockByPart[pid]; ok {
-			v := stock
-			stockPtr = &v
+		var subStock int32
+		if inv, ok := invByPart[pid]; ok {
+			subStock = inv.QuantityOnHand
 		}
-		subsByItem[key] = append(subsByItem[key], subInfo{
-			PartID:  pid,
-			PartMpn: s.PartMpn,
-			Stock:   stockPtr,
-		})
+		if existing, seen := subStockByItem[key]; !seen || subStock > existing {
+			subStockByItem[key] = subStock
+		}
 	}
 
 	type itemResult struct {
-		ID                   string    `json:"id"`
-		ReferenceDesignators string    `json:"reference_designators"`
-		Quantity             int32     `json:"quantity"`
-		RawDescription       *string   `json:"raw_description"`
-		RequiredQuantity     int32     `json:"required_quantity"`
-		Status               string    `json:"status"`
-		ResolvedPartID       *string   `json:"resolved_part_id"`
-		ResolvedPartMpn      *string   `json:"resolved_part_mpn"`
-		StockOnHand          *int32    `json:"stock_on_hand"`
-		Substitutes          []subInfo `json:"substitutes"`
+		BomLineItemID        string  `json:"bom_line_item_id"`
+		ReferenceDesignators string  `json:"reference_designators"`
+		QuantityPerBoard     int32   `json:"quantity_per_board"`
+		RequiredQuantity     int32   `json:"required_quantity"`
+		QuantityOnHand       int32   `json:"quantity_on_hand"`
+		Shortfall            int32   `json:"shortfall"`
+		StockStatus          string  `json:"stock_status"`
+		ResolvedPartID       *string `json:"resolved_part_id"`
+		ResolvedPartMpn      *string `json:"resolved_part_mpn"`
+		MinStockQty          *int32  `json:"min_stock_qty"`
+		BelowRestock         bool    `json:"below_restock"`
 	}
 
 	results := make([]itemResult, len(liRes.items))
-	for i, li := range liRes.items {
-		id := li.ID.String()
-		required := li.Quantity * buildQty
-		subs := subsByItem[id]
-		if subs == nil {
-			subs = []subInfo{}
-		}
+	var fullyBuildable int32
+	hasResolved := false
 
-		var status string
-		var stockPtr *int32
+	for i, li := range liRes.items {
+		itemID := li.ID.String()
+		required := li.Quantity * buildQty
+
+		var stockOnHand int32
+		var minStockQty *int32
+		var stockStatus string
+		var shortfall int32
 
 		if !li.ResolvedPartID.Valid {
-			status = "unresolved"
+			stockStatus = "out_of_stock"
+			shortfall = required
 		} else {
 			pid := li.ResolvedPartID.String()
-			if stock, ok := stockByPart[pid]; ok {
-				v := stock
-				stockPtr = &v
-				if stock >= required {
-					status = "ok"
-				} else {
-					// Check substitutes to see if combined or any single covers the need.
-					covered := false
-					for _, s := range subs {
-						if s.Stock != nil && *s.Stock >= required {
-							covered = true
-							break
-						}
-					}
-					if covered {
-						status = "ok"
-					} else {
-						status = "shortfall"
-					}
+			inv, hasInv := invByPart[pid]
+			if hasInv {
+				stockOnHand = inv.QuantityOnHand
+				minStockQty = inv.MinimumStockQuantity
+			}
+
+			// Check if primary stock covers requirement; fall back to best substitute.
+			effectiveStock := stockOnHand
+			if effectiveStock < required {
+				if subStock, ok := subStockByItem[itemID]; ok && subStock > effectiveStock {
+					effectiveStock = subStock
+				}
+			}
+
+			if effectiveStock >= required {
+				stockStatus = "in_stock"
+			} else if effectiveStock > 0 {
+				stockStatus = "partial"
+				shortfall = required - stockOnHand
+				if shortfall < 0 {
+					shortfall = 0
 				}
 			} else {
-				// No inventory entry at all — treat as zero stock.
-				status = "shortfall"
+				stockStatus = "out_of_stock"
+				shortfall = required - stockOnHand
+				if shortfall < 0 {
+					shortfall = 0
+				}
+			}
+
+			// Track fully_buildable using primary part stock / quantity_per_board.
+			if li.Quantity > 0 {
+				maxBoards := stockOnHand / li.Quantity
+				if !hasResolved || maxBoards < fullyBuildable {
+					fullyBuildable = maxBoards
+					hasResolved = true
+				}
 			}
 		}
 
+		// Compute below_restock: post-build stock would be below minimum_stock_quantity.
+		postBuildStock := stockOnHand - required
+		belowRestock := minStockQty != nil && postBuildStock < *minStockQty
+
 		results[i] = itemResult{
-			ID:                   id,
+			BomLineItemID:        itemID,
 			ReferenceDesignators: li.ReferenceDesignators,
-			Quantity:             li.Quantity,
-			RawDescription:       li.RawDescription,
+			QuantityPerBoard:     li.Quantity,
 			RequiredQuantity:     required,
-			Status:               status,
+			QuantityOnHand:       stockOnHand,
+			Shortfall:            shortfall,
+			StockStatus:          stockStatus,
 			ResolvedPartID:       uuidPtrString(li.ResolvedPartID),
 			ResolvedPartMpn:      li.ResolvedPartMpn,
-			StockOnHand:          stockPtr,
-			Substitutes:          subs,
+			MinStockQty:          minStockQty,
+			BelowRestock:         belowRestock,
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bom_revision_id": revID.String(),
-		"build_qty":       buildQty,
+		"revision_id":     revID.String(),
+		"build_quantity":  buildQty,
+		"fully_buildable": fullyBuildable,
 		"items":           results,
 	})
 }

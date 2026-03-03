@@ -304,7 +304,7 @@ func (q *Queue) handleBOMImport(job Job) {
 			if cfg, ok := distCfgByID[item.ResolvedDistributorID]; ok && cfg.ApiType != nil {
 				if client := q.distributors.Lookup(*cfg.ApiType); client != nil {
 					if result, err := client.EnrichPart(ctx, *item.Sku, json.RawMessage(cfg.ApiCredentials)); err == nil && result != nil {
-						if partID, err := q.applyEnrichmentResult(ctx, queries, teamID, cfg, result, item.Mpn, item.Manufacturer); err == nil {
+						if partID, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, cfg.DistributorID, result, item.Mpn, item.Manufacturer); err == nil {
 							resolvedPartID = partID
 							resolutionState = strPtr("auto_distributor")
 						}
@@ -643,11 +643,16 @@ func (q *Queue) handlePartEnrich(job Job) {
 //
 // fallbackMPN and fallbackManufacturer are used when the enrichment result itself
 // omits those fields. Returns an invalid pgtype.UUID and a non-nil error on failure.
-func (q *Queue) applyEnrichmentResult(
+// ApplyEnrichmentResult finds or creates a part matching result, applies parameters
+// (for newly created parts only, to preserve curated data on existing parts), upserts all
+// distributor listings, and marks the part enriched. Manages its own database transaction.
+// Returns the resolved part ID.
+func ApplyEnrichmentResult(
 	ctx context.Context,
+	db *pgxpool.Pool,
 	queries *dbgen.Queries,
 	teamID pgtype.UUID,
-	cfg *dbgen.ListEnabledDistributorConfigsForTeamRow,
+	distributorID pgtype.UUID,
 	result *distributor.EnrichmentResult,
 	fallbackMPN, fallbackManufacturer *string,
 ) (pgtype.UUID, error) {
@@ -722,7 +727,7 @@ func (q *Queue) applyEnrichmentResult(
 	}
 
 	// 3. Apply enrichment data in a transaction.
-	tx, err := q.db.Begin(ctx)
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return pgtype.UUID{}, fmt.Errorf("begin tx: %w", err)
 	}
@@ -738,7 +743,7 @@ func (q *Queue) applyEnrichmentResult(
 				Name:                p.Name,
 				Value:               p.Value,
 				Unit:                unit,
-				SourceDistributorID: cfg.DistributorID,
+				SourceDistributorID: distributorID,
 			}); err != nil {
 				tx.Rollback(ctx) //nolint:errcheck
 				return pgtype.UUID{}, fmt.Errorf("insert parameter %q: %w", p.Name, err)
@@ -762,7 +767,7 @@ func (q *Queue) applyEnrichmentResult(
 		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
 		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
 			PartID:         partID,
-			DistributorID:  cfg.DistributorID,
+			DistributorID:  distributorID,
 			Sku:            l.SKU,
 			PackagingType:  l.PackagingType,
 			UnitPrice:      unitPrice,
@@ -785,7 +790,7 @@ func (q *Queue) applyEnrichmentResult(
 	}
 	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
 		ID:                 partID,
-		EnrichmentSourceID: cfg.DistributorID,
+		EnrichmentSourceID: distributorID,
 		LifecycleStatus:    enrichedLifecycle,
 		Mpn:                mpn,
 	}); err != nil {

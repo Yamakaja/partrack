@@ -6,19 +6,11 @@ import (
 	"net/http"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
-
-// parseItemNumeric converts a decimal string to pgtype.Numeric.
-func parseItemNumeric(s string) (pgtype.Numeric, error) {
-	var n pgtype.Numeric
-	if s == "" {
-		return n, nil
-	}
-	return n, n.Scan(s)
-}
 
 // UpdateBOMItem handles PATCH /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}
 // Body: {resolved_part_id?} — manually resolve or re-resolve a BOM line item (pass null to clear).
@@ -258,13 +250,6 @@ func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	strPtr := func(s string) *string {
-		if s == "" {
-			return nil
-		}
-		return &s
-	}
-
 	// 1. Check for an existing local listing by (distributor_id, sku).
 	var resolvedPartID pgtype.UUID
 	var resolvedMPN, resolvedManufacturer string
@@ -314,103 +299,14 @@ func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		partID, err := worker.ApplyEnrichmentResult(ctx, h.DB, h.Queries, teamID, distributorID, result, nil, nil)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "distributor enrichment failed: "+err.Error(), "INTERNAL_ERROR")
+			return
+		}
+		resolvedPartID = partID
 		resolvedMPN = result.MPN
 		resolvedManufacturer = result.Manufacturer
-
-		// Find existing part by (manufacturer, mpn) to avoid duplicates.
-		var existingPartID pgtype.UUID
-		if result.MPN != "" && result.Manufacturer != "" {
-			matched, err := h.Queries.ListPartsByMPNAndManufacturer(ctx, dbgen.ListPartsByMPNAndManufacturerParams{
-				Mpn:          strPtr(result.MPN),
-				Manufacturer: strPtr(result.Manufacturer),
-				TeamID:       teamID,
-			})
-			if err == nil && len(matched) > 0 {
-				existingPartID = matched[0].ID
-			}
-		}
-
-		tx, err := h.DB.Begin(ctx)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		qtx := h.Queries.WithTx(tx)
-
-		if !existingPartID.Valid {
-			newPart, err := qtx.CreatePart(ctx, dbgen.CreatePartParams{
-				Scope:           dbgen.PartScopeGlobal,
-				Mpn:             strPtr(result.MPN),
-				Manufacturer:    strPtr(result.Manufacturer),
-				Description:     strPtr(result.Description),
-				Category:        strPtr(result.Category),
-				Package:         strPtr(result.Package),
-				DatasheetUrl:    strPtr(result.DatasheetURL),
-				LifecycleStatus: dbgen.PartLifecycleStatusActive,
-			})
-			if err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				writeError(w, http.StatusInternalServerError, "failed to create part", "INTERNAL_ERROR")
-				return
-			}
-			existingPartID = newPart.ID
-		}
-
-		for _, l := range result.Listings {
-			unitPrice, err := parseItemNumeric(l.UnitPrice)
-			if err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				writeError(w, http.StatusInternalServerError, "invalid unit price from distributor", "INTERNAL_ERROR")
-				return
-			}
-			fixedCost, err := parseItemNumeric(l.FixedOrderCost)
-			if err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				writeError(w, http.StatusInternalServerError, "invalid fixed cost from distributor", "INTERNAL_ERROR")
-				return
-			}
-			priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
-			if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
-				PartID:         existingPartID,
-				DistributorID:  distributorID,
-				Sku:            l.SKU,
-				PackagingType:  l.PackagingType,
-				UnitPrice:      unitPrice,
-				StockAvailable: l.StockAvailable,
-				Moq:            l.Moq,
-				FixedOrderCost: fixedCost,
-				PriceBreaks:    priceBreaksJSON,
-			}); err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				writeError(w, http.StatusInternalServerError, "failed to upsert listing", "INTERNAL_ERROR")
-				return
-			}
-		}
-
-		var lifecycleStatus dbgen.NullPartLifecycleStatus
-		if result.LifecycleStatus != "" {
-			lifecycleStatus = dbgen.NullPartLifecycleStatus{
-				PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
-				Valid:               true,
-			}
-		}
-		if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
-			ID:                 existingPartID,
-			EnrichmentSourceID: distributorID,
-			LifecycleStatus:    lifecycleStatus,
-			Mpn:                strPtr(result.MPN),
-		}); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			writeError(w, http.StatusInternalServerError, "failed to set enriched", "INTERNAL_ERROR")
-			return
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-
-		resolvedPartID = existingPartID
 	}
 
 	// 3. Resolve the BOM line item.

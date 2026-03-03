@@ -99,7 +99,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/projects/{projectId}/revisions", h.ListRevisions)
 					r.Get("/projects/{projectId}/revisions/{revId}", h.GetRevision)
 					r.Get("/projects/{projectId}/revisions/{revId}/substitutes", h.ListSubstitutes)
-					r.Get("/projects/{projectId}/stock-check", h.StockCheck)
+					r.Get("/projects/{projectId}/revisions/{revId}/stock-check", h.StockCheck)
 
 					// 13. Orders
 					r.Get("/orders", h.ListOrders)
@@ -166,7 +166,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/cart/items", h.AddCartItem)
 					r.Patch("/cart/items/{itemId}", h.UpdateCartItem)
 					r.Delete("/cart/items/{itemId}", h.RemoveCartItem)
-					r.Post("/cart/add-shortfalls", h.AddShortfalls)
+					r.Post("/cart/add-shortfall", h.AddShortfalls)
 					r.Post("/cart/add-low-stock", h.AddLowStock)
 					r.Post("/cart/convert", h.ConvertCart)
 

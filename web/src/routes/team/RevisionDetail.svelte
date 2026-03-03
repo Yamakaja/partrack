@@ -11,12 +11,12 @@
   import BOMImportProgressModal from '$lib/components/bom/BOMImportProgressModal.svelte';
   import BOMLineItemRow from '$lib/components/bom/BOMLineItemRow.svelte';
   import BOMReviewDialog from '$lib/components/bom/BOMReviewDialog.svelte';
+  import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
   import { Table, TableHeader, TableBody, TableHead, TableRow } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { ClipboardCheck, Pencil } from 'lucide-svelte';
 
@@ -206,12 +206,13 @@
         {/if}
       {/if}
 
-      <Button
-        size="sm"
-        onclick={() => navigate(`/teams/${teamId}/projects/${projectId}/revisions/${revId}/stock`)}
-      >
-        <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
-      </Button>
+      <StockCheckDialog {teamId} {projectId} {revId}>
+        {#snippet trigger(open)}
+          <Button size="sm" onclick={open}>
+            <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
+          </Button>
+        {/snippet}
+      </StockCheckDialog>
     {/snippet}
   </Topbar>
 

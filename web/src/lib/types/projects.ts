@@ -95,6 +95,8 @@ export interface StockCheckItem {
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
   stock_status: 'in_stock' | 'partial' | 'out_of_stock';
+  min_stock_qty: number | null;
+  below_restock: boolean;
 }
 
 export interface StockCheckResult {

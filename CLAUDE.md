@@ -110,3 +110,17 @@ The data model (`datamodel.md`) has no open design questions. Critical things to
 - Distributor Listing price/availability data is cached; cache duration is configurable per distributor per team in Distributor Config
 - Order generation selection logic is intentionally deferred — the data needed for it is captured in Distributor Listing fields, Distributor Config preferred flag, and Inventory Entry preferred listing reference
 - One Shopping Cart per Team; items are merged when added from multiple sources
+
+# General Instructions
+
+### Code Intelligence
+
+Prefer LSP over Grep/Read for code navigation — it's faster, precise, and avoids reading entire files:
+- `workspaceSymbol` to find where something is defined
+- `findReferences` to see all usages across the codebase
+- `goToDefinition` / `goToImplementation` to jump to source
+- `hover` for type info without reading the file
+
+Use Grep only when LSP isn't available or for text/pattern searches (comments, strings, config).
+
+After writing or editing code, check LSP diagnostics and fix errors before proceeding.

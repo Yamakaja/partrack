@@ -255,8 +255,8 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// AddShortfalls handles POST /api/v1/teams/{teamId}/cart/add-shortfalls
-// Body: {bom_revision_id, build_qty}. Merges BOM shortfalls into the cart.
+// AddShortfalls handles POST /api/v1/teams/{teamId}/cart/add-shortfall
+// Body: {bom_revision_id, build_quantity}. Merges BOM shortfalls and restock gaps into the cart.
 func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -266,7 +266,7 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		BomRevisionID string `json:"bom_revision_id"`
-		BuildQty      int32  `json:"build_qty"`
+		BuildQuantity int32  `json:"build_quantity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -276,8 +276,8 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bom_revision_id is required", "BAD_REQUEST")
 		return
 	}
-	if body.BuildQty <= 0 {
-		writeError(w, http.StatusBadRequest, "build_qty must be positive", "BAD_REQUEST")
+	if body.BuildQuantity <= 0 {
+		writeError(w, http.StatusBadRequest, "build_quantity must be positive", "BAD_REQUEST")
 		return
 	}
 
@@ -287,25 +287,39 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lineItems, err := h.Queries.ListBOMLineItems(r.Context(), revID)
-	if err != nil {
+	type liResult struct {
+		items []dbgen.ListBOMLineItemsRow
+		err   error
+	}
+	type invResult struct {
+		rows []dbgen.GetInventoryQuantitiesForRevisionRow
+		err  error
+	}
+	liCh := make(chan liResult, 1)
+	invCh := make(chan invResult, 1)
+	go func() {
+		items, err := h.Queries.ListBOMLineItems(r.Context(), revID)
+		liCh <- liResult{items, err}
+	}()
+	go func() {
+		rows, err := h.Queries.GetInventoryQuantitiesForRevision(r.Context(),
+			dbgen.GetInventoryQuantitiesForRevisionParams{
+				BomRevisionID: revID,
+				TeamID:        teamID,
+			})
+		invCh <- invResult{rows, err}
+	}()
+	liRes := <-liCh
+	invRes := <-invCh
+	if liRes.err != nil || invRes.err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	lineItems := liRes.items
 
-	invRows, err := h.Queries.GetInventoryQuantitiesForRevision(r.Context(),
-		dbgen.GetInventoryQuantitiesForRevisionParams{
-			BomRevisionID: revID,
-			TeamID:        teamID,
-		})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	stockByPart := make(map[string]int32)
-	for _, row := range invRows {
-		stockByPart[row.PartID.String()] = row.QuantityOnHand
+	invByPart := make(map[string]dbgen.GetInventoryQuantitiesForRevisionRow)
+	for _, row := range invRes.rows {
+		invByPart[row.PartID.String()] = row
 	}
 
 	cart, err := h.Queries.GetOrCreateCart(r.Context(), teamID)
@@ -319,16 +333,30 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 		if !li.ResolvedPartID.Valid {
 			continue
 		}
-		required := li.Quantity * body.BuildQty
-		stock := stockByPart[li.ResolvedPartID.String()]
-		shortfall := required - stock
-		if shortfall <= 0 {
+		required := li.Quantity * body.BuildQuantity
+		inv := invByPart[li.ResolvedPartID.String()]
+		stock := inv.QuantityOnHand
+		postBuild := stock - required
+
+		var cartQty int32
+		if inv.MinimumStockQuantity != nil && postBuild < *inv.MinimumStockQuantity {
+			// Post-build stock would be below minimum — top up to min_stock_qty.
+			rawQty := *inv.MinimumStockQuantity - postBuild
+			if inv.ReorderQuantity != nil {
+				cartQty = *inv.ReorderQuantity
+			} else {
+				cartQty = rawQty
+			}
+		} else if stock < required {
+			cartQty = required - stock
+		} else {
 			continue
 		}
+
 		_, err := h.Queries.UpsertCartItem(r.Context(), dbgen.UpsertCartItemParams{
 			ShoppingCartID:      cart.ID,
 			PartID:              li.ResolvedPartID,
-			Quantity:            shortfall,
+			Quantity:            cartQty,
 			Source:              dbgen.CartItemSourceBomShortfall,
 			SourceBomLineItemID: li.ID,
 		})

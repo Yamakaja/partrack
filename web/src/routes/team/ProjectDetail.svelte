@@ -8,6 +8,7 @@
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportDialog from '$lib/components/bom/BOMImportDialog.svelte';
+  import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -16,7 +17,7 @@
   import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Upload, Pencil } from 'lucide-svelte';
+  import { Upload, Pencil, ClipboardCheck } from 'lucide-svelte';
   import {  projectStatusVariant } from '$lib/types/projects';
 
   let { teamId, projectId }: { teamId: string; projectId: string } = $props();
@@ -67,11 +68,6 @@
     } catch (err: any) {
       pushToast('error', 'Failed to set active BOM', err.message);
     }
-  }
-
-  function handleViewRevision(e: MouseEvent, revId: string) {
-    e.stopPropagation();
-    navigate(`/teams/${teamId}/projects/${projectId}/revisions/${revId}`);
   }
 
   function openEdit() {
@@ -139,11 +135,25 @@
         oncomplete={handleImportStarted}
       >
         {#snippet trigger(open)}
-          <Button size="sm" onclick={open}>
+          <Button variant="outline" size="sm" onclick={open}>
             <Upload class="h-4 w-4 mr-1" /> Import BOM
           </Button>
         {/snippet}
       </BOMImportDialog>
+      {#if projectQuery.data?.active_bom_revision_id}
+        <StockCheckDialog
+          {teamId}
+          {projectId}
+          revId={projectQuery.data.active_bom_revision_id}
+        >
+          {#snippet trigger(open)}
+            <Button size="sm" onclick={open}>
+              <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
+            </Button>
+          {/snippet}
+        </StockCheckDialog>
+      {/if}
+
     {/snippet}
   </Topbar>
 
@@ -285,13 +295,21 @@
                           Set Active
                         </Button>
                       {/if}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onclick={(e: MouseEvent) => handleViewRevision(e, rev.id)}
+                      <StockCheckDialog
+                        {teamId}
+                        {projectId}
+                        revId={rev.id}
                       >
-                        View
-                      </Button>
+                        {#snippet trigger(open)}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onclick={(e: MouseEvent) => { e.stopPropagation(); open(); }}
+                          >
+                            <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
+                          </Button>
+                        {/snippet}
+                      </StockCheckDialog>
                     </div>
                   </TableCell>
                 </TableRow>

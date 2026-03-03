@@ -132,7 +132,7 @@ func (q *Queries) GetBOMLineItem(ctx context.Context, arg GetBOMLineItemParams) 
 }
 
 const getInventoryQuantitiesForRevision = `-- name: GetInventoryQuantitiesForRevision :many
-SELECT ie.part_id, ie.quantity_on_hand
+SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
 FROM inventory_entries ie
 WHERE ie.team_id = $2
   AND ie.part_id IN (
@@ -151,8 +151,10 @@ type GetInventoryQuantitiesForRevisionParams struct {
 }
 
 type GetInventoryQuantitiesForRevisionRow struct {
-	PartID         pgtype.UUID `json:"part_id"`
-	QuantityOnHand int32       `json:"quantity_on_hand"`
+	PartID               pgtype.UUID `json:"part_id"`
+	QuantityOnHand       int32       `json:"quantity_on_hand"`
+	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
+	ReorderQuantity      *int32      `json:"reorder_quantity"`
 }
 
 func (q *Queries) GetInventoryQuantitiesForRevision(ctx context.Context, arg GetInventoryQuantitiesForRevisionParams) ([]GetInventoryQuantitiesForRevisionRow, error) {
@@ -164,7 +166,12 @@ func (q *Queries) GetInventoryQuantitiesForRevision(ctx context.Context, arg Get
 	var items []GetInventoryQuantitiesForRevisionRow
 	for rows.Next() {
 		var i GetInventoryQuantitiesForRevisionRow
-		if err := rows.Scan(&i.PartID, &i.QuantityOnHand); err != nil {
+		if err := rows.Scan(
+			&i.PartID,
+			&i.QuantityOnHand,
+			&i.MinimumStockQuantity,
+			&i.ReorderQuantity,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -126,7 +126,7 @@ ORDER BY br.imported_at DESC
 LIMIT 1;
 
 -- name: GetInventoryQuantitiesForRevision :many
-SELECT ie.part_id, ie.quantity_on_hand
+SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
 FROM inventory_entries ie
 WHERE ie.team_id = $2
   AND ie.part_id IN (
