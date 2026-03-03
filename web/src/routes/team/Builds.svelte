@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { listBuilds, previewBuild, createBuild, type BuildPreviewItem } from '$lib/api/builds.js';
+  import { ApiError } from '$lib/api/client.js';
   import { listProjects } from '$lib/api/projects.js';
   import { listRevisions } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -70,9 +71,8 @@
     previewing = true;
     try {
       const result = await previewBuild(teamId, {
-        project_id: selectedProjectId,
         bom_revision_id: selectedRevisionId,
-        quantity: qty,
+        boards_built: qty,
       });
       previewItems = result.items;
       step = 3;
@@ -83,7 +83,7 @@
     }
   }
 
-  async function handleConfirmBuild() {
+  async function handleConfirmBuild(allowReconciliation = false) {
     const qty = parseInt(buildQty, 10);
     if (!selectedProjectId || !selectedRevisionId || isNaN(qty) || qty < 1) return;
     submitting = true;
@@ -91,19 +91,28 @@
       await createBuild(teamId, {
         project_id: selectedProjectId,
         bom_revision_id: selectedRevisionId,
-        quantity: qty,
+        boards_built: qty,
         notes: buildNotes.trim() || undefined,
+        allow_stock_reconciliation: allowReconciliation || undefined,
       });
       dialogOpen = false;
       qc.invalidateQueries({ queryKey: ['builds', teamId] });
       qc.invalidateQueries({ queryKey: ['inventory', teamId] });
       pushToast('success', 'Build recorded');
     } catch (err: any) {
-      pushToast('error', 'Failed to record build', err.message);
+      if (err instanceof ApiError && err.status === 409 && err.code === 'INSUFFICIENT_STOCK') {
+        // Re-fetch preview to ensure sufficient flags are current, then show in step 3
+        // The preview already shows Short badges; just prompt the user to confirm with corrections.
+        pushToast('error', 'Some parts are short. Use "Record Build with Corrections" to auto-correct stock.');
+      } else {
+        pushToast('error', 'Failed to record build', err.message);
+      }
     } finally {
       submitting = false;
     }
   }
+
+  let hasShortItems = $derived(previewItems.some(pi => !pi.sufficient));
 
   let step1Valid = $derived(!!selectedProjectId && !!selectedRevisionId);
   let step2Valid = $derived(() => {
@@ -283,16 +292,22 @@
               </TableBody>
             </Table>
           </div>
-          {#if previewItems.some(pi => !pi.sufficient)}
-            <p class="text-sm text-warning text-yellow-600">
-              Warning: some parts have insufficient stock. Build will proceed anyway.
+          {#if hasShortItems}
+            <p class="text-sm text-yellow-600">
+              Some parts have insufficient stock. Confirming this build will insert a stock correction for each affected part (stock will be set to 0 before deducting).
             </p>
           {/if}
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" onclick={() => { step = 2; }}>Back</Button>
-            <Button onclick={handleConfirmBuild} disabled={submitting}>
-              {submitting ? 'Recording…' : 'Confirm Build'}
-            </Button>
+            {#if hasShortItems}
+              <Button onclick={() => handleConfirmBuild(true)} disabled={submitting}>
+                {submitting ? 'Recording…' : 'Record Build with Corrections'}
+              </Button>
+            {:else}
+              <Button onclick={() => handleConfirmBuild(false)} disabled={submitting}>
+                {submitting ? 'Recording…' : 'Confirm Build'}
+              </Button>
+            {/if}
           </div>
         </div>
       {/if}

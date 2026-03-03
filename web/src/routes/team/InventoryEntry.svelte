@@ -12,6 +12,7 @@
   import { Select } from '$lib/components/ui/select/index.js';
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { ApiError } from '$lib/api/client.js';
 
   let { teamId, entryId }: { teamId: string; entryId: string } = $props();
 
@@ -67,7 +68,12 @@
       qc.invalidateQueries({ queryKey: ['adjustments', teamId, entryId] });
       pushToast('success', `Stock adjusted (${delta >= 0 ? '+' : ''}${delta})`);
     } catch (err: any) {
-      pushToast('error', 'Failed to adjust stock', err.message);
+      if (err instanceof ApiError && err.status === 422 && err.code === 'INSUFFICIENT_STOCK') {
+        const msg = err.message;
+        pushToast('error', 'Cannot adjust stock', msg);
+      } else {
+        pushToast('error', 'Failed to adjust stock', err.message);
+      }
     } finally {
       adjusting = false;
     }

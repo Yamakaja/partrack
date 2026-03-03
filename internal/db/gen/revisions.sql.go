@@ -379,7 +379,7 @@ SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
     bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
-    COALESCE(d.name, bli.distributor_name) AS distributor_name,
+    COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn

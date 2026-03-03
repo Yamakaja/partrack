@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { listCheckouts, createCheckout } from '$lib/api/checkouts.js';
+  import { listCheckouts, createCheckout, type InsufficientCheckoutItem } from '$lib/api/checkouts.js';
+  import { ApiError } from '$lib/api/client.js';
   import { listInventory } from '$lib/api/inventory.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
@@ -30,8 +31,14 @@
 
   // Dialog state
   let dialogOpen = $state(false);
-  let checkoutNotes = $state('');
+  let checkoutReason = $state('');
   let submitting = $state(false);
+
+  // Reconciliation state
+  let reconcileOpen = $state(false);
+  let insufficientItems = $state<InsufficientCheckoutItem[]>([]);
+  // Maps inventory_entry_id → user-supplied actual count string
+  let reconcileCounts = $state<Record<string, string>>({});
 
   interface CheckoutLineItem {
     id: number;
@@ -50,7 +57,7 @@
   let inventorySearchTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 
   function openDialog() {
-    checkoutNotes = '';
+    checkoutReason = '';
     lineItems = [newLineItem()];
     dialogOpen = true;
   }
@@ -119,8 +126,7 @@
     );
   }
 
-  async function handleSubmit(e: Event) {
-    e.preventDefault();
+  async function submitCheckout(reconcileMap?: Record<string, number>) {
     const items = lineItems.filter(li => li.inventory_entry_id && parseInt(li.quantity, 10) > 0);
     if (items.length === 0) {
       pushToast('error', 'Add at least one item to check out');
@@ -129,22 +135,54 @@
     submitting = true;
     try {
       await createCheckout(teamId, {
-        notes: checkoutNotes.trim() || undefined,
+        reason: checkoutReason.trim() || undefined,
         items: items.map(li => ({
-          part_id: '', // inventory entry implies the part
-          quantity: parseInt(li.quantity, 10),
           inventory_entry_id: li.inventory_entry_id,
+          quantity: parseInt(li.quantity, 10),
+          ...(reconcileMap?.[li.inventory_entry_id] !== undefined
+            ? { reconcile_to: reconcileMap[li.inventory_entry_id] }
+            : {}),
         })),
       });
       dialogOpen = false;
+      reconcileOpen = false;
       qc.invalidateQueries({ queryKey: ['checkouts', teamId] });
       qc.invalidateQueries({ queryKey: ['inventory', teamId] });
       pushToast('success', 'Checkout recorded');
     } catch (err: any) {
-      pushToast('error', 'Failed to create checkout', err.message);
+      if (err instanceof ApiError && err.status === 409 && err.code === 'INSUFFICIENT_STOCK') {
+        const items = (err.data as any).insufficient_items as InsufficientCheckoutItem[];
+        insufficientItems = items;
+        reconcileCounts = Object.fromEntries(
+          items.map(i => [i.inventory_entry_id, String(i.quantity_requested)])
+        );
+        dialogOpen = false;
+        reconcileOpen = true;
+      } else {
+        pushToast('error', 'Failed to create checkout', err.message);
+      }
     } finally {
       submitting = false;
     }
+  }
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    await submitCheckout();
+  }
+
+  async function handleReconcileSubmit(e: Event) {
+    e.preventDefault();
+    const reconcileMap: Record<string, number> = {};
+    for (const item of insufficientItems) {
+      const val = parseInt(reconcileCounts[item.inventory_entry_id], 10);
+      if (isNaN(val) || val < item.quantity_requested) {
+        pushToast('error', `Actual count for ${item.part_mpn ?? item.part_id} must be at least ${item.quantity_requested}`);
+        return;
+      }
+      reconcileMap[item.inventory_entry_id] = val;
+    }
+    await submitCheckout(reconcileMap);
   }
 
   function shortId(id: string): string {
@@ -213,6 +251,44 @@
   </div>
 </div>
 
+<!-- Reconciliation Dialog -->
+<Dialog.Root bind:open={reconcileOpen}>
+  <Dialog.Portal>
+    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+      <Dialog.Title class="text-lg font-semibold mb-2">Stock Count Mismatch</Dialog.Title>
+      <p class="text-sm text-muted-foreground mb-4">
+        The system shows less stock than you're trying to check out. Enter the actual count you physically observe for each item. The records will be corrected before the checkout is applied.
+      </p>
+      <form onsubmit={handleReconcileSubmit} class="space-y-4">
+        {#each insufficientItems as item (item.inventory_entry_id)}
+          <div class="space-y-1">
+            <Label>
+              {item.part_mpn ?? item.part_id}
+              <span class="text-muted-foreground text-xs ml-1">(system shows {item.quantity_on_hand}, need {item.quantity_requested})</span>
+            </Label>
+            <Input
+              type="number"
+              min={item.quantity_requested}
+              value={reconcileCounts[item.inventory_entry_id]}
+              oninput={(e: Event) => {
+                reconcileCounts = { ...reconcileCounts, [item.inventory_entry_id]: (e.target as HTMLInputElement).value };
+              }}
+              placeholder={`Actual count (min ${item.quantity_requested})`}
+            />
+          </div>
+        {/each}
+        <div class="flex justify-end gap-2 pt-2">
+          <Button variant="outline" type="button" onclick={() => { reconcileOpen = false; dialogOpen = true; }}>Back</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? 'Saving…' : 'Confirm & Submit'}
+          </Button>
+        </div>
+      </form>
+    </Dialog.Content>
+  </Dialog.Portal>
+</Dialog.Root>
+
 <!-- New Checkout Dialog -->
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Portal>
@@ -221,8 +297,8 @@
       <Dialog.Title class="text-lg font-semibold mb-4">New Checkout</Dialog.Title>
       <form onsubmit={handleSubmit} class="space-y-4">
         <div class="space-y-1">
-          <Label for="checkout-notes">Notes</Label>
-          <Input id="checkout-notes" bind:value={checkoutNotes} placeholder="Optional notes" />
+          <Label for="checkout-reason">Reason</Label>
+          <Input id="checkout-reason" bind:value={checkoutReason} placeholder="Optional reason" />
         </div>
 
         <div class="space-y-2">

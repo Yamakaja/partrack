@@ -6,9 +6,17 @@ export function listCheckouts(teamId: string, params: { limit?: number; offset?:
   return request<PaginatedResponse<GeneralCheckout>>('GET', `/api/v1/teams/${teamId}/checkouts?${qs(params)}`);
 }
 
+export interface InsufficientCheckoutItem {
+  inventory_entry_id: string;
+  part_id: string;
+  part_mpn: string | null;
+  quantity_on_hand: number;
+  quantity_requested: number;
+}
+
 export function createCheckout(teamId: string, body: {
-  notes?: string;
-  items: { part_id: string; quantity: number; inventory_entry_id: string }[];
+  reason?: string;
+  items: { inventory_entry_id: string; quantity: number; reconcile_to?: number }[];
 }) {
   return request<GeneralCheckout>('POST', `/api/v1/teams/${teamId}/checkouts`, body);
 }

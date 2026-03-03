@@ -19,9 +19,14 @@ type buildDeductionInput struct {
 }
 
 type buildDeduction struct {
-	PartID           pgtype.UUID
-	InventoryEntryID pgtype.UUID
-	Delta            int32
+	BomLineItemID        pgtype.UUID
+	PartID               pgtype.UUID
+	PartMpn              *string
+	ReferenceDesignators string
+	InventoryEntryID     pgtype.UUID
+	Delta                int32 // negative
+	QuantityOnHand       int32
+	QuantityPerBoard     int32
 }
 
 // computeDeductions calculates per-part stock deltas for a build.
@@ -71,9 +76,14 @@ func (h *Handler) computeDeductions(
 		}
 
 		result = append(result, buildDeduction{
-			PartID:           partID,
-			InventoryEntryID: entry.ID,
-			Delta:            -(li.Quantity * boardsBuilt),
+			BomLineItemID:        li.ID,
+			PartID:               partID,
+			PartMpn:              li.ResolvedPartMpn,
+			ReferenceDesignators: li.ReferenceDesignators,
+			InventoryEntryID:     entry.ID,
+			Delta:                -(li.Quantity * boardsBuilt),
+			QuantityOnHand:       entry.QuantityOnHand,
+			QuantityPerBoard:     li.Quantity,
 		})
 	}
 
@@ -190,22 +200,33 @@ func (h *Handler) PreviewBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type deductionResp struct {
-		PartID           string `json:"part_id"`
-		InventoryEntryID string `json:"inventory_entry_id"`
-		Delta            int32  `json:"delta"`
+	type previewItem struct {
+		BomLineItemID        string  `json:"bom_line_item_id"`
+		ReferenceDesignators string  `json:"reference_designators"`
+		ResolvedPartID       string  `json:"resolved_part_id"`
+		ResolvedPartMpn      *string `json:"resolved_part_mpn"`
+		QuantityPerBoard     int32   `json:"quantity_per_board"`
+		TotalQuantity        int32   `json:"total_quantity"`
+		QuantityOnHand       int32   `json:"quantity_on_hand"`
+		Sufficient           bool    `json:"sufficient"`
 	}
 
-	resp := make([]deductionResp, len(deductions))
+	items := make([]previewItem, len(deductions))
 	for i, d := range deductions {
-		resp[i] = deductionResp{
-			PartID:           d.PartID.String(),
-			InventoryEntryID: d.InventoryEntryID.String(),
-			Delta:            d.Delta,
+		totalQty := -d.Delta
+		items[i] = previewItem{
+			BomLineItemID:        d.BomLineItemID.String(),
+			ReferenceDesignators: d.ReferenceDesignators,
+			ResolvedPartID:       d.PartID.String(),
+			ResolvedPartMpn:      d.PartMpn,
+			QuantityPerBoard:     d.QuantityPerBoard,
+			TotalQuantity:        totalQty,
+			QuantityOnHand:       d.QuantityOnHand,
+			Sufficient:           d.QuantityOnHand >= totalQty,
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"deductions": resp})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // CreateBuild handles POST /api/v1/teams/{teamId}/builds
@@ -229,11 +250,12 @@ func (h *Handler) CreateBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		ProjectID            string                `json:"project_id"`
-		BomRevisionID        string                `json:"bom_revision_id"`
-		BoardsBuilt          int32                 `json:"boards_built"`
-		Notes                *string               `json:"notes"`
-		SubstituteSelections []buildDeductionInput `json:"substitute_selections"`
+		ProjectID                string                `json:"project_id"`
+		BomRevisionID            string                `json:"bom_revision_id"`
+		BoardsBuilt              int32                 `json:"boards_built"`
+		Notes                    *string               `json:"notes"`
+		SubstituteSelections     []buildDeductionInput `json:"substitute_selections"`
+		AllowStockReconciliation bool                  `json:"allow_stock_reconciliation"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -283,7 +305,56 @@ func (h *Handler) CreateBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type insufficientBuildItem struct {
+		BomLineItemID    string  `json:"bom_line_item_id"`
+		PartID           string  `json:"part_id"`
+		PartMpn          *string `json:"part_mpn"`
+		QuantityOnHand   int32   `json:"quantity_on_hand"`
+		QuantityRequired int32   `json:"quantity_required"`
+	}
+	var insufficientItems []insufficientBuildItem
+
 	for _, d := range deductions {
+		// Lock the row for this deduction.
+		locked, err := qtx.GetInventoryEntryForUpdate(r.Context(), d.InventoryEntryID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		totalQty := -d.Delta
+		if locked.QuantityOnHand < totalQty {
+			if !body.AllowStockReconciliation {
+				insufficientItems = append(insufficientItems, insufficientBuildItem{
+					BomLineItemID:    d.BomLineItemID.String(),
+					PartID:           d.PartID.String(),
+					PartMpn:          d.PartMpn,
+					QuantityOnHand:   locked.QuantityOnHand,
+					QuantityRequired: totalQty,
+				})
+				continue
+			}
+			// Reconcile: bring stock up to exactly what's needed.
+			reconcileDelta := totalQty - locked.QuantityOnHand
+			reconcileReason := "Stock reconciliation: corrected before build"
+			if _, err := qtx.CreateStockAdjustment(r.Context(), dbgen.CreateStockAdjustmentParams{
+				InventoryEntryID: d.InventoryEntryID,
+				Delta:            reconcileDelta,
+				Reason:           &reconcileReason,
+				CreatedBy:        userID,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			if _, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
+				ID:             d.InventoryEntryID,
+				QuantityOnHand: reconcileDelta,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+		}
+
 		if _, err := qtx.CreateBuildStockAdjustment(r.Context(), dbgen.CreateBuildStockAdjustmentParams{
 			InventoryEntryID: d.InventoryEntryID,
 			Delta:            d.Delta,
@@ -300,6 +371,16 @@ func (h *Handler) CreateBuild(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+	}
+
+	if len(insufficientItems) > 0 {
+		// Rollback is deferred; just return the 409.
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":             "some parts have insufficient stock; set allow_stock_reconciliation to auto-correct",
+			"code":              "INSUFFICIENT_STOCK",
+			"insufficient_items": insufficientItems,
+		})
+		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {

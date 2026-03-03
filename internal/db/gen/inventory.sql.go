@@ -220,6 +220,30 @@ func (q *Queries) GetInventoryEntryByPartID(ctx context.Context, arg GetInventor
 	return i, err
 }
 
+const getInventoryEntryForUpdate = `-- name: GetInventoryEntryForUpdate :one
+SELECT id, team_id, part_id, quantity_on_hand, storage_location_id,
+       preferred_listing_id, minimum_stock_quantity, reorder_quantity
+FROM inventory_entries
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetInventoryEntryForUpdate(ctx context.Context, id pgtype.UUID) (InventoryEntry, error) {
+	row := q.db.QueryRow(ctx, getInventoryEntryForUpdate, id)
+	var i InventoryEntry
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.PartID,
+		&i.QuantityOnHand,
+		&i.StorageLocationID,
+		&i.PreferredListingID,
+		&i.MinimumStockQuantity,
+		&i.ReorderQuantity,
+	)
+	return i, err
+}
+
 const listAdjustments = `-- name: ListAdjustments :many
 SELECT
     sa.id, sa.delta, sa.adjusted_at, sa.reason,

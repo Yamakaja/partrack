@@ -18,16 +18,17 @@ export function listBuilds(teamId: string, params: { limit?: number; offset?: nu
   return request<PaginatedResponse<Build>>('GET', `/api/v1/teams/${teamId}/builds?${qs(params)}`);
 }
 
-export function previewBuild(teamId: string, body: { project_id: string; bom_revision_id: string; quantity: number }) {
+export function previewBuild(teamId: string, body: { bom_revision_id: string; boards_built: number }) {
   return request<{ items: BuildPreviewItem[] }>('POST', `/api/v1/teams/${teamId}/builds/preview`, body);
 }
 
 export function createBuild(teamId: string, body: {
   project_id: string;
   bom_revision_id: string;
-  quantity: number;
+  boards_built: number;
   notes?: string;
-  line_item_part_selections?: { bom_line_item_id: string; part_id: string }[];
+  substitute_selections?: { bom_line_item_id: string; part_id: string }[];
+  allow_stock_reconciliation?: boolean;
 }) {
   return request<Build>('POST', `/api/v1/teams/${teamId}/builds`, body);
 }

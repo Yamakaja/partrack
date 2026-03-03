@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -429,6 +430,14 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if req.Delta < 0 && invEntry.QuantityOnHand+req.Delta < 0 {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("adjustment would result in negative stock; current stock is %d, maximum deduction is %d",
+				invEntry.QuantityOnHand, invEntry.QuantityOnHand),
+			"INSUFFICIENT_STOCK")
 		return
 	}
 

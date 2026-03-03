@@ -121,3 +121,10 @@ ORDER BY p.mpn NULLS LAST;
 SELECT id, quantity_on_hand
 FROM inventory_entries
 WHERE team_id = $1 AND part_id = $2;
+
+-- name: GetInventoryEntryForUpdate :one
+SELECT id, team_id, part_id, quantity_on_hand, storage_location_id,
+       preferred_listing_id, minimum_stock_quantity, reorder_quantity
+FROM inventory_entries
+WHERE id = $1
+FOR UPDATE;

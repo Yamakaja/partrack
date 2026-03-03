@@ -44,9 +44,9 @@ func TestPreviewBuild_NoDeductions(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}
-	deductions, _ := body["deductions"].([]any)
-	if len(deductions) != 0 {
-		t.Errorf("expected 0 deductions (no resolved items), got %d", len(deductions))
+	items, _ := body["items"].([]any)
+	if len(items) != 0 {
+		t.Errorf("expected 0 items (no resolved items), got %d", len(items))
 	}
 }
 
@@ -71,14 +71,17 @@ func TestPreviewBuild_WithDeductions(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}
-	deductions, _ := body["deductions"].([]any)
-	if len(deductions) != 1 {
-		t.Fatalf("expected 1 deduction, got %d", len(deductions))
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
 	}
-	d := deductions[0].(map[string]any)
-	// 2 per board × 3 boards = 6 deducted (negative delta).
-	if d["delta"].(float64) != -6 {
-		t.Errorf("expected delta=-6, got %v", d["delta"])
+	d := items[0].(map[string]any)
+	// 2 per board × 3 boards = 6 total.
+	if d["total_quantity"].(float64) != 6 {
+		t.Errorf("expected total_quantity=6, got %v", d["total_quantity"])
+	}
+	if d["sufficient"].(bool) != true {
+		t.Errorf("expected sufficient=true (20 on hand >= 6 needed), got %v", d["sufficient"])
 	}
 
 	// Preview must NOT have changed stock.
