@@ -184,6 +184,77 @@ func (q *Queries) GetCartItemsForConvert(ctx context.Context, teamID pgtype.UUID
 	return items, nil
 }
 
+const getListingsForCartResolution = `-- name: GetListingsForCartResolution :many
+SELECT
+    dl.id              AS listing_id,
+    dl.part_id,
+    dl.distributor_id,
+    d.name             AS distributor_name,
+    dl.sku,
+    dl.unit_price,
+    dl.fixed_order_cost,
+    dl.moq,
+    dl.price_breaks,
+    dc.preferred
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+JOIN distributor_configs dc
+    ON dc.distributor_id = dl.distributor_id
+    AND dc.team_id = $1
+    AND dc.enabled = TRUE
+WHERE dl.part_id = ANY($2::uuid[])
+ORDER BY dl.part_id, dc.preferred DESC, d.name
+`
+
+type GetListingsForCartResolutionParams struct {
+	TeamID  pgtype.UUID   `json:"team_id"`
+	PartIds []pgtype.UUID `json:"part_ids"`
+}
+
+type GetListingsForCartResolutionRow struct {
+	ListingID       pgtype.UUID    `json:"listing_id"`
+	PartID          pgtype.UUID    `json:"part_id"`
+	DistributorID   pgtype.UUID    `json:"distributor_id"`
+	DistributorName string         `json:"distributor_name"`
+	Sku             string         `json:"sku"`
+	UnitPrice       pgtype.Numeric `json:"unit_price"`
+	FixedOrderCost  pgtype.Numeric `json:"fixed_order_cost"`
+	Moq             int32          `json:"moq"`
+	PriceBreaks     []byte         `json:"price_breaks"`
+	Preferred       bool           `json:"preferred"`
+}
+
+func (q *Queries) GetListingsForCartResolution(ctx context.Context, arg GetListingsForCartResolutionParams) ([]GetListingsForCartResolutionRow, error) {
+	rows, err := q.db.Query(ctx, getListingsForCartResolution, arg.TeamID, arg.PartIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetListingsForCartResolutionRow
+	for rows.Next() {
+		var i GetListingsForCartResolutionRow
+		if err := rows.Scan(
+			&i.ListingID,
+			&i.PartID,
+			&i.DistributorID,
+			&i.DistributorName,
+			&i.Sku,
+			&i.UnitPrice,
+			&i.FixedOrderCost,
+			&i.Moq,
+			&i.PriceBreaks,
+			&i.Preferred,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOrCreateCart = `-- name: GetOrCreateCart :one
 INSERT INTO shopping_carts (team_id)
 VALUES ($1)

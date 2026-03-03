@@ -80,3 +80,24 @@ JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
 LEFT JOIN distributor_listings dl ON dl.id = cli.listing_id
 WHERE sc.team_id = $1
 ORDER BY dl.distributor_id NULLS LAST, cli.id;
+
+-- name: GetListingsForCartResolution :many
+SELECT
+    dl.id              AS listing_id,
+    dl.part_id,
+    dl.distributor_id,
+    d.name             AS distributor_name,
+    dl.sku,
+    dl.unit_price,
+    dl.fixed_order_cost,
+    dl.moq,
+    dl.price_breaks,
+    dc.preferred
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+JOIN distributor_configs dc
+    ON dc.distributor_id = dl.distributor_id
+    AND dc.team_id = @team_id
+    AND dc.enabled = TRUE
+WHERE dl.part_id = ANY(@part_ids::uuid[])
+ORDER BY dl.part_id, dc.preferred DESC, d.name;

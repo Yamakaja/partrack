@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -54,9 +55,33 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resolution, err := h.CartResolver.Resolve(r.Context(), teamID.String(), rows, h.Queries)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	items := make([]map[string]any, len(rows))
 	for i, row := range rows {
-		items[i] = cartItemResponse(row)
+		m := cartItemResponse(row)
+		var rl *resolvedListing
+		if !row.ListingID.Valid {
+			rl = resolution.ByItemID[row.ID.String()]
+		}
+		if rl != nil {
+			m["resolved_listing"] = map[string]any{
+				"listing_id":       rl.ListingID.String(),
+				"distributor_id":   rl.DistributorID.String(),
+				"distributor_name": rl.DistributorName,
+				"sku":              rl.SKU,
+				"unit_price":       numericString(rl.UnitPriceAtQty),
+				"fixed_order_cost": numericString(rl.FixedOrderCost),
+				"moq":              rl.MOQ,
+			}
+		} else {
+			m["resolved_listing"] = nil
+		}
+		items[i] = m
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -75,6 +100,7 @@ func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -137,6 +163,7 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":                      item.ID.String(),
@@ -226,6 +253,7 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -251,6 +279,7 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -367,6 +396,7 @@ func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
 		addedCount++
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
 }
@@ -411,6 +441,7 @@ func (h *Handler) AddLowStock(w http.ResponseWriter, r *http.Request) {
 		addedCount++
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
 }
@@ -435,42 +466,84 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	missingCount, err := h.Queries.CountCartItemsWithoutListing(r.Context(), teamID)
+	// Fetch items in the format needed by the resolver.
+	allItems, err := h.Queries.GetCartItems(r.Context(), teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	if missingCount > 0 {
-		writeError(w, http.StatusUnprocessableEntity,
-			"all cart items must have a listing selected before converting",
-			"MISSING_LISTINGS")
+	if len(allItems) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "cart is empty", "CART_EMPTY")
 		return
 	}
 
+	// Auto-resolve listings for items that lack an explicit listing_id.
+	resolution, err := h.CartResolver.Resolve(r.Context(), teamID.String(), allItems, h.Queries)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// Fetch convert-optimised rows (includes distributor_id and pricing for explicitly-set listings).
 	cartItems, err := h.Queries.GetCartItemsForConvert(r.Context(), teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	if len(cartItems) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "cart is empty", "CART_EMPTY")
-		return
+
+	// Build an effective item list, substituting resolved listing data where listing_id is null.
+	type effectiveItem struct {
+		distributorID  pgtype.UUID
+		listingID      pgtype.UUID
+		quantity       int32
+		unitPrice      pgtype.Numeric
+		fixedOrderCost pgtype.Numeric
+	}
+	effectiveItems := make([]effectiveItem, 0, len(cartItems))
+	for _, item := range cartItems {
+		if item.ListingID.Valid {
+			effectiveItems = append(effectiveItems, effectiveItem{
+				distributorID:  item.DistributorID,
+				listingID:      item.ListingID,
+				quantity:       item.Quantity,
+				unitPrice:      item.UnitPrice,
+				fixedOrderCost: item.FixedOrderCost,
+			})
+		} else {
+			rl, ok := resolution.ByItemID[item.ID.String()]
+			if !ok {
+				writeError(w, http.StatusUnprocessableEntity,
+					"one or more cart items have no available listing — add a listing or remove those items",
+					"MISSING_LISTINGS")
+				return
+			}
+			effectiveItems = append(effectiveItems, effectiveItem{
+				distributorID:  rl.DistributorID,
+				listingID:      rl.ListingID,
+				quantity:       item.Quantity,
+				unitPrice:      rl.UnitPriceAtQty,
+				fixedOrderCost: rl.FixedOrderCost,
+			})
+		}
 	}
 
-	// Group consecutive items by distributor (query returns items ordered by distributor_id).
+	// Sort by distributor ID to enable grouping (auto-resolved items may have different
+	// distributor IDs than the DB ordering assumed).
+	sort.Slice(effectiveItems, func(i, j int) bool {
+		return effectiveItems[i].distributorID.String() < effectiveItems[j].distributorID.String()
+	})
+
+	// Group consecutive items by distributor.
 	type group struct {
 		distributorID pgtype.UUID
-		items         []dbgen.GetCartItemsForConvertRow
+		items         []effectiveItem
 	}
 	var groups []group
-	for _, item := range cartItems {
-		if !item.DistributorID.Valid {
-			continue
+	for _, ei := range effectiveItems {
+		if len(groups) == 0 || groups[len(groups)-1].distributorID.String() != ei.distributorID.String() {
+			groups = append(groups, group{distributorID: ei.distributorID})
 		}
-		if len(groups) == 0 || groups[len(groups)-1].distributorID.String() != item.DistributorID.String() {
-			groups = append(groups, group{distributorID: item.DistributorID})
-		}
-		groups[len(groups)-1].items = append(groups[len(groups)-1].items, item)
+		groups[len(groups)-1].items = append(groups[len(groups)-1].items, ei)
 	}
 
 	tx, err := h.DB.Begin(r.Context())
@@ -493,13 +566,13 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		for _, item := range g.items {
+		for _, ei := range g.items {
 			_, err := qtx.CreateOrderLineItem(r.Context(), dbgen.CreateOrderLineItemParams{
 				OrderID:                order.ID,
-				ListingID:              item.ListingID,
-				QuantityOrdered:        item.Quantity,
-				UnitPriceSnapshot:      item.UnitPrice,
-				FixedOrderCostSnapshot: item.FixedOrderCost,
+				ListingID:              ei.listingID,
+				QuantityOrdered:        ei.quantity,
+				UnitPriceSnapshot:      ei.unitPrice,
+				FixedOrderCostSnapshot: ei.fixedOrderCost,
 			})
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -519,6 +592,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{})
 

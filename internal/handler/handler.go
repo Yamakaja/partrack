@@ -23,6 +23,7 @@ type Handler struct {
 	Worker       *worker.Queue
 	Cache        *middleware.AuthCache
 	Distributors distributor.Registry
+	CartResolver *CartResolver
 	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
 }
 
@@ -35,6 +36,7 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 		Worker:       q,
 		Cache:        cache,
 		Distributors: reg,
+		CartResolver: NewCartResolver(),
 	}
 	h.initOIDC()
 	return h
