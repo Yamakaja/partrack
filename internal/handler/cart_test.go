@@ -227,8 +227,8 @@ func TestAddShortfalls(t *testing.T) {
 	// No inventory entry → stock=0, need=3, shortfall=3.
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
-		fmt.Sprintf("/api/v1/teams/%s/cart/add-shortfalls", teamID),
-		map[string]any{"bom_revision_id": revID, "build_qty": 1}, token)
+		fmt.Sprintf("/api/v1/teams/%s/cart/add-shortfall", teamID),
+		map[string]any{"bom_revision_id": revID, "build_quantity": 1}, token)
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}

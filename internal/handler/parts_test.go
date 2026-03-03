@@ -168,7 +168,7 @@ func TestEnrichPart_LM317_WithTestDistributor(t *testing.T) {
 	partID := testutil.CreatePart(t, testDB, "global", "LM317T", nil)
 
 	body, status := testutil.Do(t, testEnv.Server,
-		http.MethodPost, fmt.Sprintf("/api/v1/parts/%s/enrich?team_id=%s", partID, teamID),
+		http.MethodPost, fmt.Sprintf("/api/v1/teams/%s/parts/%s/enrich", teamID, partID),
 		map[string]any{"sku": "LM317-TEST-TUBE", "distributor_id": distID}, token)
 	if status != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %v", status, body)
@@ -199,17 +199,18 @@ func TestEnrichPart_LM317_WithTestDistributor(t *testing.T) {
 	}
 }
 
-func TestEnrichPart_WithoutTeamID(t *testing.T) {
+func TestEnrichPart_MissingBody(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
 	userID := testutil.CreateUser(t, testDB, "enrich-noteam@example.com", "pw", "Enrich")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Enrich Team")
 	token := testutil.CreateSession(t, testDB, userID)
 	partID := testutil.CreatePart(t, testDB, "global", "LM317T", nil)
 
 	_, status := testutil.Do(t, testEnv.Server,
-		http.MethodPost, fmt.Sprintf("/api/v1/parts/%s/enrich", partID), nil, token)
+		http.MethodPost, fmt.Sprintf("/api/v1/teams/%s/parts/%s/enrich", teamID, partID), nil, token)
 	if status != http.StatusBadRequest {
-		t.Fatalf("expected 400 without team_id, got %d", status)
+		t.Fatalf("expected 400 with nil body, got %d", status)
 	}
 }
 
@@ -224,7 +225,7 @@ func TestEnrichPart_NonMemberForbidden(t *testing.T) {
 
 	distID := testutil.GetTestDistributorID(t, testDB)
 	_, status := testutil.Do(t, testEnv.Server,
-		http.MethodPost, fmt.Sprintf("/api/v1/parts/%s/enrich?team_id=%s", partID, teamID),
+		http.MethodPost, fmt.Sprintf("/api/v1/teams/%s/parts/%s/enrich", teamID, partID),
 		map[string]any{"sku": "LM317-TEST-TUBE", "distributor_id": distID}, outsiderToken)
 	if status != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", status)

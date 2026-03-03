@@ -14,16 +14,17 @@ func TestStockCheck_MissingBuildQty(t *testing.T) {
 	userID := testutil.CreateUser(t, testDB, "sc-nobuildqty@example.com", "pw", "SC")
 	teamID := testutil.CreateTeam(t, testDB, userID, "viewer", "SC Team")
 	projectID := testutil.CreateProject(t, testDB, teamID, userID, "SC-A")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
 	token := testutil.CreateSession(t, testDB, userID)
 
 	_, status := testutil.Do(t, testEnv.Server, http.MethodGet,
-		fmt.Sprintf("/api/v1/teams/%s/projects/%s/stock-check", teamID, projectID), nil, token)
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/stock-check", teamID, projectID, revID), nil, token)
 	if status != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", status)
 	}
 }
 
-func TestStockCheck_NoActiveBOM(t *testing.T) {
+func TestStockCheck_RevisionNotFound(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
 	userID := testutil.CreateUser(t, testDB, "sc-nobom@example.com", "pw", "SC")
@@ -32,9 +33,9 @@ func TestStockCheck_NoActiveBOM(t *testing.T) {
 	token := testutil.CreateSession(t, testDB, userID)
 
 	_, status := testutil.Do(t, testEnv.Server, http.MethodGet,
-		fmt.Sprintf("/api/v1/teams/%s/projects/%s/stock-check?build_qty=1", teamID, projectID), nil, token)
-	if status != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", status)
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/00000000-0000-0000-0000-000000000000/stock-check?build_quantity=1", teamID, projectID), nil, token)
+	if status != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", status)
 	}
 }
 
@@ -64,7 +65,7 @@ func TestStockCheck_OkAndShortfall(t *testing.T) {
 	// Part B: no inventory entry → shortfall.
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
-		fmt.Sprintf("/api/v1/teams/%s/projects/%s/stock-check?build_qty=1", teamID, projectID), nil, token)
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/stock-check?build_quantity=1", teamID, projectID, revID), nil, token)
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}
@@ -78,13 +79,13 @@ func TestStockCheck_OkAndShortfall(t *testing.T) {
 	statusByRef := make(map[string]string)
 	for _, it := range items {
 		m := it.(map[string]any)
-		statusByRef[m["reference_designators"].(string)] = m["status"].(string)
+		statusByRef[m["reference_designators"].(string)] = m["stock_status"].(string)
 	}
-	if statusByRef["R1"] != "ok" {
-		t.Errorf("expected R1=ok, got %s", statusByRef["R1"])
+	if statusByRef["R1"] != "in_stock" {
+		t.Errorf("expected R1=in_stock, got %s", statusByRef["R1"])
 	}
-	if statusByRef["C1"] != "shortfall" {
-		t.Errorf("expected C1=shortfall, got %s", statusByRef["C1"])
+	if statusByRef["C1"] != "out_of_stock" {
+		t.Errorf("expected C1=out_of_stock, got %s", statusByRef["C1"])
 	}
 }
 
@@ -101,7 +102,7 @@ func TestStockCheck_Unresolved(t *testing.T) {
 	testutil.CreateBOMLineItem(t, testDB, revID, "U1", 1) // not resolved
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
-		fmt.Sprintf("/api/v1/teams/%s/projects/%s/stock-check?build_qty=1", teamID, projectID), nil, token)
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/stock-check?build_quantity=1", teamID, projectID, revID), nil, token)
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}
@@ -110,7 +111,7 @@ func TestStockCheck_Unresolved(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
 	it := items[0].(map[string]any)
-	if it["status"] != "unresolved" {
-		t.Errorf("expected status=unresolved, got %v", it["status"])
+	if it["stock_status"] != "out_of_stock" {
+		t.Errorf("expected stock_status=out_of_stock, got %v", it["stock_status"])
 	}
 }
