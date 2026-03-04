@@ -1,7 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { listBuilds, previewBuild, createBuild, type BuildPreviewItem } from '$lib/api/builds.js';
-  import { ApiError } from '$lib/api/client.js';
+  import { listBuilds, createBuild } from '$lib/api/builds.js';
   import { listProjects } from '$lib/api/projects.js';
   import { listRevisions } from '$lib/api/revisions.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -18,7 +17,7 @@
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus } from 'lucide-svelte';
-  import type { ProjectSummary, Revision } from '$lib/types/projects.js';
+  import type { BuildStatus } from '$lib/types/orders.js';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -26,21 +25,20 @@
 
   let limit = $state(50);
   let offset = $state(0);
+  let statusFilter = $state('');
 
   let buildsQuery = createQuery(() => ({
-    queryKey: ['builds', teamId, limit, offset],
-    queryFn: () => listBuilds(teamId, { limit, offset }),
+    queryKey: ['builds', teamId, statusFilter, limit, offset],
+    queryFn: () => listBuilds(teamId, { status: statusFilter || undefined, limit, offset }),
   }));
 
   // Dialog state
   let dialogOpen = $state(false);
-  let step = $state(1); // 1=pick project+revision, 2=qty, 3=preview, 4=confirm
+  let step = $state(1);
   let selectedProjectId = $state('');
   let selectedRevisionId = $state('');
   let buildQty = $state('1');
   let buildNotes = $state('');
-  let previewItems = $state<BuildPreviewItem[]>([]);
-  let previewing = $state(false);
   let submitting = $state(false);
 
   let projectsQuery = createQuery(() => ({
@@ -61,91 +59,136 @@
     selectedRevisionId = '';
     buildQty = '1';
     buildNotes = '';
-    previewItems = [];
     dialogOpen = true;
   }
 
-  async function handlePreview() {
-    const qty = parseInt(buildQty, 10);
-    if (!selectedProjectId || !selectedRevisionId || isNaN(qty) || qty < 1) return;
-    previewing = true;
-    try {
-      const result = await previewBuild(teamId, {
-        bom_revision_id: selectedRevisionId,
-        boards_built: qty,
-      });
-      previewItems = result.items;
-      step = 3;
-    } catch (err: any) {
-      pushToast('error', 'Failed to preview build', err.message);
-    } finally {
-      previewing = false;
-    }
-  }
-
-  async function handleConfirmBuild(allowReconciliation = false) {
+  async function handleCreate() {
     const qty = parseInt(buildQty, 10);
     if (!selectedProjectId || !selectedRevisionId || isNaN(qty) || qty < 1) return;
     submitting = true;
     try {
-      await createBuild(teamId, {
+      const build = await createBuild(teamId, {
         project_id: selectedProjectId,
         bom_revision_id: selectedRevisionId,
-        boards_built: qty,
+        quantity: qty,
         notes: buildNotes.trim() || undefined,
-        allow_stock_reconciliation: allowReconciliation || undefined,
       });
       dialogOpen = false;
       qc.invalidateQueries({ queryKey: ['builds', teamId] });
-      qc.invalidateQueries({ queryKey: ['inventory', teamId] });
-      pushToast('success', 'Build recorded');
+      navigate(`/teams/${teamId}/builds/${build.id}`);
     } catch (err: any) {
-      if (err instanceof ApiError && err.status === 409 && err.code === 'INSUFFICIENT_STOCK') {
-        // Re-fetch preview to ensure sufficient flags are current, then show in step 3
-        // The preview already shows Short badges; just prompt the user to confirm with corrections.
-        pushToast('error', 'Some parts are short. Use "Record Build with Corrections" to auto-correct stock.');
-      } else {
-        pushToast('error', 'Failed to record build', err.message);
-      }
+      pushToast('error', 'Failed to create build plan', err.message);
     } finally {
       submitting = false;
     }
   }
 
-  let hasShortItems = $derived(previewItems.some(pi => !pi.sufficient));
-
   let step1Valid = $derived(!!selectedProjectId && !!selectedRevisionId);
-  let step2Valid = $derived(() => {
+  let step2Valid = $derived.by(() => {
     const q = parseInt(buildQty, 10);
     return !isNaN(q) && q >= 1;
   });
+
+  function statusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
+    switch (status) {
+      case 'draft': return 'secondary';
+      case 'pending': return 'default';
+      case 'ordered': return 'warning';
+      case 'ready': return 'success';
+      case 'assembled': return 'secondary';
+      case 'cancelled': return 'destructive';
+      default: return 'secondary';
+    }
+  }
+
+  function statusLabel(status: BuildStatus): string {
+    switch (status) {
+      case 'draft': return 'Draft';
+      case 'pending': return 'Pending';
+      case 'ordered': return 'Ordered';
+      case 'ready': return 'Ready';
+      case 'assembled': return 'Assembled';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
+    }
+  }
+
+  const filterOptions = [
+    { value: '', label: 'All' },
+    { value: 'draft', label: 'Draft' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'ordered', label: 'Ordered' },
+    { value: 'ready', label: 'Ready' },
+    { value: 'assembled', label: 'Assembled' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ];
+
+  let readyCount = $derived(
+    (buildsQuery.data?.items ?? []).filter(b => b.status === 'ready').length
+  );
+  let waitingCount = $derived(
+    (buildsQuery.data?.items ?? []).filter(b => b.status === 'pending' || b.status === 'ordered').length
+  );
 </script>
 
 <div class="flex flex-col h-full">
   <Topbar title="Builds">
     {#snippet actions()}
       <Button size="sm" onclick={openDialog}>
-        <Plus class="h-4 w-4 mr-1" /> Record Build
+        <Plus class="h-4 w-4 mr-1" /> Create Build Plan
       </Button>
     {/snippet}
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6 space-y-4">
+    <!-- Status filter -->
+    <div class="flex items-center gap-1.5 flex-wrap">
+      {#each filterOptions as opt}
+        <button
+          class="px-3 py-1 rounded-full text-xs font-medium transition-colors border {statusFilter === opt.value ? 'bg-foreground text-background border-foreground' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/40'}"
+          onclick={() => { statusFilter = opt.value; offset = 0; }}
+        >
+          {opt.label}
+        </button>
+      {/each}
+    </div>
+
     {#if buildsQuery.isPending}
       <div class="text-sm text-muted-foreground">Loading builds…</div>
     {:else if buildsQuery.isError}
       <div class="text-sm text-destructive">Error: {buildsQuery.error.message}</div>
     {:else if buildsQuery.data}
       {@const data = buildsQuery.data}
+
+      <!-- Pipeline summary (shown on unfiltered view) -->
+      {#if !statusFilter && (readyCount > 0 || waitingCount > 0)}
+        <div class="flex items-center gap-4 text-sm">
+          {#if readyCount > 0}
+            <span class="flex items-center gap-1.5">
+              <Badge variant="success">{readyCount}</Badge>
+              build{readyCount !== 1 ? 's' : ''} ready to assemble
+            </span>
+          {/if}
+          {#if waitingCount > 0}
+            <span class="flex items-center gap-1.5">
+              <Badge variant="warning">{waitingCount}</Badge>
+              build{waitingCount !== 1 ? 's' : ''} waiting for parts
+            </span>
+          {/if}
+        </div>
+      {/if}
+
       {#if data.items.length === 0}
         <EmptyState
-          title="No builds recorded"
-          description="Record a build to track parts consumed during PCB assembly."
+          title="No builds found"
+          description={statusFilter ? `No ${statusFilter} builds.` : 'Create a build plan to start tracking PCB assembly.'}
         >
           {#snippet action()}
-            <Button size="sm" onclick={openDialog}>
-              <Plus class="h-4 w-4 mr-1" /> Record Build
-            </Button>
+            {#if !statusFilter}
+              <Button size="sm" onclick={openDialog}>
+                <Plus class="h-4 w-4 mr-1" /> Create Build Plan
+              </Button>
+            {/if}
           {/snippet}
         </EmptyState>
       {:else}
@@ -154,9 +197,9 @@
             <TableRow>
               <TableHead>Project</TableHead>
               <TableHead>Revision</TableHead>
-              <TableHead>Qty Built</TableHead>
-              <TableHead>Built At</TableHead>
-              <TableHead>By</TableHead>
+              <TableHead>Quantity</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -167,11 +210,13 @@
               >
                 <TableCell class="font-medium">{build.project_name}</TableCell>
                 <TableCell class="text-muted-foreground text-sm">{build.bom_revision_label}</TableCell>
-                <TableCell>{build.quantity_built}</TableCell>
+                <TableCell class="tabular-nums">{build.quantity}</TableCell>
                 <TableCell>
-                  <DateDisplay value={build.built_at} />
+                  <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
                 </TableCell>
-                <TableCell class="text-muted-foreground text-sm">{build.built_by_display_name}</TableCell>
+                <TableCell>
+                  <DateDisplay value={build.created_at} />
+                </TableCell>
               </TableRow>
             {/each}
           </TableBody>
@@ -187,13 +232,13 @@
   </div>
 </div>
 
-<!-- Record Build Dialog -->
+<!-- Create Build Plan Dialog -->
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
     <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
-      <Dialog.Title class="text-lg font-semibold mb-1">Record Build</Dialog.Title>
-      <p class="text-sm text-muted-foreground mb-4">Step {step} of 3</p>
+      <Dialog.Title class="text-lg font-semibold mb-1">Create Build Plan</Dialog.Title>
+      <p class="text-sm text-muted-foreground mb-4">Step {step} of 2</p>
 
       {#if step === 1}
         <div class="space-y-3">
@@ -223,7 +268,9 @@
             </Select>
           </div>
           <div class="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onclick={() => { dialogOpen = false; }}>Cancel</Button>
+            <Dialog.Close>
+              <Button variant="outline" type="button">Cancel</Button>
+            </Dialog.Close>
             <Button disabled={!step1Valid} onclick={() => { step = 2; }}>Next</Button>
           </div>
         </div>
@@ -231,13 +278,14 @@
       {:else if step === 2}
         <div class="space-y-3">
           <div class="space-y-1">
-            <Label for="build-qty">Quantity to Build <span class="text-destructive">*</span></Label>
+            <Label for="build-qty">Quantity <span class="text-destructive">*</span></Label>
             <Input
               id="build-qty"
               type="number"
               bind:value={buildQty}
               min="1"
               placeholder="e.g. 10"
+              onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' && step2Valid) handleCreate(); }}
             />
           </div>
           <div class="space-y-1">
@@ -251,63 +299,11 @@
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" onclick={() => { step = 1; }}>Back</Button>
             <Button
-              disabled={!step2Valid() || previewing}
-              onclick={handlePreview}
+              disabled={!step2Valid || submitting}
+              onclick={handleCreate}
             >
-              {previewing ? 'Checking…' : 'Preview'}
+              {submitting ? 'Creating…' : 'Create Build Plan'}
             </Button>
-          </div>
-        </div>
-
-      {:else if step === 3}
-        <div class="space-y-3">
-          <p class="text-sm text-muted-foreground">
-            Parts to be deducted for <strong>{buildQty}</strong> board(s):
-          </p>
-          <div class="max-h-64 overflow-y-auto rounded border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Part MPN</TableHead>
-                  <TableHead>Per Board</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>On Hand</TableHead>
-                  <TableHead>OK?</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each previewItems as pi (pi.bom_line_item_id)}
-                  <TableRow>
-                    <TableCell class="font-mono text-xs">{pi.resolved_part_mpn ?? '—'}</TableCell>
-                    <TableCell>{pi.quantity_per_board}</TableCell>
-                    <TableCell>{pi.total_quantity}</TableCell>
-                    <TableCell>{pi.quantity_on_hand}</TableCell>
-                    <TableCell>
-                      <Badge variant={pi.sufficient ? 'success' : 'destructive'}>
-                        {pi.sufficient ? 'OK' : 'Short'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
-          </div>
-          {#if hasShortItems}
-            <p class="text-sm text-yellow-600">
-              Some parts have insufficient stock. Confirming this build will insert a stock correction for each affected part (stock will be set to 0 before deducting).
-            </p>
-          {/if}
-          <div class="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onclick={() => { step = 2; }}>Back</Button>
-            {#if hasShortItems}
-              <Button onclick={() => handleConfirmBuild(true)} disabled={submitting}>
-                {submitting ? 'Recording…' : 'Record Build with Corrections'}
-              </Button>
-            {:else}
-              <Button onclick={() => handleConfirmBuild(false)} disabled={submitting}>
-                {submitting ? 'Recording…' : 'Confirm Build'}
-              </Button>
-            {/if}
           </div>
         </div>
       {/if}

@@ -11,58 +11,145 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkBuildReadiness = `-- name: CheckBuildReadiness :one
+SELECT NOT EXISTS (
+    SELECT 1 FROM build_part_allocations
+    WHERE build_id = $1
+      AND (quantity_reserved + quantity_received) < quantity_needed
+) AS is_ready
+`
+
+func (q *Queries) CheckBuildReadiness(ctx context.Context, buildID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, checkBuildReadiness, buildID)
+	var is_ready bool
+	err := row.Scan(&is_ready)
+	return is_ready, err
+}
+
 const countBuilds = `-- name: CountBuilds :one
 SELECT COUNT(*) FROM builds
 WHERE team_id = $1
   AND ($2::uuid IS NULL OR project_id = $2)
+  AND ($3::text IS NULL OR status = $3)
 `
 
 type CountBuildsParams struct {
 	TeamID    pgtype.UUID `json:"team_id"`
 	ProjectID pgtype.UUID `json:"project_id"`
+	Status    *string     `json:"status"`
 }
 
 func (q *Queries) CountBuilds(ctx context.Context, arg CountBuildsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countBuilds, arg.TeamID, arg.ProjectID)
+	row := q.db.QueryRow(ctx, countBuilds, arg.TeamID, arg.ProjectID, arg.Status)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
-const createBuild = `-- name: CreateBuild :one
-INSERT INTO builds (team_id, project_id, bom_revision_id, boards_built, notes, recorded_by)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, team_id, project_id, bom_revision_id, boards_built, built_at, notes, recorded_by
+const createBuildOrder = `-- name: CreateBuildOrder :exec
+INSERT INTO build_orders (build_id, order_id) VALUES ($1, $2)
 `
 
-type CreateBuildParams struct {
+type CreateBuildOrderParams struct {
+	BuildID pgtype.UUID `json:"build_id"`
+	OrderID pgtype.UUID `json:"order_id"`
+}
+
+func (q *Queries) CreateBuildOrder(ctx context.Context, arg CreateBuildOrderParams) error {
+	_, err := q.db.Exec(ctx, createBuildOrder, arg.BuildID, arg.OrderID)
+	return err
+}
+
+const createBuildPartAllocation = `-- name: CreateBuildPartAllocation :one
+INSERT INTO build_part_allocations (build_id, part_id, quantity_needed, quantity_reserved, quantity_received)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, build_id, part_id, quantity_needed, quantity_reserved, quantity_received
+`
+
+type CreateBuildPartAllocationParams struct {
+	BuildID          pgtype.UUID `json:"build_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+	QuantityNeeded   int32       `json:"quantity_needed"`
+	QuantityReserved int32       `json:"quantity_reserved"`
+	QuantityReceived int32       `json:"quantity_received"`
+}
+
+func (q *Queries) CreateBuildPartAllocation(ctx context.Context, arg CreateBuildPartAllocationParams) (BuildPartAllocation, error) {
+	row := q.db.QueryRow(ctx, createBuildPartAllocation,
+		arg.BuildID,
+		arg.PartID,
+		arg.QuantityNeeded,
+		arg.QuantityReserved,
+		arg.QuantityReceived,
+	)
+	var i BuildPartAllocation
+	err := row.Scan(
+		&i.ID,
+		&i.BuildID,
+		&i.PartID,
+		&i.QuantityNeeded,
+		&i.QuantityReserved,
+		&i.QuantityReceived,
+	)
+	return i, err
+}
+
+const createBuildPlan = `-- name: CreateBuildPlan :one
+INSERT INTO builds (team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by)
+VALUES ($1, $2, $3, $4, 'draft', $5, NOW(), $6)
+RETURNING id, team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by,
+          assembled_at, assembled_by, assembled_quantity, excluded_from_cart
+`
+
+type CreateBuildPlanParams struct {
 	TeamID        pgtype.UUID `json:"team_id"`
 	ProjectID     pgtype.UUID `json:"project_id"`
 	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
-	BoardsBuilt   int32       `json:"boards_built"`
+	Quantity      int32       `json:"quantity"`
 	Notes         *string     `json:"notes"`
-	RecordedBy    pgtype.UUID `json:"recorded_by"`
+	CreatedBy     pgtype.UUID `json:"created_by"`
 }
 
-func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build, error) {
-	row := q.db.QueryRow(ctx, createBuild,
+type CreateBuildPlanRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	TeamID            pgtype.UUID        `json:"team_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	BomRevisionID     pgtype.UUID        `json:"bom_revision_id"`
+	Quantity          int32              `json:"quantity"`
+	Status            string             `json:"status"`
+	Notes             *string            `json:"notes"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
+	AssembledBy       pgtype.UUID        `json:"assembled_by"`
+	AssembledQuantity *int32             `json:"assembled_quantity"`
+	ExcludedFromCart  bool               `json:"excluded_from_cart"`
+}
+
+func (q *Queries) CreateBuildPlan(ctx context.Context, arg CreateBuildPlanParams) (CreateBuildPlanRow, error) {
+	row := q.db.QueryRow(ctx, createBuildPlan,
 		arg.TeamID,
 		arg.ProjectID,
 		arg.BomRevisionID,
-		arg.BoardsBuilt,
+		arg.Quantity,
 		arg.Notes,
-		arg.RecordedBy,
+		arg.CreatedBy,
 	)
-	var i Build
+	var i CreateBuildPlanRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
 		&i.ProjectID,
 		&i.BomRevisionID,
-		&i.BoardsBuilt,
-		&i.BuiltAt,
+		&i.Quantity,
+		&i.Status,
 		&i.Notes,
-		&i.RecordedBy,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.AssembledAt,
+		&i.AssembledBy,
+		&i.AssembledQuantity,
+		&i.ExcludedFromCart,
 	)
 	return i, err
 }
@@ -112,16 +199,29 @@ func (q *Queries) CreateBuildStockAdjustment(ctx context.Context, arg CreateBuil
 	return i, err
 }
 
+const deleteBuildPartAllocations = `-- name: DeleteBuildPartAllocations :exec
+DELETE FROM build_part_allocations WHERE build_id = $1
+`
+
+func (q *Queries) DeleteBuildPartAllocations(ctx context.Context, buildID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteBuildPartAllocations, buildID)
+	return err
+}
+
 const getBuild = `-- name: GetBuild :one
 SELECT
     b.id, b.team_id, b.project_id, pr.name AS project_name,
     b.bom_revision_id, br.label AS bom_revision_label,
-    b.boards_built, b.built_at, b.notes,
-    u.display_name AS recorded_by_display_name
+    b.quantity, b.status, b.notes,
+    b.assembled_at, b.assembled_quantity, b.excluded_from_cart,
+    b.created_at, b.created_by,
+    u_assembled.display_name AS assembled_by_display_name,
+    u_created.display_name   AS created_by_display_name
 FROM builds b
 JOIN projects pr ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
-JOIN users u ON u.id = b.recorded_by
+LEFT JOIN users u_assembled ON u_assembled.id = b.assembled_by
+LEFT JOIN users u_created   ON u_created.id   = b.created_by
 WHERE b.id = $1 AND b.team_id = $2
 `
 
@@ -131,16 +231,22 @@ type GetBuildParams struct {
 }
 
 type GetBuildRow struct {
-	ID                    pgtype.UUID        `json:"id"`
-	TeamID                pgtype.UUID        `json:"team_id"`
-	ProjectID             pgtype.UUID        `json:"project_id"`
-	ProjectName           string             `json:"project_name"`
-	BomRevisionID         pgtype.UUID        `json:"bom_revision_id"`
-	BomRevisionLabel      string             `json:"bom_revision_label"`
-	BoardsBuilt           int32              `json:"boards_built"`
-	BuiltAt               pgtype.Timestamptz `json:"built_at"`
-	Notes                 *string            `json:"notes"`
-	RecordedByDisplayName string             `json:"recorded_by_display_name"`
+	ID                     pgtype.UUID        `json:"id"`
+	TeamID                 pgtype.UUID        `json:"team_id"`
+	ProjectID              pgtype.UUID        `json:"project_id"`
+	ProjectName            string             `json:"project_name"`
+	BomRevisionID          pgtype.UUID        `json:"bom_revision_id"`
+	BomRevisionLabel       string             `json:"bom_revision_label"`
+	Quantity               int32              `json:"quantity"`
+	Status                 string             `json:"status"`
+	Notes                  *string            `json:"notes"`
+	AssembledAt            pgtype.Timestamptz `json:"assembled_at"`
+	AssembledQuantity      *int32             `json:"assembled_quantity"`
+	ExcludedFromCart       bool               `json:"excluded_from_cart"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	AssembledByDisplayName *string            `json:"assembled_by_display_name"`
+	CreatedByDisplayName   *string            `json:"created_by_display_name"`
 }
 
 func (q *Queries) GetBuild(ctx context.Context, arg GetBuildParams) (GetBuildRow, error) {
@@ -153,12 +259,276 @@ func (q *Queries) GetBuild(ctx context.Context, arg GetBuildParams) (GetBuildRow
 		&i.ProjectName,
 		&i.BomRevisionID,
 		&i.BomRevisionLabel,
-		&i.BoardsBuilt,
-		&i.BuiltAt,
+		&i.Quantity,
+		&i.Status,
 		&i.Notes,
-		&i.RecordedByDisplayName,
+		&i.AssembledAt,
+		&i.AssembledQuantity,
+		&i.ExcludedFromCart,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.AssembledByDisplayName,
+		&i.CreatedByDisplayName,
 	)
 	return i, err
+}
+
+const getBuildForUpdate = `-- name: GetBuildForUpdate :one
+SELECT id, team_id, project_id, bom_revision_id, quantity, status, notes,
+       assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart
+FROM builds
+WHERE id = $1 AND team_id = $2
+FOR UPDATE
+`
+
+type GetBuildForUpdateParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetBuildForUpdateRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	TeamID            pgtype.UUID        `json:"team_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	BomRevisionID     pgtype.UUID        `json:"bom_revision_id"`
+	Quantity          int32              `json:"quantity"`
+	Status            string             `json:"status"`
+	Notes             *string            `json:"notes"`
+	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
+	AssembledBy       pgtype.UUID        `json:"assembled_by"`
+	AssembledQuantity *int32             `json:"assembled_quantity"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	ExcludedFromCart  bool               `json:"excluded_from_cart"`
+}
+
+func (q *Queries) GetBuildForUpdate(ctx context.Context, arg GetBuildForUpdateParams) (GetBuildForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getBuildForUpdate, arg.ID, arg.TeamID)
+	var i GetBuildForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.ProjectID,
+		&i.BomRevisionID,
+		&i.Quantity,
+		&i.Status,
+		&i.Notes,
+		&i.AssembledAt,
+		&i.AssembledBy,
+		&i.AssembledQuantity,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.ExcludedFromCart,
+	)
+	return i, err
+}
+
+const getBuildOrderIDs = `-- name: GetBuildOrderIDs :many
+SELECT order_id FROM build_orders WHERE build_id = $1
+`
+
+func (q *Queries) GetBuildOrderIDs(ctx context.Context, buildID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getBuildOrderIDs, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var order_id pgtype.UUID
+		if err := rows.Scan(&order_id); err != nil {
+			return nil, err
+		}
+		items = append(items, order_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getBuildPartAllocations = `-- name: GetBuildPartAllocations :many
+SELECT bpa.id, bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
+       p.mpn AS part_mpn
+FROM build_part_allocations bpa
+JOIN parts p ON p.id = bpa.part_id
+WHERE bpa.build_id = $1
+`
+
+type GetBuildPartAllocationsRow struct {
+	ID               pgtype.UUID `json:"id"`
+	BuildID          pgtype.UUID `json:"build_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+	QuantityNeeded   int32       `json:"quantity_needed"`
+	QuantityReserved int32       `json:"quantity_reserved"`
+	QuantityReceived int32       `json:"quantity_received"`
+	PartMpn          *string     `json:"part_mpn"`
+}
+
+func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UUID) ([]GetBuildPartAllocationsRow, error) {
+	rows, err := q.db.Query(ctx, getBuildPartAllocations, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetBuildPartAllocationsRow
+	for rows.Next() {
+		var i GetBuildPartAllocationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BuildID,
+			&i.PartID,
+			&i.QuantityNeeded,
+			&i.QuantityReserved,
+			&i.QuantityReceived,
+			&i.PartMpn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLinkedBuildAllocationsForOrderPart = `-- name: GetLinkedBuildAllocationsForOrderPart :many
+SELECT bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received
+FROM build_part_allocations bpa
+JOIN build_orders bo ON bo.build_id = bpa.build_id
+WHERE bo.order_id = $1 AND bpa.part_id = $2
+`
+
+type GetLinkedBuildAllocationsForOrderPartParams struct {
+	OrderID pgtype.UUID `json:"order_id"`
+	PartID  pgtype.UUID `json:"part_id"`
+}
+
+type GetLinkedBuildAllocationsForOrderPartRow struct {
+	BuildID          pgtype.UUID `json:"build_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+	QuantityNeeded   int32       `json:"quantity_needed"`
+	QuantityReserved int32       `json:"quantity_reserved"`
+	QuantityReceived int32       `json:"quantity_received"`
+}
+
+func (q *Queries) GetLinkedBuildAllocationsForOrderPart(ctx context.Context, arg GetLinkedBuildAllocationsForOrderPartParams) ([]GetLinkedBuildAllocationsForOrderPartRow, error) {
+	rows, err := q.db.Query(ctx, getLinkedBuildAllocationsForOrderPart, arg.OrderID, arg.PartID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetLinkedBuildAllocationsForOrderPartRow
+	for rows.Next() {
+		var i GetLinkedBuildAllocationsForOrderPartRow
+		if err := rows.Scan(
+			&i.BuildID,
+			&i.PartID,
+			&i.QuantityNeeded,
+			&i.QuantityReserved,
+			&i.QuantityReceived,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLinkedBuildIDsForOrder = `-- name: GetLinkedBuildIDsForOrder :many
+SELECT build_id FROM build_orders WHERE order_id = $1
+`
+
+func (q *Queries) GetLinkedBuildIDsForOrder(ctx context.Context, orderID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getLinkedBuildIDsForOrder, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var build_id pgtype.UUID
+		if err := rows.Scan(&build_id); err != nil {
+			return nil, err
+		}
+		items = append(items, build_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPendingBuildsForTeam = `-- name: GetPendingBuildsForTeam :many
+SELECT b.id, b.team_id, b.project_id, pr.name AS project_name,
+       b.bom_revision_id, br.label AS revision_label,
+       b.quantity AS build_quantity, b.excluded_from_cart
+FROM builds b
+JOIN projects pr      ON pr.id = b.project_id
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+WHERE b.status = 'pending' AND b.team_id = $1
+ORDER BY b.created_at
+`
+
+type GetPendingBuildsForTeamRow struct {
+	ID               pgtype.UUID `json:"id"`
+	TeamID           pgtype.UUID `json:"team_id"`
+	ProjectID        pgtype.UUID `json:"project_id"`
+	ProjectName      string      `json:"project_name"`
+	BomRevisionID    pgtype.UUID `json:"bom_revision_id"`
+	RevisionLabel    string      `json:"revision_label"`
+	BuildQuantity    int32       `json:"build_quantity"`
+	ExcludedFromCart bool        `json:"excluded_from_cart"`
+}
+
+func (q *Queries) GetPendingBuildsForTeam(ctx context.Context, teamID pgtype.UUID) ([]GetPendingBuildsForTeamRow, error) {
+	rows, err := q.db.Query(ctx, getPendingBuildsForTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPendingBuildsForTeamRow
+	for rows.Next() {
+		var i GetPendingBuildsForTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.BomRevisionID,
+			&i.RevisionLabel,
+			&i.BuildQuantity,
+			&i.ExcludedFromCart,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const incrementBuildPartAllocationReceived = `-- name: IncrementBuildPartAllocationReceived :exec
+UPDATE build_part_allocations
+SET quantity_received = quantity_received + $3
+WHERE build_id = $1 AND part_id = $2
+`
+
+type IncrementBuildPartAllocationReceivedParams struct {
+	BuildID          pgtype.UUID `json:"build_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+	QuantityReceived int32       `json:"quantity_received"`
+}
+
+func (q *Queries) IncrementBuildPartAllocationReceived(ctx context.Context, arg IncrementBuildPartAllocationReceivedParams) error {
+	_, err := q.db.Exec(ctx, incrementBuildPartAllocationReceived, arg.BuildID, arg.PartID, arg.QuantityReceived)
+	return err
 }
 
 const listBuildDeductions = `-- name: ListBuildDeductions :many
@@ -210,41 +580,47 @@ const listBuilds = `-- name: ListBuilds :many
 SELECT
     b.id, b.project_id, pr.name AS project_name,
     b.bom_revision_id, br.label AS bom_revision_label,
-    b.boards_built, b.built_at, b.notes,
-    u.display_name AS recorded_by_display_name
+    b.quantity, b.status,
+    b.assembled_at, b.created_at, b.notes,
+    u.display_name AS assembled_by_display_name
 FROM builds b
 JOIN projects pr ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
-JOIN users u ON u.id = b.recorded_by
+LEFT JOIN users u ON u.id = b.assembled_by
 WHERE b.team_id = $1
   AND ($2::uuid IS NULL OR b.project_id = $2)
-ORDER BY b.built_at DESC
-LIMIT $4 OFFSET $3
+  AND ($3::text IS NULL OR b.status = $3)
+ORDER BY b.created_at DESC
+LIMIT $5 OFFSET $4
 `
 
 type ListBuildsParams struct {
 	TeamID    pgtype.UUID `json:"team_id"`
 	ProjectID pgtype.UUID `json:"project_id"`
+	Status    *string     `json:"status"`
 	Offset    int32       `json:"offset"`
 	Limit     int32       `json:"limit"`
 }
 
 type ListBuildsRow struct {
-	ID                    pgtype.UUID        `json:"id"`
-	ProjectID             pgtype.UUID        `json:"project_id"`
-	ProjectName           string             `json:"project_name"`
-	BomRevisionID         pgtype.UUID        `json:"bom_revision_id"`
-	BomRevisionLabel      string             `json:"bom_revision_label"`
-	BoardsBuilt           int32              `json:"boards_built"`
-	BuiltAt               pgtype.Timestamptz `json:"built_at"`
-	Notes                 *string            `json:"notes"`
-	RecordedByDisplayName string             `json:"recorded_by_display_name"`
+	ID                     pgtype.UUID        `json:"id"`
+	ProjectID              pgtype.UUID        `json:"project_id"`
+	ProjectName            string             `json:"project_name"`
+	BomRevisionID          pgtype.UUID        `json:"bom_revision_id"`
+	BomRevisionLabel       string             `json:"bom_revision_label"`
+	Quantity               int32              `json:"quantity"`
+	Status                 string             `json:"status"`
+	AssembledAt            pgtype.Timestamptz `json:"assembled_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	Notes                  *string            `json:"notes"`
+	AssembledByDisplayName *string            `json:"assembled_by_display_name"`
 }
 
 func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListBuildsRow, error) {
 	rows, err := q.db.Query(ctx, listBuilds,
 		arg.TeamID,
 		arg.ProjectID,
+		arg.Status,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -261,10 +637,12 @@ func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListB
 			&i.ProjectName,
 			&i.BomRevisionID,
 			&i.BomRevisionLabel,
-			&i.BoardsBuilt,
-			&i.BuiltAt,
+			&i.Quantity,
+			&i.Status,
+			&i.AssembledAt,
+			&i.CreatedAt,
 			&i.Notes,
-			&i.RecordedByDisplayName,
+			&i.AssembledByDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -274,4 +652,180 @@ func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListB
 		return nil, err
 	}
 	return items, nil
+}
+
+const setBuildExcludedFromCart = `-- name: SetBuildExcludedFromCart :exec
+UPDATE builds
+SET excluded_from_cart = $2
+WHERE id = $1 AND team_id = $3 AND status = 'pending'
+`
+
+type SetBuildExcludedFromCartParams struct {
+	ID               pgtype.UUID `json:"id"`
+	ExcludedFromCart bool        `json:"excluded_from_cart"`
+	TeamID           pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) SetBuildExcludedFromCart(ctx context.Context, arg SetBuildExcludedFromCartParams) error {
+	_, err := q.db.Exec(ctx, setBuildExcludedFromCart, arg.ID, arg.ExcludedFromCart, arg.TeamID)
+	return err
+}
+
+const sumReservedForPart = `-- name: SumReservedForPart :one
+SELECT COALESCE(SUM(bpa.quantity_reserved), 0)::int AS total_reserved
+FROM build_part_allocations bpa
+JOIN builds b ON bpa.build_id = b.id
+WHERE bpa.part_id = $1
+  AND b.team_id   = $2
+  AND b.status    NOT IN ('assembled', 'cancelled')
+`
+
+type SumReservedForPartParams struct {
+	PartID pgtype.UUID `json:"part_id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) SumReservedForPart(ctx context.Context, arg SumReservedForPartParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sumReservedForPart, arg.PartID, arg.TeamID)
+	var total_reserved int32
+	err := row.Scan(&total_reserved)
+	return total_reserved, err
+}
+
+const updateBuildAssembled = `-- name: UpdateBuildAssembled :one
+UPDATE builds
+SET status             = $2,
+    assembled_quantity = $3,
+    assembled_at       = $4,
+    assembled_by       = $5
+WHERE id = $1 AND team_id = $6
+RETURNING id, status, assembled_quantity, assembled_at
+`
+
+type UpdateBuildAssembledParams struct {
+	ID                pgtype.UUID        `json:"id"`
+	Status            string             `json:"status"`
+	AssembledQuantity *int32             `json:"assembled_quantity"`
+	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
+	AssembledBy       pgtype.UUID        `json:"assembled_by"`
+	TeamID            pgtype.UUID        `json:"team_id"`
+}
+
+type UpdateBuildAssembledRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	Status            string             `json:"status"`
+	AssembledQuantity *int32             `json:"assembled_quantity"`
+	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
+}
+
+func (q *Queries) UpdateBuildAssembled(ctx context.Context, arg UpdateBuildAssembledParams) (UpdateBuildAssembledRow, error) {
+	row := q.db.QueryRow(ctx, updateBuildAssembled,
+		arg.ID,
+		arg.Status,
+		arg.AssembledQuantity,
+		arg.AssembledAt,
+		arg.AssembledBy,
+		arg.TeamID,
+	)
+	var i UpdateBuildAssembledRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.AssembledQuantity,
+		&i.AssembledAt,
+	)
+	return i, err
+}
+
+const updateBuildQuantityAndNotes = `-- name: UpdateBuildQuantityAndNotes :one
+UPDATE builds
+SET quantity = COALESCE($1, quantity),
+    notes    = COALESCE($2, notes)
+WHERE id = $3 AND team_id = $4
+  AND status IN ('draft', 'pending')
+RETURNING id, quantity, notes, status
+`
+
+type UpdateBuildQuantityAndNotesParams struct {
+	Quantity *int32      `json:"quantity"`
+	Notes    *string     `json:"notes"`
+	ID       pgtype.UUID `json:"id"`
+	TeamID   pgtype.UUID `json:"team_id"`
+}
+
+type UpdateBuildQuantityAndNotesRow struct {
+	ID       pgtype.UUID `json:"id"`
+	Quantity int32       `json:"quantity"`
+	Notes    *string     `json:"notes"`
+	Status   string      `json:"status"`
+}
+
+func (q *Queries) UpdateBuildQuantityAndNotes(ctx context.Context, arg UpdateBuildQuantityAndNotesParams) (UpdateBuildQuantityAndNotesRow, error) {
+	row := q.db.QueryRow(ctx, updateBuildQuantityAndNotes,
+		arg.Quantity,
+		arg.Notes,
+		arg.ID,
+		arg.TeamID,
+	)
+	var i UpdateBuildQuantityAndNotesRow
+	err := row.Scan(
+		&i.ID,
+		&i.Quantity,
+		&i.Notes,
+		&i.Status,
+	)
+	return i, err
+}
+
+const updateBuildStatus = `-- name: UpdateBuildStatus :exec
+UPDATE builds SET status = $2 WHERE id = $1 AND team_id = $3
+`
+
+type UpdateBuildStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) UpdateBuildStatus(ctx context.Context, arg UpdateBuildStatusParams) error {
+	_, err := q.db.Exec(ctx, updateBuildStatus, arg.ID, arg.Status, arg.TeamID)
+	return err
+}
+
+const upsertBuildPartAllocation = `-- name: UpsertBuildPartAllocation :one
+INSERT INTO build_part_allocations (build_id, part_id, quantity_needed, quantity_reserved, quantity_received)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (build_id, part_id) DO UPDATE
+    SET quantity_needed   = EXCLUDED.quantity_needed,
+        quantity_reserved = EXCLUDED.quantity_reserved,
+        quantity_received = EXCLUDED.quantity_received
+RETURNING id, build_id, part_id, quantity_needed, quantity_reserved, quantity_received
+`
+
+type UpsertBuildPartAllocationParams struct {
+	BuildID          pgtype.UUID `json:"build_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+	QuantityNeeded   int32       `json:"quantity_needed"`
+	QuantityReserved int32       `json:"quantity_reserved"`
+	QuantityReceived int32       `json:"quantity_received"`
+}
+
+func (q *Queries) UpsertBuildPartAllocation(ctx context.Context, arg UpsertBuildPartAllocationParams) (BuildPartAllocation, error) {
+	row := q.db.QueryRow(ctx, upsertBuildPartAllocation,
+		arg.BuildID,
+		arg.PartID,
+		arg.QuantityNeeded,
+		arg.QuantityReserved,
+		arg.QuantityReceived,
+	)
+	var i BuildPartAllocation
+	err := row.Scan(
+		&i.ID,
+		&i.BuildID,
+		&i.PartID,
+		&i.QuantityNeeded,
+		&i.QuantityReserved,
+		&i.QuantityReceived,
+	)
+	return i, err
 }

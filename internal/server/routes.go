@@ -151,6 +151,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// Builds
 					r.Post("/builds/preview", h.PreviewBuild)
 					r.Post("/builds", h.CreateBuild)
+					r.Post("/builds/{buildId}/submit", h.SubmitBuild)
+					r.Post("/builds/{buildId}/checkout", h.CheckoutBuild)
+					r.Patch("/builds/{buildId}", h.UpdateBuild)
+					r.Delete("/builds/{buildId}", h.CancelBuild)
 
 					// Checkouts
 					r.Post("/checkouts", h.CreateCheckout)
@@ -166,10 +170,11 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/cart/items", h.AddCartItem)
 					r.Patch("/cart/items/{itemId}", h.UpdateCartItem)
 					r.Delete("/cart/items/{itemId}", h.RemoveCartItem)
-					r.Post("/cart/add-shortfall", h.AddShortfalls)
-					r.Delete("/cart/pending-builds/{revisionId}", h.RemovePendingBuild)
 					r.Post("/cart/add-low-stock", h.AddLowStock)
 					r.Post("/cart/convert", h.ConvertCart)
+
+					// Build cart-inclusion toggle (purchaser+)
+					r.Patch("/builds/{buildId}/cart-inclusion", h.ToggleBuildCartInclusion)
 
 					// Orders
 					r.Patch("/orders/{orderId}", h.UpdateOrder)

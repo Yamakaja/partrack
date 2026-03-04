@@ -336,6 +336,28 @@ func (q *Queries) GetOrderReceiptStatus(ctx context.Context, orderID pgtype.UUID
 	return i, err
 }
 
+const getOutstandingOrderedQtyForBuildPart = `-- name: GetOutstandingOrderedQtyForBuildPart :one
+SELECT COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
+FROM   order_line_items oli
+JOIN   distributor_listings dl ON oli.listing_id = dl.id
+JOIN   build_orders bo         ON bo.order_id = oli.order_id
+WHERE  bo.build_id = $1
+  AND  dl.part_id  = $2
+  AND  oli.quantity_received < oli.quantity_ordered
+`
+
+type GetOutstandingOrderedQtyForBuildPartParams struct {
+	BuildID pgtype.UUID `json:"build_id"`
+	PartID  pgtype.UUID `json:"part_id"`
+}
+
+func (q *Queries) GetOutstandingOrderedQtyForBuildPart(ctx context.Context, arg GetOutstandingOrderedQtyForBuildPartParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getOutstandingOrderedQtyForBuildPart, arg.BuildID, arg.PartID)
+	var outstanding_qty int32
+	err := row.Scan(&outstanding_qty)
+	return outstanding_qty, err
+}
+
 const linkOrderExternalReference = `-- name: LinkOrderExternalReference :one
 UPDATE orders
 SET external_reference     = $1,

@@ -2,8 +2,9 @@
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import {
     getCart, updateCartItem, removeCartItem,
-    addLowStock, convertCart, removePendingBuild,
+    addLowStock, convertCart,
   } from '$lib/api/cart.js';
+  import { listBuilds, toggleBuildCartInclusion } from '$lib/api/builds.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
@@ -13,7 +14,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { RefreshCw, ArrowRight, Trash2, X } from 'lucide-svelte';
+  import { RefreshCw, ArrowRight, Trash2, ExternalLink } from 'lucide-svelte';
   import type { CartItem } from '$lib/types/orders.js';
 
   let { teamId }: { teamId: string } = $props();
@@ -25,10 +26,15 @@
     queryFn: () => getCart(teamId),
   }));
 
+  let pendingBuildsQuery = createQuery(() => ({
+    queryKey: ['builds', teamId, 'pending'],
+    queryFn: () => listBuilds(teamId, { status: 'pending' }),
+  }));
+
   let qtyEdits = $state<Record<string, string>>({});
   let updatingItems = $state<Set<string>>(new Set());
   let removingItems = $state<Set<string>>(new Set());
-  let removingBuilds = $state<Set<string>>(new Set());
+  let togglingBuilds = $state<Set<string>>(new Set());
   let addingLowStock = $state(false);
   let converting = $state(false);
 
@@ -80,17 +86,18 @@
     }
   }
 
-  async function handleRemoveBuild(revisionId: string) {
-    removingBuilds = new Set([...removingBuilds, revisionId]);
+  async function handleToggleInclusion(buildId: string, currentExcluded: boolean) {
+    togglingBuilds = new Set([...togglingBuilds, buildId]);
     try {
-      await removePendingBuild(teamId, revisionId);
+      await toggleBuildCartInclusion(teamId, buildId, !currentExcluded);
+      qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
       qc.invalidateQueries({ queryKey: ['cart', teamId] });
     } catch (err: any) {
-      pushToast('error', 'Failed to remove pending build', err.message);
+      pushToast('error', 'Failed to update build inclusion', err.message);
     } finally {
-      const s = new Set(removingBuilds);
-      s.delete(revisionId);
-      removingBuilds = s;
+      const s = new Set(togglingBuilds);
+      s.delete(buildId);
+      togglingBuilds = s;
     }
   }
 
@@ -112,6 +119,8 @@
     try {
       const result = await convertCart(teamId);
       qc.invalidateQueries({ queryKey: ['cart', teamId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
       pushToast('success', `Created ${result.order_ids.length} order(s)`);
       navigate(`/teams/${teamId}/orders`);
     } catch (err: any) {
@@ -121,8 +130,6 @@
     }
   }
 
-  // For auto-resolved items, resolved_listing.unit_price is already break-adjusted
-  // at the cart quantity. For items with an explicit listing, apply price breaks locally.
   function effectiveUnitPrice(item: CartItem): number {
     if (!item.listing_id && item.resolved_listing?.unit_price) {
       return parseFloat(item.resolved_listing.unit_price);
@@ -198,6 +205,11 @@
   let manualItems = $derived(
     (cartQuery.data?.items ?? []).filter(i => i.source === 'manual')
   );
+
+  let pendingBuilds = $derived(pendingBuildsQuery.data?.items ?? []);
+  let isEmpty = $derived(
+    pendingBuilds.length === 0 && (cartQuery.data?.items?.length ?? 0) === 0
+  );
 </script>
 
 <div class="flex flex-col h-full">
@@ -226,117 +238,120 @@
   </Topbar>
 
   <div class="flex-1 overflow-auto p-6 space-y-6">
-    {#if cartQuery.isPending}
+    {#if cartQuery.isPending || pendingBuildsQuery.isPending}
       <div class="text-sm text-muted-foreground">Loading cart…</div>
     {:else if cartQuery.isError}
       <div class="text-sm text-destructive">Error: {cartQuery.error.message}</div>
-    {:else if cartQuery.data}
-      {@const cart = cartQuery.data}
-      {@const pendingBuilds = cart.pending_builds ?? []}
-      {@const items = cart.items}
-
-      {#if pendingBuilds.length === 0 && items.length === 0}
-        <EmptyState
-          title="Cart is empty"
-          description="Check stock on a BOM revision to add shortfalls, or use Add Low Stock for replenishment."
-        >
-          {#snippet action()}
+    {:else if isEmpty}
+      <EmptyState
+        title="Cart is empty"
+        description="Create a build plan and submit it for fulfilment, or use Add Low Stock for replenishment."
+      >
+        {#snippet action()}
+          <div class="flex gap-2">
+            <Button variant="outline" size="sm" onclick={() => navigate(`/teams/${teamId}/builds`)}>
+              View Builds
+            </Button>
             <Button variant="outline" size="sm" onclick={handleAddLowStock} disabled={addingLowStock}>
               <RefreshCw class="h-4 w-4 mr-1" />
               {addingLowStock ? 'Adding…' : 'Add Low Stock'}
             </Button>
-          {/snippet}
-        </EmptyState>
-      {:else}
-        <!-- Section 1: Pending Builds -->
-        <div class="space-y-3">
-          <div class="flex items-center gap-2">
-            <h2 class="text-sm font-semibold">Pending Builds</h2>
-            {#if pendingBuilds.length > 0}
-              <Badge variant="secondary">{pendingBuilds.length}</Badge>
-            {/if}
           </div>
-          {#if pendingBuilds.length === 0}
-            <p class="text-sm text-muted-foreground">
-              No pending builds — add shortfalls from a BOM stock check.
-            </p>
-          {:else}
-            <Table>
-              <TableHeader>
+        {/snippet}
+      </EmptyState>
+    {:else}
+      <!-- Section 1: Pending Builds -->
+      <section class="space-y-2">
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Pending Builds</h3>
+        {#if pendingBuilds.length === 0}
+          <p class="text-sm text-muted-foreground">
+            No pending builds.
+            <button class="underline" onclick={() => navigate(`/teams/${teamId}/builds`)}>Create a build plan</button>
+            and submit for fulfilment to drive cart demand.
+          </p>
+        {:else}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead class="w-16">Include</TableHead>
+                <TableHead>Project</TableHead>
+                <TableHead>Revision</TableHead>
+                <TableHead>Quantity</TableHead>
+                <TableHead class="w-10"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {#each pendingBuilds as build (build.id)}
+                {@const excluded = build.excluded_from_cart ?? false}
                 <TableRow>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Revision</TableHead>
-                  <TableHead>Build Qty</TableHead>
-                  <TableHead></TableHead>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      checked={!excluded}
+                      disabled={togglingBuilds.has(build.id)}
+                      onchange={() => handleToggleInclusion(build.id, excluded)}
+                      class="h-4 w-4 cursor-pointer"
+                    />
+                  </TableCell>
+                  <TableCell class="text-sm font-medium">{build.project_name}</TableCell>
+                  <TableCell class="font-mono text-xs text-muted-foreground">{build.bom_revision_label}</TableCell>
+                  <TableCell class="tabular-nums">{build.quantity}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onclick={() => navigate(`/teams/${teamId}/builds/${build.id}`)}
+                      class="text-muted-foreground"
+                    >
+                      <ExternalLink class="h-4 w-4" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each pendingBuilds as build (build.bom_revision_id)}
-                  <TableRow>
-                    <TableCell class="text-sm">{build.project_name}</TableCell>
-                    <TableCell class="font-mono text-xs">{build.revision_label}</TableCell>
-                    <TableCell class="tabular-nums">{build.build_quantity}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onclick={() => handleRemoveBuild(build.bom_revision_id)}
-                        disabled={removingBuilds.has(build.bom_revision_id)}
-                        class="text-muted-foreground hover:text-destructive"
-                      >
-                        <X class="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
-          {/if}
-        </div>
-
-        <!-- Section 2: Manual Requests (only when present) -->
-        {#if manualItems.length > 0}
-          <div class="space-y-3">
-            <div class="flex items-center gap-2">
-              <h2 class="text-sm font-semibold">Manual Requests</h2>
-              <Badge variant="secondary">{manualItems.length}</Badge>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Part MPN</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each manualItems as item (item.id)}
-                  <TableRow>
-                    <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
-                    <TableCell class="tabular-nums">{item.quantity}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onclick={() => handleRemove(item.id)}
-                        disabled={removingItems.has(item.id)}
-                        class="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 class="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
-          </div>
+              {/each}
+            </TableBody>
+          </Table>
         {/if}
+      </section>
 
-        <!-- Section 3: Order Summary -->
-        <div class="space-y-2">
-          <h2 class="text-sm font-semibold">Order Summary</h2>
-        </div>
-        {#if items.length === 0}
+      <!-- Section 2: Manual Requests (only when present) -->
+      {#if manualItems.length > 0}
+        <section class="space-y-2">
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Manual Requests</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Part MPN</TableHead>
+                <TableHead>Qty</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {#each manualItems as item (item.id)}
+                <TableRow>
+                  <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
+                  <TableCell class="tabular-nums">{item.quantity}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onclick={() => handleRemove(item.id)}
+                      disabled={removingItems.has(item.id)}
+                      class="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 class="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              {/each}
+            </TableBody>
+          </Table>
+        </section>
+      {/if}
+
+      <!-- Section 3: Order Summary -->
+      <section class="space-y-2">
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Order Summary</h3>
+        {#if (cartQuery.data?.items?.length ?? 0) === 0}
           <p class="text-sm text-muted-foreground">
             All BOM parts are covered by current inventory — nothing to order.
           </p>
@@ -347,7 +362,7 @@
             <div class="space-y-2">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <h3 class="text-sm font-medium">{distributor}</h3>
+                  <h4 class="text-sm font-medium">{distributor}</h4>
                   {#if isUnassigned}
                     <Badge variant="warning">No listing assigned</Badge>
                   {/if}
@@ -432,7 +447,7 @@
             </div>
           {/each}
         {/if}
-      {/if}
+      </section>
     {/if}
   </div>
 </div>

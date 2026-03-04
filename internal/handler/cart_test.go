@@ -211,7 +211,9 @@ func TestConvertCart(t *testing.T) {
 	}
 }
 
-func TestAddShortfalls(t *testing.T) {
+// TestBuildDrivenShortfall tests that submitting a build for fulfillment drives
+// cart bom_shortfall items (replaces the old add-shortfall endpoint).
+func TestBuildDrivenShortfall(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
 	userID := testutil.CreateUser(t, testDB, "cart-shortfall@example.com", "pw", "Cart")
@@ -226,14 +228,27 @@ func TestAddShortfalls(t *testing.T) {
 	testutil.ResolveBOMLineItem(t, testDB, itemID, partID)
 	// No inventory entry → stock=0, need=3, shortfall=3.
 
-	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
-		fmt.Sprintf("/api/v1/teams/%s/cart/add-shortfall", teamID),
-		map[string]any{"bom_revision_id": revID, "build_quantity": 1}, token)
-	if status != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %v", status, body)
+	// Create a draft build.
+	created, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
+		map[string]any{"project_id": projectID, "bom_revision_id": revID, "quantity": 1}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201 creating build, got %d: %v", status, created)
 	}
-	if body["added_count"].(float64) != 1 {
-		t.Errorf("expected added_count=1, got %v", body["added_count"])
+	buildID := created["id"].(string)
+
+	// Submit the build → pending; cart shortfall should now show 1 item.
+	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
+	if submitStatus != http.StatusOK {
+		t.Fatalf("expected 200 on submit, got %d: %v", submitStatus, submitBody)
+	}
+
+	cartBody, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/cart", teamID), nil, token)
+	items, _ := cartBody["items"].([]any)
+	if len(items) != 1 {
+		t.Errorf("expected 1 bom_shortfall cart item after submit, got %d", len(items))
 	}
 }
 

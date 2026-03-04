@@ -7,6 +7,8 @@ export type OrderStatus =
 
 export type CartItemSource = 'bom_shortfall' | 'inventory_maintenance' | 'manual';
 
+export type BuildStatus = 'draft' | 'pending' | 'ordered' | 'ready' | 'assembled' | 'cancelled';
+
 export interface PriceBreak {
   break_qty: number;
   unit_price: string;
@@ -20,13 +22,6 @@ export interface ResolvedListing {
   unit_price: string | null;
   fixed_order_cost: string | null;
   moq: number;
-}
-
-export interface PendingBuild {
-  bom_revision_id: string;
-  revision_label: string;
-  project_name: string;
-  build_quantity: number;
 }
 
 export interface CartItem {
@@ -47,7 +42,6 @@ export interface CartItem {
 
 export interface Cart {
   items: CartItem[];
-  pending_builds: PendingBuild[];
 }
 
 export interface Order {
@@ -85,10 +79,23 @@ export interface Build {
   project_name: string;
   bom_revision_id: string;
   bom_revision_label: string;
-  quantity_built: number;
-  built_at: string;
-  notes: string | null;
-  built_by_display_name: string;
+  quantity: number;
+  assembled_quantity?: number;
+  status: BuildStatus;
+  created_at: string;
+  created_by?: string;
+  assembled_at?: string;
+  assembled_by_display_name?: string;
+  notes?: string;
+  excluded_from_cart?: boolean;
+}
+
+export interface BuildPartAllocation {
+  part_id: string;
+  part_mpn?: string;
+  quantity_needed: number;
+  quantity_reserved: number;
+  quantity_received: number;
 }
 
 export interface BuildConsumedItem {

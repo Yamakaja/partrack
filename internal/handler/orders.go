@@ -407,6 +407,7 @@ func (h *Handler) LinkOrderReference(w http.ResponseWriter, r *http.Request) {
 
 // ReceiveOrderItem handles POST /api/v1/teams/{teamId}/orders/{orderId}/items/{itemId}/receive
 // Body: {quantity_received}. Creates stock adjustment. Auto-transitions order status.
+// Also allocates received quantity to linked builds (US-B7, US-B8).
 func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -545,6 +546,83 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Allocate received qty to linked builds (US-B7, US-B8).
+	linkedBuildIDs, err := qtx.GetLinkedBuildIDsForOrder(r.Context(), orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type allocationBreakdownItem struct {
+		BuildID   string `json:"build_id"`
+		Allocated int32  `json:"allocated"`
+	}
+	var allocationBreakdown []allocationBreakdownItem
+	var buildIDsToCheckReady []pgtype.UUID
+
+	// Fetch all allocations for (order, part) once, then distribute in order.
+	allocs, err := qtx.GetLinkedBuildAllocationsForOrderPart(r.Context(), dbgen.GetLinkedBuildAllocationsForOrderPartParams{
+		OrderID: orderID,
+		PartID:  li.PartID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	// Index allocs by build_id for O(1) lookup.
+	allocByBuild := make(map[string]dbgen.GetLinkedBuildAllocationsForOrderPartRow, len(allocs))
+	for _, a := range allocs {
+		allocByBuild[a.BuildID.String()] = a
+	}
+
+	remaining := body.QuantityReceived
+	for _, bid := range linkedBuildIDs {
+		if remaining <= 0 {
+			break
+		}
+		a, ok := allocByBuild[bid.String()]
+		if !ok {
+			continue
+		}
+		stillNeeded := a.QuantityNeeded - a.QuantityReserved - a.QuantityReceived
+		if stillNeeded <= 0 {
+			continue
+		}
+		allocate := remaining
+		if allocate > stillNeeded {
+			allocate = stillNeeded
+		}
+		if allocate > 0 {
+			if err := qtx.IncrementBuildPartAllocationReceived(r.Context(), dbgen.IncrementBuildPartAllocationReceivedParams{
+				BuildID:          bid,
+				PartID:           li.PartID,
+				QuantityReceived: allocate,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			remaining -= allocate
+			allocationBreakdown = append(allocationBreakdown, allocationBreakdownItem{
+				BuildID:   bid.String(),
+				Allocated: allocate,
+			})
+			buildIDsToCheckReady = append(buildIDsToCheckReady, bid)
+		}
+	}
+
+	// Check readiness for builds that received allocation.
+	var readyBuildIDs []pgtype.UUID
+	for _, bid := range buildIDsToCheckReady {
+		isReady, err := qtx.CheckBuildReadiness(r.Context(), bid)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if isReady {
+			readyBuildIDs = append(readyBuildIDs, bid)
+		}
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -553,11 +631,25 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": li.PartID.String(), "entry_id": invEntry.ID.String()})
 
+	// Transition ready builds and publish events.
+	for _, bid := range readyBuildIDs {
+		_ = h.Queries.UpdateBuildStatus(r.Context(), dbgen.UpdateBuildStatusParams{
+			ID:     bid,
+			Status: "ready",
+			TeamID: teamID,
+		})
+		h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": bid.String()})
+	}
+
+	if allocationBreakdown == nil {
+		allocationBreakdown = []allocationBreakdownItem{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"line_item_id":        updatedLI.ID.String(),
-		"quantity_ordered":    updatedLI.QuantityOrdered,
-		"quantity_received":   updatedLI.QuantityReceived,
-		"order_status":        string(newOrderStatus),
+		"line_item_id":         updatedLI.ID.String(),
+		"quantity_ordered":     updatedLI.QuantityOrdered,
+		"quantity_received":    updatedLI.QuantityReceived,
+		"order_status":         string(newOrderStatus),
 		"new_quantity_on_hand": newQty,
+		"allocation_breakdown": allocationBreakdown,
 	})
 }

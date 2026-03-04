@@ -47,8 +47,8 @@ LIMIT 5;
 -- name: GetDashboardRecentActivity :many
 SELECT activity_type, occurred_at, summary FROM (
     SELECT 'build'::text AS activity_type,
-           b.built_at AS occurred_at,
-           'Built ' || b.boards_built || ' board(s) of ' || pr.name AS summary
+           b.assembled_at AS occurred_at,
+           'Built ' || b.quantity || ' board(s) of ' || pr.name AS summary
     FROM builds b
     JOIN projects pr ON pr.id = b.project_id
     WHERE b.team_id = $1

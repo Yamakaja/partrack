@@ -115,3 +115,12 @@ FROM order_line_items WHERE order_id = $1;
 INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, order_line_item_id)
 VALUES ($1, $2, $3, $4, $5)
 RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, order_line_item_id;
+
+-- name: GetOutstandingOrderedQtyForBuildPart :one
+SELECT COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
+FROM   order_line_items oli
+JOIN   distributor_listings dl ON oli.listing_id = dl.id
+JOIN   build_orders bo         ON bo.order_id = oli.order_id
+WHERE  bo.build_id = $1
+  AND  dl.part_id  = $2
+  AND  oli.quantity_received < oli.quantity_ordered;

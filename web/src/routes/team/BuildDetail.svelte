@@ -1,87 +1,497 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
-  import { getBuild } from '$lib/api/builds.js';
+  import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+  import {
+    getBuild, submitBuild, checkoutBuild, cancelBuild,
+    previewBuild, type BuildPreviewItem,
+  } from '$lib/api/builds.js';
+  import { ApiError } from '$lib/api/client.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
+  import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Dialog } from 'bits-ui';
+  import { navigate } from '$lib/router/index.svelte.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { CheckCircle, Loader2, Send, XCircle } from 'lucide-svelte';
+  import type { BuildStatus } from '$lib/types/orders.js';
 
   let { teamId, buildId }: { teamId: string; buildId: string } = $props();
+
+  const qc = useQueryClient();
 
   let buildQuery = createQuery(() => ({
     queryKey: ['build', buildId],
     queryFn: () => getBuild(teamId, buildId),
   }));
+
+  // Fetch preview for draft/pending builds (parts table + checkout eligibility)
+  let previewQuery = createQuery(() => ({
+    queryKey: ['build-preview', buildQuery.data?.bom_revision_id, buildQuery.data?.quantity],
+    queryFn: () => previewBuild(teamId, {
+      bom_revision_id: buildQuery.data!.bom_revision_id,
+      quantity: buildQuery.data!.quantity,
+    }),
+    enabled: !!buildQuery.data && (buildQuery.data.status === 'draft' || buildQuery.data.status === 'pending'),
+  }));
+
+  // Action states
+  let submitting = $state(false);
+  let cancelOpen = $state(false);
+
+  // Checkout modal
+  let checkoutOpen = $state(false);
+  let checkoutItems = $state<BuildPreviewItem[]>([]);
+  let checkoutPreviewing = $state(false);
+  let checkoutAllowReconciliation = $state(false);
+  let checkoutSubmitting = $state(false);
+
+  async function handleSubmit() {
+    submitting = true;
+    try {
+      await submitBuild(teamId, buildId);
+      qc.invalidateQueries({ queryKey: ['build', buildId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
+      qc.invalidateQueries({ queryKey: ['cart', teamId] });
+      pushToast('success', 'Build submitted for fulfilment');
+    } catch (err: any) {
+      pushToast('error', 'Failed to submit build', err.message);
+    } finally {
+      submitting = false;
+    }
+  }
+
+  async function handleCancel() {
+    try {
+      await cancelBuild(teamId, buildId);
+      qc.invalidateQueries({ queryKey: ['builds', teamId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
+      qc.invalidateQueries({ queryKey: ['cart', teamId] });
+      pushToast('success', 'Build cancelled');
+      navigate(`/teams/${teamId}/builds`);
+    } catch (err: any) {
+      pushToast('error', 'Failed to cancel build', err.message);
+    }
+  }
+
+  async function openCheckout() {
+    // Reuse preview data if already fetched (draft/pending)
+    if (previewQuery.data) {
+      checkoutItems = previewQuery.data.items;
+      checkoutAllowReconciliation = false;
+      checkoutOpen = true;
+      return;
+    }
+    // For ready state, fetch on demand
+    checkoutPreviewing = true;
+    checkoutOpen = true;
+    try {
+      const build = buildQuery.data!;
+      const result = await previewBuild(teamId, {
+        bom_revision_id: build.bom_revision_id,
+        quantity: build.quantity,
+      });
+      checkoutItems = result.items;
+    } catch (err: any) {
+      pushToast('error', 'Failed to load checkout preview', err.message);
+      checkoutOpen = false;
+    } finally {
+      checkoutPreviewing = false;
+    }
+  }
+
+  async function handleCheckout() {
+    checkoutSubmitting = true;
+    try {
+      const body: {
+        assembled_quantity?: number;
+        allow_stock_reconciliation?: boolean;
+      } = {};
+      if (checkoutAllowReconciliation) {
+        body.allow_stock_reconciliation = true;
+      }
+      await checkoutBuild(teamId, buildId, body);
+      qc.invalidateQueries({ queryKey: ['build', buildId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId] });
+      qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
+      qc.invalidateQueries({ queryKey: ['inventory', teamId] });
+      checkoutOpen = false;
+      pushToast('success', 'Build checked out — assembly recorded');
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'INSUFFICIENT_STOCK') {
+        pushToast('error', 'Insufficient stock. Enable "Allow stock reconciliation" and try again.');
+      } else {
+        pushToast('error', 'Failed to checkout build', err.message);
+      }
+    } finally {
+      checkoutSubmitting = false;
+    }
+  }
+
+  function statusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
+    switch (status) {
+      case 'draft': return 'secondary';
+      case 'pending': return 'default';
+      case 'ordered': return 'warning';
+      case 'ready': return 'success';
+      case 'assembled': return 'secondary';
+      case 'cancelled': return 'destructive';
+      default: return 'secondary';
+    }
+  }
+
+  function statusLabel(status: BuildStatus): string {
+    switch (status) {
+      case 'draft': return 'Draft';
+      case 'pending': return 'Pending';
+      case 'ordered': return 'Ordered';
+      case 'ready': return 'Ready to Assemble';
+      case 'assembled': return 'Assembled';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
+    }
+  }
+
+  let allSufficient = $derived(
+    (previewQuery.data?.items ?? []).every(pi => pi.sufficient)
+  );
+
+  let hasShortCheckoutItems = $derived(
+    checkoutItems.some(pi => !pi.sufficient)
+  );
 </script>
 
 <div class="flex flex-col h-full">
   {#if buildQuery.isPending}
-    <Topbar title="Build" />
+    <Topbar title="Build" breadcrumbs={[{ label: 'Builds', href: `/teams/${teamId}/builds` }]} />
     <div class="p-6 text-sm text-muted-foreground">Loading build…</div>
   {:else if buildQuery.isError}
-    <Topbar title="Build" />
+    <Topbar title="Build" breadcrumbs={[{ label: 'Builds', href: `/teams/${teamId}/builds` }]} />
     <div class="p-6 text-sm text-destructive">Error: {buildQuery.error.message}</div>
   {:else if buildQuery.data}
     {@const build = buildQuery.data}
     <Topbar
       title={build.project_name}
-      breadcrumbs={[
-        { label: 'Builds', href: `/teams/${teamId}/builds` },
-      ]}
-    />
-
-    <div class="flex-1 overflow-auto p-6 space-y-4">
-      <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
-        <div>
-          <p class="text-muted-foreground text-xs mb-0.5">Project</p>
-          <p class="font-medium">{build.project_name}</p>
-        </div>
-        <div>
-          <p class="text-muted-foreground text-xs mb-0.5">Revision</p>
-          <p class="font-medium">{build.bom_revision_label}</p>
-        </div>
-        <div>
-          <p class="text-muted-foreground text-xs mb-0.5">Qty Built</p>
-          <p class="font-medium">{build.quantity_built}</p>
-        </div>
-        <div>
-          <p class="text-muted-foreground text-xs mb-0.5">Built At</p>
-          <DateDisplay value={build.built_at} />
-        </div>
-        <div>
-          <p class="text-muted-foreground text-xs mb-0.5">Built By</p>
-          <p class="font-medium">{build.built_by_display_name}</p>
-        </div>
-        {#if build.notes}
-          <div class="col-span-2">
-            <p class="text-muted-foreground text-xs mb-0.5">Notes</p>
-            <p class="font-medium">{build.notes}</p>
-          </div>
+      breadcrumbs={[{ label: 'Builds', href: `/teams/${teamId}/builds` }]}
+    >
+      {#snippet badges()}
+        <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
+      {/snippet}
+      {#snippet actions()}
+        {#if build.status === 'draft'}
+          {#if previewQuery.data && allSufficient}
+            <Button size="sm" onclick={openCheckout}>
+              <CheckCircle class="h-4 w-4 mr-1" /> Checkout
+            </Button>
+          {/if}
+          <Button
+            variant={previewQuery.data && allSufficient ? 'outline' : 'default'}
+            size="sm"
+            onclick={handleSubmit}
+            disabled={submitting}
+          >
+            <Send class="h-4 w-4 mr-1" />
+            {submitting ? 'Submitting…' : 'Submit for Fulfilment'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="text-destructive border-destructive hover:bg-destructive/10"
+            onclick={() => { cancelOpen = true; }}
+          >
+            <XCircle class="h-4 w-4 mr-1" /> Cancel Build
+          </Button>
+        {:else if build.status === 'pending'}
+          <Button
+            variant="outline"
+            size="sm"
+            class="text-destructive border-destructive hover:bg-destructive/10"
+            onclick={() => { cancelOpen = true; }}
+          >
+            <XCircle class="h-4 w-4 mr-1" /> Cancel Build
+          </Button>
+        {:else if build.status === 'ordered'}
+          <Button
+            variant="outline"
+            size="sm"
+            class="text-destructive border-destructive hover:bg-destructive/10"
+            onclick={() => { cancelOpen = true; }}
+          >
+            <XCircle class="h-4 w-4 mr-1" /> Cancel Build
+          </Button>
+        {:else if build.status === 'ready'}
+          <Button size="sm" onclick={openCheckout} disabled={checkoutPreviewing}>
+            <CheckCircle class="h-4 w-4 mr-1" />
+            {checkoutPreviewing ? 'Loading…' : 'Checkout'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="text-destructive border-destructive hover:bg-destructive/10"
+            onclick={() => { cancelOpen = true; }}
+          >
+            <XCircle class="h-4 w-4 mr-1" /> Cancel Build
+          </Button>
         {/if}
-      </div>
+      {/snippet}
+    </Topbar>
 
-      <h2 class="text-sm font-semibold pt-2">Consumed Parts</h2>
-      {#if build.items && build.items.length > 0}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Part MPN</TableHead>
-              <TableHead>Ref Designators</TableHead>
-              <TableHead>Qty Deducted</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each build.items as item (item.bom_line_item_id)}
-              <TableRow>
-                <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
-                <TableCell class="text-muted-foreground text-sm">{item.reference_designators}</TableCell>
-                <TableCell>{item.quantity_deducted}</TableCell>
-              </TableRow>
+    <div class="flex-1 overflow-auto p-6 space-y-6">
+      <!-- Metadata card -->
+      <MetadataCard title={build.project_name} description={build.notes ?? undefined}>
+        {#snippet badges()}
+          <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
+        {/snippet}
+        <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm sm:grid-cols-4">
+          <div>
+            <span class="text-muted-foreground">Revision:</span>
+            <span class="font-medium"> {build.bom_revision_label}</span>
+          </div>
+          <div>
+            <span class="text-muted-foreground">Quantity:</span>
+            <span class="font-medium tabular-nums"> {build.quantity}</span>
+          </div>
+          <div>
+            <span class="text-muted-foreground">Created:</span>
+            <span class="font-medium"> <DateDisplay value={build.created_at} /></span>
+          </div>
+          {#if build.assembled_at}
+            <div>
+              <span class="text-muted-foreground">Assembled:</span>
+              <span class="font-medium"> <DateDisplay value={build.assembled_at} /></span>
+            </div>
+          {/if}
+          {#if build.assembled_by_display_name}
+            <div>
+              <span class="text-muted-foreground">Assembled by:</span>
+              <span class="font-medium"> {build.assembled_by_display_name}</span>
+            </div>
+          {/if}
+        </div>
+      </MetadataCard>
+
+      <!-- Parts section -->
+      <section class="space-y-2">
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {build.status === 'assembled' ? 'Consumed Parts' : 'Required Parts'}
+        </h3>
+
+        {#if build.status === 'assembled'}
+          <!-- Deductions for assembled builds -->
+          {#if build.items && build.items.length > 0}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Part MPN</TableHead>
+                  <TableHead>Ref Designators</TableHead>
+                  <TableHead class="text-right">Qty Deducted</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {#each build.items as item (item.bom_line_item_id)}
+                  <TableRow>
+                    <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
+                    <TableCell class="text-muted-foreground text-sm">{item.reference_designators}</TableCell>
+                    <TableCell class="text-right tabular-nums">{item.quantity_deducted}</TableCell>
+                  </TableRow>
+                {/each}
+              </TableBody>
+            </Table>
+          {:else}
+            <p class="text-sm text-muted-foreground">No consumed parts recorded.</p>
+          {/if}
+
+        {:else if build.status === 'ordered' || build.status === 'ready'}
+          <!-- Allocation table for ordered/ready builds -->
+          {#if build.allocations && build.allocations.length > 0}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Part MPN</TableHead>
+                  <TableHead class="text-right">Needed</TableHead>
+                  <TableHead class="text-right">Reserved</TableHead>
+                  <TableHead class="text-right">Received</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {#each build.allocations as alloc (alloc.part_id)}
+                  {@const covered = alloc.quantity_reserved + alloc.quantity_received >= alloc.quantity_needed}
+                  {@const partial = !covered && (alloc.quantity_reserved + alloc.quantity_received) > 0}
+                  <TableRow>
+                    <TableCell class="font-mono font-medium text-xs">{alloc.part_mpn ?? '—'}</TableCell>
+                    <TableCell class="text-right tabular-nums">{alloc.quantity_needed}</TableCell>
+                    <TableCell class="text-right tabular-nums">{alloc.quantity_reserved}</TableCell>
+                    <TableCell class="text-right tabular-nums">{alloc.quantity_received}</TableCell>
+                    <TableCell>
+                      {#if covered}
+                        <Badge variant="success">Covered</Badge>
+                      {:else if partial}
+                        <Badge variant="warning">Partial</Badge>
+                      {:else}
+                        <Badge variant="destructive">Missing</Badge>
+                      {/if}
+                    </TableCell>
+                  </TableRow>
+                {/each}
+              </TableBody>
+            </Table>
+          {:else}
+            <p class="text-sm text-muted-foreground">No allocation data available.</p>
+          {/if}
+
+        {:else}
+          <!-- Preview table for draft/pending builds -->
+          {#if previewQuery.isPending}
+            <div class="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 class="h-4 w-4 animate-spin" /> Loading parts…
+            </div>
+          {:else if previewQuery.isError}
+            <div class="text-sm text-destructive">Failed to load parts preview.</div>
+          {:else if previewQuery.data}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Part MPN</TableHead>
+                  <TableHead>Ref Des</TableHead>
+                  <TableHead class="text-right">Qty/Board</TableHead>
+                  <TableHead class="text-right">Total Needed</TableHead>
+                  <TableHead class="text-right">On Hand</TableHead>
+                  <TableHead>Stock</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {#each previewQuery.data.items as pi (pi.bom_line_item_id)}
+                  <TableRow>
+                    <TableCell class="font-mono font-medium text-xs">{pi.resolved_part_mpn ?? '—'}</TableCell>
+                    <TableCell class="text-xs text-muted-foreground max-w-[160px] truncate">{pi.reference_designators}</TableCell>
+                    <TableCell class="text-right tabular-nums">{pi.quantity_per_board}</TableCell>
+                    <TableCell class="text-right tabular-nums">{pi.total_quantity}</TableCell>
+                    <TableCell class="text-right tabular-nums">{pi.quantity_on_hand}</TableCell>
+                    <TableCell>
+                      <Badge variant={pi.sufficient ? 'success' : 'destructive'}>
+                        {pi.sufficient ? 'In Stock' : 'Short'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                {/each}
+              </TableBody>
+            </Table>
+            {#if build.status === 'pending'}
+              <p class="text-sm text-muted-foreground mt-1">
+                This build is pending fulfilment. Shortfalls will be covered via the shopping cart.
+              </p>
+            {/if}
+          {/if}
+        {/if}
+      </section>
+
+      <!-- Linked Orders section -->
+      {#if build.linked_order_ids && build.linked_order_ids.length > 0}
+        <section class="space-y-2">
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Linked Orders</h3>
+          <div class="flex flex-wrap gap-2">
+            {#each build.linked_order_ids as orderId (orderId)}
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={() => navigate(`/teams/${teamId}/orders/${orderId}`)}
+              >
+                Order {orderId.slice(0, 8)}…
+              </Button>
             {/each}
-          </TableBody>
-        </Table>
-      {:else}
-        <div class="text-sm text-muted-foreground">No consumed parts recorded.</div>
+          </div>
+        </section>
       {/if}
     </div>
   {/if}
 </div>
+
+<!-- Cancel confirm dialog -->
+<ConfirmDialog
+  bind:open={cancelOpen}
+  title="Cancel Build"
+  description="This will release any soft reservations for this build. Linked orders will not be cancelled — cancel them separately if needed."
+  confirmLabel="Cancel Build"
+  destructive
+  onconfirm={handleCancel}
+/>
+
+<!-- Checkout modal -->
+<Dialog.Root bind:open={checkoutOpen}>
+  <Dialog.Portal>
+    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
+    <Dialog.Content
+      class="fixed left-1/2 top-1/2 z-50 flex w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-background shadow-lg"
+      style="max-height: 85vh;"
+    >
+      <div class="shrink-0 p-6 pb-4 border-b border-border">
+        <Dialog.Title class="text-lg font-semibold">Checkout Build</Dialog.Title>
+        <p class="text-sm text-muted-foreground mt-1">
+          Review parts to be deducted for <strong>{buildQuery.data?.quantity}</strong> board(s).
+        </p>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
+        {#if checkoutPreviewing}
+          <div class="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+            <Loader2 class="h-4 w-4 animate-spin" /> Loading preview…
+          </div>
+        {:else}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Part MPN</TableHead>
+                <TableHead class="text-right">Per Board</TableHead>
+                <TableHead class="text-right">Total</TableHead>
+                <TableHead class="text-right">On Hand</TableHead>
+                <TableHead>OK?</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {#each checkoutItems as pi (pi.bom_line_item_id)}
+                <TableRow>
+                  <TableCell class="font-mono text-xs">{pi.resolved_part_mpn ?? '—'}</TableCell>
+                  <TableCell class="text-right tabular-nums">{pi.quantity_per_board}</TableCell>
+                  <TableCell class="text-right tabular-nums">{pi.total_quantity}</TableCell>
+                  <TableCell class="text-right tabular-nums">{pi.quantity_on_hand}</TableCell>
+                  <TableCell>
+                    <Badge variant={pi.sufficient ? 'success' : 'destructive'}>
+                      {pi.sufficient ? 'OK' : 'Short'}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              {/each}
+            </TableBody>
+          </Table>
+          {#if hasShortCheckoutItems}
+            <div class="mt-4 space-y-2 rounded-md border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-950/30">
+              <p class="text-sm text-yellow-700 dark:text-yellow-400">
+                Some parts have insufficient stock.
+              </p>
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" bind:checked={checkoutAllowReconciliation} class="h-4 w-4" />
+                Allow stock reconciliation (sets stock to 0 for short items before deducting)
+              </label>
+            </div>
+          {/if}
+        {/if}
+      </div>
+
+      <div class="shrink-0 p-6 pt-4 flex justify-end gap-2 border-t border-border">
+        <Dialog.Close>
+          <Button variant="outline" type="button">Cancel</Button>
+        </Dialog.Close>
+        <Button
+          onclick={handleCheckout}
+          disabled={checkoutSubmitting || checkoutPreviewing || (hasShortCheckoutItems && !checkoutAllowReconciliation)}
+        >
+          {checkoutSubmitting ? 'Checking out…' : 'Confirm Checkout'}
+        </Button>
+      </div>
+    </Dialog.Content>
+  </Dialog.Portal>
+</Dialog.Root>

@@ -6,10 +6,11 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { getStockCheck } from '$lib/api/revisions.js';
-  import { addShortfall } from '$lib/api/cart.js';
+  import { createBuild, submitBuild, checkoutBuild } from '$lib/api/builds.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import type { StockCheckResult, StockCheckItem } from '$lib/types/projects.js';
-  import { ShoppingCart, Zap, Loader2 } from 'lucide-svelte';
+  import { Zap, Loader2, CheckCircle, Send } from 'lucide-svelte';
 
   let {
     teamId,
@@ -27,8 +28,13 @@
   let resultsOpen = $state(false);
   let buildQty = $state(1);
   let checking = $state(false);
-  let addingToCart = $state(false);
   let result = $state<StockCheckResult | null>(null);
+
+  // Build creation state
+  type BuildAction = 'idle' | 'creating' | 'created' | 'submitting' | 'checking_out';
+  let buildAction = $state<BuildAction>('idle');
+  let createdBuildId = $state<string | null>(null);
+  let hasShortfall = $state(false);
 
   function openQtyDialog() {
     qtyOpen = true;
@@ -41,6 +47,8 @@
       result = await getStockCheck(teamId, projectId, revId, buildQty);
       qtyOpen = false;
       resultsOpen = true;
+      buildAction = 'idle';
+      createdBuildId = null;
     } catch (err: any) {
       pushToast('error', 'Stock check failed', err.message);
     } finally {
@@ -51,20 +59,59 @@
   function handleBack() {
     result = null;
     resultsOpen = false;
+    buildAction = 'idle';
+    createdBuildId = null;
     qtyOpen = true;
   }
 
-  async function handleAddToCart() {
+  async function handleCreateBuild() {
     if (!result) return;
-    addingToCart = true;
+    buildAction = 'creating';
+    hasShortfall = !result.fully_buildable;
     try {
-      const res = await addShortfall(teamId, revId, buildQty);
-      pushToast('success', `${res.added_count} item(s) added to cart`);
+      const build = await createBuild(teamId, {
+        project_id: projectId,
+        bom_revision_id: revId,
+        quantity: buildQty,
+      });
+      createdBuildId = build.id;
+      buildAction = 'created';
+    } catch (err: any) {
+      pushToast('error', 'Failed to create build plan', err.message);
+      buildAction = 'idle';
+    }
+  }
+
+  async function handleCheckoutNow() {
+    if (!createdBuildId) return;
+    buildAction = 'checking_out';
+    try {
+      await checkoutBuild(teamId, createdBuildId, {});
+      pushToast('success', 'Build checked out — assembly recorded');
       resultsOpen = false;
     } catch (err: any) {
-      pushToast('error', 'Failed to add to cart', err.message);
-    } finally {
-      addingToCart = false;
+      pushToast('error', 'Checkout failed — open the build to retry', err.message);
+      buildAction = 'created';
+    }
+  }
+
+  async function handleSubmitForFulfilment() {
+    if (!createdBuildId) return;
+    buildAction = 'submitting';
+    try {
+      await submitBuild(teamId, createdBuildId);
+      pushToast('success', 'Build submitted — shortfalls added to cart');
+      resultsOpen = false;
+    } catch (err: any) {
+      pushToast('error', 'Failed to submit build', err.message);
+      buildAction = 'created';
+    }
+  }
+
+  function viewBuild() {
+    if (createdBuildId) {
+      resultsOpen = false;
+      navigate(`/teams/${teamId}/builds/${createdBuildId}`);
     }
   }
 
@@ -82,11 +129,9 @@
     return 'In Stock';
   }
 
-  let actionItems = $derived(
-    result?.items.filter((i) => i.shortfall > 0 || i.below_restock) ?? []
+  let shortfallCount = $derived(
+    result?.items.filter((i) => i.shortfall > 0 || i.below_restock).length ?? 0
   );
-
-  let shortfallCount = $derived(actionItems.length);
 </script>
 
 {@render trigger(openQtyDialog)}
@@ -140,7 +185,6 @@
         <Dialog.Title class="text-lg font-semibold mb-3">Stock Check Results</Dialog.Title>
 
         {#if result}
-          <!-- Summary row -->
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span>
               Build qty: <span class="font-semibold">{result.build_quantity}</span>
@@ -206,18 +250,48 @@
       </div>
 
       <!-- Footer -->
-      <div class="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
-        <Button variant="outline" onclick={handleBack}>← Back</Button>
-        <div class="flex gap-2">
-          <Button variant="outline" onclick={() => (resultsOpen = false)}>Close</Button>
-          <Button
-            onclick={handleAddToCart}
-            disabled={addingToCart || actionItems.length === 0}
-          >
-            <ShoppingCart class="h-4 w-4 mr-1" />
-            {addingToCart ? 'Adding…' : `Add to Cart${actionItems.length > 0 ? ` (${actionItems.length})` : ''}`}
-          </Button>
-        </div>
+      <div class="shrink-0 border-t border-border px-6 py-4">
+        {#if buildAction === 'idle'}
+          <div class="flex items-center justify-between">
+            <Button variant="outline" onclick={handleBack}>← Back</Button>
+            <div class="flex gap-2">
+              <Button variant="outline" onclick={() => (resultsOpen = false)}>Close</Button>
+              <Button onclick={handleCreateBuild} disabled={!result}>
+                Create Build Plan
+              </Button>
+            </div>
+          </div>
+
+        {:else if buildAction === 'creating'}
+          <div class="flex items-center justify-between">
+            <Button variant="outline" onclick={handleBack}>← Back</Button>
+            <Button disabled>
+              <Loader2 class="h-4 w-4 animate-spin mr-1" /> Creating…
+            </Button>
+          </div>
+
+        {:else if buildAction === 'created'}
+          <div class="flex items-center justify-between">
+            <Button variant="ghost" size="sm" onclick={viewBuild}>View Build →</Button>
+            <div class="flex gap-2">
+              {#if hasShortfall}
+                <Button size="sm" onclick={handleSubmitForFulfilment}>
+                  <Send class="h-4 w-4 mr-1" /> Submit for Fulfilment
+                </Button>
+              {:else}
+                <Button size="sm" onclick={handleCheckoutNow}>
+                  <CheckCircle class="h-4 w-4 mr-1" /> Checkout Now
+                </Button>
+              {/if}
+            </div>
+          </div>
+
+        {:else if buildAction === 'submitting' || buildAction === 'checking_out'}
+          <div class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="h-4 w-4 animate-spin" />
+            {buildAction === 'submitting' ? 'Submitting for fulfilment…' : 'Checking out…'}
+          </div>
+        {/if}
       </div>
     </Dialog.Content>
   </Dialog.Portal>

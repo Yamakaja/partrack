@@ -40,7 +40,7 @@ func TestPreviewBuild_NoDeductions(t *testing.T) {
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds/preview", teamID),
-		map[string]any{"bom_revision_id": revID, "boards_built": 1}, token)
+		map[string]any{"bom_revision_id": revID, "quantity": 1}, token)
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}
@@ -67,7 +67,7 @@ func TestPreviewBuild_WithDeductions(t *testing.T) {
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds/preview", teamID),
-		map[string]any{"bom_revision_id": revID, "boards_built": 3}, token)
+		map[string]any{"bom_revision_id": revID, "quantity": 3}, token)
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %v", status, body)
 	}
@@ -109,30 +109,54 @@ func TestCreateBuild(t *testing.T) {
 	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
 	testutil.SetStockQty(t, testDB, entryID, 10)
 
+	// Create draft build — no stock deduction.
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
 		map[string]any{
 			"project_id":      projectID,
 			"bom_revision_id": revID,
-			"boards_built":    2,
+			"quantity":        2,
 		}, token)
 	if status != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %v", status, body)
 	}
-	if body["boards_built"].(float64) != 2 {
-		t.Errorf("expected boards_built=2, got %v", body["boards_built"])
+	if body["status"].(string) != "draft" {
+		t.Errorf("expected status=draft, got %v", body["status"])
 	}
-	if body["deduction_count"].(float64) != 1 {
-		t.Errorf("expected deduction_count=1, got %v", body["deduction_count"])
+	if body["quantity"].(float64) != 2 {
+		t.Errorf("expected quantity=2, got %v", body["quantity"])
 	}
+	buildID := body["id"].(string)
 
-	// Stock should be 10 - 1*2 = 8.
+	// Stock should be unchanged (draft creates no deduction).
 	var qty int32
 	testDB.QueryRow(context.Background(),
 		`SELECT quantity_on_hand FROM inventory_entries WHERE id = $1`, entryID,
 	).Scan(&qty) //nolint:errcheck
+	if qty != 10 {
+		t.Errorf("expected stock=10 after draft create, got %d", qty)
+	}
+
+	// Checkout the build — this should deduct stock.
+	checkoutBody, checkoutStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/checkout", teamID, buildID),
+		map[string]any{}, token)
+	if checkoutStatus != http.StatusOK {
+		t.Fatalf("expected 200 on checkout, got %d: %v", checkoutStatus, checkoutBody)
+	}
+	if checkoutBody["status"].(string) != "assembled" {
+		t.Errorf("expected status=assembled after checkout, got %v", checkoutBody["status"])
+	}
+	if checkoutBody["deduction_count"].(float64) != 1 {
+		t.Errorf("expected deduction_count=1, got %v", checkoutBody["deduction_count"])
+	}
+
+	// Stock should be 10 - 1*2 = 8.
+	testDB.QueryRow(context.Background(),
+		`SELECT quantity_on_hand FROM inventory_entries WHERE id = $1`, entryID,
+	).Scan(&qty) //nolint:errcheck
 	if qty != 8 {
-		t.Errorf("expected stock=8 after build, got %d", qty)
+		t.Errorf("expected stock=8 after checkout, got %d", qty)
 	}
 }
 
@@ -146,13 +170,13 @@ func TestGetBuild(t *testing.T) {
 	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Bld-PCB-D")
 	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
 
-	// Create build via HTTP.
+	// Create draft build via HTTP.
 	created, status := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
 		map[string]any{
 			"project_id":      projectID,
 			"bom_revision_id": revID,
-			"boards_built":    1,
+			"quantity":        1,
 		}, token)
 	if status != http.StatusCreated {
 		t.Fatalf("create expected 201, got %d: %v", status, created)
@@ -167,7 +191,10 @@ func TestGetBuild(t *testing.T) {
 	if body["id"] != buildID {
 		t.Errorf("expected id=%s, got %v", buildID, body["id"])
 	}
-	if body["boards_built"].(float64) != 1 {
-		t.Errorf("expected boards_built=1, got %v", body["boards_built"])
+	if body["quantity"].(float64) != 1 {
+		t.Errorf("expected quantity=1, got %v", body["quantity"])
+	}
+	if body["status"].(string) != "draft" {
+		t.Errorf("expected status=draft, got %v", body["status"])
 	}
 }

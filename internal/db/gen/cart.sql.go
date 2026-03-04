@@ -31,15 +31,6 @@ func (q *Queries) ClearCart(ctx context.Context, teamID pgtype.UUID) error {
 	return err
 }
 
-const clearPendingBuilds = `-- name: ClearPendingBuilds :exec
-DELETE FROM cart_pending_builds WHERE shopping_cart_id = $1
-`
-
-func (q *Queries) ClearPendingBuilds(ctx context.Context, shoppingCartID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, clearPendingBuilds, shoppingCartID)
-	return err
-}
-
 const countCartItemsWithoutListing = `-- name: CountCartItemsWithoutListing :one
 SELECT COUNT(*) FROM cart_line_items cli
 JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
@@ -66,21 +57,6 @@ type DeleteCartItemParams struct {
 
 func (q *Queries) DeleteCartItem(ctx context.Context, arg DeleteCartItemParams) error {
 	_, err := q.db.Exec(ctx, deleteCartItem, arg.ID, arg.TeamID)
-	return err
-}
-
-const deletePendingBuild = `-- name: DeletePendingBuild :exec
-DELETE FROM cart_pending_builds
-WHERE shopping_cart_id = $1 AND bom_revision_id = $2
-`
-
-type DeletePendingBuildParams struct {
-	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
-	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
-}
-
-func (q *Queries) DeletePendingBuild(ctx context.Context, arg DeletePendingBuildParams) error {
-	_, err := q.db.Exec(ctx, deletePendingBuild, arg.ShoppingCartID, arg.BomRevisionID)
 	return err
 }
 
@@ -346,37 +322,40 @@ func (q *Queries) GetOrCreateCart(ctx context.Context, teamID pgtype.UUID) (Shop
 	return i, err
 }
 
-const getPendingBuildsForCart = `-- name: GetPendingBuildsForCart :many
-SELECT cpb.id, cpb.shopping_cart_id, cpb.bom_revision_id, cpb.build_quantity,
-       br.label AS revision_label, p.name AS project_name
-FROM cart_pending_builds cpb
-JOIN bom_revisions br ON br.id = cpb.bom_revision_id
-JOIN projects p       ON p.id  = br.project_id
-WHERE cpb.shopping_cart_id = $1
-ORDER BY cpb.id
+const getPendingBuildsForTeamCart = `-- name: GetPendingBuildsForTeamCart :many
+SELECT b.id, b.team_id, b.bom_revision_id, b.quantity AS build_quantity,
+       br.label AS revision_label, pr.name AS project_name
+FROM builds b
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+JOIN projects pr       ON pr.id = br.project_id
+WHERE b.team_id = $1
+  AND b.status = 'pending'
+  AND b.excluded_from_cart = FALSE
+ORDER BY b.created_at
 `
 
-type GetPendingBuildsForCartRow struct {
-	ID             pgtype.UUID `json:"id"`
-	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
-	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
-	BuildQuantity  int32       `json:"build_quantity"`
-	RevisionLabel  string      `json:"revision_label"`
-	ProjectName    string      `json:"project_name"`
+type GetPendingBuildsForTeamCartRow struct {
+	ID            pgtype.UUID `json:"id"`
+	TeamID        pgtype.UUID `json:"team_id"`
+	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
+	BuildQuantity int32       `json:"build_quantity"`
+	RevisionLabel string      `json:"revision_label"`
+	ProjectName   string      `json:"project_name"`
 }
 
-func (q *Queries) GetPendingBuildsForCart(ctx context.Context, shoppingCartID pgtype.UUID) ([]GetPendingBuildsForCartRow, error) {
-	rows, err := q.db.Query(ctx, getPendingBuildsForCart, shoppingCartID)
+// Returns pending builds that are included in cart (excluded_from_cart = FALSE)
+func (q *Queries) GetPendingBuildsForTeamCart(ctx context.Context, teamID pgtype.UUID) ([]GetPendingBuildsForTeamCartRow, error) {
+	rows, err := q.db.Query(ctx, getPendingBuildsForTeamCart, teamID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetPendingBuildsForCartRow
+	var items []GetPendingBuildsForTeamCartRow
 	for rows.Next() {
-		var i GetPendingBuildsForCartRow
+		var i GetPendingBuildsForTeamCartRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.ShoppingCartID,
+			&i.TeamID,
 			&i.BomRevisionID,
 			&i.BuildQuantity,
 			&i.RevisionLabel,
@@ -503,32 +482,6 @@ func (q *Queries) UpsertCartItem(ctx context.Context, arg UpsertCartItemParams) 
 		&i.ListingID,
 		&i.Source,
 		&i.SourceBomLineItemID,
-	)
-	return i, err
-}
-
-const upsertPendingBuild = `-- name: UpsertPendingBuild :one
-INSERT INTO cart_pending_builds (shopping_cart_id, bom_revision_id, build_quantity)
-VALUES ($1, $2, $3)
-ON CONFLICT (shopping_cart_id, bom_revision_id)
-DO UPDATE SET build_quantity = EXCLUDED.build_quantity
-RETURNING id, shopping_cart_id, bom_revision_id, build_quantity
-`
-
-type UpsertPendingBuildParams struct {
-	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
-	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
-	BuildQuantity  int32       `json:"build_quantity"`
-}
-
-func (q *Queries) UpsertPendingBuild(ctx context.Context, arg UpsertPendingBuildParams) (CartPendingBuild, error) {
-	row := q.db.QueryRow(ctx, upsertPendingBuild, arg.ShoppingCartID, arg.BomRevisionID, arg.BuildQuantity)
-	var i CartPendingBuild
-	err := row.Scan(
-		&i.ID,
-		&i.ShoppingCartID,
-		&i.BomRevisionID,
-		&i.BuildQuantity,
 	)
 	return i, err
 }

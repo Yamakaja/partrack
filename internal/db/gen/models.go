@@ -401,14 +401,33 @@ type BomRevision struct {
 }
 
 type Build struct {
-	ID            pgtype.UUID        `json:"id"`
-	TeamID        pgtype.UUID        `json:"team_id"`
-	ProjectID     pgtype.UUID        `json:"project_id"`
-	BomRevisionID pgtype.UUID        `json:"bom_revision_id"`
-	BoardsBuilt   int32              `json:"boards_built"`
-	BuiltAt       pgtype.Timestamptz `json:"built_at"`
-	Notes         *string            `json:"notes"`
-	RecordedBy    pgtype.UUID        `json:"recorded_by"`
+	ID                pgtype.UUID        `json:"id"`
+	TeamID            pgtype.UUID        `json:"team_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	BomRevisionID     pgtype.UUID        `json:"bom_revision_id"`
+	Quantity          int32              `json:"quantity"`
+	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
+	Notes             *string            `json:"notes"`
+	AssembledBy       pgtype.UUID        `json:"assembled_by"`
+	Status            string             `json:"status"`
+	AssembledQuantity *int32             `json:"assembled_quantity"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	ExcludedFromCart  bool               `json:"excluded_from_cart"`
+}
+
+type BuildOrder struct {
+	BuildID pgtype.UUID `json:"build_id"`
+	OrderID pgtype.UUID `json:"order_id"`
+}
+
+type BuildPartAllocation struct {
+	ID               pgtype.UUID `json:"id"`
+	BuildID          pgtype.UUID `json:"build_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+	QuantityNeeded   int32       `json:"quantity_needed"`
+	QuantityReserved int32       `json:"quantity_reserved"`
+	QuantityReceived int32       `json:"quantity_received"`
 }
 
 type CartLineItem struct {
@@ -419,13 +438,6 @@ type CartLineItem struct {
 	ListingID           pgtype.UUID    `json:"listing_id"`
 	Source              CartItemSource `json:"source"`
 	SourceBomLineItemID pgtype.UUID    `json:"source_bom_line_item_id"`
-}
-
-type CartPendingBuild struct {
-	ID             pgtype.UUID `json:"id"`
-	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
-	BomRevisionID  pgtype.UUID `json:"bom_revision_id"`
-	BuildQuantity  int32       `json:"build_quantity"`
 }
 
 type Distributor struct {

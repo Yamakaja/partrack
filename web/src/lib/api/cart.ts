@@ -17,23 +17,10 @@ export function removeCartItem(teamId: string, itemId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/cart/items/${itemId}`);
 }
 
-export function addShortfall(teamId: string, revisionId: string, buildQty: number) {
-  return request<{ added_count: number }>(
-    'POST', `/api/v1/teams/${teamId}/cart/add-shortfall`,
-    { bom_revision_id: revisionId, build_quantity: buildQty },
-  );
-}
-
 export function addLowStock(teamId: string) {
   return request<{ added_count: number }>('POST', `/api/v1/teams/${teamId}/cart/add-low-stock`);
 }
 
 export function convertCart(teamId: string) {
   return request<{ order_ids: string[] }>('POST', `/api/v1/teams/${teamId}/cart/convert`);
-}
-
-export function removePendingBuild(teamId: string, revisionId: string) {
-  return request<{ added_count: number }>(
-    'DELETE', `/api/v1/teams/${teamId}/cart/pending-builds/${revisionId}`,
-  );
 }

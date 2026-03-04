@@ -38,17 +38,17 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 }
 
 // recomputeBomShortfalls clears all bom_shortfall cart items for the given cart
-// and re-inserts them by aggregating demand across ALL pending builds, then
-// subtracting current inventory once. manual and inventory_maintenance items
-// are not touched. q must be the transaction-bound queries object when called
-// inside a transaction.
+// and re-inserts them by aggregating demand across all pending builds
+// (excluded_from_cart = FALSE), then subtracting current inventory.
+// Manual and inventory_maintenance items are not touched.
+// q must be the transaction-bound queries object when called inside a transaction.
 func (h *Handler) recomputeBomShortfalls(
 	ctx context.Context,
 	q *dbgen.Queries,
 	cartID pgtype.UUID,
 	teamID pgtype.UUID,
 ) (int, error) {
-	pendingBuilds, err := q.GetPendingBuildsForCart(ctx, cartID)
+	pendingBuilds, err := q.GetPendingBuildsForTeamCart(ctx, teamID)
 	if err != nil {
 		return 0, err
 	}
@@ -57,7 +57,7 @@ func (h *Handler) recomputeBomShortfalls(
 		return 0, q.ClearBomShortfallItems(ctx, cartID)
 	}
 
-	// Aggregate total demand per part across all pending builds.
+	// Aggregate total demand per part across all included pending builds.
 	demandByPart := make(map[string]int32)
 	for _, pb := range pendingBuilds {
 		lineItems, err := q.ListBOMLineItems(ctx, pb.BomRevisionID)
@@ -157,19 +157,7 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart, err := h.Queries.GetOrCreateCart(r.Context(), teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
 	rows, err := h.Queries.GetCartItems(r.Context(), teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	pendingBuilds, err := h.Queries.GetPendingBuildsForCart(r.Context(), cart.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -204,19 +192,8 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		items[i] = m
 	}
 
-	pbResp := make([]map[string]any, len(pendingBuilds))
-	for i, pb := range pendingBuilds {
-		pbResp[i] = map[string]any{
-			"bom_revision_id": pb.BomRevisionID.String(),
-			"revision_label":  pb.RevisionLabel,
-			"project_name":    pb.ProjectName,
-			"build_quantity":  pb.BuildQuantity,
-		}
-	}
-
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items":          items,
-		"pending_builds": pbResp,
+		"items": items,
 	})
 }
 
@@ -228,32 +205,7 @@ func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := h.DB.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	defer tx.Rollback(r.Context()) //nolint:errcheck
-
-	qtx := h.Queries.WithTx(tx)
-
-	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := qtx.ClearCart(r.Context(), teamID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := qtx.ClearPendingBuilds(r.Context(), cart.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
+	if err := h.Queries.ClearCart(r.Context(), teamID); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
@@ -442,132 +394,6 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// AddShortfalls handles POST /api/v1/teams/{teamId}/cart/add-shortfall
-// Body: {bom_revision_id, build_quantity}. Registers the pending build and
-// recomputes all bom_shortfall cart items across every pending build.
-func (h *Handler) AddShortfalls(w http.ResponseWriter, r *http.Request) {
-	var teamID pgtype.UUID
-	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
-		return
-	}
-
-	var body struct {
-		BomRevisionID string `json:"bom_revision_id"`
-		BuildQuantity int32  `json:"build_quantity"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
-		return
-	}
-	if body.BomRevisionID == "" {
-		writeError(w, http.StatusBadRequest, "bom_revision_id is required", "BAD_REQUEST")
-		return
-	}
-	if body.BuildQuantity <= 0 {
-		writeError(w, http.StatusBadRequest, "build_quantity must be positive", "BAD_REQUEST")
-		return
-	}
-
-	var revID pgtype.UUID
-	if err := revID.Scan(body.BomRevisionID); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid bom_revision_id", "BAD_REQUEST")
-		return
-	}
-
-	tx, err := h.DB.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	defer tx.Rollback(r.Context()) //nolint:errcheck
-
-	qtx := h.Queries.WithTx(tx)
-
-	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if _, err := qtx.UpsertPendingBuild(r.Context(), dbgen.UpsertPendingBuildParams{
-		ShoppingCartID: cart.ID,
-		BomRevisionID:  revID,
-		BuildQuantity:  body.BuildQuantity,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	addedCount, err := h.recomputeBomShortfalls(r.Context(), qtx, cart.ID, teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	h.CartResolver.Invalidate(teamID.String())
-	h.publishCartChanged(r, teamID)
-	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
-}
-
-// RemovePendingBuild handles DELETE /api/v1/teams/{teamId}/cart/pending-builds/{revisionId}
-// Removes a pending build and recomputes all bom_shortfall cart items.
-func (h *Handler) RemovePendingBuild(w http.ResponseWriter, r *http.Request) {
-	var teamID pgtype.UUID
-	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
-		return
-	}
-	var revID pgtype.UUID
-	if err := revID.Scan(chi.URLParam(r, "revisionId")); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
-		return
-	}
-
-	tx, err := h.DB.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	defer tx.Rollback(r.Context()) //nolint:errcheck
-
-	qtx := h.Queries.WithTx(tx)
-
-	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := qtx.DeletePendingBuild(r.Context(), dbgen.DeletePendingBuildParams{
-		ShoppingCartID: cart.ID,
-		BomRevisionID:  revID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	addedCount, err := h.recomputeBomShortfalls(r.Context(), qtx, cart.ID, teamID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	h.CartResolver.Invalidate(teamID.String())
-	h.publishCartChanged(r, teamID)
-	writeJSON(w, http.StatusOK, map[string]any{"added_count": addedCount})
-}
-
 // AddLowStock handles POST /api/v1/teams/{teamId}/cart/add-low-stock
 // Adds all below-min-stock inventory items to the cart.
 func (h *Handler) AddLowStock(w http.ResponseWriter, r *http.Request) {
@@ -615,6 +441,7 @@ func (h *Handler) AddLowStock(w http.ResponseWriter, r *http.Request) {
 
 // ConvertCart handles POST /api/v1/teams/{teamId}/cart/convert
 // Converts cart to draft orders grouped by distributor.
+// Links orders to pending builds and creates soft reservations.
 func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -660,6 +487,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 
 	// Build an effective item list, substituting resolved listing data where listing_id is null.
 	type effectiveItem struct {
+		partID         pgtype.UUID
 		distributorID  pgtype.UUID
 		listingID      pgtype.UUID
 		quantity       int32
@@ -670,6 +498,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	for _, item := range cartItems {
 		if item.ListingID.Valid {
 			effectiveItems = append(effectiveItems, effectiveItem{
+				partID:         item.PartID,
 				distributorID:  item.DistributorID,
 				listingID:      item.ListingID,
 				quantity:       item.Quantity,
@@ -685,6 +514,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			effectiveItems = append(effectiveItems, effectiveItem{
+				partID:         item.PartID,
 				distributorID:  rl.DistributorID,
 				listingID:      rl.ListingID,
 				quantity:       item.Quantity,
@@ -694,8 +524,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sort by distributor ID to enable grouping (auto-resolved items may have different
-	// distributor IDs than the DB ordering assumed).
+	// Sort by distributor ID to enable grouping.
 	sort.Slice(effectiveItems, func(i, j int) bool {
 		return effectiveItems[i].distributorID.String() < effectiveItems[j].distributorID.String()
 	})
@@ -722,6 +551,15 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 
 	qtx := h.Queries.WithTx(tx)
 
+	// Track orders created and quantity ordered per part per order.
+	type createdOrder struct {
+		id            pgtype.UUID
+		distributorID pgtype.UUID
+		// partID → quantity ordered in this order
+		partQty map[string]int32
+	}
+	var createdOrders []createdOrder
+
 	var orderIDs []string
 	for _, g := range groups {
 		order, err := qtx.CreateOrder(r.Context(), dbgen.CreateOrderParams{
@@ -733,6 +571,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+		co := createdOrder{id: order.ID, distributorID: g.distributorID, partQty: make(map[string]int32)}
 		for _, ei := range g.items {
 			_, err := qtx.CreateOrderLineItem(r.Context(), dbgen.CreateOrderLineItemParams{
 				OrderID:                order.ID,
@@ -745,24 +584,139 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return
 			}
+			co.partQty[ei.partID.String()] += ei.quantity
 		}
+		createdOrders = append(createdOrders, co)
 		orderIDs = append(orderIDs, order.ID.String())
 	}
 
+	// Clear the cart.
 	if err := qtx.ClearCart(r.Context(), teamID); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
+	// Process pending builds: link to orders, create allocations, transition status.
+	pendingBuilds, err := qtx.GetPendingBuildsForTeamCart(r.Context(), teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	if err := qtx.ClearPendingBuilds(r.Context(), cart.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
+	var transitionedBuildIDs []pgtype.UUID
+
+	for _, pb := range pendingBuilds {
+		// Get BOM line items for this build.
+		lineItems, err := qtx.ListBOMLineItems(r.Context(), pb.BomRevisionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		// Link build to all created orders.
+		for _, co := range createdOrders {
+			if err := qtx.CreateBuildOrder(r.Context(), dbgen.CreateBuildOrderParams{
+				BuildID: pb.ID,
+				OrderID: co.id,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+		}
+
+		// Compute total quantity ordered per part across all created orders.
+		totalOrderedByPart := make(map[string]int32)
+		for _, co := range createdOrders {
+			for pidStr, qty := range co.partQty {
+				totalOrderedByPart[pidStr] += qty
+			}
+		}
+
+		// For each resolved BOM line item, create an allocation.
+		for _, li := range lineItems {
+			if !li.ResolvedPartID.Valid || li.Ignored {
+				continue
+			}
+			partIDStr := li.ResolvedPartID.String()
+			quantityNeeded := li.Quantity * pb.BuildQuantity
+
+			totalOrdered := totalOrderedByPart[partIDStr]
+			quantityFromOrder := totalOrdered
+			if quantityFromOrder > quantityNeeded {
+				quantityFromOrder = quantityNeeded
+			}
+
+			quantityFromStock := quantityNeeded - quantityFromOrder
+			if quantityFromStock < 0 {
+				quantityFromStock = 0
+			}
+
+			// Clamp quantity_from_stock by how much free stock is actually available.
+			if quantityFromStock > 0 {
+				alreadyReserved, err := qtx.SumReservedForPart(r.Context(), dbgen.SumReservedForPartParams{
+					PartID: li.ResolvedPartID,
+					TeamID: teamID,
+				})
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+					return
+				}
+				// Get current inventory quantity on hand.
+				invEntry, err := qtx.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
+					TeamID: teamID,
+					PartID: li.ResolvedPartID,
+				})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+					return
+				}
+				var quantityOnHand int32
+				if err == nil {
+					quantityOnHand = invEntry.QuantityOnHand
+				}
+				quantityFree := quantityOnHand - alreadyReserved
+				if quantityFree < 0 {
+					quantityFree = 0
+				}
+				if quantityFromStock > quantityFree {
+					quantityFromStock = quantityFree
+				}
+			}
+
+			if _, err := qtx.UpsertBuildPartAllocation(r.Context(), dbgen.UpsertBuildPartAllocationParams{
+				BuildID:          pb.ID,
+				PartID:           li.ResolvedPartID,
+				QuantityNeeded:   quantityNeeded,
+				QuantityReserved: quantityFromStock,
+				QuantityReceived: 0,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+		}
+
+		// Check readiness: if all parts covered by reservation alone, transition to ready.
+		isReady, err := qtx.CheckBuildReadiness(r.Context(), pb.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		newStatus := "ordered"
+		if isReady {
+			newStatus = "ready"
+		}
+
+		if err := qtx.UpdateBuildStatus(r.Context(), dbgen.UpdateBuildStatusParams{
+			ID:     pb.ID,
+			Status: newStatus,
+			TeamID: teamID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		transitionedBuildIDs = append(transitionedBuildIDs, pb.ID)
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
@@ -773,6 +727,9 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	h.CartResolver.Invalidate(teamID.String())
 	h.publishCartChanged(r, teamID)
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{})
+	for _, bid := range transitionedBuildIDs {
+		h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": bid.String()})
+	}
 
 	if orderIDs == nil {
 		orderIDs = []string{}
