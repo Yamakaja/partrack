@@ -116,6 +116,70 @@ INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, or
 VALUES ($1, $2, $3, $4, $5)
 RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, order_line_item_id;
 
+-- name: GetOnOrderQtysForParts :many
+SELECT dl.part_id,
+       COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS quantity_on_order
+FROM order_line_items oli
+JOIN distributor_listings dl ON oli.listing_id = dl.id
+JOIN orders o ON o.id = oli.order_id
+WHERE dl.part_id = ANY(@part_ids::uuid[])
+  AND o.team_id = @team_id
+  AND o.status IN ('placed', 'partially_received')
+  AND oli.quantity_received < oli.quantity_ordered
+GROUP BY dl.part_id;
+
+-- name: GetUnallocatedOnOrderForParts :many
+-- Returns per-part unallocated inbound: total outstanding on order minus what active builds
+-- are still expecting from orders (quantity_needed - quantity_reserved - quantity_received).
+SELECT
+    dl.part_id,
+    GREATEST(0,
+        COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)
+        - COALESCE((
+            SELECT SUM(GREATEST(0, bpa2.quantity_needed - bpa2.quantity_reserved - bpa2.quantity_received))
+            FROM build_part_allocations bpa2
+            JOIN builds b2 ON bpa2.build_id = b2.id
+            WHERE bpa2.part_id = dl.part_id
+              AND b2.team_id = @team_id
+              AND b2.status NOT IN ('assembled', 'cancelled')
+        ), 0)
+    )::int AS unallocated_qty
+FROM order_line_items oli
+JOIN distributor_listings dl ON oli.listing_id = dl.id
+JOIN orders o ON o.id = oli.order_id
+WHERE dl.part_id = ANY(@part_ids::uuid[])
+  AND o.team_id = @team_id
+  AND o.status IN ('placed', 'partially_received')
+  AND oli.quantity_received < oli.quantity_ordered
+GROUP BY dl.part_id;
+
+-- name: GetOrdersWithQtyForPart :many
+-- Returns active orders with outstanding unreceived quantity for a specific part.
+-- Used at cart conversion to find existing orders whose excess can serve new builds.
+SELECT o.id AS order_id,
+       COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
+FROM order_line_items oli
+JOIN distributor_listings dl ON oli.listing_id = dl.id
+JOIN orders o ON o.id = oli.order_id
+WHERE dl.part_id = @part_id
+  AND o.team_id  = @team_id
+  AND o.status IN ('placed', 'partially_received')
+  AND oli.quantity_received < oli.quantity_ordered
+GROUP BY o.id
+ORDER BY outstanding_qty DESC;
+
+-- name: GetCommittedQtyForOrderPart :one
+-- Returns how much of a given order's quantity for a part is already committed
+-- to active builds (ordered/ready) linked to that order.
+SELECT COALESCE(SUM(GREATEST(0, bpa.quantity_needed - bpa.quantity_reserved - bpa.quantity_received)), 0)::int AS committed_qty
+FROM build_part_allocations bpa
+JOIN build_orders bo ON bo.build_id = bpa.build_id
+JOIN builds b ON b.id = bpa.build_id
+WHERE bo.order_id = @order_id
+  AND bpa.part_id = @part_id
+  AND b.team_id   = @team_id
+  AND b.status    IN ('ordered', 'ready');
+
 -- name: GetOutstandingOrderedQtyForBuildPart :one
 SELECT COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
 FROM   order_line_items oli

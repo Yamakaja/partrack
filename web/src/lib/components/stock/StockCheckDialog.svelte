@@ -177,7 +177,7 @@
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
     <Dialog.Content
-      class="fixed left-1/2 top-1/2 z-50 flex w-[92vw] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-background shadow-lg"
+      class="fixed left-1/2 top-1/2 z-50 flex w-[92vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-background shadow-lg"
       style="max-height: min(85vh, 720px);"
     >
       <!-- Header -->
@@ -214,6 +214,8 @@
                 <TableHead class="text-right">Qty/Board</TableHead>
                 <TableHead class="text-right">Required</TableHead>
                 <TableHead class="text-right">On Hand</TableHead>
+                <TableHead class="text-right">Free</TableHead>
+                <TableHead class="text-right">On Order</TableHead>
                 <TableHead class="text-right">Shortfall</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
@@ -229,7 +231,21 @@
                   </TableCell>
                   <TableCell class="text-right tabular-nums">{item.quantity_per_board}</TableCell>
                   <TableCell class="text-right tabular-nums">{item.required_quantity}</TableCell>
-                  <TableCell class="text-right tabular-nums">{item.quantity_on_hand}</TableCell>
+                  <TableCell class="text-right tabular-nums text-muted-foreground">{item.quantity_on_hand}</TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {#if item.quantity_reserved > 0}
+                      <span title="{item.quantity_reserved} reserved by active builds">{item.quantity_free}</span>
+                    {:else}
+                      {item.quantity_free}
+                    {/if}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums text-muted-foreground">
+                    {#if item.quantity_on_order > 0}
+                      <span title="May be partially allocated to other builds">{item.quantity_on_order}</span>
+                    {:else}
+                      <span class="text-muted-foreground/40">—</span>
+                    {/if}
+                  </TableCell>
                   <TableCell class="text-right tabular-nums">
                     {#if item.shortfall > 0}
                       <span class="font-semibold text-destructive">{item.shortfall}</span>

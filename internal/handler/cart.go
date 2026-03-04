@@ -106,6 +106,20 @@ func (h *Handler) recomputeBomShortfalls(
 		}
 	}
 
+	// Fetch unallocated inbound on-order quantities so the shortfall reflects only
+	// what truly needs to be purchased (excess from existing orders is subtracted).
+	unallocatedRows, err := q.GetUnallocatedOnOrderForParts(ctx, dbgen.GetUnallocatedOnOrderForPartsParams{
+		PartIds: partIDs,
+		TeamID:  teamID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	unallocatedByPart := make(map[string]int32, len(unallocatedRows))
+	for _, row := range unallocatedRows {
+		unallocatedByPart[row.PartID.String()] = row.UnallocatedQty
+	}
+
 	if err := q.ClearBomShortfallItems(ctx, cartID); err != nil {
 		return 0, err
 	}
@@ -114,7 +128,9 @@ func (h *Handler) recomputeBomShortfalls(
 	for pidStr, required := range demandByPart {
 		inv := invByPart[pidStr]
 		stock := inv.quantityOnHand
-		postBuild := stock - required
+		// Net stock = on-hand + unallocated inbound from existing orders.
+		netStock := stock + unallocatedByPart[pidStr]
+		postBuild := netStock - required
 
 		var cartQty int32
 		if inv.minimumStockQuantity != nil && postBuild < *inv.minimumStockQuantity {
@@ -124,8 +140,8 @@ func (h *Handler) recomputeBomShortfalls(
 			} else {
 				cartQty = rawQty
 			}
-		} else if stock < required {
-			cartQty = required - stock
+		} else if netStock < required {
+			cartQty = required - netStock
 		} else {
 			continue
 		}
@@ -624,12 +640,17 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Compute total quantity ordered per part across all created orders.
+		// Compute total quantity ordered per part across newly created orders.
 		totalOrderedByPart := make(map[string]int32)
 		for _, co := range createdOrders {
 			for pidStr, qty := range co.partQty {
 				totalOrderedByPart[pidStr] += qty
 			}
+		}
+		// Track which order IDs are already linked to this build (to avoid duplicate inserts).
+		linkedOrderIDs := make(map[string]bool)
+		for _, co := range createdOrders {
+			linkedOrderIDs[co.id.String()] = true
 		}
 
 		// For each resolved BOM line item, create an allocation.
@@ -640,10 +661,62 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			partIDStr := li.ResolvedPartID.String()
 			quantityNeeded := li.Quantity * pb.BuildQuantity
 
-			totalOrdered := totalOrderedByPart[partIDStr]
-			quantityFromOrder := totalOrdered
+			// Start with what the new orders cover.
+			quantityFromOrder := totalOrderedByPart[partIDStr]
 			if quantityFromOrder > quantityNeeded {
 				quantityFromOrder = quantityNeeded
+			}
+
+			// If new orders don't cover the full need, look for unallocated excess in existing orders.
+			if quantityFromOrder < quantityNeeded {
+				stillNeeded := quantityNeeded - quantityFromOrder
+				existingOrders, err := qtx.GetOrdersWithQtyForPart(r.Context(), dbgen.GetOrdersWithQtyForPartParams{
+					PartID: li.ResolvedPartID,
+					TeamID: teamID,
+				})
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+					return
+				}
+				for _, eo := range existingOrders {
+					if stillNeeded <= 0 {
+						break
+					}
+					if linkedOrderIDs[eo.OrderID.String()] {
+						continue // already linked via new order
+					}
+					committed, err := qtx.GetCommittedQtyForOrderPart(r.Context(), dbgen.GetCommittedQtyForOrderPartParams{
+						OrderID: eo.OrderID,
+						PartID:  li.ResolvedPartID,
+						TeamID:  teamID,
+					})
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+						return
+					}
+					unallocated := eo.OutstandingQty - committed
+					if unallocated <= 0 {
+						continue
+					}
+					// Link this build to the existing order.
+					if err := qtx.CreateBuildOrder(r.Context(), dbgen.CreateBuildOrderParams{
+						BuildID: pb.ID,
+						OrderID: eo.OrderID,
+					}); err != nil {
+						writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+						return
+					}
+					linkedOrderIDs[eo.OrderID.String()] = true
+					absorb := unallocated
+					if absorb > stillNeeded {
+						absorb = stillNeeded
+					}
+					quantityFromOrder += absorb
+					stillNeeded -= absorb
+				}
+				if quantityFromOrder > quantityNeeded {
+					quantityFromOrder = quantityNeeded
+				}
 			}
 
 			quantityFromStock := quantityNeeded - quantityFromOrder
@@ -661,7 +734,6 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 					return
 				}
-				// Get current inventory quantity on hand.
 				invEntry, err := qtx.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
 					TeamID: teamID,
 					PartID: li.ResolvedPartID,

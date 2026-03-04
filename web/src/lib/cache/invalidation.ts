@@ -60,6 +60,12 @@ export function activateTeamInvalidation(teamId: string) {
       const projectId = ev.data.project_id as string | undefined;
       if (projectId) qc!.invalidateQueries({ queryKey: ['project', teamId, projectId] });
     }),
+
+    subscribeSSEType(teamId, 'build_changed', (ev) => {
+      qc!.invalidateQueries({ queryKey: ['builds', teamId] });
+      const buildId = ev.data.build_id as string | undefined;
+      if (buildId) qc!.invalidateQueries({ queryKey: ['build', buildId] });
+    }),
   ];
 }
 

@@ -477,6 +477,11 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": invEntry.PartID.String(), "entry_id": entryID.String()})
 
+	// If stock increased, re-evaluate readiness of any ordered builds that need this part.
+	if req.Delta > 0 {
+		h.reevaluateOrderedBuildsForPart(r, invEntry.PartID, teamID, newQty)
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":                 adj.ID.String(),
 		"inventory_entry_id": adj.InventoryEntryID.String(),
@@ -486,6 +491,88 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 		"created_by":         adj.CreatedBy.String(),
 		"quantity_on_hand":   newQty,
 	})
+}
+
+// reevaluateOrderedBuildsForPart updates quantity_reserved for ordered builds that need
+// the given part (using newly available stock), then transitions any now-ready builds.
+// Called after any positive stock adjustment. Runs outside a transaction; best-effort.
+func (h *Handler) reevaluateOrderedBuildsForPart(r *http.Request, partID, teamID pgtype.UUID, quantityOnHand int32) {
+	ctx := r.Context()
+
+	buildIDs, err := h.Queries.GetOrderedBuildsNeedingPart(ctx, dbgen.GetOrderedBuildsNeedingPartParams{
+		PartID: partID,
+		TeamID: teamID,
+	})
+	if err != nil || len(buildIDs) == 0 {
+		return
+	}
+
+	for _, buildID := range buildIDs {
+		allocs, err := h.Queries.GetBuildPartAllocations(ctx, buildID)
+		if err != nil {
+			continue
+		}
+		// Find this part's allocation row.
+		var alloc *dbgen.GetBuildPartAllocationsRow
+		for i := range allocs {
+			if allocs[i].PartID == partID {
+				alloc = &allocs[i]
+				break
+			}
+		}
+		if alloc == nil {
+			continue
+		}
+
+		// Compute how much free stock is available after accounting for all other builds' reservations.
+		totalReserved, err := h.Queries.SumReservedForPart(ctx, dbgen.SumReservedForPartParams{
+			PartID: partID,
+			TeamID: teamID,
+		})
+		if err != nil {
+			continue
+		}
+		// freeStock excludes this build's current reservation to avoid double-counting.
+		reservedByOthers := totalReserved - alloc.QuantityReserved
+		freeStock := quantityOnHand - reservedByOthers
+		if freeStock < 0 {
+			freeStock = 0
+		}
+
+		// How much more stock does this build still need from somewhere?
+		stillNeededFromStock := alloc.QuantityNeeded - alloc.QuantityReceived - alloc.QuantityReserved
+		if stillNeededFromStock <= 0 {
+			continue
+		}
+
+		additional := freeStock
+		if additional > stillNeededFromStock {
+			additional = stillNeededFromStock
+		}
+		if additional <= 0 {
+			continue
+		}
+
+		newReservation := alloc.QuantityReserved + additional
+		if err := h.Queries.UpdateBuildPartReservation(ctx, dbgen.UpdateBuildPartReservationParams{
+			QuantityReserved: newReservation,
+			BuildID:          buildID,
+			PartID:           partID,
+		}); err != nil {
+			continue
+		}
+
+		isReady, err := h.Queries.CheckBuildReadiness(ctx, buildID)
+		if err != nil || !isReady {
+			continue
+		}
+		_ = h.Queries.UpdateBuildStatus(ctx, dbgen.UpdateBuildStatusParams{
+			ID:     buildID,
+			Status: "ready",
+			TeamID: teamID,
+		})
+		h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+	}
 }
 
 // ReplenishPreview handles GET /api/v1/teams/{teamId}/inventory/replenish-preview

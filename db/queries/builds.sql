@@ -144,6 +144,42 @@ WHERE bpa.part_id = $1
 -- name: GetLinkedBuildIDsForOrder :many
 SELECT build_id FROM build_orders WHERE order_id = $1;
 
+-- name: GetReservedQtysForParts :many
+SELECT bpa.part_id,
+       COALESCE(SUM(bpa.quantity_reserved), 0)::int AS total_reserved
+FROM build_part_allocations bpa
+JOIN builds b ON bpa.build_id = b.id
+WHERE bpa.part_id = ANY(@part_ids::uuid[])
+  AND b.team_id   = @team_id
+  AND b.status    NOT IN ('assembled', 'cancelled')
+GROUP BY bpa.part_id;
+
+-- name: GetOrderedBuildsNeedingPart :many
+SELECT b.id
+FROM build_part_allocations bpa
+JOIN builds b ON bpa.build_id = b.id
+WHERE bpa.part_id = @part_id
+  AND b.team_id   = @team_id
+  AND b.status    = 'ordered';
+
+-- name: UpdateBuildPartReservation :exec
+UPDATE build_part_allocations
+SET quantity_reserved = @quantity_reserved
+WHERE build_id = @build_id AND part_id = @part_id;
+
+-- name: DecrementBuildQuantity :one
+UPDATE builds
+SET quantity = quantity - @assembled_quantity
+WHERE id = @id AND team_id = @team_id
+RETURNING id, quantity, status;
+
+-- name: AdjustBuildPartAllocationAfterPartialCheckout :exec
+UPDATE build_part_allocations
+SET quantity_reserved = GREATEST(0, quantity_reserved - LEAST(quantity_reserved, sqlc.arg('consumed'))),
+    quantity_received = GREATEST(0, quantity_received - GREATEST(0, sqlc.arg('consumed') - quantity_reserved)),
+    quantity_needed   = quantity_needed - sqlc.arg('consumed')
+WHERE build_id = sqlc.arg('build_id') AND part_id = sqlc.arg('part_id');
+
 -- name: ListBuildDeductions :many
 SELECT
     sa.id, sa.inventory_entry_id, sa.delta,

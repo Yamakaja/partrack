@@ -162,6 +162,75 @@ func (q *Queries) CreateOrderStockAdjustment(ctx context.Context, arg CreateOrde
 	return i, err
 }
 
+const getCommittedQtyForOrderPart = `-- name: GetCommittedQtyForOrderPart :one
+SELECT COALESCE(SUM(GREATEST(0, bpa.quantity_needed - bpa.quantity_reserved - bpa.quantity_received)), 0)::int AS committed_qty
+FROM build_part_allocations bpa
+JOIN build_orders bo ON bo.build_id = bpa.build_id
+JOIN builds b ON b.id = bpa.build_id
+WHERE bo.order_id = $1
+  AND bpa.part_id = $2
+  AND b.team_id   = $3
+  AND b.status    IN ('ordered', 'ready')
+`
+
+type GetCommittedQtyForOrderPartParams struct {
+	OrderID pgtype.UUID `json:"order_id"`
+	PartID  pgtype.UUID `json:"part_id"`
+	TeamID  pgtype.UUID `json:"team_id"`
+}
+
+// Returns how much of a given order's quantity for a part is already committed
+// to active builds (ordered/ready) linked to that order.
+func (q *Queries) GetCommittedQtyForOrderPart(ctx context.Context, arg GetCommittedQtyForOrderPartParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getCommittedQtyForOrderPart, arg.OrderID, arg.PartID, arg.TeamID)
+	var committed_qty int32
+	err := row.Scan(&committed_qty)
+	return committed_qty, err
+}
+
+const getOnOrderQtysForParts = `-- name: GetOnOrderQtysForParts :many
+SELECT dl.part_id,
+       COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS quantity_on_order
+FROM order_line_items oli
+JOIN distributor_listings dl ON oli.listing_id = dl.id
+JOIN orders o ON o.id = oli.order_id
+WHERE dl.part_id = ANY($1::uuid[])
+  AND o.team_id = $2
+  AND o.status IN ('placed', 'partially_received')
+  AND oli.quantity_received < oli.quantity_ordered
+GROUP BY dl.part_id
+`
+
+type GetOnOrderQtysForPartsParams struct {
+	PartIds []pgtype.UUID `json:"part_ids"`
+	TeamID  pgtype.UUID   `json:"team_id"`
+}
+
+type GetOnOrderQtysForPartsRow struct {
+	PartID          pgtype.UUID `json:"part_id"`
+	QuantityOnOrder int32       `json:"quantity_on_order"`
+}
+
+func (q *Queries) GetOnOrderQtysForParts(ctx context.Context, arg GetOnOrderQtysForPartsParams) ([]GetOnOrderQtysForPartsRow, error) {
+	rows, err := q.db.Query(ctx, getOnOrderQtysForParts, arg.PartIds, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOnOrderQtysForPartsRow
+	for rows.Next() {
+		var i GetOnOrderQtysForPartsRow
+		if err := rows.Scan(&i.PartID, &i.QuantityOnOrder); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOrder = `-- name: GetOrder :one
 SELECT
     o.id, o.team_id, o.distributor_id, d.name AS distributor_name,
@@ -336,6 +405,52 @@ func (q *Queries) GetOrderReceiptStatus(ctx context.Context, orderID pgtype.UUID
 	return i, err
 }
 
+const getOrdersWithQtyForPart = `-- name: GetOrdersWithQtyForPart :many
+SELECT o.id AS order_id,
+       COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
+FROM order_line_items oli
+JOIN distributor_listings dl ON oli.listing_id = dl.id
+JOIN orders o ON o.id = oli.order_id
+WHERE dl.part_id = $1
+  AND o.team_id  = $2
+  AND o.status IN ('placed', 'partially_received')
+  AND oli.quantity_received < oli.quantity_ordered
+GROUP BY o.id
+ORDER BY outstanding_qty DESC
+`
+
+type GetOrdersWithQtyForPartParams struct {
+	PartID pgtype.UUID `json:"part_id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetOrdersWithQtyForPartRow struct {
+	OrderID        pgtype.UUID `json:"order_id"`
+	OutstandingQty int32       `json:"outstanding_qty"`
+}
+
+// Returns active orders with outstanding unreceived quantity for a specific part.
+// Used at cart conversion to find existing orders whose excess can serve new builds.
+func (q *Queries) GetOrdersWithQtyForPart(ctx context.Context, arg GetOrdersWithQtyForPartParams) ([]GetOrdersWithQtyForPartRow, error) {
+	rows, err := q.db.Query(ctx, getOrdersWithQtyForPart, arg.PartID, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOrdersWithQtyForPartRow
+	for rows.Next() {
+		var i GetOrdersWithQtyForPartRow
+		if err := rows.Scan(&i.OrderID, &i.OutstandingQty); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOutstandingOrderedQtyForBuildPart = `-- name: GetOutstandingOrderedQtyForBuildPart :one
 SELECT COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
 FROM   order_line_items oli
@@ -356,6 +471,62 @@ func (q *Queries) GetOutstandingOrderedQtyForBuildPart(ctx context.Context, arg 
 	var outstanding_qty int32
 	err := row.Scan(&outstanding_qty)
 	return outstanding_qty, err
+}
+
+const getUnallocatedOnOrderForParts = `-- name: GetUnallocatedOnOrderForParts :many
+SELECT
+    dl.part_id,
+    GREATEST(0,
+        COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)
+        - COALESCE((
+            SELECT SUM(GREATEST(0, bpa2.quantity_needed - bpa2.quantity_reserved - bpa2.quantity_received))
+            FROM build_part_allocations bpa2
+            JOIN builds b2 ON bpa2.build_id = b2.id
+            WHERE bpa2.part_id = dl.part_id
+              AND b2.team_id = $1
+              AND b2.status NOT IN ('assembled', 'cancelled')
+        ), 0)
+    )::int AS unallocated_qty
+FROM order_line_items oli
+JOIN distributor_listings dl ON oli.listing_id = dl.id
+JOIN orders o ON o.id = oli.order_id
+WHERE dl.part_id = ANY($2::uuid[])
+  AND o.team_id = $1
+  AND o.status IN ('placed', 'partially_received')
+  AND oli.quantity_received < oli.quantity_ordered
+GROUP BY dl.part_id
+`
+
+type GetUnallocatedOnOrderForPartsParams struct {
+	TeamID  pgtype.UUID   `json:"team_id"`
+	PartIds []pgtype.UUID `json:"part_ids"`
+}
+
+type GetUnallocatedOnOrderForPartsRow struct {
+	PartID         pgtype.UUID `json:"part_id"`
+	UnallocatedQty int32       `json:"unallocated_qty"`
+}
+
+// Returns per-part unallocated inbound: total outstanding on order minus what active builds
+// are still expecting from orders (quantity_needed - quantity_reserved - quantity_received).
+func (q *Queries) GetUnallocatedOnOrderForParts(ctx context.Context, arg GetUnallocatedOnOrderForPartsParams) ([]GetUnallocatedOnOrderForPartsRow, error) {
+	rows, err := q.db.Query(ctx, getUnallocatedOnOrderForParts, arg.TeamID, arg.PartIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUnallocatedOnOrderForPartsRow
+	for rows.Next() {
+		var i GetUnallocatedOnOrderForPartsRow
+		if err := rows.Scan(&i.PartID, &i.UnallocatedQty); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const linkOrderExternalReference = `-- name: LinkOrderExternalReference :one

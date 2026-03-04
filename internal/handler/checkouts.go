@@ -226,11 +226,62 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 
 	if len(insufficientItems) > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":             "some items have insufficient stock; provide reconcile_to to correct",
-			"code":              "INSUFFICIENT_STOCK",
+			"error":              "some items have insufficient stock; provide reconcile_to to correct",
+			"code":               "INSUFFICIENT_STOCK",
 			"insufficient_items": insufficientItems,
 		})
 		return
+	}
+
+	// Compute reservation warnings (non-blocking): items where the checkout quantity
+	// exceeds quantity_free (on_hand - reserved_by_active_builds).
+	type reservationWarning struct {
+		PartID           string `json:"part_id"`
+		QuantityOnHand   int32  `json:"quantity_on_hand"`
+		QuantityReserved int32  `json:"quantity_reserved"`
+		QuantityFree     int32  `json:"quantity_free"`
+		CheckoutQuantity int32  `json:"checkout_quantity"`
+	}
+	var reservationWarnings []reservationWarning
+	{
+		partIDs := make([]pgtype.UUID, 0, len(resolved))
+		for _, ri := range resolved {
+			if ri.HasInventory {
+				partIDs = append(partIDs, ri.PartID)
+			}
+		}
+		if len(partIDs) > 0 {
+			reservedRows, err := h.Queries.GetReservedQtysForParts(r.Context(), dbgen.GetReservedQtysForPartsParams{
+				PartIds: partIDs,
+				TeamID:  teamID,
+			})
+			if err == nil {
+				reservedByPart := make(map[string]int32, len(reservedRows))
+				for _, row := range reservedRows {
+					reservedByPart[row.PartID.String()] = row.TotalReserved
+				}
+				for _, ri := range resolved {
+					if !ri.HasInventory {
+						continue
+					}
+					si := stockMap[ri.InventoryEntryID.String()]
+					reserved := reservedByPart[ri.PartID.String()]
+					free := si.quantityOnHand - reserved
+					if free < 0 {
+						free = 0
+					}
+					if ri.Quantity > free {
+						reservationWarnings = append(reservationWarnings, reservationWarning{
+							PartID:           ri.PartID.String(),
+							QuantityOnHand:   si.quantityOnHand,
+							QuantityReserved: reserved,
+							QuantityFree:     free,
+							CheckoutQuantity: ri.Quantity,
+						})
+					}
+				}
+			}
+		}
 	}
 
 	tx, err := h.DB.Begin(r.Context())
@@ -334,11 +385,15 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if reservationWarnings == nil {
+		reservationWarnings = []reservationWarning{}
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":           checkout.ID.String(),
-		"performed_at": checkout.PerformedAt.Time.UTC().Format(time.RFC3339),
-		"reason":       checkout.Reason,
-		"items":        lineItemResults,
+		"id":                   checkout.ID.String(),
+		"performed_at":         checkout.PerformedAt.Time.UTC().Format(time.RFC3339),
+		"reason":               checkout.Reason,
+		"items":                lineItemResults,
+		"reservation_warnings": reservationWarnings,
 	})
 }
 

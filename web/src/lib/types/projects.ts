@@ -91,6 +91,9 @@ export interface StockCheckItem {
   quantity_per_board: number;
   required_quantity: number;
   quantity_on_hand: number;
+  quantity_reserved: number;
+  quantity_free: number;
+  quantity_on_order: number;
   shortfall: number;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;

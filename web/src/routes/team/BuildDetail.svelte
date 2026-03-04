@@ -15,6 +15,8 @@
   import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { CheckCircle, Loader2, Send, XCircle } from 'lucide-svelte';
   import type { BuildStatus } from '$lib/types/orders.js';
 
@@ -46,6 +48,7 @@
   let checkoutItems = $state<BuildPreviewItem[]>([]);
   let checkoutPreviewing = $state(false);
   let checkoutAllowReconciliation = $state(false);
+  let checkoutAssembledQty = $state(1);
   let checkoutSubmitting = $state(false);
 
   async function handleSubmit() {
@@ -78,10 +81,11 @@
   }
 
   async function openCheckout() {
+    checkoutAssembledQty = buildQuery.data?.quantity ?? 1;
+    checkoutAllowReconciliation = false;
     // Reuse preview data if already fetched (draft/pending)
     if (previewQuery.data) {
       checkoutItems = previewQuery.data.items;
-      checkoutAllowReconciliation = false;
       checkoutOpen = true;
       return;
     }
@@ -106,10 +110,14 @@
   async function handleCheckout() {
     checkoutSubmitting = true;
     try {
+      const buildQty = buildQuery.data?.quantity ?? checkoutAssembledQty;
       const body: {
         assembled_quantity?: number;
         allow_stock_reconciliation?: boolean;
       } = {};
+      if (checkoutAssembledQty < buildQty) {
+        body.assembled_quantity = checkoutAssembledQty;
+      }
       if (checkoutAllowReconciliation) {
         body.allow_stock_reconciliation = true;
       }
@@ -431,8 +439,25 @@
       <div class="shrink-0 p-6 pb-4 border-b border-border">
         <Dialog.Title class="text-lg font-semibold">Checkout Build</Dialog.Title>
         <p class="text-sm text-muted-foreground mt-1">
-          Review parts to be deducted for <strong>{buildQuery.data?.quantity}</strong> board(s).
+          Review parts to be deducted from inventory.
         </p>
+        <div class="mt-4 flex items-end gap-4">
+          <div class="w-36 space-y-1">
+            <Label for="assembled-qty">Assembled quantity</Label>
+            <Input
+              id="assembled-qty"
+              type="number"
+              bind:value={checkoutAssembledQty}
+              min="1"
+              max={buildQuery.data?.quantity ?? 1}
+            />
+          </div>
+          {#if buildQuery.data && checkoutAssembledQty < buildQuery.data.quantity && checkoutAssembledQty >= 1}
+            <p class="text-sm text-muted-foreground pb-0.5">
+              Remaining {buildQuery.data.quantity - checkoutAssembledQty} board(s) will stay in the build pipeline.
+            </p>
+          {/if}
+        </div>
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
@@ -487,7 +512,7 @@
         </Dialog.Close>
         <Button
           onclick={handleCheckout}
-          disabled={checkoutSubmitting || checkoutPreviewing || (hasShortCheckoutItems && !checkoutAllowReconciliation)}
+          disabled={checkoutSubmitting || checkoutPreviewing || checkoutAssembledQty < 1 || (hasShortCheckoutItems && !checkoutAllowReconciliation)}
         >
           {checkoutSubmitting ? 'Checking out…' : 'Confirm Checkout'}
         </Button>

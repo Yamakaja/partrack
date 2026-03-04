@@ -43,7 +43,6 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	buildQty := int32(buildQty64)
 
-	// Fetch all data in parallel — GetRevision validates the revision belongs to this project.
 	type revResult struct {
 		err error
 	}
@@ -59,11 +58,20 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		rows []dbgen.ListAllSubstitutesForRevisionRow
 		err  error
 	}
+	type onOrderResult struct {
+		rows []dbgen.GetOnOrderQtysForPartsRow
+		err  error
+	}
+	type reservedResult struct {
+		rows []dbgen.GetReservedQtysForPartsRow
+		err  error
+	}
 
 	revCh := make(chan revResult, 1)
 	liCh := make(chan lineItemsResult, 1)
 	invCh := make(chan inventoryResult, 1)
 	subsCh := make(chan subsResult, 1)
+	// on-order and reserved are fetched after we know the part IDs; run in a second wave.
 
 	go func() {
 		_, err := h.Queries.GetRevision(r.Context(), dbgen.GetRevisionParams{
@@ -107,14 +115,69 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build lookup map: part_id → full inventory row (for stock + min/reorder quantities).
+	// Collect resolved part IDs for the second-wave queries.
+	partIDSet := make(map[string]pgtype.UUID)
+	for _, li := range liRes.items {
+		if li.ResolvedPartID.Valid {
+			partIDSet[li.ResolvedPartID.String()] = li.ResolvedPartID
+		}
+	}
+	partIDs := make([]pgtype.UUID, 0, len(partIDSet))
+	for _, pid := range partIDSet {
+		partIDs = append(partIDs, pid)
+	}
+
+	onOrderCh := make(chan onOrderResult, 1)
+	reservedCh := make(chan reservedResult, 1)
+
+	go func() {
+		if len(partIDs) == 0 {
+			onOrderCh <- onOrderResult{}
+			return
+		}
+		rows, err := h.Queries.GetOnOrderQtysForParts(r.Context(), dbgen.GetOnOrderQtysForPartsParams{
+			PartIds: partIDs,
+			TeamID:  teamID,
+		})
+		onOrderCh <- onOrderResult{rows, err}
+	}()
+	go func() {
+		if len(partIDs) == 0 {
+			reservedCh <- reservedResult{}
+			return
+		}
+		rows, err := h.Queries.GetReservedQtysForParts(r.Context(), dbgen.GetReservedQtysForPartsParams{
+			PartIds: partIDs,
+			TeamID:  teamID,
+		})
+		reservedCh <- reservedResult{rows, err}
+	}()
+
+	onOrderRes := <-onOrderCh
+	reservedRes := <-reservedCh
+
+	if onOrderRes.err != nil || reservedRes.err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// Build lookup maps.
 	invByPart := make(map[string]dbgen.GetInventoryQuantitiesForRevisionRow)
 	for _, row := range invRes.rows {
 		invByPart[row.PartID.String()] = row
 	}
 
-	// Build substitute stock lookup (for status checking only).
-	subStockByItem := make(map[string]int32) // item_id → best substitute stock
+	onOrderByPart := make(map[string]int32)
+	for _, row := range onOrderRes.rows {
+		onOrderByPart[row.PartID.String()] = row.QuantityOnOrder
+	}
+
+	reservedByPart := make(map[string]int32)
+	for _, row := range reservedRes.rows {
+		reservedByPart[row.PartID.String()] = row.TotalReserved
+	}
+
+	subStockByItem := make(map[string]int32)
 	for _, s := range subsRes.rows {
 		key := s.BomLineItemID.String()
 		pid := s.PartID.String()
@@ -133,6 +196,9 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		QuantityPerBoard     int32   `json:"quantity_per_board"`
 		RequiredQuantity     int32   `json:"required_quantity"`
 		QuantityOnHand       int32   `json:"quantity_on_hand"`
+		QuantityReserved     int32   `json:"quantity_reserved"`
+		QuantityFree         int32   `json:"quantity_free"`
+		QuantityOnOrder      int32   `json:"quantity_on_order"`
 		Shortfall            int32   `json:"shortfall"`
 		StockStatus          string  `json:"stock_status"`
 		ResolvedPartID       *string `json:"resolved_part_id"`
@@ -149,7 +215,7 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		itemID := li.ID.String()
 		required := li.Quantity * buildQty
 
-		var stockOnHand int32
+		var stockOnHand, quantityReserved, quantityFree, quantityOnOrder int32
 		var minStockQty *int32
 		var stockStatus string
 		var shortfall int32
@@ -164,8 +230,13 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 				stockOnHand = inv.QuantityOnHand
 				minStockQty = inv.MinimumStockQuantity
 			}
+			quantityReserved = reservedByPart[pid]
+			quantityFree = stockOnHand - quantityReserved
+			if quantityFree < 0 {
+				quantityFree = 0
+			}
+			quantityOnOrder = onOrderByPart[pid]
 
-			// Check if primary stock covers requirement; fall back to best substitute.
 			effectiveStock := stockOnHand
 			if effectiveStock < required {
 				if subStock, ok := subStockByItem[itemID]; ok && subStock > effectiveStock {
@@ -189,7 +260,6 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			// Track fully_buildable using primary part stock / quantity_per_board.
 			if li.Quantity > 0 {
 				maxBoards := stockOnHand / li.Quantity
 				if !hasResolved || maxBoards < fullyBuildable {
@@ -199,7 +269,6 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Compute below_restock: post-build stock would be below minimum_stock_quantity.
 		postBuildStock := stockOnHand - required
 		belowRestock := minStockQty != nil && postBuildStock < *minStockQty
 
@@ -209,6 +278,9 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 			QuantityPerBoard:     li.Quantity,
 			RequiredQuantity:     required,
 			QuantityOnHand:       stockOnHand,
+			QuantityReserved:     quantityReserved,
+			QuantityFree:         quantityFree,
+			QuantityOnOrder:      quantityOnOrder,
 			Shortfall:            shortfall,
 			StockStatus:          stockStatus,
 			ResolvedPartID:       uuidPtrString(li.ResolvedPartID),

@@ -631,22 +631,82 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := qtx.DeleteBuildPartAllocations(r.Context(), buildID); err != nil {
+	if assembledQty == build.Quantity {
+		// Full checkout: clear allocations and record assembly.
+		if err := qtx.DeleteBuildPartAllocations(r.Context(), buildID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		now := pgtype.Timestamptz{}
+		_ = now.Scan(time.Now())
+		updated, err := qtx.UpdateBuildAssembled(r.Context(), dbgen.UpdateBuildAssembledParams{
+			ID:                buildID,
+			Status:            "assembled",
+			AssembledQuantity: &assembledQty,
+			AssembledAt:       now,
+			AssembledBy:       userID,
+			TeamID:            teamID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		if err := tx.Commit(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+		h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":                 updated.ID.String(),
+			"status":             updated.Status,
+			"assembled_quantity": updated.AssembledQuantity,
+			"assembled_at":       updated.AssembledAt.Time.UTC().Format(time.RFC3339),
+			"deduction_count":    len(deductions),
+		})
+		return
+	}
+
+	// Partial checkout: adjust allocations, decrement quantity, re-evaluate readiness.
+	for _, d := range deductions {
+		consumed := -d.Delta // positive
+		if err := qtx.AdjustBuildPartAllocationAfterPartialCheckout(r.Context(), dbgen.AdjustBuildPartAllocationAfterPartialCheckoutParams{
+			Consumed: consumed,
+			BuildID:  buildID,
+			PartID:   d.PartID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	remaining, err := qtx.DecrementBuildQuantity(r.Context(), dbgen.DecrementBuildQuantityParams{
+		AssembledQuantity: assembledQty,
+		ID:                buildID,
+		TeamID:            teamID,
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	now := pgtype.Timestamptz{}
-	_ = now.Scan(time.Now())
-	updated, err := qtx.UpdateBuildAssembled(r.Context(), dbgen.UpdateBuildAssembledParams{
-		ID:                buildID,
-		Status:            "assembled",
-		AssembledQuantity: &assembledQty,
-		AssembledAt:       now,
-		AssembledBy:       userID,
-		TeamID:            teamID,
-	})
+	isReady, err := qtx.CheckBuildReadiness(r.Context(), buildID)
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	newStatus := "ordered"
+	if isReady {
+		newStatus = "ready"
+	}
+	if err := qtx.UpdateBuildStatus(r.Context(), dbgen.UpdateBuildStatusParams{
+		ID:     buildID,
+		Status: newStatus,
+		TeamID: teamID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
@@ -659,11 +719,10 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                 updated.ID.String(),
-		"status":             updated.Status,
-		"assembled_quantity": updated.AssembledQuantity,
-		"assembled_at":       updated.AssembledAt.Time.UTC().Format(time.RFC3339),
-		"deduction_count":    len(deductions),
+		"id":                remaining.ID.String(),
+		"status":            newStatus,
+		"remaining_quantity": remaining.Quantity,
+		"deduction_count":   len(deductions),
 	})
 }
 
