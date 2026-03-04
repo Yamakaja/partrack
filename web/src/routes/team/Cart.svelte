@@ -86,10 +86,10 @@
     }
   }
 
-  async function handleToggleInclusion(buildId: string, currentExcluded: boolean) {
+  async function handleToggleInclusion(buildId: string, newExcluded: boolean) {
     togglingBuilds = new Set([...togglingBuilds, buildId]);
     try {
-      await toggleBuildCartInclusion(teamId, buildId, !currentExcluded);
+      await toggleBuildCartInclusion(teamId, buildId, newExcluded);
       qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
       qc.invalidateQueries({ queryKey: ['cart', teamId] });
     } catch (err: any) {
@@ -289,7 +289,7 @@
                       type="checkbox"
                       checked={!excluded}
                       disabled={togglingBuilds.has(build.id)}
-                      onchange={() => handleToggleInclusion(build.id, excluded)}
+                      onchange={(e) => handleToggleInclusion(build.id, !(e.target as HTMLInputElement).checked)}
                       class="h-4 w-4 cursor-pointer"
                     />
                   </TableCell>

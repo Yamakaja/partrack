@@ -115,3 +115,68 @@ func TestStockCheck_Unresolved(t *testing.T) {
 		t.Errorf("expected stock_status=out_of_stock, got %v", it["stock_status"])
 	}
 }
+
+// TestStockCheck_ShowsReservedAndOnOrder verifies that the stock check response
+// includes quantity_reserved, quantity_free, and quantity_on_order fields (US-B14).
+// quantity_free = on_hand - reserved; quantity_on_order counts placed orders only.
+func TestStockCheck_ShowsReservedAndOnOrder(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "sc-resord@example.com", "pw", "SC")
+	teamID := testutil.CreateTeam(t, testDB, userID, "viewer", "SC Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "SC-ResOrd")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+	testutil.SetActiveBOM(t, testDB, projectID, revID)
+
+	partID := testutil.CreatePart(t, testDB, "global", "SC-RESORD-01", nil)
+	itemID := testutil.CreateBOMLineItem(t, testDB, revID, "R1", 1) // 1 per board
+	testutil.ResolveBOMLineItem(t, testDB, itemID, partID)
+	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
+	testutil.SetStockQty(t, testDB, entryID, 10)
+
+	// Another build in 'ready' status with 3 units reserved from the same stock pool.
+	// (ready = all parts covered by stock; this is the realistic state when stock is sufficient)
+	buildID := testutil.CreateBuild(t, testDB, projectID, revID, teamID, userID, 3, "ready")
+	testutil.CreateBuildPartAllocation(t, testDB, buildID, partID, 3, 3, 0)
+
+	// Create a placed order with 5 units on order for this part.
+	distID := testutil.GetTestDistributorID(t, testDB)
+	listingID := testutil.CreateListing(t, testDB, partID, distID, "SC-RESORD-SKU")
+	orderID := testutil.CreateOrder(t, testDB, teamID, distID, userID)
+	testutil.CreateOrderLineItem(t, testDB, orderID, listingID, 5)
+	testutil.PlaceOrder(t, testDB, orderID)
+
+	// Stock check for 1 board (requires 1 unit).
+	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/stock-check?build_quantity=1",
+			teamID, projectID, revID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %v", status, body)
+	}
+
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	it := items[0].(map[string]any)
+
+	// on_hand=10, reserved=3 (by the ordered build), free=7, on_order=5.
+	if it["quantity_on_hand"].(float64) != 10 {
+		t.Errorf("expected quantity_on_hand=10, got %v", it["quantity_on_hand"])
+	}
+	if it["quantity_reserved"].(float64) != 3 {
+		t.Errorf("expected quantity_reserved=3, got %v", it["quantity_reserved"])
+	}
+	if it["quantity_free"].(float64) != 7 {
+		t.Errorf("expected quantity_free=7 (=on_hand-reserved), got %v", it["quantity_free"])
+	}
+	if it["quantity_on_order"].(float64) != 5 {
+		t.Errorf("expected quantity_on_order=5, got %v", it["quantity_on_order"])
+	}
+	// Free=7 >= required=1 → in_stock.
+	if it["stock_status"].(string) != "in_stock" {
+		t.Errorf("expected stock_status=in_stock (free=7 >= required=1), got %v", it["stock_status"])
+	}
+}

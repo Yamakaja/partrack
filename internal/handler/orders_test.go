@@ -214,3 +214,77 @@ func TestReceiveOrderItem(t *testing.T) {
 		t.Errorf("expected DB quantity_on_hand=10, got %d", qty)
 	}
 }
+
+// TestReceiveOrderItem_AllocatesToLinkedBuild verifies that receiving an order
+// item updates quantity_received on linked build allocations and transitions
+// a fully-covered build from ordered → ready (US-B7, US-B8).
+func TestReceiveOrderItem_AllocatesToLinkedBuild(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "ord-recvbld@example.com", "pw", "Ord")
+	teamID := testutil.CreateTeam(t, testDB, userID, "purchaser", "Ord Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	partID := testutil.CreatePart(t, testDB, "global", "RECVBLD-PART-01", nil)
+	distID := testutil.GetTestDistributorID(t, testDB)
+	listingID := testutil.CreateListing(t, testDB, partID, distID, "RECVBLD-SKU-01")
+	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
+
+	// Create a placed order with 5 units of the part.
+	orderID := testutil.CreateOrder(t, testDB, teamID, distID, userID)
+	lineItemID := testutil.CreateOrderLineItem(t, testDB, orderID, listingID, 5)
+	testutil.PlaceOrder(t, testDB, orderID)
+
+	// Create a project/revision as required for a build.
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "RecvBld-PCB")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+
+	// Insert an 'ordered' build waiting for all 5 units (none reserved or received).
+	buildID := testutil.CreateBuild(t, testDB, projectID, revID, teamID, userID, 1, "ordered")
+	testutil.CreateBuildPartAllocation(t, testDB, buildID, partID, 5, 0, 0)
+	testutil.LinkBuildToOrder(t, testDB, buildID, orderID)
+
+	// Receive 5 units.
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/orders/%s/items/%s/receive", teamID, orderID, lineItemID),
+		map[string]any{"quantity_received": 5}, token)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %v", status, body)
+	}
+	if body["new_quantity_on_hand"].(float64) != 5 {
+		t.Errorf("expected new_quantity_on_hand=5, got %v", body["new_quantity_on_hand"])
+	}
+
+	// Allocation_breakdown should mention our build.
+	breakdown, _ := body["allocation_breakdown"].([]any)
+	if len(breakdown) != 1 {
+		t.Fatalf("expected 1 allocation_breakdown entry, got %d", len(breakdown))
+	}
+	entry := breakdown[0].(map[string]any)
+	if entry["build_id"] != buildID {
+		t.Errorf("expected build_id=%s in breakdown, got %v", buildID, entry["build_id"])
+	}
+	if entry["allocated"].(float64) != 5 {
+		t.Errorf("expected allocated=5, got %v", entry["allocated"])
+	}
+
+	// Build should now be in 'ready' status.
+	var buildStatus string
+	testDB.QueryRow(context.Background(),
+		`SELECT status FROM builds WHERE id = $1`, buildID,
+	).Scan(&buildStatus) //nolint:errcheck
+	if buildStatus != "ready" {
+		t.Errorf("expected build status=ready after full receipt, got %s", buildStatus)
+	}
+
+	// Allocation quantity_received should be 5.
+	var qtyReceived int32
+	testDB.QueryRow(context.Background(),
+		`SELECT quantity_received FROM build_part_allocations WHERE build_id = $1 AND part_id = $2`,
+		buildID, partID,
+	).Scan(&qtyReceived) //nolint:errcheck
+	if qtyReceived != 5 {
+		t.Errorf("expected allocation quantity_received=5, got %d", qtyReceived)
+	}
+	_ = entryID
+}

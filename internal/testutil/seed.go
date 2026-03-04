@@ -284,3 +284,51 @@ func CreateOrderLineItem(t *testing.T, pool *pgxpool.Pool, orderID, listingID st
 	}
 	return id
 }
+
+// PlaceOrder transitions an order from draft to placed status.
+func PlaceOrder(t *testing.T, pool *pgxpool.Pool, orderID string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE orders SET status = 'placed' WHERE id = $1`, orderID,
+	); err != nil {
+		t.Fatalf("testutil: PlaceOrder: %v", err)
+	}
+}
+
+// CreateBuild inserts a build in the given status and returns its UUID string.
+// status must be a valid build_status enum value (draft, pending, ordered, ready, assembled, cancelled).
+func CreateBuild(t *testing.T, pool *pgxpool.Pool, projectID, revID, teamID, userID string, qty int32, status string) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO builds (project_id, bom_revision_id, team_id, created_by, quantity, status, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING id`,
+		projectID, revID, teamID, userID, qty, status,
+	).Scan(&id); err != nil {
+		t.Fatalf("testutil: CreateBuild: %v", err)
+	}
+	return id
+}
+
+// CreateBuildPartAllocation inserts a build_part_allocations row.
+func CreateBuildPartAllocation(t *testing.T, pool *pgxpool.Pool, buildID, partID string, needed, reserved, received int32) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO build_part_allocations (build_id, part_id, quantity_needed, quantity_reserved, quantity_received)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		buildID, partID, needed, reserved, received,
+	); err != nil {
+		t.Fatalf("testutil: CreateBuildPartAllocation: %v", err)
+	}
+}
+
+// LinkBuildToOrder inserts a build_orders row linking a build to an order.
+func LinkBuildToOrder(t *testing.T, pool *pgxpool.Pool, buildID, orderID string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO build_orders (build_id, order_id) VALUES ($1, $2)`,
+		buildID, orderID,
+	); err != nil {
+		t.Fatalf("testutil: LinkBuildToOrder: %v", err)
+	}
+}

@@ -252,6 +252,63 @@ func TestBuildDrivenShortfall(t *testing.T) {
 	}
 }
 
+// TestUnallocatedOnOrderReducesShortfall verifies that excess on an existing
+// placed order (quantity_ordered - quantity_committed_to_builds) is counted as
+// available supply when computing a new build's cart shortfall (Decision 3).
+func TestUnallocatedOnOrderReducesShortfall(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "cart-unalloc@example.com", "pw", "Cart")
+	teamID := testutil.CreateTeam(t, testDB, userID, "purchaser", "Cart Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	partID := testutil.CreatePart(t, testDB, "global", "UNALLOC-PART-01", nil)
+	distID := testutil.GetTestDistributorID(t, testDB)
+	listingID := testutil.CreateListing(t, testDB, partID, distID, "UNALLOC-SKU-01")
+	testutil.CreateInventoryEntry(t, testDB, teamID, partID) // 0 stock
+
+	// Placed order: 100 ordered, 0 received.
+	orderID := testutil.CreateOrder(t, testDB, teamID, distID, userID)
+	testutil.CreateOrderLineItem(t, testDB, orderID, listingID, 100)
+	testutil.PlaceOrder(t, testDB, orderID)
+
+	// Build A is 'ordered', waiting on 5 units from the above order.
+	projectA := testutil.CreateProject(t, testDB, teamID, userID, "Unalloc-PCB-A")
+	revA := testutil.CreateRevision(t, testDB, projectA, userID, "v1")
+	buildA := testutil.CreateBuild(t, testDB, projectA, revA, teamID, userID, 5, "ordered")
+	testutil.CreateBuildPartAllocation(t, testDB, buildA, partID, 5, 0, 0)
+	testutil.LinkBuildToOrder(t, testDB, buildA, orderID)
+
+	// Build B needs 10 units of the same part. Unallocated inbound = 100 - 5 = 95.
+	// Shortfall for Build B = max(0, 10 - stock(0) - unallocated(95)) = 0.
+	projectB := testutil.CreateProject(t, testDB, teamID, userID, "Unalloc-PCB-B")
+	revB := testutil.CreateRevision(t, testDB, projectB, userID, "v1")
+	itemB := testutil.CreateBOMLineItem(t, testDB, revB, "R1", 10) // 10 per board
+	testutil.ResolveBOMLineItem(t, testDB, itemB, partID)
+
+	created, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
+		map[string]any{"project_id": projectB, "bom_revision_id": revB, "quantity": 1}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %v", status, created)
+	}
+	buildBID := created["id"].(string)
+
+	// Submit Build B → cart shortfall should be 0 (excess order covers demand).
+	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildBID), nil, token)
+	if submitStatus != http.StatusOK {
+		t.Fatalf("expected 200 on submit, got %d: %v", submitStatus, submitBody)
+	}
+
+	cartBody, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/cart", teamID), nil, token)
+	items, _ := cartBody["items"].([]any)
+	if len(items) != 0 {
+		t.Errorf("expected 0 cart items (excess on-order covers demand), got %d", len(items))
+	}
+}
+
 func TestAddLowStock(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
