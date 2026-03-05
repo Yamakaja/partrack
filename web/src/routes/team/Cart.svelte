@@ -138,37 +138,13 @@
   // --- Item helpers ---
 
   // Returns the quantity that ConvertCart will actually order for this item,
-  // which may exceed item.quantity when a price break makes it cheaper.
+  // which may exceed item.quantity when a price break makes ordering more cheaper overall.
+  // The backend computes optimized_qty for both explicit-listing and resolved-listing items.
   function effectiveOrderQty(item: CartItem): number {
-    if (!item.listing_id) {
-      // Backend already computed optimized_qty for resolved listings.
-      return Math.max(item.quantity, item.resolved_listing?.optimized_qty ?? 0);
+    if (item.listing_id) {
+      return item.optimized_qty ?? Math.max(item.quantity, item.listing_moq ?? 0);
     }
-    // For explicit listings, mirror the backend optimalOrderQty logic client-side.
-    const moq = item.listing_moq ?? 0;
-    const effQty = Math.max(item.quantity, moq);
-    const breaks = item.price_breaks ?? [];
-    let naturalPrice = NaN;
-    let bestBreak = -1;
-    for (const pb of breaks) {
-      if (pb.break_qty <= effQty && pb.break_qty > bestBreak) {
-        naturalPrice = parseFloat(pb.unit_price);
-        bestBreak = pb.break_qty;
-      }
-    }
-    if (isNaN(naturalPrice) && item.unit_price) naturalPrice = parseFloat(item.unit_price);
-    if (isNaN(naturalPrice)) return effQty;
-    let optQty = effQty;
-    let bestCost = naturalPrice * effQty;
-    const cap = item.quantity * 100;
-    for (const pb of breaks) {
-      if (pb.break_qty <= effQty || pb.break_qty > cap) continue;
-      const pbPrice = parseFloat(pb.unit_price);
-      if (isNaN(pbPrice)) continue;
-      const cost = pbPrice * pb.break_qty;
-      if (cost < bestCost) { bestCost = cost; optQty = pb.break_qty; }
-    }
-    return optQty;
+    return Math.max(item.quantity, item.resolved_listing?.optimized_qty ?? 0);
   }
 
   // orderQty is the quantity ConvertCart will actually place — may exceed item.quantity

@@ -20,7 +20,7 @@ func (h *Handler) publishCartChanged(r *http.Request, teamID pgtype.UUID) {
 }
 
 func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"id":                        i.ID.String(),
 		"part_id":                   i.PartID.String(),
 		"part_mpn":                  i.PartMpn,
@@ -39,6 +39,16 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 		"source":                    string(i.Source),
 		"source_bom_line_item_id":   uuidPtrString(i.SourceBomLineItemID),
 	}
+	// For items with an explicit listing, compute the price-break-optimised order
+	// quantity server-side so the frontend doesn't need to re-implement the logic.
+	if i.ListingID.Valid {
+		var moq int32
+		if i.ListingMoq != nil {
+			moq = *i.ListingMoq
+		}
+		m["optimized_qty"] = optimalOrderQty(i.Quantity, moq, i.ListingPriceBreaks, i.ListingUnitPrice)
+	}
+	return m
 }
 
 // recomputeBomShortfalls clears all bom_shortfall cart items for the given cart

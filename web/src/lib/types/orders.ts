@@ -51,6 +51,7 @@ export interface CartItem {
   listing_packaging_type: string | null;
   listing_stock_available: number | null;
   listing_last_refreshed_at: string | null;
+  optimized_qty?: number; // set by backend for explicit-listing items; use effectiveOrderQty() to read
   source: CartItemSource;
   build_demands: BuildDemand[];
   resolved_listing: ResolvedListing | null;
