@@ -21,6 +21,9 @@ type resolvedListing struct {
 	UnitPriceAtQty  pgtype.Numeric // effective unit price after applying price breaks
 	FixedOrderCost  pgtype.Numeric
 	MOQ             int32
+	PriceBreaks     []byte // raw JSONB — all price breaks for the listing
+	PackagingType   string
+	StockAvailable  *int32
 }
 
 // teamCartResolution maps cart item ID (string) to its resolved listing.
@@ -195,6 +198,9 @@ func pickBestListing(listings []dbgen.GetListingsForCartResolutionRow, cartQty i
 			UnitPriceAtQty:  unitPriceN,
 			FixedOrderCost:  l.FixedOrderCost,
 			MOQ:             l.Moq,
+			PriceBreaks:     l.PriceBreaks,
+			PackagingType:   l.PackagingType,
+			StockAvailable:  l.StockAvailable,
 		}
 
 		if best == nil {

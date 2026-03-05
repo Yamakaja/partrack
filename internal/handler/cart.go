@@ -21,19 +21,23 @@ func (h *Handler) publishCartChanged(r *http.Request, teamID pgtype.UUID) {
 
 func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 	return map[string]any{
-		"id":                       i.ID.String(),
-		"part_id":                  i.PartID.String(),
-		"part_mpn":                 i.PartMpn,
-		"quantity":                 i.Quantity,
-		"listing_id":               uuidPtrString(i.ListingID),
-		"listing_sku":              i.ListingSku,
-		"listing_distributor_name": i.ListingDistributorName,
-		"listing_distributor_id":   uuidPtrString(i.ListingDistributorID),
-		"unit_price":               numericString(i.ListingUnitPrice),
-		"price_breaks":             json.RawMessage(i.ListingPriceBreaks),
-		"fixed_order_cost":         numericString(i.ListingFixedOrderCost),
-		"source":                   string(i.Source),
-		"source_bom_line_item_id":  uuidPtrString(i.SourceBomLineItemID),
+		"id":                        i.ID.String(),
+		"part_id":                   i.PartID.String(),
+		"part_mpn":                  i.PartMpn,
+		"quantity":                  i.Quantity,
+		"listing_id":                uuidPtrString(i.ListingID),
+		"listing_sku":               i.ListingSku,
+		"listing_distributor_name":  i.ListingDistributorName,
+		"listing_distributor_id":    uuidPtrString(i.ListingDistributorID),
+		"unit_price":                numericString(i.ListingUnitPrice),
+		"price_breaks":              json.RawMessage(i.ListingPriceBreaks),
+		"fixed_order_cost":          numericString(i.ListingFixedOrderCost),
+		"listing_moq":               i.ListingMoq,
+		"listing_packaging_type":    i.ListingPackagingType,
+		"listing_stock_available":   i.ListingStockAvailable,
+		"listing_last_refreshed_at": timestamptzString(i.ListingLastRefreshedAt),
+		"source":                    string(i.Source),
+		"source_bom_line_item_id":   uuidPtrString(i.SourceBomLineItemID),
 	}
 }
 
@@ -185,6 +189,39 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Compute per-build demand for every part in the cart.
+	type buildDemand struct {
+		BuildID          string `json:"build_id"`
+		ProjectName      string `json:"project_name"`
+		BomRevisionLabel string `json:"bom_revision_label"`
+		QuantityNeeded   int32  `json:"quantity_needed"`
+	}
+	buildDemandsByPart := make(map[string][]buildDemand)
+	pendingBuilds, err := h.Queries.GetPendingBuildsForTeamCart(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	for _, pb := range pendingBuilds {
+		lineItems, err := h.Queries.ListBOMLineItems(r.Context(), pb.BomRevisionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		for _, li := range lineItems {
+			if !li.ResolvedPartID.Valid || li.Ignored {
+				continue
+			}
+			pid := li.ResolvedPartID.String()
+			buildDemandsByPart[pid] = append(buildDemandsByPart[pid], buildDemand{
+				BuildID:          pb.ID.String(),
+				ProjectName:      pb.ProjectName,
+				BomRevisionLabel: pb.RevisionLabel,
+				QuantityNeeded:   li.Quantity * pb.BuildQuantity,
+			})
+		}
+	}
+
 	items := make([]map[string]any, len(rows))
 	for i, row := range rows {
 		m := cartItemResponse(row)
@@ -201,10 +238,18 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 				"unit_price":       numericString(rl.UnitPriceAtQty),
 				"fixed_order_cost": numericString(rl.FixedOrderCost),
 				"moq":              rl.MOQ,
+				"price_breaks":     json.RawMessage(rl.PriceBreaks),
+				"packaging_type":   rl.PackagingType,
+				"stock_available":  rl.StockAvailable,
 			}
 		} else {
 			m["resolved_listing"] = nil
 		}
+		demands := buildDemandsByPart[row.PartID.String()]
+		if demands == nil {
+			demands = []buildDemand{}
+		}
+		m["build_demands"] = demands
 		items[i] = m
 	}
 

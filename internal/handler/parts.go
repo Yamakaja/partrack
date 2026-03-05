@@ -48,6 +48,16 @@ func numericString(n pgtype.Numeric) *string {
 	return &result
 }
 
+// timestamptzString formats a pgtype.Timestamptz as an RFC3339 string.
+// Returns nil when the value is not valid (NULL).
+func timestamptzString(t pgtype.Timestamptz) *string {
+	if !t.Valid {
+		return nil
+	}
+	s := t.Time.UTC().Format(time.RFC3339)
+	return &s
+}
+
 // parsePaginationParams parses limit and offset from query parameters.
 // limit defaults to 50, max 200. offset defaults to 0.
 func parsePaginationParams(r *http.Request) (limit, offset int32) {

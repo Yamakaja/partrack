@@ -22,6 +22,16 @@ export interface ResolvedListing {
   unit_price: string | null;
   fixed_order_cost: string | null;
   moq: number;
+  price_breaks: PriceBreak[];
+  packaging_type: string | null;
+  stock_available: number | null;
+}
+
+export interface BuildDemand {
+  build_id: string;
+  project_name: string;
+  bom_revision_label: string;
+  quantity_needed: number;
 }
 
 export interface CartItem {
@@ -36,7 +46,12 @@ export interface CartItem {
   unit_price: string | null;
   price_breaks: PriceBreak[];
   fixed_order_cost: string | null;
+  listing_moq: number | null;
+  listing_packaging_type: string | null;
+  listing_stock_available: number | null;
+  listing_last_refreshed_at: string | null;
   source: CartItemSource;
+  build_demands: BuildDemand[];
   resolved_listing: ResolvedListing | null;
 }
 

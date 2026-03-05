@@ -14,8 +14,8 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { RefreshCw, ArrowRight, Trash2, ExternalLink } from 'lucide-svelte';
-  import type { CartItem } from '$lib/types/orders.js';
+  import { RefreshCw, ArrowRight, Trash2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-svelte';
+  import type { CartItem, BuildDemand, PriceBreak } from '$lib/types/orders.js';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -37,6 +37,11 @@
   let togglingBuilds = $state<Set<string>>(new Set());
   let addingLowStock = $state(false);
   let converting = $state(false);
+  let expandedItemId = $state<string | null>(null);
+
+  function toggleExpand(itemId: string) {
+    expandedItemId = expandedItemId === itemId ? null : itemId;
+  }
 
   function getQty(item: CartItem): string {
     return qtyEdits[item.id] !== undefined ? qtyEdits[item.id] : String(item.quantity);
@@ -130,7 +135,11 @@
     }
   }
 
+  // --- Item helpers ---
+
   function effectiveUnitPrice(item: CartItem): number {
+    // For resolved (auto-selected) listings, the backend already returns the price
+    // at the cart quantity. For explicit listings, apply price breaks locally.
     if (!item.listing_id && item.resolved_listing?.unit_price) {
       return parseFloat(item.resolved_listing.unit_price);
     }
@@ -165,9 +174,50 @@
   }
 
   function itemMoq(item: CartItem): number {
-    if (item.listing_id) return 0;
+    if (item.listing_id) return item.listing_moq ?? 0;
     return item.resolved_listing?.moq ?? 0;
   }
+
+  function itemPriceBreaks(item: CartItem): PriceBreak[] {
+    return item.listing_id ? (item.price_breaks ?? []) : (item.resolved_listing?.price_breaks ?? []);
+  }
+
+  function itemPackagingType(item: CartItem): string | null {
+    if (item.listing_id) return item.listing_packaging_type ?? null;
+    return item.resolved_listing?.packaging_type ?? null;
+  }
+
+  function itemStockAvailable(item: CartItem): number | null {
+    if (item.listing_id) return item.listing_stock_available ?? null;
+    return item.resolved_listing?.stock_available ?? null;
+  }
+
+  function itemLastRefreshed(item: CartItem): string | null {
+    const ts = item.listing_last_refreshed_at;
+    if (!ts) return null;
+    const diff = Date.now() - new Date(ts).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+
+  function totalBuildDemand(item: CartItem): number {
+    return (item.build_demands ?? []).reduce((s, d) => s + d.quantity_needed, 0);
+  }
+
+  function activePriceBreakQty(item: CartItem): number {
+    const breaks = itemPriceBreaks(item);
+    let active = -1;
+    for (const pb of breaks) {
+      if (item.quantity >= pb.break_qty && pb.break_qty > active) active = pb.break_qty;
+    }
+    return active;
+  }
+
+  // --- Grouped / derived ---
 
   let distributorGroups = $derived.by(() => {
     const items = cartQuery.data?.items ?? [];
@@ -200,6 +250,19 @@
       });
     }
     return result;
+  });
+
+  // Per-build estimated ordering cost: sum of (quantity_needed × unit_price) across all cart items.
+  let buildOrderCosts = $derived.by(() => {
+    const costs = new Map<string, number>();
+    for (const item of cartQuery.data?.items ?? []) {
+      const unitPrice = effectiveUnitPrice(item);
+      if (!unitPrice) continue;
+      for (const d of item.build_demands ?? []) {
+        costs.set(d.build_id, (costs.get(d.build_id) ?? 0) + d.quantity_needed * unitPrice);
+      }
+    }
+    return costs;
   });
 
   let manualItems = $derived(
@@ -277,12 +340,14 @@
                 <TableHead>Project</TableHead>
                 <TableHead>Revision</TableHead>
                 <TableHead>Quantity</TableHead>
+                <TableHead>Est. Order Cost</TableHead>
                 <TableHead class="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {#each pendingBuilds as build (build.id)}
                 {@const excluded = build.excluded_from_cart ?? false}
+                {@const estCost = buildOrderCosts.get(build.id)}
                 <TableRow>
                   <TableCell>
                     <input
@@ -296,6 +361,15 @@
                   <TableCell class="text-sm font-medium">{build.project_name}</TableCell>
                   <TableCell class="font-mono text-xs text-muted-foreground">{build.bom_revision_label}</TableCell>
                   <TableCell class="tabular-nums">{build.quantity}</TableCell>
+                  <TableCell class="tabular-nums text-sm">
+                    {#if estCost !== undefined && estCost > 0}
+                      <span title="Estimated parts ordering cost based on quantities and prices in the current cart">
+                        ${estCost.toFixed(2)}
+                      </span>
+                    {:else}
+                      <span class="text-muted-foreground">—</span>
+                    {/if}
+                  </TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -381,9 +455,10 @@
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead class="w-6"></TableHead>
                     <TableHead>Part MPN</TableHead>
-                    <TableHead>Listing (SKU)</TableHead>
-                    <TableHead>Qty</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead>Order Qty</TableHead>
                     <TableHead>Unit Price</TableHead>
                     <TableHead>Subtotal</TableHead>
                     <TableHead></TableHead>
@@ -393,33 +468,53 @@
                   {#each distItems as item (item.id)}
                     {@const moq = itemMoq(item)}
                     {@const belowMoq = moq > 0 && item.quantity < moq}
-                    <TableRow>
+                    {@const demand = totalBuildDemand(item)}
+                    {@const isExpanded = expandedItemId === item.id}
+                    <!-- Main row -->
+                    <TableRow
+                      class="cursor-pointer hover:bg-muted/50 select-none"
+                      onclick={() => toggleExpand(item.id)}
+                    >
+                      <TableCell class="text-muted-foreground pr-0">
+                        {#if isExpanded}
+                          <ChevronDown class="h-4 w-4" />
+                        {:else}
+                          <ChevronRight class="h-4 w-4" />
+                        {/if}
+                      </TableCell>
                       <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
                       <TableCell class="text-muted-foreground text-sm">
                         {itemSku(item) ?? '—'}
                       </TableCell>
-                      <TableCell>
-                        <div class="flex items-center gap-2">
-                          <Input
-                            type="number"
-                            value={getQty(item)}
-                            min="1"
-                            class="w-20"
-                            oninput={(e: Event) => handleQtyInput(item.id, (e.target as HTMLInputElement).value)}
-                            onblur={() => commitQtyUpdate(item)}
-                            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') commitQtyUpdate(item); }}
-                            disabled={updatingItems.has(item.id)}
-                          />
-                          {#if belowMoq}
-                            <span class="text-xs text-muted-foreground whitespace-nowrap">MOQ: {moq}</span>
-                          {/if}
+                      <TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
+                        <div class="flex flex-col gap-0.5">
+                          <div class="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              value={getQty(item)}
+                              min="1"
+                              class="w-20"
+                              oninput={(e: Event) => handleQtyInput(item.id, (e.target as HTMLInputElement).value)}
+                              onblur={() => commitQtyUpdate(item)}
+                              onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') commitQtyUpdate(item); }}
+                              disabled={updatingItems.has(item.id)}
+                            />
+                          </div>
+                          <div class="flex gap-2 text-xs text-muted-foreground">
+                            {#if demand > 0 && item.source === 'bom_shortfall'}
+                              <span>Needs {demand}</span>
+                            {/if}
+                            {#if moq > 0}
+                              <span class={belowMoq ? 'text-destructive font-medium' : ''}>MOQ {moq}</span>
+                            {/if}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
                         {#if isUnassigned}
                           <span class="text-xs text-destructive">No listing</span>
                         {:else}
-                          <PriceDisplay value={effectiveUnitPriceStr(item)} />
+                          <PriceDisplay value={effectiveUnitPriceStr(item)} decimals={4} />
                         {/if}
                       </TableCell>
                       <TableCell>
@@ -429,7 +524,7 @@
                           <PriceDisplay value={calcSubtotal(item)} />
                         {/if}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -441,6 +536,155 @@
                         </Button>
                       </TableCell>
                     </TableRow>
+
+                    <!-- Expandable detail row -->
+                    {#if isExpanded}
+                      {@const breaks = itemPriceBreaks(item)}
+                      {@const activeTier = activePriceBreakQty(item)}
+                      {@const packaging = itemPackagingType(item)}
+                      {@const stock = itemStockAvailable(item)}
+                      {@const refreshed = itemLastRefreshed(item)}
+                      {@const demands = item.build_demands ?? []}
+                      <TableRow class="bg-muted/30 hover:bg-muted/30">
+                        <TableCell colspan={7} class="py-3 px-4">
+                          <div class="flex gap-10">
+
+                            <!-- Card 1: Listing Details -->
+                            <div class="space-y-2 shrink-0">
+                              <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Listing Details</p>
+                              <dl class="text-xs grid grid-cols-[5.5rem_auto] gap-x-4 gap-y-1">
+                                <dt class="text-muted-foreground">Distributor</dt>
+                                <dd class="font-medium">{itemDistributor(item)}</dd>
+                                {#if itemSku(item)}
+                                  <dt class="text-muted-foreground">SKU</dt>
+                                  <dd class="font-mono">{itemSku(item)}</dd>
+                                {/if}
+                                {#if packaging}
+                                  <dt class="text-muted-foreground">Packaging</dt>
+                                  <dd>{packaging}</dd>
+                                {/if}
+                                <dt class="text-muted-foreground">MOQ</dt>
+                                <dd class={moq > 0 && item.quantity < moq ? 'font-medium text-destructive' : 'font-medium'}>
+                                  {moq > 0 ? moq : '—'}
+                                </dd>
+                                <dt class="text-muted-foreground">Stock</dt>
+                                <dd class={stock !== null && stock === 0 ? 'text-destructive font-medium' : 'font-medium'}>
+                                  {#if stock === null}
+                                    <span class="text-muted-foreground">Unknown</span>
+                                  {:else}
+                                    {stock.toLocaleString()}
+                                  {/if}
+                                </dd>
+                                <dt class="text-muted-foreground">Refreshed</dt>
+                                <dd class="text-muted-foreground">{refreshed ?? 'Never'}</dd>
+                                <dt class="text-muted-foreground">Fixed cost</dt>
+                                <dd>
+                                  {#if item.listing_id}
+                                    {item.fixed_order_cost ? `$${item.fixed_order_cost}` : '—'}
+                                  {:else}
+                                    {item.resolved_listing?.fixed_order_cost ? `$${item.resolved_listing.fixed_order_cost}` : '—'}
+                                  {/if}
+                                </dd>
+                              </dl>
+                            </div>
+
+                            <!-- Card 2: Price Breaks -->
+                            <div class="space-y-2 shrink-0">
+                              <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Price Breaks</p>
+                              {#if breaks.length === 0}
+                                <p class="text-xs text-muted-foreground">
+                                  {#if effectiveUnitPriceStr(item)}
+                                    Flat rate: ${effectiveUnitPriceStr(item)}
+                                  {:else}
+                                    No pricing data
+                                  {/if}
+                                </p>
+                              {:else}
+                                <table class="text-xs">
+                                  <thead>
+                                    <tr class="text-muted-foreground">
+                                      <th class="text-left font-normal pb-1 pr-4">Min Qty</th>
+                                      <th class="text-right font-normal pb-1 pr-4">Unit Price</th>
+                                      <th class="text-right font-normal pb-1">@ {item.quantity}</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {#each breaks as pb}
+                                      {@const isActive = pb.break_qty === activeTier}
+                                      <tr class={isActive ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
+                                        <td class="py-0.5 pr-4">
+                                          {#if isActive}<span class="mr-1">▶</span>{/if}{pb.break_qty.toLocaleString()}
+                                        </td>
+                                        <td class="text-right py-0.5 tabular-nums pr-4">${parseFloat(pb.unit_price).toFixed(4)}</td>
+                                        <td class="text-right py-0.5 tabular-nums text-muted-foreground">
+                                          {#if isActive}
+                                            ${(parseFloat(pb.unit_price) * item.quantity).toFixed(2)}
+                                          {/if}
+                                        </td>
+                                      </tr>
+                                    {/each}
+                                  </tbody>
+                                </table>
+                              {/if}
+                            </div>
+
+                            <!-- Card 3: Build Demand -->
+                            <div class="space-y-2 shrink-0">
+                              <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Build Demand</p>
+                              {#if item.source === 'bom_shortfall' && demands.length > 0}
+                                <table class="text-xs">
+                                  <thead>
+                                    <tr class="text-muted-foreground">
+                                      <th class="text-left font-normal pb-1 pr-4">Project</th>
+                                      <th class="text-left font-normal pb-1 pr-4">Rev</th>
+                                      <th class="text-right font-normal pb-1">Needed</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {#each demands as d}
+                                      <tr>
+                                        <td class="py-0.5 pr-4 truncate max-w-[10rem]" title={d.project_name}>{d.project_name}</td>
+                                        <td class="py-0.5 pr-4 font-mono text-muted-foreground">{d.bom_revision_label}</td>
+                                        <td class="py-0.5 text-right tabular-nums">{d.quantity_needed.toLocaleString()}</td>
+                                      </tr>
+                                    {/each}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr class="border-t border-border text-muted-foreground">
+                                      <td colspan={2} class="pt-1 pr-4">Total demand</td>
+                                      <td class="pt-1 text-right tabular-nums font-medium text-foreground">{demand.toLocaleString()}</td>
+                                    </tr>
+                                    <tr class="text-muted-foreground">
+                                      <td colspan={2} class="pr-4">Ordering</td>
+                                      <td class="text-right tabular-nums font-medium text-foreground">{item.quantity.toLocaleString()}</td>
+                                    </tr>
+                                    {#if item.quantity > demand && demand > 0}
+                                      <tr class="text-muted-foreground">
+                                        <td colspan={2} class="pr-4">Excess</td>
+                                        <td class="text-right tabular-nums">
+                                          +{(item.quantity - demand).toLocaleString()}
+                                          {#if moq > 0 && item.quantity <= moq}
+                                            <span class="ml-1">(MOQ)</span>
+                                          {/if}
+                                        </td>
+                                      </tr>
+                                    {/if}
+                                  </tfoot>
+                                </table>
+                              {:else if item.source === 'inventory_maintenance'}
+                                <p class="text-xs text-muted-foreground">Replenishment order — not tied to a build.</p>
+                              {:else if item.source === 'manual'}
+                                <p class="text-xs text-muted-foreground">Manually added item.</p>
+                              {:else}
+                                <p class="text-xs text-muted-foreground">No pending build demand for this part.</p>
+                              {/if}
+                            </div>
+
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    {/if}
+
                   {/each}
                 </TableBody>
               </Table>

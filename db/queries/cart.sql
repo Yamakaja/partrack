@@ -17,6 +17,10 @@ SELECT
     dl.unit_price AS listing_unit_price,
     dl.price_breaks AS listing_price_breaks,
     dl.fixed_order_cost AS listing_fixed_order_cost,
+    dl.moq AS listing_moq,
+    dl.packaging_type AS listing_packaging_type,
+    dl.stock_available AS listing_stock_available,
+    dl.last_refreshed_at AS listing_last_refreshed_at,
     cli.source,
     cli.source_bom_line_item_id
 FROM cart_line_items cli
@@ -113,6 +117,8 @@ SELECT
     dl.fixed_order_cost,
     dl.moq,
     dl.price_breaks,
+    dl.packaging_type,
+    dl.stock_available,
     dc.preferred
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id

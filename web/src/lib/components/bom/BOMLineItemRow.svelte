@@ -2,6 +2,7 @@
   import type { BOMLineItem } from '$lib/types/projects.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { TableRow, TableCell } from '$lib/components/ui/table/index.js';
+  import { linkAction } from '$lib/router/index.svelte.js';
 
   const COLUMN_WIDTH: number = 80
 
@@ -16,9 +17,11 @@
 
   let {
     item,
+    teamId,
     onstatusclick,
   }: {
     item: BOMLineItem;
+    teamId?: string;
     onstatusclick?: (itemId: string) => void;
   } = $props();
 
@@ -82,14 +85,31 @@
       >
         <Badge variant={badge.variant}>{badge.label}</Badge>
         {#if item.resolved_part_id && item.resolved_part_mpn}
-          <span class="font-mono text-xs text-muted-foreground">{item.resolved_part_mpn}</span>
+          {#if teamId}
+            <a
+              use:linkAction
+              href="/teams/{teamId}/parts/{item.resolved_part_id}"
+              onclick={(e) => e.stopPropagation()}
+              class="font-mono text-xs text-muted-foreground hover:underline"
+            >{item.resolved_part_mpn}</a>
+          {:else}
+            <span class="font-mono text-xs text-muted-foreground">{item.resolved_part_mpn}</span>
+          {/if}
         {/if}
       </button>
     {:else}
       <div class="inline-flex items-center gap-1.5">
         <Badge variant={badge.variant}>{badge.label}</Badge>
         {#if item.resolved_part_id && item.resolved_part_mpn}
-          <span class="font-mono text-xs text-muted-foreground">{item.resolved_part_mpn}</span>
+          {#if teamId}
+            <a
+              use:linkAction
+              href="/teams/{teamId}/parts/{item.resolved_part_id}"
+              class="font-mono text-xs text-muted-foreground hover:underline"
+            >{item.resolved_part_mpn}</a>
+          {:else}
+            <span class="font-mono text-xs text-muted-foreground">{item.resolved_part_mpn}</span>
+          {/if}
         {/if}
       </div>
     {/if}

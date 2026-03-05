@@ -330,6 +330,7 @@
               {#each items as item (item.id)}
                 <BOMLineItemRow
                   {item}
+                  {teamId}
                   onstatusclick={(id) => startReviewForItem(id)}
                 />
               {/each}

@@ -30,8 +30,8 @@ type Parameter struct {
 
 // PriceBreak is a single quantity-price point from a distributor's price schedule.
 type PriceBreak struct {
-	BreakQty  int32
-	UnitPrice string // decimal string e.g. "0.5000"
+	BreakQty  int32  `json:"break_qty"`
+	UnitPrice string `json:"unit_price"` // decimal string e.g. "0.5000"
 }
 
 // Listing is full pricing/stock data for one distributor SKU.

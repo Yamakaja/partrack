@@ -73,6 +73,10 @@ SELECT
     dl.unit_price AS listing_unit_price,
     dl.price_breaks AS listing_price_breaks,
     dl.fixed_order_cost AS listing_fixed_order_cost,
+    dl.moq AS listing_moq,
+    dl.packaging_type AS listing_packaging_type,
+    dl.stock_available AS listing_stock_available,
+    dl.last_refreshed_at AS listing_last_refreshed_at,
     cli.source,
     cli.source_bom_line_item_id
 FROM cart_line_items cli
@@ -85,19 +89,23 @@ ORDER BY p.mpn NULLS LAST, cli.id
 `
 
 type GetCartItemsRow struct {
-	ID                     pgtype.UUID    `json:"id"`
-	PartID                 pgtype.UUID    `json:"part_id"`
-	PartMpn                *string        `json:"part_mpn"`
-	Quantity               int32          `json:"quantity"`
-	ListingID              pgtype.UUID    `json:"listing_id"`
-	ListingSku             *string        `json:"listing_sku"`
-	ListingDistributorName *string        `json:"listing_distributor_name"`
-	ListingDistributorID   pgtype.UUID    `json:"listing_distributor_id"`
-	ListingUnitPrice       pgtype.Numeric `json:"listing_unit_price"`
-	ListingPriceBreaks     []byte         `json:"listing_price_breaks"`
-	ListingFixedOrderCost  pgtype.Numeric `json:"listing_fixed_order_cost"`
-	Source                 CartItemSource `json:"source"`
-	SourceBomLineItemID    pgtype.UUID    `json:"source_bom_line_item_id"`
+	ID                     pgtype.UUID        `json:"id"`
+	PartID                 pgtype.UUID        `json:"part_id"`
+	PartMpn                *string            `json:"part_mpn"`
+	Quantity               int32              `json:"quantity"`
+	ListingID              pgtype.UUID        `json:"listing_id"`
+	ListingSku             *string            `json:"listing_sku"`
+	ListingDistributorName *string            `json:"listing_distributor_name"`
+	ListingDistributorID   pgtype.UUID        `json:"listing_distributor_id"`
+	ListingUnitPrice       pgtype.Numeric     `json:"listing_unit_price"`
+	ListingPriceBreaks     []byte             `json:"listing_price_breaks"`
+	ListingFixedOrderCost  pgtype.Numeric     `json:"listing_fixed_order_cost"`
+	ListingMoq             *int32             `json:"listing_moq"`
+	ListingPackagingType   *string            `json:"listing_packaging_type"`
+	ListingStockAvailable  *int32             `json:"listing_stock_available"`
+	ListingLastRefreshedAt pgtype.Timestamptz `json:"listing_last_refreshed_at"`
+	Source                 CartItemSource     `json:"source"`
+	SourceBomLineItemID    pgtype.UUID        `json:"source_bom_line_item_id"`
 }
 
 func (q *Queries) GetCartItems(ctx context.Context, teamID pgtype.UUID) ([]GetCartItemsRow, error) {
@@ -121,6 +129,10 @@ func (q *Queries) GetCartItems(ctx context.Context, teamID pgtype.UUID) ([]GetCa
 			&i.ListingUnitPrice,
 			&i.ListingPriceBreaks,
 			&i.ListingFixedOrderCost,
+			&i.ListingMoq,
+			&i.ListingPackagingType,
+			&i.ListingStockAvailable,
+			&i.ListingLastRefreshedAt,
 			&i.Source,
 			&i.SourceBomLineItemID,
 		); err != nil {
@@ -248,6 +260,8 @@ SELECT
     dl.fixed_order_cost,
     dl.moq,
     dl.price_breaks,
+    dl.packaging_type,
+    dl.stock_available,
     dc.preferred
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
@@ -274,6 +288,8 @@ type GetListingsForCartResolutionRow struct {
 	FixedOrderCost  pgtype.Numeric `json:"fixed_order_cost"`
 	Moq             int32          `json:"moq"`
 	PriceBreaks     []byte         `json:"price_breaks"`
+	PackagingType   string         `json:"packaging_type"`
+	StockAvailable  *int32         `json:"stock_available"`
 	Preferred       bool           `json:"preferred"`
 }
 
@@ -296,6 +312,8 @@ func (q *Queries) GetListingsForCartResolution(ctx context.Context, arg GetListi
 			&i.FixedOrderCost,
 			&i.Moq,
 			&i.PriceBreaks,
+			&i.PackagingType,
+			&i.StockAvailable,
 			&i.Preferred,
 		); err != nil {
 			return nil, err
