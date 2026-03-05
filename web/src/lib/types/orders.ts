@@ -14,7 +14,7 @@ export interface PriceBreak {
   unit_price: string;
 }
 
-export interface ResolvedListing {
+export interface CartListing {
   listing_id: string;
   distributor_id: string;
   distributor_name: string;
@@ -25,7 +25,9 @@ export interface ResolvedListing {
   price_breaks: PriceBreak[];
   packaging_type: string | null;
   stock_available: number | null;
+  last_refreshed_at: string | null;
   optimized_qty: number;
+  chosen: boolean;
 }
 
 export interface BuildDemand {
@@ -41,20 +43,9 @@ export interface CartItem {
   part_mpn: string | null;
   part_description: string | null;
   quantity: number;
-  listing_id: string | null;
-  listing_sku: string | null;
-  listing_distributor_name: string | null;
-  unit_price: string | null;
-  price_breaks: PriceBreak[];
-  fixed_order_cost: string | null;
-  listing_moq: number | null;
-  listing_packaging_type: string | null;
-  listing_stock_available: number | null;
-  listing_last_refreshed_at: string | null;
-  optimized_qty?: number; // set by backend for explicit-listing items; use effectiveOrderQty() to read
+  listing: CartListing | null;
   source: CartItemSource;
   build_demands: BuildDemand[];
-  resolved_listing: ResolvedListing | null;
 }
 
 export interface Cart {

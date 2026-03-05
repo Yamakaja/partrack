@@ -14,6 +14,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// cartListingJSON is the unified listing object returned for every cart item.
+// chosen=true means the user explicitly set this listing; false means it was auto-resolved.
+type cartListingJSON struct {
+	ListingID       string          `json:"listing_id"`
+	DistributorID   *string         `json:"distributor_id"`
+	DistributorName *string         `json:"distributor_name"`
+	SKU             *string         `json:"sku"`
+	UnitPrice       *string         `json:"unit_price"`
+	FixedOrderCost  *string         `json:"fixed_order_cost"`
+	MOQ             int32           `json:"moq"`
+	PriceBreaks     json.RawMessage `json:"price_breaks"`
+	PackagingType   *string         `json:"packaging_type"`
+	StockAvailable  *int32          `json:"stock_available"`
+	LastRefreshedAt *string         `json:"last_refreshed_at"`
+	OptimizedQty    int32           `json:"optimized_qty"`
+	Chosen          bool            `json:"chosen"`
+}
+
 // publishCartChanged notifies other team members that the cart has been modified.
 func (h *Handler) publishCartChanged(r *http.Request, teamID pgtype.UUID) {
 	h.publishEvent(r, "cart_changed", teamID.String(), map[string]string{})
@@ -21,32 +39,34 @@ func (h *Handler) publishCartChanged(r *http.Request, teamID pgtype.UUID) {
 
 func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 	m := map[string]any{
-		"id":                        i.ID.String(),
-		"part_id":                   i.PartID.String(),
-		"part_mpn":                  i.PartMpn,
-		"quantity":                  i.Quantity,
-		"listing_id":                uuidPtrString(i.ListingID),
-		"listing_sku":               i.ListingSku,
-		"listing_distributor_name":  i.ListingDistributorName,
-		"listing_distributor_id":    uuidPtrString(i.ListingDistributorID),
-		"unit_price":                numericString(i.ListingUnitPrice),
-		"price_breaks":              json.RawMessage(i.ListingPriceBreaks),
-		"fixed_order_cost":          numericString(i.ListingFixedOrderCost),
-		"listing_moq":               i.ListingMoq,
-		"listing_packaging_type":    i.ListingPackagingType,
-		"listing_stock_available":   i.ListingStockAvailable,
-		"listing_last_refreshed_at": timestamptzString(i.ListingLastRefreshedAt),
-		"source":                    string(i.Source),
-		"source_bom_line_item_id":   uuidPtrString(i.SourceBomLineItemID),
+		"id":                      i.ID.String(),
+		"part_id":                 i.PartID.String(),
+		"part_mpn":                i.PartMpn,
+		"quantity":                i.Quantity,
+		"source":                  string(i.Source),
+		"source_bom_line_item_id": uuidPtrString(i.SourceBomLineItemID),
 	}
-	// For items with an explicit listing, compute the price-break-optimised order
-	// quantity server-side so the frontend doesn't need to re-implement the logic.
+	// For items with an explicit listing, build the unified listing object with chosen=true.
 	if i.ListingID.Valid {
 		var moq int32
 		if i.ListingMoq != nil {
 			moq = *i.ListingMoq
 		}
-		m["optimized_qty"] = optimalOrderQty(i.Quantity, moq, i.ListingPriceBreaks, i.ListingUnitPrice)
+		m["listing"] = cartListingJSON{
+			ListingID:       i.ListingID.String(),
+			DistributorID:   uuidPtrString(i.ListingDistributorID),
+			DistributorName: i.ListingDistributorName,
+			SKU:             i.ListingSku,
+			UnitPrice:       numericString(i.ListingUnitPrice),
+			FixedOrderCost:  numericString(i.ListingFixedOrderCost),
+			MOQ:             moq,
+			PriceBreaks:     json.RawMessage(i.ListingPriceBreaks),
+			PackagingType:   i.ListingPackagingType,
+			StockAvailable:  i.ListingStockAvailable,
+			LastRefreshedAt: timestamptzString(i.ListingLastRefreshedAt),
+			OptimizedQty:    optimalOrderQty(i.Quantity, moq, i.ListingPriceBreaks, i.ListingUnitPrice),
+			Chosen:          true,
+		}
 	}
 	return m
 }
@@ -235,26 +255,28 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, len(rows))
 	for i, row := range rows {
 		m := cartItemResponse(row)
-		var rl *resolvedListing
+		// For items without an explicit listing, populate from the auto-resolved listing.
 		if !row.ListingID.Valid {
-			rl = resolution.ByItemID[row.ID.String()]
-		}
-		if rl != nil {
-			m["resolved_listing"] = map[string]any{
-				"listing_id":       rl.ListingID.String(),
-				"distributor_id":   rl.DistributorID.String(),
-				"distributor_name": rl.DistributorName,
-				"sku":              rl.SKU,
-				"unit_price":       numericString(rl.UnitPriceAtQty),
-				"fixed_order_cost": numericString(rl.FixedOrderCost),
-				"moq":              rl.MOQ,
-				"price_breaks":     json.RawMessage(rl.PriceBreaks),
-				"packaging_type":   rl.PackagingType,
-				"stock_available":  rl.StockAvailable,
-				"optimized_qty":    rl.OptimizedQty,
+			if rl := resolution.ByItemID[row.ID.String()]; rl != nil {
+				distIDStr := rl.DistributorID.String()
+				m["listing"] = cartListingJSON{
+					ListingID:       rl.ListingID.String(),
+					DistributorID:   &distIDStr,
+					DistributorName: &rl.DistributorName,
+					SKU:             &rl.SKU,
+					UnitPrice:       numericString(rl.UnitPriceAtQty),
+					FixedOrderCost:  numericString(rl.FixedOrderCost),
+					MOQ:             rl.MOQ,
+					PriceBreaks:     json.RawMessage(rl.PriceBreaks),
+					PackagingType:   &rl.PackagingType,
+					StockAvailable:  rl.StockAvailable,
+					LastRefreshedAt: timestamptzString(rl.LastRefreshedAt),
+					OptimizedQty:    rl.OptimizedQty,
+					Chosen:          false,
+				}
+			} else {
+				m["listing"] = nil
 			}
-		} else {
-			m["resolved_listing"] = nil
 		}
 		demands := buildDemandsByPart[row.PartID.String()]
 		if demands == nil {

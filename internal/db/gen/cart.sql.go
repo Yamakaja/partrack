@@ -268,6 +268,7 @@ SELECT
     dl.price_breaks,
     dl.packaging_type,
     dl.stock_available,
+    dl.last_refreshed_at,
     dc.preferred
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
@@ -285,18 +286,19 @@ type GetListingsForCartResolutionParams struct {
 }
 
 type GetListingsForCartResolutionRow struct {
-	ListingID       pgtype.UUID    `json:"listing_id"`
-	PartID          pgtype.UUID    `json:"part_id"`
-	DistributorID   pgtype.UUID    `json:"distributor_id"`
-	DistributorName string         `json:"distributor_name"`
-	Sku             string         `json:"sku"`
-	UnitPrice       pgtype.Numeric `json:"unit_price"`
-	FixedOrderCost  pgtype.Numeric `json:"fixed_order_cost"`
-	Moq             int32          `json:"moq"`
-	PriceBreaks     []byte         `json:"price_breaks"`
-	PackagingType   string         `json:"packaging_type"`
-	StockAvailable  *int32         `json:"stock_available"`
-	Preferred       bool           `json:"preferred"`
+	ListingID       pgtype.UUID        `json:"listing_id"`
+	PartID          pgtype.UUID        `json:"part_id"`
+	DistributorID   pgtype.UUID        `json:"distributor_id"`
+	DistributorName string             `json:"distributor_name"`
+	Sku             string             `json:"sku"`
+	UnitPrice       pgtype.Numeric     `json:"unit_price"`
+	FixedOrderCost  pgtype.Numeric     `json:"fixed_order_cost"`
+	Moq             int32              `json:"moq"`
+	PriceBreaks     []byte             `json:"price_breaks"`
+	PackagingType   string             `json:"packaging_type"`
+	StockAvailable  *int32             `json:"stock_available"`
+	LastRefreshedAt pgtype.Timestamptz `json:"last_refreshed_at"`
+	Preferred       bool               `json:"preferred"`
 }
 
 func (q *Queries) GetListingsForCartResolution(ctx context.Context, arg GetListingsForCartResolutionParams) ([]GetListingsForCartResolutionRow, error) {
@@ -320,6 +322,7 @@ func (q *Queries) GetListingsForCartResolution(ctx context.Context, arg GetListi
 			&i.PriceBreaks,
 			&i.PackagingType,
 			&i.StockAvailable,
+			&i.LastRefreshedAt,
 			&i.Preferred,
 		); err != nil {
 			return nil, err

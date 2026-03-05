@@ -121,6 +121,7 @@ SELECT
     dl.price_breaks,
     dl.packaging_type,
     dl.stock_available,
+    dl.last_refreshed_at,
     dc.preferred
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id

@@ -137,26 +137,19 @@
 
   // --- Item helpers ---
 
-  // Returns the quantity that ConvertCart will actually order for this item,
-  // which may exceed item.quantity when a price break makes ordering more cheaper overall.
-  // The backend computes optimized_qty for both explicit-listing and resolved-listing items.
   function effectiveOrderQty(item: CartItem): number {
-    if (item.listing_id) {
-      return item.optimized_qty ?? Math.max(item.quantity, item.listing_moq ?? 0);
-    }
-    return Math.max(item.quantity, item.resolved_listing?.optimized_qty ?? 0);
+    return item.listing?.optimized_qty ?? Math.max(item.quantity, item.listing?.moq ?? 0);
   }
 
-  // orderQty is the quantity ConvertCart will actually place — may exceed item.quantity
-  // when a price break makes a larger order cheaper. Callers should use this for both
-  // price break lookups and subtotal calculations.
   function effectiveUnitPrice(item: CartItem, orderQty: number): number {
-    // For resolved listings the backend already computed the price at optimalQty.
-    if (!item.listing_id && item.resolved_listing?.unit_price) {
-      return parseFloat(item.resolved_listing.unit_price);
+    const listing = item.listing;
+    if (!listing) return 0;
+    // For resolved listings the backend already computed the price at optimal qty.
+    if (!listing.chosen && listing.unit_price) {
+      return parseFloat(listing.unit_price);
     }
-    let price = item.unit_price ? parseFloat(item.unit_price) : NaN;
-    for (const pb of item.price_breaks ?? []) {
+    let price = listing.unit_price ? parseFloat(listing.unit_price) : NaN;
+    for (const pb of listing.price_breaks ?? []) {
       if (orderQty >= pb.break_qty) price = parseFloat(pb.unit_price);
     }
     return isNaN(price) ? 0 : price;
@@ -168,44 +161,38 @@
   }
 
   function calcSubtotal(item: CartItem, orderQty: number): string | null {
-    const hasPrice = item.unit_price || item.price_breaks?.length || item.resolved_listing?.unit_price;
-    if (!hasPrice) return null;
+    if (!item.listing?.unit_price && !item.listing?.price_breaks?.length) return null;
     const price = effectiveUnitPrice(item, orderQty);
     if (price === 0) return null;
     return (price * orderQty).toFixed(2);
   }
 
   function itemDistributor(item: CartItem): string {
-    return item.listing_distributor_name
-      ?? item.resolved_listing?.distributor_name
-      ?? 'Unassigned';
+    return item.listing?.distributor_name ?? 'Unassigned';
   }
 
   function itemSku(item: CartItem): string | null {
-    return item.listing_sku ?? item.resolved_listing?.sku ?? null;
+    return item.listing?.sku ?? null;
   }
 
   function itemMoq(item: CartItem): number {
-    if (item.listing_id) return item.listing_moq ?? 0;
-    return item.resolved_listing?.moq ?? 0;
+    return item.listing?.moq ?? 0;
   }
 
   function itemPriceBreaks(item: CartItem): PriceBreak[] {
-    return item.listing_id ? (item.price_breaks ?? []) : (item.resolved_listing?.price_breaks ?? []);
+    return item.listing?.price_breaks ?? [];
   }
 
   function itemPackagingType(item: CartItem): string | null {
-    if (item.listing_id) return item.listing_packaging_type ?? null;
-    return item.resolved_listing?.packaging_type ?? null;
+    return item.listing?.packaging_type ?? null;
   }
 
   function itemStockAvailable(item: CartItem): number | null {
-    if (item.listing_id) return item.listing_stock_available ?? null;
-    return item.resolved_listing?.stock_available ?? null;
+    return item.listing?.stock_available ?? null;
   }
 
   function itemLastRefreshed(item: CartItem): string | null {
-    const ts = item.listing_last_refreshed_at;
+    const ts = item.listing?.last_refreshed_at;
     if (!ts) return null;
     const diff = Date.now() - new Date(ts).getTime();
     const mins = Math.floor(diff / 60000);
@@ -250,9 +237,7 @@
       for (const item of items) {
         const oq = effectiveOrderQty(item);
         subtotal += effectiveUnitPrice(item, oq) * oq;
-        const fcStr = item.listing_id
-          ? (item.fixed_order_cost ?? '0')
-          : (item.resolved_listing?.fixed_order_cost ?? '0');
+        const fcStr = item.listing?.fixed_order_cost ?? '0';
         const fc = parseFloat(fcStr);
         if (!isNaN(fc) && fc > fixedCost) fixedCost = fc;
       }
@@ -597,11 +582,7 @@
                                 <dd class="text-muted-foreground">{refreshed ?? 'Never'}</dd>
                                 <dt class="text-muted-foreground">Fixed cost</dt>
                                 <dd>
-                                  {#if item.listing_id}
-                                    <PriceDisplay value={item.fixed_order_cost} />
-                                  {:else}
-                                    <PriceDisplay value={item.resolved_listing?.fixed_order_cost} />
-                                  {/if}
+                                  <PriceDisplay value={item.listing?.fixed_order_cost} />
                                 </dd>
                               </dl>
                             </div>
