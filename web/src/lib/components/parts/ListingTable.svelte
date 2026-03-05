@@ -11,6 +11,7 @@
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import AddListingDialog from '$lib/components/parts/AddListingDialog.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
     partId,
@@ -181,11 +182,7 @@
           <TableCell class="font-mono text-xs">{listing.sku}</TableCell>
           <TableCell>{listing.packaging_type ?? '—'}</TableCell>
           <TableCell>
-            {#if listing.unit_price != null}
-              ${parseFloat(listing.unit_price).toFixed(4)}
-            {:else}
-              —
-            {/if}
+            <PriceDisplay value={listing.unit_price} decimals={4} />
           </TableCell>
           <TableCell>
             {#if listing.stock_available === null || listing.stock_available === undefined}

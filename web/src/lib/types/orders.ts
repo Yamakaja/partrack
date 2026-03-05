@@ -25,6 +25,7 @@ export interface ResolvedListing {
   price_breaks: PriceBreak[];
   packaging_type: string | null;
   stock_available: number | null;
+  optimized_qty: number;
 }
 
 export interface BuildDemand {

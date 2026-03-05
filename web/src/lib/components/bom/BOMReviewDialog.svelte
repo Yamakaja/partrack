@@ -10,6 +10,7 @@
   import { listParts } from '$lib/api/parts.js';
   import { enrichBOMLineItem } from '$lib/api/revisions.js';
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
     items,
@@ -368,7 +369,7 @@
                             <span>{result.stock_available.toLocaleString()} in stock</span>
                           {/if}
                           {#if result.unit_price}
-                            <span class="ml-1">${result.unit_price}</span>
+                            <span class="ml-1"><PriceDisplay value={result.unit_price} /></span>
                           {/if}
                         </div>
                       </div>

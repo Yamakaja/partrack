@@ -78,7 +78,9 @@ SELECT
     dl.sku,
     dl.packaging_type,
     dl.unit_price,
-    dl.fixed_order_cost
+    dl.fixed_order_cost,
+    dl.price_breaks,
+    dl.moq
 FROM cart_line_items cli
 JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
 LEFT JOIN distributor_listings dl ON dl.id = cli.listing_id

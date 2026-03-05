@@ -137,30 +137,66 @@
 
   // --- Item helpers ---
 
-  function effectiveUnitPrice(item: CartItem): number {
-    // For resolved (auto-selected) listings, the backend already returns the price
-    // at the cart quantity. For explicit listings, apply price breaks locally.
+  // Returns the quantity that ConvertCart will actually order for this item,
+  // which may exceed item.quantity when a price break makes it cheaper.
+  function effectiveOrderQty(item: CartItem): number {
+    if (!item.listing_id) {
+      // Backend already computed optimized_qty for resolved listings.
+      return Math.max(item.quantity, item.resolved_listing?.optimized_qty ?? 0);
+    }
+    // For explicit listings, mirror the backend optimalOrderQty logic client-side.
+    const moq = item.listing_moq ?? 0;
+    const effQty = Math.max(item.quantity, moq);
+    const breaks = item.price_breaks ?? [];
+    let naturalPrice = NaN;
+    let bestBreak = -1;
+    for (const pb of breaks) {
+      if (pb.break_qty <= effQty && pb.break_qty > bestBreak) {
+        naturalPrice = parseFloat(pb.unit_price);
+        bestBreak = pb.break_qty;
+      }
+    }
+    if (isNaN(naturalPrice) && item.unit_price) naturalPrice = parseFloat(item.unit_price);
+    if (isNaN(naturalPrice)) return effQty;
+    let optQty = effQty;
+    let bestCost = naturalPrice * effQty;
+    const cap = item.quantity * 100;
+    for (const pb of breaks) {
+      if (pb.break_qty <= effQty || pb.break_qty > cap) continue;
+      const pbPrice = parseFloat(pb.unit_price);
+      if (isNaN(pbPrice)) continue;
+      const cost = pbPrice * pb.break_qty;
+      if (cost < bestCost) { bestCost = cost; optQty = pb.break_qty; }
+    }
+    return optQty;
+  }
+
+  // orderQty is the quantity ConvertCart will actually place — may exceed item.quantity
+  // when a price break makes a larger order cheaper. Callers should use this for both
+  // price break lookups and subtotal calculations.
+  function effectiveUnitPrice(item: CartItem, orderQty: number): number {
+    // For resolved listings the backend already computed the price at optimalQty.
     if (!item.listing_id && item.resolved_listing?.unit_price) {
       return parseFloat(item.resolved_listing.unit_price);
     }
     let price = item.unit_price ? parseFloat(item.unit_price) : NaN;
     for (const pb of item.price_breaks ?? []) {
-      if (item.quantity >= pb.break_qty) price = parseFloat(pb.unit_price);
+      if (orderQty >= pb.break_qty) price = parseFloat(pb.unit_price);
     }
     return isNaN(price) ? 0 : price;
   }
 
-  function effectiveUnitPriceStr(item: CartItem): string | null {
-    const price = effectiveUnitPrice(item);
+  function effectiveUnitPriceStr(item: CartItem, orderQty: number): string | null {
+    const price = effectiveUnitPrice(item, orderQty);
     return price > 0 ? price.toFixed(4) : null;
   }
 
-  function calcSubtotal(item: CartItem): string | null {
+  function calcSubtotal(item: CartItem, orderQty: number): string | null {
     const hasPrice = item.unit_price || item.price_breaks?.length || item.resolved_listing?.unit_price;
     if (!hasPrice) return null;
-    const price = effectiveUnitPrice(item);
+    const price = effectiveUnitPrice(item, orderQty);
     if (price === 0) return null;
-    return (price * item.quantity).toFixed(2);
+    return (price * orderQty).toFixed(2);
   }
 
   function itemDistributor(item: CartItem): string {
@@ -208,11 +244,11 @@
     return (item.build_demands ?? []).reduce((s, d) => s + d.quantity_needed, 0);
   }
 
-  function activePriceBreakQty(item: CartItem): number {
+  function activePriceBreakQty(item: CartItem, orderQty: number): number {
     const breaks = itemPriceBreaks(item);
     let active = -1;
     for (const pb of breaks) {
-      if (item.quantity >= pb.break_qty && pb.break_qty > active) active = pb.break_qty;
+      if (orderQty >= pb.break_qty && pb.break_qty > active) active = pb.break_qty;
     }
     return active;
   }
@@ -236,7 +272,8 @@
       let subtotal = 0;
       let fixedCost = 0;
       for (const item of items) {
-        subtotal += effectiveUnitPrice(item) * item.quantity;
+        const oq = effectiveOrderQty(item);
+        subtotal += effectiveUnitPrice(item, oq) * oq;
         const fcStr = item.listing_id
           ? (item.fixed_order_cost ?? '0')
           : (item.resolved_listing?.fixed_order_cost ?? '0');
@@ -253,10 +290,11 @@
   });
 
   // Per-build estimated ordering cost: sum of (quantity_needed × unit_price) across all cart items.
+  // Uses the optimized unit price since that's what will actually be paid.
   let buildOrderCosts = $derived.by(() => {
     const costs = new Map<string, number>();
     for (const item of cartQuery.data?.items ?? []) {
-      const unitPrice = effectiveUnitPrice(item);
+      const unitPrice = effectiveUnitPrice(item, effectiveOrderQty(item));
       if (!unitPrice) continue;
       for (const d of item.build_demands ?? []) {
         costs.set(d.build_id, (costs.get(d.build_id) ?? 0) + d.quantity_needed * unitPrice);
@@ -364,7 +402,7 @@
                   <TableCell class="tabular-nums text-sm">
                     {#if estCost !== undefined && estCost > 0}
                       <span title="Estimated parts ordering cost based on quantities and prices in the current cart">
-                        ${estCost.toFixed(2)}
+                        <PriceDisplay value={estCost.toFixed(2)} />
                       </span>
                     {:else}
                       <span class="text-muted-foreground">—</span>
@@ -444,11 +482,11 @@
                 {#if distTotal && !isUnassigned}
                   <span class="text-sm text-muted-foreground">
                     Subtotal:
-                    <span class="font-medium text-foreground">${distTotal.subtotal}</span>
+                    <span class="font-medium text-foreground"><PriceDisplay value={distTotal.subtotal} /></span>
                     {#if distTotal.fixed_order_cost !== '0.00'}
-                      &nbsp;+ ${distTotal.fixed_order_cost} fixed
+                      &nbsp;+ <PriceDisplay value={distTotal.fixed_order_cost} /> fixed
                     {/if}
-                    &nbsp;= <span class="font-semibold text-foreground">${distTotal.total}</span>
+                    &nbsp;= <span class="font-semibold text-foreground"><PriceDisplay value={distTotal.total} /></span>
                   </span>
                 {/if}
               </div>
@@ -470,6 +508,7 @@
                     {@const belowMoq = moq > 0 && item.quantity < moq}
                     {@const demand = totalBuildDemand(item)}
                     {@const isExpanded = expandedItemId === item.id}
+                    {@const orderQty = effectiveOrderQty(item)}
                     <!-- Main row -->
                     <TableRow
                       class="cursor-pointer hover:bg-muted/50 select-none"
@@ -507,6 +546,9 @@
                             {#if moq > 0}
                               <span class={belowMoq ? 'text-destructive font-medium' : ''}>MOQ {moq}</span>
                             {/if}
+                            {#if orderQty > item.quantity}
+                              <span class="text-emerald-600 dark:text-emerald-400">↑ {orderQty} (price break)</span>
+                            {/if}
                           </div>
                         </div>
                       </TableCell>
@@ -514,14 +556,14 @@
                         {#if isUnassigned}
                           <span class="text-xs text-destructive">No listing</span>
                         {:else}
-                          <PriceDisplay value={effectiveUnitPriceStr(item)} decimals={4} />
+                          <PriceDisplay value={effectiveUnitPriceStr(item, orderQty)} decimals={4} />
                         {/if}
                       </TableCell>
                       <TableCell>
                         {#if isUnassigned}
                           <span class="text-muted-foreground">—</span>
                         {:else}
-                          <PriceDisplay value={calcSubtotal(item)} />
+                          <PriceDisplay value={calcSubtotal(item, orderQty)} />
                         {/if}
                       </TableCell>
                       <TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
@@ -540,7 +582,7 @@
                     <!-- Expandable detail row -->
                     {#if isExpanded}
                       {@const breaks = itemPriceBreaks(item)}
-                      {@const activeTier = activePriceBreakQty(item)}
+                      {@const activeTier = activePriceBreakQty(item, orderQty)}
                       {@const packaging = itemPackagingType(item)}
                       {@const stock = itemStockAvailable(item)}
                       {@const refreshed = itemLastRefreshed(item)}
@@ -580,9 +622,9 @@
                                 <dt class="text-muted-foreground">Fixed cost</dt>
                                 <dd>
                                   {#if item.listing_id}
-                                    {item.fixed_order_cost ? `$${item.fixed_order_cost}` : '—'}
+                                    <PriceDisplay value={item.fixed_order_cost} />
                                   {:else}
-                                    {item.resolved_listing?.fixed_order_cost ? `$${item.resolved_listing.fixed_order_cost}` : '—'}
+                                    <PriceDisplay value={item.resolved_listing?.fixed_order_cost} />
                                   {/if}
                                 </dd>
                               </dl>
@@ -593,8 +635,8 @@
                               <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Price Breaks</p>
                               {#if breaks.length === 0}
                                 <p class="text-xs text-muted-foreground">
-                                  {#if effectiveUnitPriceStr(item)}
-                                    Flat rate: ${effectiveUnitPriceStr(item)}
+                                  {#if effectiveUnitPriceStr(item, orderQty)}
+                                    Flat rate: <PriceDisplay value={effectiveUnitPriceStr(item, orderQty)} decimals={4} />
                                   {:else}
                                     No pricing data
                                   {/if}
@@ -615,10 +657,10 @@
                                         <td class="py-0.5 pr-4">
                                           {#if isActive}<span class="mr-1">▶</span>{/if}{pb.break_qty.toLocaleString()}
                                         </td>
-                                        <td class="text-right py-0.5 tabular-nums pr-4">${parseFloat(pb.unit_price).toFixed(4)}</td>
+                                        <td class="text-right py-0.5 tabular-nums pr-4"><PriceDisplay value={pb.unit_price} decimals={4} /></td>
                                         <td class="text-right py-0.5 tabular-nums text-muted-foreground">
                                           {#if isActive}
-                                            ${(parseFloat(pb.unit_price) * item.quantity).toFixed(2)}
+                                            <PriceDisplay value={(parseFloat(pb.unit_price) * item.quantity).toFixed(2)} />
                                           {/if}
                                         </td>
                                       </tr>
@@ -656,14 +698,19 @@
                                     </tr>
                                     <tr class="text-muted-foreground">
                                       <td colspan={2} class="pr-4">Ordering</td>
-                                      <td class="text-right tabular-nums font-medium text-foreground">{item.quantity.toLocaleString()}</td>
+                                      <td class="text-right tabular-nums font-medium text-foreground">
+                                        {orderQty.toLocaleString()}
+                                        {#if orderQty > item.quantity}
+                                          <span class="ml-1 text-emerald-600 dark:text-emerald-400">(price break)</span>
+                                        {/if}
+                                      </td>
                                     </tr>
-                                    {#if item.quantity > demand && demand > 0}
+                                    {#if orderQty > demand && demand > 0}
                                       <tr class="text-muted-foreground">
                                         <td colspan={2} class="pr-4">Excess</td>
                                         <td class="text-right tabular-nums">
-                                          +{(item.quantity - demand).toLocaleString()}
-                                          {#if moq > 0 && item.quantity <= moq}
+                                          +{(orderQty - demand).toLocaleString()}
+                                          {#if moq > 0 && orderQty <= moq}
                                             <span class="ml-1">(MOQ)</span>
                                           {/if}
                                         </td>

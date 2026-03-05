@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/Yamakaja/partrack/internal/distributor"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -24,6 +24,7 @@ type resolvedListing struct {
 	PriceBreaks     []byte // raw JSONB — all price breaks for the listing
 	PackagingType   string
 	StockAvailable  *int32
+	OptimizedQty    int32 // quantity that minimises total cost; may exceed cart quantity if a price break makes it cheaper
 }
 
 // teamCartResolution maps cart item ID (string) to its resolved listing.
@@ -126,8 +127,63 @@ func (cr *CartResolver) Resolve(
 	return res, nil
 }
 
+// optimalOrderQty returns the order quantity that minimises unit_price × qty by checking
+// whether any higher price break reduces total spend versus ordering exactly effQty.
+// cartQty is the raw demand; moq is the listing's minimum order quantity.
+// The returned quantity is always >= max(cartQty, moq).
+func optimalOrderQty(cartQty, moq int32, priceBreaksJSON []byte, baseUnitPrice pgtype.Numeric) int32 {
+	effQty := max(cartQty, moq)
+
+	var breaks []distributor.PriceBreak
+	if len(priceBreaksJSON) > 0 {
+		_ = json.Unmarshal(priceBreaksJSON, &breaks)
+	}
+	if len(breaks) == 0 {
+		return effQty
+	}
+
+	// Find the unit price that applies at effQty.
+	var naturalPrice *big.Float
+	bestBreak := int32(-1)
+	for _, pb := range breaks {
+		if pb.BreakQty <= effQty && pb.BreakQty > bestBreak {
+			naturalPrice, _ = new(big.Float).SetString(pb.UnitPrice)
+			bestBreak = pb.BreakQty
+		}
+	}
+	if naturalPrice == nil && baseUnitPrice.Valid {
+		if s := numericString(baseUnitPrice); s != nil {
+			naturalPrice, _ = new(big.Float).SetString(*s)
+		}
+	}
+	if naturalPrice == nil {
+		return effQty
+	}
+
+	optQty := effQty
+	bestCost := new(big.Float).Mul(naturalPrice, new(big.Float).SetInt64(int64(effQty)))
+	cap := cartQty * 100
+	for _, pb := range breaks {
+		if pb.BreakQty <= effQty || pb.BreakQty > cap {
+			continue
+		}
+		breakPrice, ok := new(big.Float).SetString(pb.UnitPrice)
+		if !ok {
+			continue
+		}
+		candidateCost := new(big.Float).Mul(breakPrice, new(big.Float).SetInt64(int64(pb.BreakQty)))
+		if candidateCost.Cmp(bestCost) < 0 {
+			bestCost = candidateCost
+			optQty = pb.BreakQty
+		}
+	}
+	return optQty
+}
+
 // pickBestListing selects the listing with the lowest total cost for the given cart quantity,
 // taking price breaks, MOQ, and fixed order costs into account.
+// For each listing it also checks whether ordering up to a higher price break reduces the
+// total cost; if so, OptimizedQty on the returned listing reflects that quantity.
 // Tie-break: preferred distributor wins; then alphabetical by distributor name.
 // Returns nil if no listing has a usable price.
 func pickBestListing(listings []dbgen.GetListingsForCartResolutionRow, cartQty int32) *resolvedListing {
@@ -136,16 +192,15 @@ func pickBestListing(listings []dbgen.GetListingsForCartResolutionRow, cartQty i
 
 	for _, l := range listings {
 		// Effective quantity must honour the listing's MOQ.
-		effQty := cartQty
-		if l.Moq > effQty {
-			effQty = l.Moq
-		}
+		effQty := max(cartQty, l.Moq)
 
-		// Find the best applicable price break: highest BreakQty that does not exceed effQty.
+		// Parse price breaks once.
 		var breaks []distributor.PriceBreak
 		if len(l.PriceBreaks) > 0 {
 			_ = json.Unmarshal(l.PriceBreaks, &breaks)
 		}
+
+		// Find the best applicable price break: highest BreakQty that does not exceed effQty.
 		var unitPriceStr string
 		bestBreak := int32(-1)
 		for _, pb := range breaks {
@@ -177,13 +232,36 @@ func pickBestListing(listings []dbgen.GetListingsForCartResolutionRow, cartQty i
 			}
 		}
 
-		total := new(big.Float).Mul(unitPrice, new(big.Float).SetInt64(int64(effQty)))
-		total.Add(total, fixedCost)
+		naturalTotal := new(big.Float).Mul(unitPrice, new(big.Float).SetInt64(int64(effQty)))
+		naturalTotal.Add(naturalTotal, fixedCost)
 
-		// Build effective unit price as pgtype.Numeric for the response.
+		// Check higher price breaks to see if ordering more reduces the total cost.
+		// Cap: never order more than 3× the actual cart quantity to avoid excessive over-ordering.
+		optimalQty := effQty
+		optimalUnitPriceStr := unitPriceStr
+		optimalTotal := naturalTotal
+		cap := cartQty * 100
+		for _, pb := range breaks {
+			if pb.BreakQty <= effQty || pb.BreakQty > cap {
+				continue
+			}
+			breakPrice, ok := new(big.Float).SetString(pb.UnitPrice)
+			if !ok {
+				continue
+			}
+			candidateTotal := new(big.Float).Mul(breakPrice, new(big.Float).SetInt64(int64(pb.BreakQty)))
+			candidateTotal.Add(candidateTotal, fixedCost)
+			if candidateTotal.Cmp(optimalTotal) < 0 {
+				optimalTotal = candidateTotal
+				optimalQty = pb.BreakQty
+				optimalUnitPriceStr = pb.UnitPrice
+			}
+		}
+
+		// Build effective unit price at the optimal quantity.
 		var unitPriceN pgtype.Numeric
-		if unitPriceStr != "" {
-			_ = unitPriceN.Scan(unitPriceStr)
+		if optimalUnitPriceStr != "" {
+			_ = unitPriceN.Scan(optimalUnitPriceStr)
 		}
 		if !unitPriceN.Valid {
 			unitPriceN = l.UnitPrice
@@ -201,21 +279,22 @@ func pickBestListing(listings []dbgen.GetListingsForCartResolutionRow, cartQty i
 			PriceBreaks:     l.PriceBreaks,
 			PackagingType:   l.PackagingType,
 			StockAvailable:  l.StockAvailable,
+			OptimizedQty:    optimalQty,
 		}
 
 		if best == nil {
-			best, bestTotal = candidate, total
+			best, bestTotal = candidate, optimalTotal
 			continue
 		}
 
-		cmp := total.Cmp(bestTotal)
+		cmp := optimalTotal.Cmp(bestTotal)
 		switch {
 		case cmp < 0:
-			best, bestTotal = candidate, total
+			best, bestTotal = candidate, optimalTotal
 		case cmp == 0 && l.Preferred && !best.Preferred:
-			best, bestTotal = candidate, total
+			best, bestTotal = candidate, optimalTotal
 		case cmp == 0 && l.Preferred == best.Preferred && l.DistributorName < best.DistributorName:
-			best, bestTotal = candidate, total
+			best, bestTotal = candidate, optimalTotal
 		}
 	}
 	return best

@@ -156,7 +156,9 @@ SELECT
     dl.sku,
     dl.packaging_type,
     dl.unit_price,
-    dl.fixed_order_cost
+    dl.fixed_order_cost,
+    dl.price_breaks,
+    dl.moq
 FROM cart_line_items cli
 JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
 LEFT JOIN distributor_listings dl ON dl.id = cli.listing_id
@@ -174,6 +176,8 @@ type GetCartItemsForConvertRow struct {
 	PackagingType  *string        `json:"packaging_type"`
 	UnitPrice      pgtype.Numeric `json:"unit_price"`
 	FixedOrderCost pgtype.Numeric `json:"fixed_order_cost"`
+	PriceBreaks    []byte         `json:"price_breaks"`
+	Moq            *int32         `json:"moq"`
 }
 
 func (q *Queries) GetCartItemsForConvert(ctx context.Context, teamID pgtype.UUID) ([]GetCartItemsForConvertRow, error) {
@@ -195,6 +199,8 @@ func (q *Queries) GetCartItemsForConvert(ctx context.Context, teamID pgtype.UUID
 			&i.PackagingType,
 			&i.UnitPrice,
 			&i.FixedOrderCost,
+			&i.PriceBreaks,
+			&i.Moq,
 		); err != nil {
 			return nil, err
 		}

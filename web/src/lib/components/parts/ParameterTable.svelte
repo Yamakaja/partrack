@@ -6,6 +6,7 @@
   import { createParameter, deleteParameter } from '$lib/api/parts.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus, Trash2, Pencil, Check, X } from 'lucide-svelte';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
     partId,
@@ -322,7 +323,7 @@
       <div class="flex gap-6 text-sm text-muted-foreground mb-3 px-1">
         <span>SKU: <span class="font-mono text-foreground">{listing.sku}</span></span>
         {#if listing.packaging_type}<span>Packaging: {listing.packaging_type}</span>{/if}
-        {#if listing.unit_price != null}<span>Price: ${parseFloat(listing.unit_price).toFixed(4)}</span>{/if}
+        {#if listing.unit_price != null}<span>Price: <PriceDisplay value={listing.unit_price} decimals={4} /></span>{/if}
       </div>
       <Table>
         <TableHeader>

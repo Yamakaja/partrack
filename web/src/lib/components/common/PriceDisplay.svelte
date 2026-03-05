@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatPrice } from '$lib/utils/price.js';
+
   let {
     value,
     currency = 'EUR',
@@ -11,17 +13,7 @@
     class?: string;
   } = $props();
 
-  let formatted = $derived(() => {
-    if (!value) return '—';
-    const n = parseFloat(value);
-    if (isNaN(n)) return '—';
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: decimals ?? 2,
-      maximumFractionDigits: decimals ?? 2,
-    }).format(n);
-  });
+  let formatted = $derived(() => formatPrice(value, currency, decimals));
 </script>
 
 <span class={className}>{formatted()}</span>

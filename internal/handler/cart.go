@@ -241,6 +241,7 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 				"price_breaks":     json.RawMessage(rl.PriceBreaks),
 				"packaging_type":   rl.PackagingType,
 				"stock_available":  rl.StockAvailable,
+				"optimized_qty":    rl.OptimizedQty,
 			}
 		} else {
 			m["resolved_listing"] = nil
@@ -558,11 +559,15 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	effectiveItems := make([]effectiveItem, 0, len(cartItems))
 	for _, item := range cartItems {
 		if item.ListingID.Valid {
+			var moq int32
+			if item.Moq != nil {
+				moq = *item.Moq
+			}
 			effectiveItems = append(effectiveItems, effectiveItem{
 				partID:         item.PartID,
 				distributorID:  item.DistributorID,
 				listingID:      item.ListingID,
-				quantity:       item.Quantity,
+				quantity:       optimalOrderQty(item.Quantity, moq, item.PriceBreaks, item.UnitPrice),
 				unitPrice:      item.UnitPrice,
 				fixedOrderCost: item.FixedOrderCost,
 			})
@@ -578,7 +583,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 				partID:         item.PartID,
 				distributorID:  rl.DistributorID,
 				listingID:      rl.ListingID,
-				quantity:       item.Quantity,
+				quantity:       max(item.Quantity, rl.OptimizedQty),
 				unitPrice:      rl.UnitPriceAtQty,
 				fixedOrderCost: rl.FixedOrderCost,
 			})

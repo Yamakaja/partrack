@@ -1,23 +1,21 @@
 /**
- * Formats a fixed-point decimal string (e.g. "10.4500") into a locale
- * currency string. Never converts to float — parses as string arithmetic.
+ * Formats a decimal string (e.g. "10.4500") as a currency string.
+ * @param decimals - fixed decimal places; defaults to 2
  */
-export function formatPrice(value: string | null | undefined, currency = 'USD'): string {
+export function formatPrice(
+  value: string | null | undefined,
+  currency = 'EUR',
+  decimals = 2,
+): string {
   if (!value) return '—';
-  try {
-    // Use Intl.NumberFormat with the decimal string parsed as a number for display only.
-    // The original string is preserved for API round-trips.
-    const num = Number(value);
-    if (isNaN(num)) return value;
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    }).format(num);
-  } catch {
-    return value;
-  }
+  const n = parseFloat(value);
+  if (isNaN(n)) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(n);
 }
 
 /** Returns the raw decimal string as a display-friendly string (no currency symbol). */

@@ -9,6 +9,7 @@
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
   import { addListing } from '$lib/api/parts.js';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
     partId,
@@ -139,7 +140,7 @@
                     <p class="text-xs text-muted-foreground truncate">{result.manufacturer} · {result.description}</p>
                   </div>
                   <div class="shrink-0 text-right">
-                    <p class="text-xs font-mono">{result.unit_price ? `$${parseFloat(result.unit_price).toFixed(4)}` : '—'}</p>
+                    <p class="text-xs font-mono"><PriceDisplay value={result.unit_price} decimals={4} /></p>
                     <p class="text-xs text-muted-foreground font-mono">{result.primary_sku}</p>
                   </div>
                 </div>
