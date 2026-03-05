@@ -1,8 +1,9 @@
 <script lang="ts">
   import { TableRow, TableCell } from '$lib/components/ui/table/index.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import PriceBreaksTable from '$lib/components/common/PriceBreaksTable.svelte';
   import {
-    activePriceBreakQty, effectiveUnitPriceStr, itemDistributor,
+    effectiveUnitPriceStr, itemDistributor,
     itemSku, itemLastRefreshed,
   } from '$lib/utils/cart.js';
   import type { CartItem } from '$lib/types/orders.js';
@@ -15,7 +16,6 @@
   } = $props();
 
   let breaks = $derived(item.listing?.price_breaks ?? []);
-  let activeTier = $derived(activePriceBreakQty(breaks, orderQty));
   let packaging = $derived(item.listing?.packaging_type ?? null);
   let stock = $derived(item.listing?.stock_available ?? null);
   let refreshed = $derived(itemLastRefreshed(item));
@@ -25,7 +25,7 @@
 </script>
 
 <TableRow class="bg-muted/30 hover:bg-muted/30">
-  <TableCell colspan={7} class="py-3 px-4">
+  <TableCell colspan={8} class="py-3 px-4">
     <div class="flex divide-x divide-border">
 
       <!-- Listing Details -->
@@ -66,41 +66,7 @@
       <!-- Price Breaks -->
       <div class="space-y-2 shrink-0 px-8">
         <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Price Breaks</p>
-        {#if breaks.length === 0}
-          <p class="text-xs text-muted-foreground">
-            {#if effectiveUnitPriceStr(item, orderQty)}
-              Flat rate: <PriceDisplay value={effectiveUnitPriceStr(item, orderQty)} decimals={4} />
-            {:else}
-              No pricing data
-            {/if}
-          </p>
-        {:else}
-          <table class="text-xs">
-            <thead>
-              <tr class="text-muted-foreground">
-                <th class="text-left font-normal pb-1 pr-4">Min Qty</th>
-                <th class="text-right font-normal pb-1 pr-4">Unit Price</th>
-                <th class="text-right font-normal pb-1">@ {item.quantity}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each breaks as pb}
-                {@const isActive = pb.break_qty === activeTier}
-                <tr class={isActive ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
-                  <td class="py-0.5 pr-4">
-                    {#if isActive}<span class="mr-1">▶</span>{/if}{pb.break_qty.toLocaleString()}
-                  </td>
-                  <td class="text-right py-0.5 tabular-nums pr-4"><PriceDisplay value={pb.unit_price} decimals={4} /></td>
-                  <td class="text-right py-0.5 tabular-nums text-muted-foreground">
-                    {#if isActive}
-                      <PriceDisplay value={(parseFloat(pb.unit_price) * item.quantity).toFixed(2)} />
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
+        <PriceBreaksTable {breaks} qty={orderQty} prevQty={item.quantity} flatPrice={effectiveUnitPriceStr(item, orderQty)} />
       </div>
 
       <!-- Build Demand -->

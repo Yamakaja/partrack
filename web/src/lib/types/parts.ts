@@ -73,6 +73,7 @@ export interface Listing {
   stock_available: number | null;
   moq: number;
   fixed_order_cost: string;
+  price_breaks?: { break_qty: number; unit_price: string }[];
   last_refreshed_at: string | null;
 }
 

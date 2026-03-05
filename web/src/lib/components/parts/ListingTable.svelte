@@ -7,11 +7,12 @@
   import { updateInventoryEntry } from '$lib/api/inventory.js';
   import { subscribeSSE } from '$lib/api/sse.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { RefreshCw, Star, Sparkles, Trash2, Plus } from 'lucide-svelte';
+  import { RefreshCw, Star, Sparkles, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import AddListingDialog from '$lib/components/parts/AddListingDialog.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import PriceBreaksTable from '$lib/components/common/PriceBreaksTable.svelte';
 
   let {
     partId,
@@ -47,6 +48,7 @@
       : listings,
   );
 
+  let expandedListingId = $state<string | null>(null);
   let refreshingAll = $state(false);
   let enrichingListing = $state<Set<string>>(new Set());
   let deleting = $state<Set<string>>(new Set());
@@ -162,6 +164,7 @@
   <Table>
     <TableHeader>
       <TableRow>
+        <TableHead class="w-6"></TableHead>
         <TableHead>Distributor</TableHead>
         <TableHead>SKU</TableHead>
         <TableHead>Packaging</TableHead>
@@ -175,7 +178,21 @@
     <TableBody>
       {#each sortedListings as listing (listing.id)}
         {@const isPreferred = listing.id === preferredListingId}
-        <TableRow class={isPreferred ? 'bg-accent/30' : ''}>
+        {@const hasBreaks = (listing.price_breaks?.length ?? 0) > 0}
+        {@const isExpanded = expandedListingId === listing.id}
+        <TableRow
+          class="{isPreferred ? 'bg-accent/30' : ''} {hasBreaks ? 'cursor-pointer' : ''}"
+          onclick={() => { if (hasBreaks) expandedListingId = isExpanded ? null : listing.id; }}
+        >
+          <TableCell class="text-muted-foreground pr-0">
+            {#if hasBreaks}
+              {#if isExpanded}
+                <ChevronDown class="h-4 w-4" />
+              {:else}
+                <ChevronRight class="h-4 w-4" />
+              {/if}
+            {/if}
+          </TableCell>
           <TableCell class="font-medium">
             {listing.distributor_name}
           </TableCell>
@@ -197,7 +214,7 @@
           <TableCell class="text-xs text-muted-foreground">
             <DateDisplay value={listing.last_refreshed_at} />
           </TableCell>
-          <TableCell>
+          <TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
             <div class="flex items-center gap-1">
               {#if entryId}
                 <Button
@@ -233,9 +250,16 @@
             </div>
           </TableCell>
         </TableRow>
+        {#if isExpanded && hasBreaks}
+          <TableRow class="bg-muted/30 hover:bg-muted/30">
+            <TableCell colspan={9} class="py-3 px-4">
+              <PriceBreaksTable breaks={listing.price_breaks!} flatPrice={listing.unit_price} />
+            </TableCell>
+          </TableRow>
+        {/if}
       {:else}
         <TableRow>
-          <TableCell colspan={8} class="text-center text-muted-foreground py-8">No listings yet</TableCell>
+          <TableCell colspan={9} class="text-center text-muted-foreground py-8">No listings yet</TableCell>
         </TableRow>
       {/each}
     </TableBody>
