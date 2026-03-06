@@ -21,7 +21,7 @@
     teamId: string;
     projectId: string;
     revId: string;
-    trigger: import('svelte').Snippet<[() => void]>;
+    trigger: import('svelte').Snippet<[(e: UIEvent) => void]>;
   } = $props();
 
   let qtyOpen = $state(false);
@@ -36,11 +36,12 @@
   let createdBuildId = $state<string | null>(null);
   let hasShortfall = $state(false);
 
-  function openQtyDialog() {
+  function openQtyDialog(e: UIEvent) {
     qtyOpen = true;
+    e.stopPropagation();
   }
 
-  async function handleCheck() {
+  async function handleCheck(e: UIEvent) {
     if (buildQty < 1) return;
     checking = true;
     try {
@@ -49,6 +50,7 @@
       resultsOpen = true;
       buildAction = 'idle';
       createdBuildId = null;
+      e.stopPropagation();
     } catch (err: any) {
       pushToast('error', 'Stock check failed', err.message);
     } finally {
@@ -154,7 +156,7 @@
           bind:value={buildQty}
           min="1"
           class="w-full"
-          onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') handleCheck(); }}
+          onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') handleCheck(e); }}
         />
       </div>
 

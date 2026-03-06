@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-partrack has completed the architecture and design phase and is now in **active implementation**. The core parts catalog, distributor listings, BOM import pipeline, and distributor enrichment API are implemented. Inventory, orders, builds, and cart handlers are largely stubs.
+partrack has completed the architecture and design phase and is now in **active implementation**. The core parts catalog, distributor listings, BOM import pipeline, and distributor enrichment API are implemented.
 
 ## Build & Run
 

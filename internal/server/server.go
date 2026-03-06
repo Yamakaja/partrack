@@ -11,6 +11,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/handler"
 	"github.com/Yamakaja/partrack/internal/middleware"
+	"github.com/Yamakaja/partrack/internal/timing"
 	"github.com/Yamakaja/partrack/internal/worker"
 	webfiles "github.com/Yamakaja/partrack/web"
 	"github.com/go-chi/chi/v5"
@@ -30,6 +31,7 @@ func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.
 	// Global middleware
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
+	r.Use(timing.Middleware)
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 

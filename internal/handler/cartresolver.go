@@ -8,6 +8,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/timing"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -68,6 +69,11 @@ func (cr *CartResolver) Resolve(
 		return res, nil
 	}
 	cr.mu.RUnlock()
+
+	if sp := timing.FromContext(ctx); sp != nil {
+		s := sp.Start("cart_resolve", "cart listing resolution")
+		defer s.Stop()
+	}
 
 	var teamID pgtype.UUID
 	if err := teamID.Scan(teamIDStr); err != nil {

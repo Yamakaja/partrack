@@ -123,7 +123,12 @@
       ]}
     >
       {#snippet actions()}
-        {#if order.status === 'draft'}
+        {#if order.status !== 'received'}
+          <Button variant="outline" size="sm" onclick={handleExportCSV}>
+            {order.status === 'exported' ? 'Re-export CSV' : 'Export CSV'}
+          </Button>
+        {/if}
+        {#if order.status === 'draft' || order.status === 'exported'}
           {#if showPlacedInput}
             <Input
               value={placedRef}
@@ -150,11 +155,6 @@
             onclick={() => { receivingMode = !receivingMode; }}
           >
             {receivingMode ? 'Done Receiving' : 'Receive Items'}
-          </Button>
-        {/if}
-        {#if order.status !== 'received'}
-          <Button variant="outline" size="sm" onclick={handleExportCSV}>
-            {order.status === 'exported' ? 'Re-export CSV' : 'Export CSV'}
           </Button>
         {/if}
       {/snippet}
@@ -187,6 +187,7 @@
                 <TableHead></TableHead>
               {/if}
               <TableHead>Unit Price</TableHead>
+              <TableHead>Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -221,7 +222,10 @@
                   </TableCell>
                 {/if}
                 <TableCell>
-                  <PriceDisplay value={item.unit_price_snapshot} />
+                  <PriceDisplay value={item.unit_price_snapshot} decimals={4} />
+                </TableCell>
+                <TableCell>
+                  <PriceDisplay value={(parseFloat(item.unit_price_snapshot) * item.quantity_ordered).toFixed(2)} decimals={2} />
                 </TableCell>
               </TableRow>
             {/each}

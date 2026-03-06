@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/timing"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -161,7 +162,12 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build lookup maps.
+	// Build lookup maps and compute per-item stock status.
+	if sp := timing.FromContext(r.Context()); sp != nil {
+		s := sp.Start("stock_compute", "stock status computation")
+		defer s.Stop()
+	}
+
 	invByPart := make(map[string]dbgen.GetInventoryQuantitiesForRevisionRow)
 	for _, row := range invRes.rows {
 		invByPart[row.PartID.String()] = row

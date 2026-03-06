@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/Yamakaja/partrack/internal/config"
+	"github.com/Yamakaja/partrack/internal/timing"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,7 +18,14 @@ func Connect(cfg *config.Config) *pgxpool.Pool {
 		os.Exit(1)
 	}
 
-	pool, err := pgxpool.New(context.Background(), cfg.Database.URL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.Database.URL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db: failed to parse database config: %v\n", err)
+		os.Exit(1)
+	}
+	poolCfg.ConnConfig.Tracer = &timing.DBTracer{}
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "db: failed to create pool: %v\n", err)
 		os.Exit(1)

@@ -4,6 +4,7 @@
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -115,20 +116,19 @@
                   {formatDate(project.created_at)}
                 </TableCell>
                 <TableCell>
-                  <Button
-                    variant={project.active_bom_revision_id ? 'default' : 'ghost'}
-                    size="sm"
-                    disabled={!project.active_bom_revision_id}
-                    title={project.active_bom_revision_id ? undefined : 'No active BOM revision'}
-                    onclick={(e: MouseEvent) => {
-                      e.stopPropagation();
-                      if (project.active_bom_revision_id) {
-                        navigate(`/teams/${teamId}/projects/${project.id}/revisions/${project.active_bom_revision_id}/stock`);
-                      }
-                    }}
-                  >
-                    <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
-                  </Button>
+                  {#if project?.active_bom_revision_id}
+                    <StockCheckDialog
+                      teamId={teamId}
+                      projectId={project.id}
+                      revId={project.active_bom_revision_id}
+                    >
+                      {#snippet trigger(open)}
+                        <Button size="sm" onclick={open}>
+                          <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
+                        </Button>
+                      {/snippet}
+                    </StockCheckDialog>
+                  {/if}
                 </TableCell>
               </TableRow>
             {/each}
