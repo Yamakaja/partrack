@@ -2,11 +2,11 @@
   import { createQuery } from '@tanstack/svelte-query';
   import { listOrders } from '$lib/api/orders.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
-  import EmptyState from '$lib/components/common/EmptyState.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
-  import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import type { OrderStatus } from '$lib/types/orders.js';
 
   let { teamId }: { teamId: string } = $props();
@@ -15,6 +15,8 @@
     queryKey: ['orders', teamId],
     queryFn: () => listOrders(teamId),
   }));
+
+  type OrderRow = NonNullable<typeof ordersQuery.data>['items'][number];
 
   function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
     switch (status) {
@@ -38,10 +40,69 @@
     }
   }
 
-  function shortId(id: string): string {
-    return id.slice(0, 8);
-  }
+  const columns: ColumnSpec<OrderRow>[] = [
+    {
+      key: 'id',
+      header: 'ID',
+      type: 'text',
+      sortable: false,
+      width: '120px',
+    },
+    {
+      key: 'distributor_name',
+      header: 'Distributor',
+      type: 'text',
+      filterable: true,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      type: 'enum',
+      filterable: true,
+      filterValues: ['draft', 'placed', 'exported', 'partially_received', 'received'],
+      filterLabels: {
+        draft: 'Draft',
+        placed: 'Placed',
+        exported: 'Exported',
+        partially_received: 'Partially Received',
+        received: 'Received',
+      },
+      exportValue: (row) => statusLabel(row.status),
+    },
+    {
+      key: 'line_item_count',
+      header: '# Items',
+      type: 'numeric',
+      align: 'right',
+    },
+    {
+      key: 'created_at',
+      header: 'Created',
+      type: 'date',
+      filterable: true,
+      exportValue: (row) => new Date(row.created_at).toISOString(),
+    },
+  ];
+
+  const source = new LocalDataSource<OrderRow>(
+    () => ordersQuery.data?.items ?? [],
+    columns,
+  );
 </script>
+
+{#snippet renderId(value: unknown, _row: OrderRow)}
+  <span class="font-mono text-xs text-muted-foreground">{String(value).slice(0, 8)}</span>
+{/snippet}
+
+{#snippet renderStatus(value: unknown, _row: OrderRow)}
+  <Badge variant={statusVariant(value as OrderStatus)}>
+    {statusLabel(value as OrderStatus)}
+  </Badge>
+{/snippet}
+
+{#snippet renderCreatedAt(value: unknown, _row: OrderRow)}
+  <DateDisplay value={String(value)} />
+{/snippet}
 
 <div class="flex flex-col h-full">
   <Topbar title="Orders" />
@@ -51,44 +112,15 @@
       <div class="text-sm text-muted-foreground">Loading orders…</div>
     {:else if ordersQuery.isError}
       <div class="text-sm text-destructive">Error: {ordersQuery.error.message}</div>
-    {:else if ordersQuery.data}
-      {@const items = ordersQuery.data.items}
-      {#if items.length === 0}
-        <EmptyState
-          title="No orders yet"
-          description="Convert your shopping cart to create orders."
-        />
-      {:else}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Distributor</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead># Items</TableHead>
-              <TableHead>Created</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each items as order (order.id)}
-              <TableRow
-                class="cursor-pointer"
-                onclick={() => navigate(`/teams/${teamId}/orders/${order.id}`)}
-              >
-                <TableCell class="font-mono text-xs text-muted-foreground">{shortId(order.id)}</TableCell>
-                <TableCell class="font-medium">{order.distributor_name}</TableCell>
-                <TableCell>
-                  <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
-                </TableCell>
-                <TableCell class="text-muted-foreground">{order.line_item_count}</TableCell>
-                <TableCell>
-                  <DateDisplay value={order.created_at} />
-                </TableCell>
-              </TableRow>
-            {/each}
-          </TableBody>
-        </Table>
-      {/if}
+    {:else}
+      <DataTable
+        {source}
+        getRowKey={(o) => o.id}
+        onRowClick={(o) => navigate(`/teams/${teamId}/orders/${o.id}`)}
+        renderers={{ id: renderId, status: renderStatus, created_at: renderCreatedAt }}
+        emptyMessage="No orders yet"
+        exportFilename="orders.csv"
+      />
     {/if}
   </div>
 </div>
