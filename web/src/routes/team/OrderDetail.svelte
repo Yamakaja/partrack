@@ -4,7 +4,8 @@
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
-  import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import { DataTable, LocalDataSource, getNestedValue } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -102,6 +103,31 @@
     orderQuery.data?.status === 'partially_received'
   );
 
+  const columns: ColumnSpec<OrderLineItem>[] = [
+    { key: 'sku',                 header: 'SKU',         type: 'text' },
+    { key: 'part_mpn',            header: 'Part MPN',    type: 'text' },
+    { key: 'quantity_ordered',    header: 'Ordered',     type: 'numeric', align: 'right' },
+    { key: 'quantity_received',   header: 'Received',    type: 'numeric', align: 'right' },
+    { key: '_receive_qty',        header: 'Receive Qty', type: 'custom',  sortable: false, hidden: true },
+    { key: '_receive_action',     header: '',            type: 'custom',  sortable: false, hidden: true, width: '90px' },
+    { key: 'unit_price_snapshot', header: 'Unit Price',  type: 'currency', align: 'right' },
+    { key: '_total',              header: 'Total',       type: 'currency',                 align: 'right' },
+  ];
+
+  const source = new LocalDataSource<OrderLineItem>(
+    () => orderQuery.data?.items ?? [],
+    columns,
+    (row, key) => {
+      if (key === '_total') return parseFloat(row.unit_price_snapshot) * row.quantity_ordered;
+      return getNestedValue(row, key);
+    },
+  );
+
+  $effect(() => {
+    source.setColumnHidden('_receive_qty', !receivingMode);
+    source.setColumnHidden('_receive_action', !receivingMode);
+  });
+
   function handleExportCSV() {
     const a = document.createElement('a');
     a.href = `/api/v1/teams/${teamId}/orders/${orderId}/export`;
@@ -174,66 +200,54 @@
         <DateDisplay value={order.created_at} />
       </div>
 
-      {#if order.items && order.items.length > 0}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>SKU</TableHead>
-              <TableHead>Part MPN</TableHead>
-              <TableHead>Ordered</TableHead>
-              <TableHead>Received</TableHead>
-              {#if receivingMode}
-                <TableHead>Receive Qty</TableHead>
-                <TableHead></TableHead>
-              {/if}
-              <TableHead>Unit Price</TableHead>
-              <TableHead>Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each order.items as item (item.id)}
-              <TableRow>
-                <TableCell class="font-mono text-xs">{item.sku}</TableCell>
-                <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
-                <TableCell>{item.quantity_ordered}</TableCell>
-                <TableCell>{item.quantity_received}</TableCell>
-                {#if receivingMode}
-                  <TableCell>
-                    <Input
-                      type="number"
-                      value={getReceiveQty(item)}
-                      min="0"
-                      max={item.quantity_ordered}
-                      class="w-20"
-                      oninput={(e: Event) => {
-                        receiveQtys = { ...receiveQtys, [item.id]: (e.target as HTMLInputElement).value };
-                      }}
-                      disabled={receivingItems.has(item.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      size="sm"
-                      onclick={() => handleReceive(item)}
-                      disabled={receivingItems.has(item.id) || item.quantity_received >= item.quantity_ordered}
-                    >
-                      {receivingItems.has(item.id) ? 'Saving…' : 'Receive'}
-                    </Button>
-                  </TableCell>
-                {/if}
-                <TableCell>
-                  <PriceDisplay value={item.unit_price_snapshot} decimals={4} />
-                </TableCell>
-                <TableCell>
-                  <PriceDisplay value={(parseFloat(item.unit_price_snapshot) * item.quantity_ordered).toFixed(2)} decimals={2} />
-                </TableCell>
-              </TableRow>
-            {/each}
-          </TableBody>
-        </Table>
-      {:else}
-        <div class="text-sm text-muted-foreground">No line items.</div>
-      {/if}
+      {#snippet renderSku(value: unknown)}
+        <span class="font-mono text-xs">{String(value ?? '')}</span>
+      {/snippet}
+      {#snippet renderMpn(value: unknown)}
+        <span class="font-mono font-medium text-xs">{value != null ? String(value) : '—'}</span>
+      {/snippet}
+      {#snippet renderUnitPrice(value: unknown)}
+        <PriceDisplay value={String(value ?? '')} decimals={4} />
+      {/snippet}
+      {#snippet renderTotal(_value: unknown, row: OrderLineItem)}
+        <PriceDisplay value={(parseFloat(row.unit_price_snapshot) * row.quantity_ordered).toFixed(2)} decimals={2} />
+      {/snippet}
+      {#snippet renderReceiveQty(_value: unknown, row: OrderLineItem)}
+        <Input
+          type="number"
+          value={getReceiveQty(row)}
+          min="0"
+          max={row.quantity_ordered}
+          class="w-20"
+          oninput={(e: Event) => {
+            receiveQtys = { ...receiveQtys, [row.id]: (e.target as HTMLInputElement).value };
+          }}
+          disabled={receivingItems.has(row.id)}
+        />
+      {/snippet}
+      {#snippet renderReceiveAction(_value: unknown, row: OrderLineItem)}
+        <Button
+          size="sm"
+          onclick={() => handleReceive(row)}
+          disabled={receivingItems.has(row.id) || row.quantity_received >= row.quantity_ordered}
+        >
+          {receivingItems.has(row.id) ? 'Saving…' : 'Receive'}
+        </Button>
+      {/snippet}
+
+      <DataTable
+        {source}
+        getRowKey={(r) => r.id}
+        emptyMessage="No line items"
+        renderers={{
+          sku: renderSku,
+          part_mpn: renderMpn,
+          unit_price_snapshot: renderUnitPrice,
+          _total: renderTotal,
+          _receive_qty: renderReceiveQty,
+          _receive_action: renderReceiveAction,
+        }}
+      />
     </div>
   {:else if orderQuery.isPending}
     <div class="p-6 text-sm text-muted-foreground">Loading order…</div>

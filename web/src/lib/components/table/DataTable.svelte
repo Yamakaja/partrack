@@ -19,6 +19,7 @@
     toolbarRight,
     compact = false,
     stickyHeader = true,
+    showColumnPicker = false,
     emptyMessage = 'No items found',
     emptyIcon,
     exportFilename = 'export.csv',
@@ -26,7 +27,7 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  <DataTableToolbar {source} {toolbarLeft} {toolbarRight} {exportFilename} />
+  <DataTableToolbar {source} {toolbarLeft} {toolbarRight} {showColumnPicker} {exportFilename} />
 
   <Table>
     <DataTableHeader {source} {actions} {detailPanel} {stickyHeader} />

@@ -3,8 +3,10 @@
   import { listProjects, createProject } from '$lib/api/projects.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
-  import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
+  import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -17,6 +19,8 @@
 
   let { teamId }: { teamId: string } = $props();
 
+  type ProjectRow = NonNullable<typeof query.data>['items'][number];
+
   const qc = useQueryClient();
 
   let createOpen = $state(false);
@@ -28,6 +32,26 @@
     queryKey: ['projects', teamId],
     queryFn: () => listProjects(teamId),
   }));
+
+  const columns: ColumnSpec<ProjectRow>[] = [
+    { key: 'name', header: 'Name', type: 'text', filterable: true },
+    { key: 'description', header: 'Description', type: 'text' },
+    {
+      key: 'status',
+      header: 'Status',
+      type: 'enum',
+      filterable: true,
+      filterValues: ['active', 'completed', 'archived'],
+      filterLabels: { active: 'Active', completed: 'Completed', archived: 'Archived' },
+    },
+    { key: 'active_bom_revision_label', header: 'Active BOM', type: 'text' },
+    { key: 'created_at', header: 'Created', type: 'date', filterable: true },
+  ];
+
+  const source = new LocalDataSource<ProjectRow>(
+    () => query.data?.items ?? [],
+    columns,
+  );
 
   function openCreate() {
     newName = '';
@@ -52,9 +76,7 @@
     }
   }
 
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  }
+
 </script>
 
 <div class="flex flex-col h-full">
@@ -71,70 +93,64 @@
       <div class="text-sm text-muted-foreground">Loading…</div>
     {:else if query.isError}
       <div class="text-sm text-destructive">Error: {query.error.message}</div>
-    {:else if query.data}
-      {@const items = query.data.items}
-      {#if items.length === 0}
-        <EmptyState
-          title="No projects yet"
-          description="Create your first project to start tracking BOMs."
-        >
-          {#snippet action()}
-            <Button size="sm" onclick={openCreate}>
-              <Plus class="h-4 w-4 mr-1" /> New Project
-            </Button>
-          {/snippet}
-        </EmptyState>
-      {:else}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Active BOM</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each items as project (project.id)}
-              <TableRow
-                class="cursor-pointer"
-                onclick={() => navigate(`/teams/${teamId}/projects/${project.id}`)}
-              >
-                <TableCell class="font-medium">{project.name}</TableCell>
-                <TableCell class="max-w-xs truncate text-muted-foreground">
-                  {project.description ?? '—'}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={projectStatusVariant(project.status)} class="capitalize">{project.status}</Badge>
-                </TableCell>
-                <TableCell class="text-muted-foreground text-sm">
-                  {project.active_bom_revision_label ?? '—'}
-                </TableCell>
-                <TableCell class="text-muted-foreground text-sm">
-                  {formatDate(project.created_at)}
-                </TableCell>
-                <TableCell>
-                  {#if project?.active_bom_revision_id}
-                    <StockCheckDialog
-                      teamId={teamId}
-                      projectId={project.id}
-                      revId={project.active_bom_revision_id}
-                    >
-                      {#snippet trigger(open)}
-                        <Button size="sm" onclick={open}>
-                          <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
-                        </Button>
-                      {/snippet}
-                    </StockCheckDialog>
-                  {/if}
-                </TableCell>
-              </TableRow>
-            {/each}
-          </TableBody>
-        </Table>
-      {/if}
+    {:else if query.data?.items.length === 0}
+      <EmptyState
+        title="No projects yet"
+        description="Create your first project to start tracking BOMs."
+      >
+        {#snippet action()}
+          <Button size="sm" onclick={openCreate}>
+            <Plus class="h-4 w-4 mr-1" /> New Project
+          </Button>
+        {/snippet}
+      </EmptyState>
+    {:else}
+      {#snippet renderDescription(value: unknown, _row: ProjectRow)}
+        <span class="text-muted-foreground">{value ?? '—'}</span>
+      {/snippet}
+
+      {#snippet renderStatus(value: unknown, _row: ProjectRow)}
+        <Badge variant={projectStatusVariant(value as ProjectRow['status'])} class="capitalize">{value as string}</Badge>
+      {/snippet}
+
+      {#snippet renderActiveBom(value: unknown, _row: ProjectRow)}
+        <span class="text-muted-foreground text-sm">{value ?? '—'}</span>
+      {/snippet}
+
+      {#snippet renderCreatedAt(value: unknown, _row: ProjectRow)}
+        <DateDisplay value={String(value)} />
+      {/snippet}
+
+      {#snippet actions(project: ProjectRow)}
+        {#if project.active_bom_revision_id}
+          <StockCheckDialog
+            teamId={teamId}
+            projectId={project.id}
+            revId={project.active_bom_revision_id}
+          >
+            {#snippet trigger(open)}
+              <Button size="sm" onclick={(e: MouseEvent) => { e.stopPropagation(); open(e); }}>
+                <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
+              </Button>
+            {/snippet}
+          </StockCheckDialog>
+        {/if}
+      {/snippet}
+
+      <DataTable
+        {source}
+        getRowKey={(p) => p.id}
+        onRowClick={(p) => navigate(`/teams/${teamId}/projects/${p.id}`)}
+        renderers={{
+          description: renderDescription,
+          status: renderStatus,
+          active_bom_revision_label: renderActiveBom,
+          created_at: renderCreatedAt,
+        }}
+        {actions}
+        emptyMessage="No projects yet"
+        exportFilename="projects.csv"
+      />
     {/if}
   </div>
 </div>

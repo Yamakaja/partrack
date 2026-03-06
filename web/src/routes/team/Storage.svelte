@@ -3,9 +3,9 @@
   import { listStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation } from '$lib/api/storage.js';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
-  import EmptyState from '$lib/components/common/EmptyState.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-  import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -32,6 +32,16 @@
     queryKey: ['storage', teamId],
     queryFn: () => listStorageLocations(teamId),
   }));
+
+  const columns: ColumnSpec<StorageLocation>[] = [
+    { key: 'label', header: 'Label', type: 'text', filterable: true },
+    { key: 'description', header: 'Description', type: 'text' },
+  ];
+
+  const source = new LocalDataSource<StorageLocation>(
+    () => query.data?.items ?? [],
+    columns,
+  );
 
   function openCreate() {
     editTarget = null;
@@ -107,48 +117,29 @@
       <div class="text-sm text-muted-foreground">Loading…</div>
     {:else if query.isError}
       <div class="text-sm text-destructive">Error: {query.error.message}</div>
-    {:else if query.data}
-      {@const items = query.data.items}
-      {#if items.length === 0}
-        <EmptyState
-          title="No storage locations yet"
-          description="Add storage locations to organise your inventory."
-        >
-          {#snippet action()}
-            <Button size="sm" onclick={openCreate}>
-              <Plus class="h-4 w-4 mr-1" /> Add Location
-            </Button>
-          {/snippet}
-        </EmptyState>
-      {:else}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Label</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead class="w-24">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each items as loc (loc.id)}
-              <TableRow>
-                <TableCell class="font-medium">{loc.label}</TableCell>
-                <TableCell class="text-muted-foreground">{loc.description ?? '—'}</TableCell>
-                <TableCell>
-                  <div class="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onclick={() => openEdit(loc)}>
-                      <Pencil class="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onclick={() => openDelete(loc)}>
-                      <Trash2 class="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            {/each}
-          </TableBody>
-        </Table>
-      {/if}
+    {:else}
+      {#snippet renderDescription(value: unknown, _row: StorageLocation)}
+        <span class="text-muted-foreground">{value ?? '—'}</span>
+      {/snippet}
+
+      {#snippet actions(loc: StorageLocation)}
+        <div class="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onclick={() => openEdit(loc)}>
+            <Pencil class="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onclick={() => openDelete(loc)}>
+            <Trash2 class="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      {/snippet}
+
+      <DataTable
+        {source}
+        getRowKey={(loc) => loc.id}
+        renderers={{ description: renderDescription }}
+        {actions}
+        emptyMessage="No storage locations yet"
+      />
     {/if}
   </div>
 </div>

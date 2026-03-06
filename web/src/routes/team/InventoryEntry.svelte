@@ -130,7 +130,7 @@
       {@const entry = entryQuery.data}
 
       <!-- Part info + stock info card -->
-      <MetadataCard title={entry.part_mpn ?? '—'} titleClass="font-mono" description={entry.part_description}>
+      <MetadataCard title={entry.part_mpn ?? '—'} titleClass="font-mono" description={entry.part_description ?? undefined}>
         {#snippet footer()}
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>

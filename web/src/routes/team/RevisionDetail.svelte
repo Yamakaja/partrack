@@ -19,6 +19,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { ClipboardCheck, Pencil } from 'lucide-svelte';
+  import { formatDate } from '$lib/utils/date.js';
 
   let {
     teamId,
@@ -164,9 +165,7 @@
     }
   }
 
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  }
+
 
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');

@@ -9,7 +9,8 @@
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportDialog from '$lib/components/bom/BOMImportDialog.svelte';
   import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
-  import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -18,6 +19,7 @@
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Upload, Pencil, ClipboardCheck } from 'lucide-svelte';
+  import { formatDate } from '$lib/utils/date.js';
   import {  projectStatusVariant } from '$lib/types/projects';
 
   let { teamId, projectId }: { teamId: string; projectId: string } = $props();
@@ -43,6 +45,22 @@
     queryKey: ['revisions', teamId, projectId],
     queryFn: () => listRevisions(teamId, projectId),
   }));
+
+  type RevisionRow = NonNullable<typeof revisionsQuery.data>['items'][number];
+
+  const revisionColumns: ColumnSpec<RevisionRow>[] = [
+    { key: 'label', header: 'Label', type: 'text' },
+    { key: 'is_active', header: 'Status', type: 'custom' },
+    { key: 'item_count', header: 'Items', type: 'numeric', align: 'right' },
+    { key: 'resolved_count', header: 'Resolved', type: 'custom' },
+    { key: 'imported_at', header: 'Imported', type: 'date' },
+    { key: 'imported_by_display_name', header: 'By', type: 'text' },
+  ];
+
+  const revisionSource = new LocalDataSource<RevisionRow>(
+    () => revisionsQuery.data?.items ?? [],
+    revisionColumns,
+  );
 
   let membersQuery = createQuery(() => ({
     queryKey: ['members', teamId],
@@ -103,10 +121,6 @@
     } finally {
       editSaving = false;
     }
-  }
-
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
@@ -225,98 +239,72 @@
         <div class="text-sm text-muted-foreground">Loading…</div>
       {:else if revisionsQuery.isError}
         <div class="text-sm text-destructive">Error: {revisionsQuery.error.message}</div>
-      {:else if revisionsQuery.data}
-        {@const revisions = revisionsQuery.data.items}
-        {#if revisions.length === 0}
-          <EmptyState
-            title="No BOM revisions"
-            description="Import a BOM file to create the first revision."
-          >
-            {#snippet action()}
-              <BOMImportDialog
-                {teamId}
-                {projectId}
-                initialConfig={projectQuery.data?.bom_import_config ?? null}
-                oncomplete={handleImportStarted}
+      {:else if revisionsQuery.data?.items.length === 0}
+        <EmptyState
+          title="No BOM revisions"
+          description="Import a BOM file to create the first revision."
+        >
+          {#snippet action()}
+            <BOMImportDialog
+              {teamId}
+              {projectId}
+              initialConfig={projectQuery.data?.bom_import_config ?? null}
+              oncomplete={handleImportStarted}
+            >
+              {#snippet trigger(open)}
+                <Button size="sm" onclick={open}>
+                  <Upload class="h-4 w-4 mr-1" /> Import BOM
+                </Button>
+              {/snippet}
+            </BOMImportDialog>
+          {/snippet}
+        </EmptyState>
+      {:else}
+        {#snippet renderRevStatus(_value: unknown, row: RevisionRow)}
+          {#if row.is_active}
+            <Badge variant="success">Active</Badge>
+          {:else}
+            <Badge variant="outline">Archived</Badge>
+          {/if}
+        {/snippet}
+
+        {#snippet renderResolved(value: unknown, row: RevisionRow)}
+          <span class="tabular-nums text-muted-foreground">{value}/{row.item_count}</span>
+        {/snippet}
+
+        {#snippet revActions(rev: RevisionRow)}
+          <div class="flex items-center gap-1">
+            {#if !rev.is_active}
+              <Button
+                variant="ghost"
+                size="sm"
+                onclick={(e: MouseEvent) => handleSetActive(e, rev.id)}
               >
-                {#snippet trigger(open)}
-                  <Button size="sm" onclick={open}>
-                    <Upload class="h-4 w-4 mr-1" /> Import BOM
-                  </Button>
-                {/snippet}
-              </BOMImportDialog>
-            {/snippet}
-          </EmptyState>
-        {:else}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Label</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Resolved</TableHead>
-                <TableHead>Imported</TableHead>
-                <TableHead>By</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {#each revisions as rev (rev.id)}
-                <TableRow
-                  class="cursor-pointer"
-                  onclick={() => navigate(`/teams/${teamId}/projects/${projectId}/revisions/${rev.id}`)}
+                Set Active
+              </Button>
+            {/if}
+            <StockCheckDialog {teamId} {projectId} revId={rev.id}>
+              {#snippet trigger(open)}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onclick={(e: MouseEvent) => { e.stopPropagation(); open(e); }}
                 >
-                  <TableCell class="font-medium">{rev.label}</TableCell>
-                  <TableCell>
-                    {#if rev.is_active}
-                      <Badge variant="success">Active</Badge>
-                    {:else}
-                      <Badge variant="outline">Archived</Badge>
-                    {/if}
-                  </TableCell>
-                  <TableCell class="tabular-nums text-muted-foreground">{rev.item_count}</TableCell>
-                  <TableCell class="tabular-nums text-muted-foreground">
-                    {rev.resolved_count}/{rev.item_count}
-                  </TableCell>
-                  <TableCell class="text-muted-foreground text-sm">
-                    {formatDate(rev.imported_at)}
-                  </TableCell>
-                  <TableCell class="text-muted-foreground text-sm">
-                    {rev.imported_by_display_name}
-                  </TableCell>
-                  <TableCell>
-                    <div class="flex items-center gap-1">
-                      {#if !rev.is_active}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onclick={(e: MouseEvent) => handleSetActive(e, rev.id)}
-                        >
-                          Set Active
-                        </Button>
-                      {/if}
-                      <StockCheckDialog
-                        {teamId}
-                        {projectId}
-                        revId={rev.id}
-                      >
-                        {#snippet trigger(open)}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onclick={(e: MouseEvent) => { e.stopPropagation(); open(); }}
-                          >
-                            <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
-                          </Button>
-                        {/snippet}
-                      </StockCheckDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              {/each}
-            </TableBody>
-          </Table>
-        {/if}
+                  <ClipboardCheck class="h-4 w-4 mr-1" /> Check Stock
+                </Button>
+              {/snippet}
+            </StockCheckDialog>
+          </div>
+        {/snippet}
+
+        <DataTable
+          source={revisionSource}
+          getRowKey={(r) => r.id}
+          onRowClick={(r) => navigate(`/teams/${teamId}/projects/${projectId}/revisions/${r.id}`)}
+          renderers={{ is_active: renderRevStatus, resolved_count: renderResolved }}
+          actions={revActions}
+          emptyMessage="No BOM revisions"
+        />
       {/if}
     </div>
   </div>

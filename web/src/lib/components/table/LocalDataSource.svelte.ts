@@ -1,6 +1,6 @@
 import type { ColumnSpec, DataSource } from './types.js';
 
-function getNestedValue(obj: unknown, key: string): unknown {
+export function getNestedValue(obj: unknown, key: string): unknown {
   return key.split('.').reduce((acc: unknown, part) => {
     if (acc !== null && acc !== undefined && typeof acc === 'object') {
       return (acc as Record<string, unknown>)[part];
@@ -29,10 +29,19 @@ function compareValues(
 }
 
 export class LocalDataSource<T> implements DataSource<T> {
-  columns: ColumnSpec<T>[];
-
   // Private reactive state
   #getData: () => T[];
+  #rawColumns: ColumnSpec<T>[] = [];
+  #hiddenOverrides = $state<Record<string, boolean>>({});
+  #getValue: (row: T, key: string) => unknown = (row, key) => getNestedValue(row, key);
+
+  columns: ColumnSpec<T>[] = $derived(
+    this.#rawColumns.map((c) => ({
+      ...c,
+      hidden: this.#hiddenOverrides[c.key] ?? c.hidden ?? false,
+    })),
+  );
+
   sortKey = $state<string | null>(null);
   sortDirection = $state<'asc' | 'desc'>('asc');
   filters = $state(new Map<string, Set<string>>());
@@ -48,7 +57,7 @@ export class LocalDataSource<T> implements DataSource<T> {
       if (!col) continue;
 
       data = data.filter((row) => {
-        const val = getNestedValue(row, key);
+        const val = this.#getValue(row, key);
         if (col.type === 'date') {
           // Date range: filter Set holds one string "YYYY-MM-DD|YYYY-MM-DD"
           const encoded = [...values][0] ?? '|';
@@ -75,8 +84,8 @@ export class LocalDataSource<T> implements DataSource<T> {
       const dir = this.sortDirection === 'asc' ? 1 : -1;
 
       data = [...data].sort((a, b) => {
-        const av = getNestedValue(a, key);
-        const bv = getNestedValue(b, key);
+        const av = this.#getValue(a, key);
+        const bv = this.#getValue(b, key);
         return dir * compareValues(av, bv, type);
       });
     }
@@ -92,9 +101,18 @@ export class LocalDataSource<T> implements DataSource<T> {
   hasPagination = false;
   exportEnabled = true;
 
-  constructor(getData: () => T[], columns: ColumnSpec<T>[]) {
+  constructor(
+    getData: () => T[],
+    columns: ColumnSpec<T>[],
+    getValue?: (row: T, key: string) => unknown,
+  ) {
     this.#getData = getData;
-    this.columns = columns;
+    this.#rawColumns = columns;
+    if (getValue) this.#getValue = getValue;
+  }
+
+  setColumnHidden(key: string, hidden: boolean): void {
+    this.#hiddenOverrides[key] = hidden;
   }
 
   setPage(_page: number): void {}
@@ -132,7 +150,7 @@ export class LocalDataSource<T> implements DataSource<T> {
   getFilterValues(key: string): string[] {
     const values = new Set<string>();
     for (const row of this.#getData()) {
-      const val = getNestedValue(row, key);
+      const val = this.#getValue(row, key);
       if (val !== null && val !== undefined && String(val) !== '') {
         values.add(String(val));
       }

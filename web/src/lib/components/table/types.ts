@@ -47,6 +47,9 @@ export interface DataSource<T> {
   exportEnabled: boolean;
   getExportRows(): Promise<T[]>;
 
+  // Column visibility
+  setColumnHidden?(key: string, hidden: boolean): void;
+
   // Lifecycle
   refresh(): void;
   destroy?(): void;
@@ -69,6 +72,7 @@ export interface DataTableProps<T> {
   toolbarRight?: Snippet;
   compact?: boolean;
   stickyHeader?: boolean;
+  showColumnPicker?: boolean;
   emptyMessage?: string;
   emptyIcon?: Component;
   exportFilename?: string;

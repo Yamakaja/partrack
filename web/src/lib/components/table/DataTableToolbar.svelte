@@ -1,6 +1,9 @@
 <script lang="ts" generics="T">
-  import { X } from 'lucide-svelte';
+  import { X, Columns3 } from 'lucide-svelte';
+  import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { cn } from '$lib/utils/cn.js';
   import DataTableExport from './DataTableExport.svelte';
   import type { DataSource } from './types.js';
   import type { Snippet } from 'svelte';
@@ -9,17 +12,20 @@
     source,
     toolbarLeft,
     toolbarRight,
+    showColumnPicker = false,
     exportFilename = 'export.csv',
   }: {
     source: DataSource<T>;
     toolbarLeft?: Snippet;
     toolbarRight?: Snippet;
+    showColumnPicker?: boolean;
     exportFilename?: string;
   } = $props();
 
   const activeFilters = $derived([...source.filters.entries()].filter(([, v]) => v.size > 0));
+  const hasColumnPicker = $derived(showColumnPicker && !!source.setColumnHidden);
   const hasContent = $derived(
-    !!toolbarLeft || !!toolbarRight || activeFilters.length > 0 || source.exportEnabled,
+    !!toolbarLeft || !!toolbarRight || activeFilters.length > 0 || source.exportEnabled || hasColumnPicker,
   );
 
   function filterLabel(key: string, values: Set<string>): string {
@@ -69,6 +75,35 @@
     <div class="flex items-center gap-2">
       {#if toolbarRight}
         {@render toolbarRight()}
+      {/if}
+      {#if hasColumnPicker}
+        <DropdownMenuPrimitive.Root>
+          <DropdownMenuPrimitive.Trigger>
+            <Button variant="outline" size="sm" class="gap-1.5">
+              <Columns3 class="h-3.5 w-3.5" />
+              Columns
+            </Button>
+          </DropdownMenuPrimitive.Trigger>
+          <DropdownMenuPrimitive.Content
+            align="end"
+            class="z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+          >
+            {#each source.columns.filter((c) => !c.exportOnly) as col (col.key)}
+              <DropdownMenuPrimitive.Item
+                class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground outline-none select-none"
+                onSelect={() => source.setColumnHidden?.(col.key, !col.hidden)}
+              >
+                <span
+                  class={cn(
+                    'h-3.5 w-3.5 rounded-sm border border-primary flex-shrink-0',
+                    !col.hidden && 'bg-primary',
+                  )}
+                ></span>
+                {col.header || '(unnamed)'}
+              </DropdownMenuPrimitive.Item>
+            {/each}
+          </DropdownMenuPrimitive.Content>
+        </DropdownMenuPrimitive.Root>
       {/if}
       {#if source.exportEnabled}
         <DataTableExport {source} filename={exportFilename} />

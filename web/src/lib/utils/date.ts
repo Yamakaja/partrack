@@ -20,6 +20,16 @@ export function formatRelative(iso: string | null | undefined): string {
   return formatAbsolute(iso);
 }
 
+/** Formats an RFC3339 timestamp as a date-only string (no time). */
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return iso ?? '—';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  }).format(date);
+}
+
 /** Formats an RFC3339 timestamp as an absolute date string. */
 export function formatAbsolute(iso: string | null | undefined): string {
   if (!iso) return '—';
