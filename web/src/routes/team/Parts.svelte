@@ -1,15 +1,15 @@
 <script lang="ts">
-  import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+  import { createQuery } from '@tanstack/svelte-query';
   import { listParts, createPart, addListing } from '$lib/api/parts.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
+  import type { PartSummary } from '$lib/types/parts.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
-  import Pagination from '$lib/components/common/Pagination.svelte';
-  import EmptyState from '$lib/components/common/EmptyState.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
-  import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import { DataTable, RemoteDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -23,11 +23,7 @@
 
   let { teamId }: { teamId: string } = $props();
 
-  const qc = useQueryClient();
-  let q = $state('');
-  let stockStatus = $state(consumePartsStockStatus());
-  let limit = $state(50);
-  let offset = $state(0);
+  let searchValue = $state('');
   let createOpen = $state(false);
   let createMode = $state<'manual' | 'import'>('manual');
   let duplicateFound = $state<{ id: string; mpn: string | null; manufacturer: string | null; description: string | null } | null>(null);
@@ -56,7 +52,6 @@
 
   const enabledConfigs = $derived((configsQuery.data?.items ?? []).filter((c) => c.enabled));
 
-  // Auto-select preferred distributor.
   $effect(() => {
     if (createMode === 'import' && enabledConfigs.length > 0 && !importDistributorId) {
       const preferred = enabledConfigs.find((c) => c.preferred);
@@ -89,25 +84,54 @@
     if (e.key === 'Enter') { e.preventDefault(); doImportSearch(); }
   }
 
-  let query = createQuery(() => ({
-    queryKey: ['parts', teamId, q, stockStatus, limit, offset],
-    queryFn: () => listParts({
-      team_id: teamId,
-      q: q || undefined,
-      stock_status: stockStatus || undefined,
-      limit,
-      offset,
-    }),
-  }));
+  // --- DataTable setup ---
 
-  function handleSearch(v: string) {
-    q = v;
-    offset = 0;
-  }
+  const columns: ColumnSpec<PartSummary>[] = [
+    { key: 'mpn',              header: 'MPN',          type: 'text',    sortable: false },
+    { key: 'manufacturer',     header: 'Manufacturer', type: 'text',    sortable: false },
+    { key: 'description',      header: 'Description',  type: 'text',    sortable: false },
+    { key: 'category',         header: 'Category',     type: 'text',    sortable: false },
+    { key: 'lifecycle_status', header: 'Status',       type: 'enum',    sortable: false,
+      filterable: true,
+      filterValues: ['active', 'nrnd', 'obsolete', 'deprecated', 'no_longer_available'],
+      filterLabels: {
+        active: 'Active', nrnd: 'NRND', obsolete: 'Obsolete',
+        deprecated: 'Deprecated', no_longer_available: 'NLA',
+      },
+    },
+    { key: 'quantity_on_hand', header: 'Qty',          type: 'numeric', sortable: false, align: 'right' },
+    { key: 'stock_status',     header: 'Stock',        type: 'enum',    sortable: false,
+      filterable: true,
+      filterValues: ['in_stock', 'low_stock', 'out_of_stock', 'not_tracked'],
+      filterLabels: {
+        in_stock: 'In stock', low_stock: 'Low stock',
+        out_of_stock: 'Out of stock', not_tracked: 'Not tracked',
+      },
+    },
+  ];
 
-  function handleStockFilter(e: Event) {
-    stockStatus = (e.target as HTMLSelectElement).value;
-    offset = 0;
+  const source = new RemoteDataSource<PartSummary>(
+    columns,
+    async (params) => {
+      const stockStatus = [...(params.filters.get('stock_status') ?? [])][0] ?? undefined;
+      const lifecycleStatus = [...(params.filters.get('lifecycle_status') ?? [])][0] ?? undefined;
+      return listParts({
+        team_id: teamId,
+        q: (params.extra.q as string) || undefined,
+        stock_status: stockStatus,
+        lifecycle_status: lifecycleStatus,
+        limit: params.pageSize,
+        offset: (params.page - 1) * params.pageSize,
+      });
+    },
+    () => ({ q: searchValue }),
+    { pageSize: 50 },
+  );
+
+  // Initialise stock status filter from nav state
+  const initialStockStatus = consumePartsStockStatus();
+  if (initialStockStatus) {
+    source.setFilter('stock_status', new Set([initialStockStatus]));
   }
 
   async function handleCreate(e: Event) {
@@ -124,7 +148,7 @@
       });
       createOpen = false;
       resetDialog();
-      qc.invalidateQueries({ queryKey: ['parts', teamId] });
+      source.refresh();
       pushToast('success', 'Part created');
     } catch (err: any) {
       if (err instanceof ApiError && err.code === 'PART_EXISTS') {
@@ -183,91 +207,60 @@
   }
 </script>
 
+{#snippet renderMpn(value: unknown, _row: PartSummary)}
+  <span class="font-mono font-medium text-xs">{value ?? '—'}</span>
+{/snippet}
+
+{#snippet renderLifecycle(value: unknown, _row: PartSummary)}
+  <LifecycleBadge status={value as PartSummary['lifecycle_status']} />
+{/snippet}
+
+{#snippet renderQty(_value: unknown, row: PartSummary)}
+  <span class="tabular-nums">
+    {row.inventory_entry_id != null ? (row.quantity_on_hand ?? 0) : '—'}
+  </span>
+{/snippet}
+
+{#snippet renderStock(_value: unknown, row: PartSummary)}
+  {#if row.inventory_entry_id != null}
+    <StockBadge
+      quantity_on_hand={row.quantity_on_hand ?? 0}
+      minimum_stock_quantity={row.minimum_stock_quantity}
+    />
+  {:else}
+    <span class="text-xs text-muted-foreground">Not tracked</span>
+  {/if}
+{/snippet}
+
 <div class="flex flex-col h-full">
-  <Topbar title="Parts">
-    {#snippet actions()}
-      <Button size="sm" onclick={() => (createOpen = true)}>
-        <Plus class="h-4 w-4 mr-1" /> Add Part
-      </Button>
-    {/snippet}
-  </Topbar>
+  <Topbar title="Parts" />
 
-  <div class="flex-1 overflow-auto p-6 space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <SearchInput placeholder="Search by MPN, description, or manufacturer…" onchange={handleSearch} />
-      <select
-        value={stockStatus}
-        onchange={handleStockFilter}
-        class="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <option value="">All parts</option>
-        <option value="in_stock">In stock</option>
-        <option value="low_stock">Low stock</option>
-        <option value="out_of_stock">Out of stock</option>
-        <option value="not_tracked">Not tracked</option>
-      </select>
-    </div>
-
-    {#if query.isPending}
-      <div class="text-sm text-muted-foreground">Loading…</div>
-    {:else if query.isError}
-      <div class="text-sm text-destructive">Error: {query.error.message}</div>
-    {:else if query.data}
-      {@const data = query.data}
-      {#if data.items.length === 0}
-        <EmptyState
-          title="No parts found"
-          description={q || stockStatus ? 'Try adjusting your filters.' : 'Add your first part to get started.'}
+  <div class="flex-1 overflow-auto p-6">
+    <DataTable
+      {source}
+      getRowKey={(p) => p.id}
+      onRowClick={(p) => navigate(`/teams/${teamId}/parts/${p.id}`)}
+      renderers={{
+        mpn: renderMpn,
+        lifecycle_status: renderLifecycle,
+        quantity_on_hand: renderQty,
+        stock_status: renderStock,
+      }}
+      emptyMessage="No parts found"
+      exportFilename="parts.csv"
+    >
+      {#snippet toolbarLeft()}
+        <SearchInput
+          placeholder="Search MPN, description, manufacturer…"
+          onchange={(v) => { searchValue = v; }}
         />
-      {:else}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>MPN</TableHead>
-              <TableHead>Manufacturer</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead class="text-right">Qty</TableHead>
-              <TableHead>Stock</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {#each data.items as part (part.id)}
-              <TableRow
-                class="cursor-pointer"
-                onclick={() => navigate(`/teams/${teamId}/parts/${part.id}`)}
-              >
-                <TableCell class="font-mono font-medium text-xs">{part.mpn ?? '—'}</TableCell>
-                <TableCell>{part.manufacturer ?? '—'}</TableCell>
-                <TableCell class="max-w-xs truncate text-muted-foreground">{part.description ?? '—'}</TableCell>
-                <TableCell>{part.category ?? '—'}</TableCell>
-                <TableCell><LifecycleBadge status={part.lifecycle_status} /></TableCell>
-                <TableCell class="text-right font-medium tabular-nums">
-                  {part.inventory_entry_id != null ? (part.quantity_on_hand ?? 0) : '—'}
-                </TableCell>
-                <TableCell>
-                  {#if part.inventory_entry_id != null}
-                    <StockBadge
-                      quantity_on_hand={part.quantity_on_hand ?? 0}
-                      minimum_stock_quantity={part.minimum_stock_quantity}
-                    />
-                  {:else}
-                    <span class="text-xs text-muted-foreground">Not tracked</span>
-                  {/if}
-                </TableCell>
-              </TableRow>
-            {/each}
-          </TableBody>
-        </Table>
-        <Pagination
-          total={data.total}
-          {limit}
-          {offset}
-          onchange={(o) => (offset = o)}
-        />
-      {/if}
-    {/if}
+      {/snippet}
+      {#snippet toolbarRight()}
+        <Button size="sm" onclick={() => (createOpen = true)}>
+          <Plus class="h-4 w-4 mr-1" /> Add Part
+        </Button>
+      {/snippet}
+    </DataTable>
   </div>
 </div>
 
