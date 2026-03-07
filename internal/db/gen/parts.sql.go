@@ -74,27 +74,27 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   AND ($3::text IS NULL OR p.mpn = $3)
   AND ($4::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND ($5::text IS NULL OR p.package = $5)
-  AND ($6::part_lifecycle_status IS NULL
-       OR p.lifecycle_status = $6)
+  AND ($6::text IS NULL
+       OR p.lifecycle_status = ANY(string_to_array($6, ',')::part_lifecycle_status[]))
   AND ($7::part_scope IS NULL OR p.scope = $7)
   AND (
       $8::text IS NULL
-      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0)
-      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
-      OR ($8::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
-      OR ($8::text = 'not_tracked'  AND ie.id IS NULL)
+      OR ('in_stock'     = ANY(string_to_array($8, ',')) AND ie.quantity_on_hand > 0)
+      OR ('low_stock'    = ANY(string_to_array($8, ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ('out_of_stock' = ANY(string_to_array($8, ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ('not_tracked'  = ANY(string_to_array($8, ',')) AND ie.id IS NULL)
   )
 `
 
 type CountPartsWithInventoryParams struct {
-	TeamID          pgtype.UUID             `json:"team_id"`
-	Q               *string                 `json:"q"`
-	MpnExact        *string                 `json:"mpn_exact"`
-	CategoryID      *int32                  `json:"category_id"`
-	Package         *string                 `json:"package"`
-	LifecycleStatus NullPartLifecycleStatus `json:"lifecycle_status"`
-	FilterScope     NullPartScope           `json:"filter_scope"`
-	StockStatus     *string                 `json:"stock_status"`
+	TeamID          pgtype.UUID   `json:"team_id"`
+	Q               *string       `json:"q"`
+	MpnExact        *string       `json:"mpn_exact"`
+	CategoryID      *int32        `json:"category_id"`
+	Package         *string       `json:"package"`
+	LifecycleStatus *string       `json:"lifecycle_status"`
+	FilterScope     NullPartScope `json:"filter_scope"`
+	StockStatus     *string       `json:"stock_status"`
 }
 
 func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWithInventoryParams) (int64, error) {
@@ -896,31 +896,31 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   AND ($3::text IS NULL OR p.mpn = $3)
   AND ($4::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND ($5::text IS NULL OR p.package = $5)
-  AND ($6::part_lifecycle_status IS NULL
-       OR p.lifecycle_status = $6)
+  AND ($6::text IS NULL
+       OR p.lifecycle_status = ANY(string_to_array($6, ',')::part_lifecycle_status[]))
   AND ($7::part_scope IS NULL OR p.scope = $7)
   AND (
       $8::text IS NULL
-      OR ($8::text = 'in_stock'     AND ie.quantity_on_hand > 0)
-      OR ($8::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
-      OR ($8::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
-      OR ($8::text = 'not_tracked'  AND ie.id IS NULL)
+      OR ('in_stock'     = ANY(string_to_array($8, ',')) AND ie.quantity_on_hand > 0)
+      OR ('low_stock'    = ANY(string_to_array($8, ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ('out_of_stock' = ANY(string_to_array($8, ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ('not_tracked'  = ANY(string_to_array($8, ',')) AND ie.id IS NULL)
   )
 ORDER BY p.mpn NULLS LAST, p.id
 LIMIT $10 OFFSET $9
 `
 
 type ListPartsWithInventoryParams struct {
-	TeamID          pgtype.UUID             `json:"team_id"`
-	Q               *string                 `json:"q"`
-	MpnExact        *string                 `json:"mpn_exact"`
-	CategoryID      *int32                  `json:"category_id"`
-	Package         *string                 `json:"package"`
-	LifecycleStatus NullPartLifecycleStatus `json:"lifecycle_status"`
-	FilterScope     NullPartScope           `json:"filter_scope"`
-	StockStatus     *string                 `json:"stock_status"`
-	Offset          int32                   `json:"offset"`
-	Limit           int32                   `json:"limit"`
+	TeamID          pgtype.UUID   `json:"team_id"`
+	Q               *string       `json:"q"`
+	MpnExact        *string       `json:"mpn_exact"`
+	CategoryID      *int32        `json:"category_id"`
+	Package         *string       `json:"package"`
+	LifecycleStatus *string       `json:"lifecycle_status"`
+	FilterScope     NullPartScope `json:"filter_scope"`
+	StockStatus     *string       `json:"stock_status"`
+	Offset          int32         `json:"offset"`
+	Limit           int32         `json:"limit"`
 }
 
 type ListPartsWithInventoryRow struct {

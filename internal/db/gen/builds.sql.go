@@ -253,6 +253,65 @@ func (q *Queries) DeleteBuildPartAllocations(ctx context.Context, buildID pgtype
 	return err
 }
 
+const getActiveAllocationsForPart = `-- name: GetActiveAllocationsForPart :many
+SELECT
+    bpa.build_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
+    b.status AS build_status, b.quantity AS build_quantity,
+    pr.name AS project_name, pr.id AS project_id
+FROM build_part_allocations bpa
+JOIN builds b ON b.id = bpa.build_id
+JOIN projects pr ON pr.id = b.project_id
+WHERE bpa.part_id = $1
+  AND b.team_id   = $2
+  AND b.status    NOT IN ('assembled', 'cancelled')
+ORDER BY b.created_at
+`
+
+type GetActiveAllocationsForPartParams struct {
+	PartID pgtype.UUID `json:"part_id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetActiveAllocationsForPartRow struct {
+	BuildID          pgtype.UUID `json:"build_id"`
+	QuantityNeeded   int32       `json:"quantity_needed"`
+	QuantityReserved int32       `json:"quantity_reserved"`
+	QuantityReceived int32       `json:"quantity_received"`
+	BuildStatus      string      `json:"build_status"`
+	BuildQuantity    int32       `json:"build_quantity"`
+	ProjectName      string      `json:"project_name"`
+	ProjectID        pgtype.UUID `json:"project_id"`
+}
+
+func (q *Queries) GetActiveAllocationsForPart(ctx context.Context, arg GetActiveAllocationsForPartParams) ([]GetActiveAllocationsForPartRow, error) {
+	rows, err := q.db.Query(ctx, getActiveAllocationsForPart, arg.PartID, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetActiveAllocationsForPartRow
+	for rows.Next() {
+		var i GetActiveAllocationsForPartRow
+		if err := rows.Scan(
+			&i.BuildID,
+			&i.QuantityNeeded,
+			&i.QuantityReserved,
+			&i.QuantityReceived,
+			&i.BuildStatus,
+			&i.BuildQuantity,
+			&i.ProjectName,
+			&i.ProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getBuild = `-- name: GetBuild :one
 SELECT
     b.id, b.team_id, b.project_id, pr.name AS project_name,

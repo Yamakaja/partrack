@@ -180,6 +180,19 @@ SET quantity_reserved = GREATEST(0, quantity_reserved - LEAST(quantity_reserved,
     quantity_needed   = quantity_needed - sqlc.arg('consumed')
 WHERE build_id = sqlc.arg('build_id') AND part_id = sqlc.arg('part_id');
 
+-- name: GetActiveAllocationsForPart :many
+SELECT
+    bpa.build_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
+    b.status AS build_status, b.quantity AS build_quantity,
+    pr.name AS project_name, pr.id AS project_id
+FROM build_part_allocations bpa
+JOIN builds b ON b.id = bpa.build_id
+JOIN projects pr ON pr.id = b.project_id
+WHERE bpa.part_id = @part_id
+  AND b.team_id   = @team_id
+  AND b.status    NOT IN ('assembled', 'cancelled')
+ORDER BY b.created_at;
+
 -- name: ListBuildDeductions :many
 SELECT
     sa.id, sa.inventory_entry_id, sa.delta,

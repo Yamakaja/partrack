@@ -81,15 +81,15 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
   AND (sqlc.narg('category_id')::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
-  AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
-       OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
+  AND (sqlc.narg('lifecycle_status')::text IS NULL
+       OR p.lifecycle_status = ANY(string_to_array(sqlc.narg('lifecycle_status'), ',')::part_lifecycle_status[]))
   AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
   AND (
       sqlc.narg('stock_status')::text IS NULL
-      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0)
-      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
-      OR (sqlc.narg('stock_status')::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
-      OR (sqlc.narg('stock_status')::text = 'not_tracked'  AND ie.id IS NULL)
+      OR ('in_stock'     = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand > 0)
+      OR ('low_stock'    = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ('out_of_stock' = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ('not_tracked'  = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NULL)
   )
 ORDER BY p.mpn NULLS LAST, p.id
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
@@ -112,15 +112,15 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
   AND (sqlc.narg('category_id')::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
-  AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
-       OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
+  AND (sqlc.narg('lifecycle_status')::text IS NULL
+       OR p.lifecycle_status = ANY(string_to_array(sqlc.narg('lifecycle_status'), ',')::part_lifecycle_status[]))
   AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
   AND (
       sqlc.narg('stock_status')::text IS NULL
-      OR (sqlc.narg('stock_status')::text = 'in_stock'     AND ie.quantity_on_hand > 0)
-      OR (sqlc.narg('stock_status')::text = 'low_stock'    AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
-      OR (sqlc.narg('stock_status')::text = 'out_of_stock' AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
-      OR (sqlc.narg('stock_status')::text = 'not_tracked'  AND ie.id IS NULL)
+      OR ('in_stock'     = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand > 0)
+      OR ('low_stock'    = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ('out_of_stock' = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ('not_tracked'  = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NULL)
   );
 
 -- name: GetPart :one

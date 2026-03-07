@@ -9,9 +9,9 @@ export interface ListPartsParams {
   category?: string;
   category_id?: number;
   package?: string;
-  lifecycle_status?: string;
+  lifecycle_status?: string[];
   scope?: string;
-  stock_status?: string;
+  stock_status?: string[];
   limit?: number;
   offset?: number;
 }
@@ -73,4 +73,19 @@ export function refreshAllListings(partId: string, teamId: string) {
 
 export function reenrichAllParts(teamId: string) {
   return request<{ job_count: number }>('POST', `/api/v1/teams/${teamId}/parts/enrich-all`);
+}
+
+export interface PartAllocation {
+  build_id: string;
+  project_id: string;
+  project_name: string;
+  build_status: string;
+  build_quantity: number;
+  quantity_needed: number;
+  quantity_reserved: number;
+  quantity_received: number;
+}
+
+export function getPartAllocations(partId: string, teamId: string) {
+  return request<{ items: PartAllocation[] }>('GET', `/api/v1/teams/${teamId}/parts/${partId}/allocations`);
 }

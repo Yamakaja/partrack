@@ -178,10 +178,8 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		countParams.Package = &v
 	}
 	if v := q.Get("lifecycle_status"); v != "" {
-		params.LifecycleStatus = dbgen.NullPartLifecycleStatus{
-			PartLifecycleStatus: dbgen.PartLifecycleStatus(v), Valid: true,
-		}
-		countParams.LifecycleStatus = params.LifecycleStatus
+		params.LifecycleStatus = &v
+		countParams.LifecycleStatus = &v
 	}
 	if v := q.Get("scope"); v != "" {
 		params.FilterScope = dbgen.NullPartScope{PartScope: dbgen.PartScope(v), Valid: true}

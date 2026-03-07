@@ -1,6 +1,8 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getPart, updatePart } from '$lib/api/parts.js';
+  import { getPart, updatePart, getPartAllocations, type PartAllocation } from '$lib/api/parts.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { listCategories } from '$lib/api/categories.js';
   import type { LifecycleStatus } from '$lib/types/parts.js';
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
@@ -69,6 +71,56 @@
 
   let tracked = $derived(partQuery.data?.inventory_entry_id != null);
   let entryId = $derived(partQuery.data?.inventory_entry_id ?? '');
+
+  let allocationsQuery = createQuery(() => ({
+    queryKey: ['part-allocations', partId, teamId],
+    queryFn: () => getPartAllocations(partId, teamId),
+    enabled: tracked,
+  }));
+
+  let totalReserved = $derived(
+    allocationsQuery.data?.items.reduce((sum, a) => sum + a.quantity_reserved, 0) ?? 0
+  );
+
+  function allocStatusVariant(status: string): 'secondary' | 'default' | 'warning' | 'success' {
+    switch (status) {
+      case 'draft': return 'secondary';
+      case 'pending': return 'default';
+      case 'ordered': return 'warning';
+      case 'ready': return 'success';
+      default: return 'secondary';
+    }
+  }
+
+  function allocStatusLabel(status: string): string {
+    switch (status) {
+      case 'draft': return 'Draft';
+      case 'pending': return 'Pending';
+      case 'ordered': return 'Ordered';
+      case 'ready': return 'Ready';
+      default: return status;
+    }
+  }
+
+  const allocColumns: ColumnSpec<PartAllocation>[] = [
+    { key: 'project_name', header: 'Project', type: 'text', sortable: true },
+    {
+      key: 'build_status', header: 'Status', type: 'enum', sortable: true,
+      filterable: true,
+      filterValues: ['draft', 'pending', 'ordered', 'ready'],
+      filterLabels: { draft: 'Draft', pending: 'Pending', ordered: 'Ordered', ready: 'Ready' },
+      exportValue: (row) => allocStatusLabel(row.build_status),
+    },
+    { key: 'build_quantity', header: 'Build Qty', type: 'numeric', align: 'right', sortable: true },
+    { key: 'quantity_needed', header: 'Needed', type: 'numeric', align: 'right', sortable: true },
+    { key: 'quantity_reserved', header: 'Reserved', type: 'numeric', align: 'right', sortable: true },
+    { key: 'quantity_received', header: 'Received', type: 'numeric', align: 'right', sortable: true },
+  ];
+
+  const allocSource = new LocalDataSource<PartAllocation>(
+    () => allocationsQuery.data?.items ?? [],
+    allocColumns,
+  );
 
   async function handleStartTracking() {
     tracking = true;
@@ -171,6 +223,12 @@
   }
 </script>
 
+{#snippet renderAllocStatus(value: unknown, _row: PartAllocation)}
+  <Badge variant={allocStatusVariant(String(value))}>
+    {allocStatusLabel(String(value))}
+  </Badge>
+{/snippet}
+
 <div class="flex flex-col h-full">
   <Topbar
     title={partQuery.data?.mpn ?? 'Part Detail'}
@@ -241,10 +299,20 @@
 
           {#snippet footer()}
             {#if tracked}
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {@const onHand = part.quantity_on_hand ?? 0}
+              {@const available = onHand - totalReserved}
+              <div class="grid grid-cols-3 sm:grid-cols-6 gap-4">
                 <div>
-                  <p class="text-xs text-muted-foreground mb-0.5">Quantity on Hand</p>
-                  <p class="text-2xl font-bold tabular-nums">{part.quantity_on_hand ?? 0}</p>
+                  <p class="text-xs text-muted-foreground mb-0.5">In Stock</p>
+                  <p class="text-2xl font-bold tabular-nums">{onHand}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground mb-0.5">Reserved</p>
+                  <p class="text-2xl font-bold tabular-nums {totalReserved > 0 ? 'text-warning' : 'text-muted-foreground'}">{totalReserved}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground mb-0.5">Available</p>
+                  <p class="text-2xl font-bold tabular-nums {available < 0 ? 'text-destructive' : available === 0 && totalReserved > 0 ? 'text-muted-foreground' : ''}">{available}</p>
                 </div>
                 <div>
                   <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
@@ -309,6 +377,24 @@
             onchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
           />
         </section>
+
+        {#if tracked && (allocationsQuery.data?.items.length ?? 0) > 0}
+          <section class="space-y-2">
+            
+            <DataTable
+              source={allocSource}
+              getRowKey={(a) => a.build_id}
+              onRowClick={(a) => navigate(`/teams/${teamId}/builds/${a.build_id}`)}
+              renderers={{ build_status: renderAllocStatus }}
+              emptyMessage="No active reservations"
+            >
+              {#snippet toolbarLeft()}
+                <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Reservations</h3>
+              {/snippet}
+            </DataTable>
+          </section>
+        {/if}
+
 
         {#if tracked}
           <section class="space-y-2">

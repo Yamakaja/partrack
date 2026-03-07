@@ -431,6 +431,57 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// GetPartAllocations handles GET /api/v1/teams/{teamId}/parts/{partId}/allocations
+// Returns active build allocations (non-assembled, non-cancelled) for a part.
+func (h *Handler) GetPartAllocations(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var partID pgtype.UUID
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part id", "BAD_REQUEST")
+		return
+	}
+
+	rows, err := h.Queries.GetActiveAllocationsForPart(r.Context(), dbgen.GetActiveAllocationsForPartParams{
+		PartID: partID,
+		TeamID: teamID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type allocationResp struct {
+		BuildID          string `json:"build_id"`
+		ProjectID        string `json:"project_id"`
+		ProjectName      string `json:"project_name"`
+		BuildStatus      string `json:"build_status"`
+		BuildQuantity    int32  `json:"build_quantity"`
+		QuantityNeeded   int32  `json:"quantity_needed"`
+		QuantityReserved int32  `json:"quantity_reserved"`
+		QuantityReceived int32  `json:"quantity_received"`
+	}
+
+	items := make([]allocationResp, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, allocationResp{
+			BuildID:          row.BuildID.String(),
+			ProjectID:        row.ProjectID.String(),
+			ProjectName:      row.ProjectName,
+			BuildStatus:      row.BuildStatus,
+			BuildQuantity:    row.BuildQuantity,
+			QuantityNeeded:   row.QuantityNeeded,
+			QuantityReserved: row.QuantityReserved,
+			QuantityReceived: row.QuantityReceived,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 // SubmitBuild handles POST /api/v1/teams/{teamId}/builds/{buildId}/submit
 // Transitions draft → pending. Triggers recomputeBomShortfalls.
 func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {

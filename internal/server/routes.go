@@ -113,6 +113,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/builds", h.ListBuilds)
 					r.Get("/builds/{buildId}", h.GetBuild)
 
+					// Part allocations
+					r.Get("/parts/{partId}/allocations", h.GetPartAllocations)
+
 					// 15. General checkouts
 					r.Get("/checkouts", h.ListCheckouts)
 					r.Get("/checkouts/{checkoutId}", h.GetCheckout)

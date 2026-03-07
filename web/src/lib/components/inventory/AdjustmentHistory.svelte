@@ -25,8 +25,6 @@
 </script>
 
 <div class="space-y-3">
-  <h3 class="text-sm font-semibold text-foreground">Adjustment History</h3>
-
   {#if query.isPending}
     <div class="text-sm text-muted-foreground">Loading…</div>
   {:else if query.isError}
