@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder } from '$lib/api/orders.js';
+  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder, updateOrderPurchaseOrderNumber } from '$lib/api/orders.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import { DataTable, LocalDataSource, getNestedValue } from '$lib/components/table/index.js';
@@ -11,6 +12,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { Pencil } from 'lucide-svelte';
   import type { OrderStatus, OrderLineItem } from '$lib/types/orders.js';
 
   let { teamId, orderId }: { teamId: string; orderId: string } = $props();
@@ -31,6 +33,34 @@
   let showPlacedInput = $state(false);
   let showCancelConfirm = $state(false);
   let cancelling = $state(false);
+  let editingPoNumber = $state(false);
+  let poNumberDraft = $state('');
+  let savingPoNumber = $state(false);
+
+  async function savePoNumber() {
+    if (savingPoNumber) return;
+    savingPoNumber = true;
+    try {
+      const value = poNumberDraft.trim() || null;
+      await updateOrderPurchaseOrderNumber(teamId, orderId, value);
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      editingPoNumber = false;
+    } catch (err: any) {
+      pushToast('error', 'Failed to save PO number', err.message);
+    } finally {
+      savingPoNumber = false;
+    }
+  }
+
+  function startEditPoNumber(current: string | null) {
+    poNumberDraft = current ?? '';
+    editingPoNumber = true;
+  }
+
+  function handlePoNumberKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') savePoNumber();
+    if (e.key === 'Escape') { editingPoNumber = false; }
+  }
 
   function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
     switch (status) {
@@ -240,18 +270,80 @@
     </Topbar>
 
     <div class="flex-1 overflow-auto p-6 space-y-4">
-      <div class="flex items-center gap-4 text-sm">
-        <span class="text-muted-foreground">Distributor:</span>
-        <span class="font-medium">{order.distributor_name}</span>
-        <span class="text-muted-foreground">Status:</span>
-        <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
-        {#if order.external_reference}
-          <span class="text-muted-foreground">Ref:</span>
-          <span class="font-mono text-xs">{order.external_reference}</span>
-        {/if}
-        <span class="text-muted-foreground">Created:</span>
-        <DateDisplay value={order.created_at} />
-      </div>
+      <MetadataCard title={order.distributor_name}>
+        {#snippet badges()}
+          <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
+        {/snippet}
+        <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm sm:grid-cols-3">
+          <div class="flex items-center gap-1">
+            <span class="text-muted-foreground">PO #:</span>
+            {#if editingPoNumber}
+              <Input
+                class="h-6 w-36 text-xs px-1"
+                value={poNumberDraft}
+                oninput={(e: Event) => { poNumberDraft = (e.target as HTMLInputElement).value; }}
+                onkeydown={handlePoNumberKeydown}
+                onblur={savePoNumber}
+                disabled={savingPoNumber}
+                autofocus
+              />
+            {:else}
+              <span class="font-medium font-mono text-xs">{order.purchase_order_number ?? '—'}</span>
+              <Button variant="ghost" size="icon" class="h-5 w-5 ml-0.5" onclick={() => startEditPoNumber(order.purchase_order_number)}>
+                <Pencil class="h-3 w-3" />
+              </Button>
+            {/if}
+          </div>
+          {#if order.external_reference}
+            <div>
+              <span class="text-muted-foreground">Distributor Order #:</span>
+              <span class="font-medium font-mono text-xs"> {order.external_reference}</span>
+            </div>
+          {/if}
+          <div>
+            <span class="text-muted-foreground">Created:</span>
+            <span class="font-medium"> <DateDisplay value={order.created_at} /></span>
+          </div>
+          <div>
+            <span class="text-muted-foreground">Created by:</span>
+            <span class="font-medium"> {order.created_by_display_name}</span>
+          </div>
+          <div>
+            <span class="text-muted-foreground">Items:</span>
+            <span class="font-medium tabular-nums"> {order.line_item_count}</span>
+          </div>
+          {#if order.total_price != null}
+            <div>
+              <span class="text-muted-foreground">Total:</span>
+              <span class="font-medium"> <PriceDisplay value={order.total_price} decimals={2} /></span>
+            </div>
+          {/if}
+          {#if order.received_at}
+            <div>
+              <span class="text-muted-foreground">Received:</span>
+              <span class="font-medium"> <DateDisplay value={order.received_at} /></span>
+            </div>
+          {/if}
+          {#if order.external_ref_linked_at}
+            <div>
+              <span class="text-muted-foreground">Placed:</span>
+              <span class="font-medium"> <DateDisplay value={order.external_ref_linked_at} /></span>
+            </div>
+          {/if}
+          {#if order.submission_method}
+            <div>
+              <span class="text-muted-foreground">Submission:</span>
+              <span class="font-medium"> {order.submission_method}</span>
+            </div>
+          {/if}
+          {#if order.notes}
+            <div class="col-span-2 sm:col-span-3">
+              <span class="text-muted-foreground">Notes:</span>
+              <span class="font-medium"> {order.notes}</span>
+            </div>
+          {/if}
+        </div>
+      </MetadataCard>
 
       {#snippet renderSku(value: unknown)}
         <span class="font-mono text-xs">{String(value ?? '')}</span>

@@ -61,6 +61,7 @@ export interface Order {
   distributor_name: string;
   status: OrderStatus;
   external_reference: string | null;
+  purchase_order_number: string | null;
   notes: string | null;
   submission_method: 'api' | 'manual' | null;
   external_ref_linked_at: string | null;

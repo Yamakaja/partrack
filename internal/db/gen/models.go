@@ -537,6 +537,7 @@ type Order struct {
 	Notes               *string                   `json:"notes"`
 	CreatedBy           pgtype.UUID               `json:"created_by"`
 	CreatedAt           pgtype.Timestamptz        `json:"created_at"`
+	PurchaseOrderNumber *string                   `json:"purchase_order_number"`
 }
 
 type OrderLineItem struct {

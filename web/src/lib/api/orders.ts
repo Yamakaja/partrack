@@ -33,6 +33,10 @@ export function receiveLineItem(teamId: string, orderId: string, itemId: string,
   );
 }
 
+export function updateOrderPurchaseOrderNumber(teamId: string, orderId: string, purchase_order_number: string | null) {
+  return request<void>('PATCH', `/api/v1/teams/${teamId}/orders/${orderId}`, { purchase_order_number });
+}
+
 export function cancelOrder(teamId: string, orderId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/orders/${orderId}`);
 }

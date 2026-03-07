@@ -235,7 +235,7 @@ const getOrder = `-- name: GetOrder :one
 SELECT
     o.id, o.team_id, o.distributor_id, d.name AS distributor_name,
     o.status, o.submission_method, o.external_reference, o.external_ref_linked_at,
-    o.received_at, o.notes, o.created_at,
+    o.received_at, o.notes, o.purchase_order_number, o.created_at,
     u.display_name AS created_by_display_name
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
@@ -259,6 +259,7 @@ type GetOrderRow struct {
 	ExternalRefLinkedAt  pgtype.Timestamptz        `json:"external_ref_linked_at"`
 	ReceivedAt           pgtype.Timestamptz        `json:"received_at"`
 	Notes                *string                   `json:"notes"`
+	PurchaseOrderNumber  *string                   `json:"purchase_order_number"`
 	CreatedAt            pgtype.Timestamptz        `json:"created_at"`
 	CreatedByDisplayName string                    `json:"created_by_display_name"`
 }
@@ -277,6 +278,7 @@ func (q *Queries) GetOrder(ctx context.Context, arg GetOrderParams) (GetOrderRow
 		&i.ExternalRefLinkedAt,
 		&i.ReceivedAt,
 		&i.Notes,
+		&i.PurchaseOrderNumber,
 		&i.CreatedAt,
 		&i.CreatedByDisplayName,
 	)
@@ -741,5 +743,30 @@ func (q *Queries) UpdateOrderNotes(ctx context.Context, arg UpdateOrderNotesPara
 	row := q.db.QueryRow(ctx, updateOrderNotes, arg.Notes, arg.ID, arg.TeamID)
 	var i UpdateOrderNotesRow
 	err := row.Scan(&i.ID, &i.Status, &i.Notes)
+	return i, err
+}
+
+const updateOrderPurchaseOrderNumber = `-- name: UpdateOrderPurchaseOrderNumber :one
+UPDATE orders
+SET purchase_order_number = $1
+WHERE id = $2 AND team_id = $3
+RETURNING id, purchase_order_number
+`
+
+type UpdateOrderPurchaseOrderNumberParams struct {
+	PurchaseOrderNumber *string     `json:"purchase_order_number"`
+	ID                  pgtype.UUID `json:"id"`
+	TeamID              pgtype.UUID `json:"team_id"`
+}
+
+type UpdateOrderPurchaseOrderNumberRow struct {
+	ID                  pgtype.UUID `json:"id"`
+	PurchaseOrderNumber *string     `json:"purchase_order_number"`
+}
+
+func (q *Queries) UpdateOrderPurchaseOrderNumber(ctx context.Context, arg UpdateOrderPurchaseOrderNumberParams) (UpdateOrderPurchaseOrderNumberRow, error) {
+	row := q.db.QueryRow(ctx, updateOrderPurchaseOrderNumber, arg.PurchaseOrderNumber, arg.ID, arg.TeamID)
+	var i UpdateOrderPurchaseOrderNumberRow
+	err := row.Scan(&i.ID, &i.PurchaseOrderNumber)
 	return i, err
 }

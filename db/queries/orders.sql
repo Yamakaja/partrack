@@ -26,7 +26,7 @@ WHERE team_id = $1
 SELECT
     o.id, o.team_id, o.distributor_id, d.name AS distributor_name,
     o.status, o.submission_method, o.external_reference, o.external_ref_linked_at,
-    o.received_at, o.notes, o.created_at,
+    o.received_at, o.notes, o.purchase_order_number, o.created_at,
     u.display_name AS created_by_display_name
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
@@ -55,6 +55,12 @@ RETURNING id, team_id, distributor_id, status, created_by, created_at;
 INSERT INTO order_line_items (order_id, listing_id, quantity_ordered, unit_price_snapshot, fixed_order_cost_snapshot)
 VALUES ($1, $2, $3, $4, $5)
 RETURNING id, order_id, listing_id, quantity_ordered, quantity_received, unit_price_snapshot, fixed_order_cost_snapshot;
+
+-- name: UpdateOrderPurchaseOrderNumber :one
+UPDATE orders
+SET purchase_order_number = sqlc.narg('purchase_order_number')
+WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
+RETURNING id, purchase_order_number;
 
 -- name: UpdateOrderNotes :one
 UPDATE orders

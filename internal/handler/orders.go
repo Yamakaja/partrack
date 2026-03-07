@@ -17,13 +17,14 @@ import (
 
 func orderResponse(o dbgen.GetOrderRow) map[string]any {
 	resp := map[string]any{
-		"id":                     o.ID.String(),
-		"distributor_id":         o.DistributorID.String(),
-		"distributor_name":       o.DistributorName,
-		"status":                 string(o.Status),
-		"external_reference":     o.ExternalReference,
-		"notes":                  o.Notes,
-		"created_at":             o.CreatedAt.Time.UTC().Format(time.RFC3339),
+		"id":                      o.ID.String(),
+		"distributor_id":          o.DistributorID.String(),
+		"distributor_name":        o.DistributorName,
+		"status":                  string(o.Status),
+		"external_reference":      o.ExternalReference,
+		"notes":                   o.Notes,
+		"purchase_order_number":   o.PurchaseOrderNumber,
+		"created_at":              o.CreatedAt.Time.UTC().Format(time.RFC3339),
 		"created_by_display_name": o.CreatedByDisplayName,
 	}
 	if o.SubmissionMethod.Valid {
@@ -199,8 +200,9 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Notes     *string `json:"notes"`
-		LineItems []struct {
+		Notes               *string `json:"notes"`
+		PurchaseOrderNumber *string `json:"purchase_order_number"`
+		LineItems           []struct {
 			ID       string `json:"id"`
 			Quantity int32  `json:"quantity"`
 		} `json:"line_items"`
@@ -208,6 +210,22 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
 		return
+	}
+
+	if body.PurchaseOrderNumber != nil {
+		_, err := h.Queries.UpdateOrderPurchaseOrderNumber(r.Context(), dbgen.UpdateOrderPurchaseOrderNumberParams{
+			PurchaseOrderNumber: body.PurchaseOrderNumber,
+			ID:                  orderID,
+			TeamID:              teamID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
 	}
 
 	if body.Notes != nil {
