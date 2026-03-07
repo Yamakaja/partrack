@@ -467,6 +467,24 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Guard: only allow receiving on placed or partially_received orders.
+	order, err := h.Queries.GetOrder(r.Context(), dbgen.GetOrderParams{
+		ID:     orderID,
+		TeamID: teamID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if order.Status != dbgen.OrderStatusPlaced && order.Status != dbgen.OrderStatusPartiallyReceived {
+		writeError(w, http.StatusConflict, "order must be in placed or partially_received status to receive items", "ORDER_NOT_RECEIVABLE")
+		return
+	}
+
 	// Get or create the inventory entry for this part.
 	invEntry, err := h.Queries.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
 		TeamID: teamID,

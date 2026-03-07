@@ -22,12 +22,12 @@ export function submitOrder(teamId: string, orderId: string) {
   return request<Order>('POST', `/api/v1/teams/${teamId}/orders/${orderId}/submit`);
 }
 
-export function markOrderPlaced(teamId: string, orderId: string, distributor_order_ref: string) {
-  return request<Order>('POST', `/api/v1/teams/${teamId}/orders/${orderId}/mark-placed`, { distributor_order_ref });
+export function markOrderPlaced(teamId: string, orderId: string, external_reference: string) {
+  return request<Order>('POST', `/api/v1/teams/${teamId}/orders/${orderId}/reference`, { external_reference });
 }
 
 export function receiveLineItem(teamId: string, orderId: string, itemId: string, quantity_received: number) {
-  return request<OrderLineItem & { quantity_on_hand: number }>(
+  return request<{ line_item_id: string; quantity_ordered: number; quantity_received: number; order_status: string; new_quantity_on_hand: number }>(
     'POST', `/api/v1/teams/${teamId}/orders/${orderId}/items/${itemId}/receive`,
     { quantity_received },
   );

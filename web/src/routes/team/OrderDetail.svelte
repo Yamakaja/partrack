@@ -6,6 +6,7 @@
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import { DataTable, LocalDataSource, getNestedValue } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
+  import { Dialog } from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -24,6 +25,7 @@
   let receivingMode = $state(false);
   let receiveQtys = $state<Record<string, string>>({});
   let receivingItems = $state<Set<string>>(new Set());
+  let overReceiveConfirm = $state<{ item: OrderLineItem; qty: number } | null>(null);
   let markingPlaced = $state(false);
   let placedRef = $state('');
   let showPlacedInput = $state(false);
@@ -31,10 +33,12 @@
   function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
     switch (status) {
       case 'draft': return 'secondary';
-      case 'placed': return 'default';
       case 'exported': return 'default';
+      case 'submitted': return 'default';
+      case 'placed': return 'default';
       case 'partially_received': return 'warning';
       case 'received': return 'success';
+      case 'cancelled': return 'secondary';
       default: return 'secondary';
     }
   }
@@ -42,18 +46,20 @@
   function statusLabel(status: OrderStatus): string {
     switch (status) {
       case 'draft': return 'Draft';
-      case 'placed': return 'Placed';
       case 'exported': return 'Exported';
+      case 'submitted': return 'Submitted';
+      case 'placed': return 'Placed';
       case 'partially_received': return 'Partially Received';
       case 'received': return 'Received';
+      case 'cancelled': return 'Cancelled';
       default: return status;
     }
   }
 
   function getReceiveQty(item: OrderLineItem): string {
-    return receiveQtys[item.id] !== undefined
-      ? receiveQtys[item.id]
-      : String(item.quantity_ordered - item.quantity_received);
+    if (receiveQtys[item.id] !== undefined) return receiveQtys[item.id];
+    const remaining = item.quantity_ordered - item.quantity_received;
+    return String(remaining > 0 ? remaining : 0);
   }
 
   async function handleMarkPlaced() {
@@ -72,22 +78,19 @@
     }
   }
 
-  async function handleReceive(item: OrderLineItem) {
-    const raw = receiveQtys[item.id];
-    const qty = raw !== undefined ? parseInt(raw, 10) : item.quantity_ordered - item.quantity_received;
-    if (isNaN(qty) || qty < 0) {
-      pushToast('error', 'Invalid quantity');
-      return;
-    }
+  async function executeReceive(item: OrderLineItem, qty: number) {
     receivingItems = new Set([...receivingItems, item.id]);
     try {
-      await receiveLineItem(teamId, orderId, item.id, qty);
+      const result = await receiveLineItem(teamId, orderId, item.id, qty);
       qc.invalidateQueries({ queryKey: ['order', orderId] });
       qc.invalidateQueries({ queryKey: ['orders', teamId] });
       qc.invalidateQueries({ queryKey: ['inventory', teamId] });
       const next = { ...receiveQtys };
       delete next[item.id];
       receiveQtys = next;
+      if (result.order_status === 'received') {
+        receivingMode = false;
+      }
       pushToast('success', `Received ${qty} unit(s)`);
     } catch (err: any) {
       pushToast('error', 'Failed to receive items', err.message);
@@ -98,20 +101,44 @@
     }
   }
 
+  async function handleReceive(item: OrderLineItem) {
+    const raw = receiveQtys[item.id];
+    const qty = raw !== undefined ? parseInt(raw, 10) : item.quantity_ordered - item.quantity_received;
+    if (isNaN(qty) || qty <= 0) {
+      pushToast('error', 'Quantity must be greater than 0');
+      return;
+    }
+    if (item.quantity_received + qty > item.quantity_ordered) {
+      overReceiveConfirm = { item, qty };
+      return;
+    }
+    await executeReceive(item, qty);
+  }
+
   let canReceive = $derived(
     orderQuery.data?.status === 'placed' ||
     orderQuery.data?.status === 'partially_received'
   );
 
   const columns: ColumnSpec<OrderLineItem>[] = [
-    { key: 'sku',                 header: 'SKU',         type: 'text' },
-    { key: 'part_mpn',            header: 'Part MPN',    type: 'text' },
-    { key: 'quantity_ordered',    header: 'Ordered',     type: 'numeric', align: 'right' },
-    { key: 'quantity_received',   header: 'Received',    type: 'numeric', align: 'right' },
-    { key: '_receive_qty',        header: 'Receive Qty', type: 'custom',  sortable: false, hidden: true },
-    { key: '_receive_action',     header: '',            type: 'custom',  sortable: false, hidden: true, width: '90px' },
+    { key: 'sku',                 header: 'SKU',         type: 'text',     filterable: true },
+    { key: 'part_mpn',            header: 'Part MPN',    type: 'text',     filterable: true },
+    { key: 'packaging_type',      header: 'Packaging',   type: 'enum',     filterable: true },
     { key: 'unit_price_snapshot', header: 'Unit Price',  type: 'currency', align: 'right' },
-    { key: '_total',              header: 'Total',       type: 'currency',                 align: 'right' },
+    { key: '_total',              header: 'Total',       type: 'currency', align: 'right' },
+    { key: 'quantity_ordered',    header: 'Ordered',     type: 'numeric',  align: 'right' },
+    { key: 'quantity_received',   header: 'Received',    type: 'numeric',  align: 'right' },
+    {
+      key: '_receipt_status',
+      header: 'Status',
+      type: 'enum',
+      sortable: false,
+      filterable: true,
+      filterValues: ['pending', 'partial', 'received'],
+      filterLabels: { pending: 'Pending', partial: 'Partial', received: 'Received' },
+    },
+    { key: '_receive_qty',        header: 'Receive Qty', type: 'enum',     sortable: false, hidden: true },
+    { key: '_receive_action',     header: '',            type: 'enum',     sortable: false, hidden: true, width: '90px' },
   ];
 
   const source = new LocalDataSource<OrderLineItem>(
@@ -119,6 +146,11 @@
     columns,
     (row, key) => {
       if (key === '_total') return parseFloat(row.unit_price_snapshot) * row.quantity_ordered;
+      if (key === '_receipt_status') {
+        if (row.quantity_received >= row.quantity_ordered) return 'received';
+        if (row.quantity_received > 0) return 'partial';
+        return 'pending';
+      }
       return getNestedValue(row, key);
     },
   );
@@ -154,7 +186,7 @@
             {order.status === 'exported' ? 'Re-export CSV' : 'Export CSV'}
           </Button>
         {/if}
-        {#if order.status === 'draft' || order.status === 'exported'}
+        {#if order.status === 'draft' || order.status === 'exported' || order.status === 'submitted'}
           {#if showPlacedInput}
             <Input
               value={placedRef}
@@ -176,7 +208,6 @@
         {/if}
         {#if canReceive}
           <Button
-            variant={receivingMode ? 'default' : 'outline'}
             size="sm"
             onclick={() => { receivingMode = !receivingMode; }}
           >
@@ -192,9 +223,9 @@
         <span class="font-medium">{order.distributor_name}</span>
         <span class="text-muted-foreground">Status:</span>
         <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
-        {#if order.distributor_order_ref}
+        {#if order.external_reference}
           <span class="text-muted-foreground">Ref:</span>
-          <span class="font-mono text-xs">{order.distributor_order_ref}</span>
+          <span class="font-mono text-xs">{order.external_reference}</span>
         {/if}
         <span class="text-muted-foreground">Created:</span>
         <DateDisplay value={order.created_at} />
@@ -217,7 +248,6 @@
           type="number"
           value={getReceiveQty(row)}
           min="0"
-          max={row.quantity_ordered}
           class="w-20"
           oninput={(e: Event) => {
             receiveQtys = { ...receiveQtys, [row.id]: (e.target as HTMLInputElement).value };
@@ -229,10 +259,19 @@
         <Button
           size="sm"
           onclick={() => handleReceive(row)}
-          disabled={receivingItems.has(row.id) || row.quantity_received >= row.quantity_ordered}
+          disabled={receivingItems.has(row.id)}
         >
           {receivingItems.has(row.id) ? 'Saving…' : 'Receive'}
         </Button>
+      {/snippet}
+      {#snippet renderReceiptStatus(_value: unknown, row: OrderLineItem)}
+        {#if row.quantity_received >= row.quantity_ordered}
+          <Badge variant="success">Received</Badge>
+        {:else if row.quantity_received > 0}
+          <Badge variant="warning">Partial</Badge>
+        {:else}
+          <Badge variant="warning">Pending</Badge>
+        {/if}
       {/snippet}
 
       <DataTable
@@ -244,11 +283,37 @@
           part_mpn: renderMpn,
           unit_price_snapshot: renderUnitPrice,
           _total: renderTotal,
+          _receipt_status: renderReceiptStatus,
           _receive_qty: renderReceiveQty,
           _receive_action: renderReceiveAction,
         }}
       />
     </div>
+
+    {#if overReceiveConfirm}
+      {@const confirm = overReceiveConfirm}
+      <Dialog
+        open={true}
+        title="Receive more than ordered?"
+        confirmLabel="Confirm Receipt"
+        class="max-w-md"
+        onConfirm={() => {
+          const { item, qty } = confirm;
+          overReceiveConfirm = null;
+          executeReceive(item, qty);
+        }}
+        onCancel={() => { overReceiveConfirm = null; }}
+      >
+        {#snippet children()}
+          <p class="text-sm text-muted-foreground mb-4">
+            You're about to receive <span class="font-medium text-foreground">{confirm.qty}</span> unit(s)
+            of <span class="font-mono text-foreground">{confirm.item.sku}</span>,
+            but only <span class="font-medium text-foreground">{Math.max(0, confirm.item.quantity_ordered - confirm.item.quantity_received)}</span> remain outstanding.
+            The extra stock will still be added to inventory.
+          </p>
+        {/snippet}
+      </Dialog>
+    {/if}
   {:else if orderQuery.isPending}
     <div class="p-6 text-sm text-muted-foreground">Loading order…</div>
   {:else if orderQuery.isError}

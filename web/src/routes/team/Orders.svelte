@@ -22,10 +22,12 @@
   function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
     switch (status) {
       case 'draft': return 'secondary';
-      case 'placed': return 'default';
       case 'exported': return 'default';
+      case 'submitted': return 'default';
+      case 'placed': return 'default';
       case 'partially_received': return 'warning';
       case 'received': return 'success';
+      case 'cancelled': return 'secondary';
       default: return 'secondary';
     }
   }
@@ -33,10 +35,12 @@
   function statusLabel(status: OrderStatus): string {
     switch (status) {
       case 'draft': return 'Draft';
-      case 'placed': return 'Placed';
       case 'exported': return 'Exported';
+      case 'submitted': return 'Submitted';
+      case 'placed': return 'Placed';
       case 'partially_received': return 'Partially Received';
       case 'received': return 'Received';
+      case 'cancelled': return 'Cancelled';
       default: return status;
     }
   }
@@ -60,13 +64,15 @@
       header: 'Status',
       type: 'enum',
       filterable: true,
-      filterValues: ['draft', 'placed', 'exported', 'partially_received', 'received'],
+      filterValues: ['draft', 'exported', 'submitted', 'placed', 'partially_received', 'received', 'cancelled'],
       filterLabels: {
         draft: 'Draft',
-        placed: 'Placed',
         exported: 'Exported',
+        submitted: 'Submitted',
+        placed: 'Placed',
         partially_received: 'Partially Received',
         received: 'Received',
+        cancelled: 'Cancelled',
       },
       exportValue: (row) => statusLabel(row.status),
     },

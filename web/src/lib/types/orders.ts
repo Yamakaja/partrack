@@ -1,9 +1,11 @@
 export type OrderStatus =
   | 'draft'
-  | 'placed'
   | 'exported'
+  | 'submitted'
+  | 'placed'
   | 'partially_received'
-  | 'received';
+  | 'received'
+  | 'cancelled';
 
 export type CartItemSource = 'bom_shortfall' | 'inventory_maintenance' | 'manual';
 
@@ -58,9 +60,12 @@ export interface Order {
   distributor_id: string;
   distributor_name: string;
   status: OrderStatus;
-  distributor_order_ref: string | null;
+  external_reference: string | null;
+  notes: string | null;
+  submission_method: 'api' | 'manual' | null;
+  external_ref_linked_at: string | null;
+  received_at: string | null;
   created_at: string;
-  updated_at: string;
   total_price: string | null;
   line_item_count: number;
   created_by_display_name: string;
