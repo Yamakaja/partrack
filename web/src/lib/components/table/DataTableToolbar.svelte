@@ -40,7 +40,23 @@
       return `${name}: ${parts.join(' – ')}`;
     }
 
+    if (col?.type === 'numeric' || col?.type === 'currency') {
+      const encoded = [...values][0] ?? '';
+      const u = col?.unit ? ` ${col.unit}` : '';
+      if (encoded.startsWith('>=')) return `${name}: ≥ ${encoded.slice(2)}${u}`;
+      if (encoded.startsWith('<=')) return `${name}: ≤ ${encoded.slice(2)}${u}`;
+      if (encoded.startsWith('=')) return `${name}: = ${encoded.slice(1)}${u}`;
+      if (encoded.includes('|')) {
+        const [lo, hi] = encoded.split('|');
+        return `${name}: ${lo}${u} – ${hi}${u}`;
+      }
+      return `${name}: ${encoded}${u}`;
+    }
+
     const labels = [...values].map((v) => col?.filterLabels?.[v] ?? v);
+    if (labels.length > 2) {
+      return `${name}: ${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
+    }
     return `${name}: ${labels.join(', ')}`;
   }
 </script>

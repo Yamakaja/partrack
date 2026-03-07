@@ -127,6 +127,7 @@
 
   function handleLocalImport(part: PartSummary) {
     if (!currentItem) return;
+    if (currentItem.ignored) onignore?.(currentItem.id, false);
     onresolve?.(currentItem.id, part.id);
     advance();
   }
@@ -169,6 +170,7 @@
         sku: result.primary_sku,
         distributor_id: selectedDistributorId,
       });
+      if (currentItem.ignored) onignore?.(currentItem.id, false);
       onresolve?.(currentItem.id, r.part_id);
       advance();
     } catch (err: any) {

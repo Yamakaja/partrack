@@ -67,12 +67,26 @@ export class LocalDataSource<T> implements DataSource<T> {
           if (to && ts > new Date(to + 'T23:59:59').getTime()) return false;
           return true;
         }
+        if (col.type === 'numeric' || col.type === 'currency') {
+          // Numeric filter: "=N", ">=N", "<=N", or "N|N" (range)
+          const encoded = [...values][0] ?? '';
+          const num = parseFloat(String(val));
+          if (isNaN(num)) return true;
+          if (encoded.startsWith('>=')) return num >= parseFloat(encoded.slice(2));
+          if (encoded.startsWith('<=')) return num <= parseFloat(encoded.slice(2));
+          if (encoded.startsWith('=')) return num === parseFloat(encoded.slice(1));
+          if (encoded.includes('|')) {
+            const [lo, hi] = encoded.split('|').map(parseFloat);
+            return num >= lo && num <= hi;
+          }
+          return true;
+        }
         if (col.type === 'enum') {
           return values.has(String(val ?? ''));
         }
-        // text: case-insensitive substring match against first filter value
-        const needle = [...values][0]?.toLowerCase() ?? '';
-        return String(val ?? '').toLowerCase().includes(needle);
+        // text: case-insensitive substring match against any selected value (OR)
+        const strVal = String(val ?? '').toLowerCase();
+        return [...values].some((v) => strVal.includes(v.toLowerCase()));
       });
     }
 

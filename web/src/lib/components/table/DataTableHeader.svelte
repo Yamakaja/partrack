@@ -1,8 +1,9 @@
 <script lang="ts" generics="T">
-  import { ArrowUp, ArrowDown, ArrowUpDown, Filter, CalendarDays } from 'lucide-svelte';
-  import { DropdownMenu as DropdownMenuPrimitive, Popover } from 'bits-ui';
+  import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-svelte';
+  import DateRangeFilterPopover from './DateRangeFilterPopover.svelte';
+  import NumericFilterPopover from './NumericFilterPopover.svelte';
+  import ListFilterPopover from './ListFilterPopover.svelte';
   import { TableHeader, TableRow, TableHead } from '$lib/components/ui/table/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils/cn.js';
   import type { DataSource, ColumnSpec } from './types.js';
   import type { Snippet } from 'svelte';
@@ -40,10 +41,6 @@
     return !!f && f.size > 0;
   }
 
-  function isValueSelected(key: string, value: string): boolean {
-    return source.filters.get(key)?.has(value) ?? false;
-  }
-
   function toggleFilterValue(key: string, value: string): void {
     const current = new Set(source.filters.get(key) ?? []);
     if (current.has(value)) {
@@ -62,35 +59,16 @@
     return col.filterLabels?.[value] ?? value;
   }
 
-  // Date range popover state — one per column key
-  let datePopoverOpen = $state<Record<string, boolean>>({});
-  let dateFrom = $state<Record<string, string>>({});
-  let dateTo = $state<Record<string, string>>({});
-
-  function openDatePopover(key: string): void {
-    // Initialize date inputs from current filter value
-    const encoded = [...(source.filters.get(key) ?? [])][0] ?? '|';
-    const [from, to] = encoded.split('|');
-    dateFrom[key] = from ?? '';
-    dateTo[key] = to ?? '';
+  function currentEncodedFilter(key: string): string {
+    return [...(source.filters.get(key) ?? [])][0] ?? '';
   }
 
-  function applyDateFilter(key: string): void {
-    const from = dateFrom[key] ?? '';
-    const to = dateTo[key] ?? '';
-    if (!from && !to) {
-      source.setFilter(key, new Set());
-    } else {
-      source.setFilter(key, new Set([`${from}|${to}`]));
-    }
-    datePopoverOpen[key] = false;
+  function applyEncodedFilter(key: string, encoded: string): void {
+    source.setFilter(key, new Set([encoded]));
   }
 
-  function clearDateFilter(key: string): void {
+  function clearFilter(key: string): void {
     source.setFilter(key, new Set());
-    dateFrom[key] = '';
-    dateTo[key] = '';
-    datePopoverOpen[key] = false;
   }
 </script>
 
@@ -141,112 +119,32 @@
           {/if}
 
           {#if col.filterable && col.type === 'date'}
-            <!-- Date range popover -->
-            <Popover.Root
-              open={datePopoverOpen[col.key] ?? false}
-              onOpenChange={(v) => { datePopoverOpen[col.key] = v; if (v) openDatePopover(col.key); }}
-            >
-              <Popover.Trigger>
-                <button
-                  class={cn(
-                    'rounded p-0.5 hover:bg-accent transition-colors',
-                    isFiltered(col.key) ? 'text-primary' : 'text-muted-foreground opacity-60 hover:opacity-100',
-                  )}
-                  aria-label="Filter {col.header} by date range"
-                >
-                  <CalendarDays class="h-3 w-3" />
-                </button>
-              </Popover.Trigger>
-              <Popover.Content
-                align="start"
-                class="z-50 w-64 rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
-              >
-                <div class="flex flex-col gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Filter by date range</p>
-                  <div class="flex flex-col gap-2">
-                    <label class="flex flex-col gap-1">
-                      <span class="text-xs text-muted-foreground">From</span>
-                      <input
-                        type="date"
-                        bind:value={dateFrom[col.key]}
-                        class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                      <span class="text-xs text-muted-foreground">To</span>
-                      <input
-                        type="date"
-                        bind:value={dateTo[col.key]}
-                        class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </label>
-                  </div>
-                  <div class="flex gap-2">
-                    <Button
-                      size="sm"
-                      class="flex-1 h-7 text-xs"
-                      onclick={() => applyDateFilter(col.key)}
-                    >
-                      Apply
-                    </Button>
-                    {#if isFiltered(col.key)}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        class="h-7 text-xs"
-                        onclick={() => clearDateFilter(col.key)}
-                      >
-                        Clear
-                      </Button>
-                    {/if}
-                  </div>
-                </div>
-              </Popover.Content>
-            </Popover.Root>
-
+            <DateRangeFilterPopover
+              columnLabel={col.header}
+              isFiltered={isFiltered(col.key)}
+              currentFilter={currentEncodedFilter(col.key)}
+              onApply={(encoded) => applyEncodedFilter(col.key, encoded)}
+              onClear={() => clearFilter(col.key)}
+            />
+          {:else if col.filterable && (col.type === 'numeric' || col.type === 'currency')}
+            <NumericFilterPopover
+              columnLabel={col.header}
+              isFiltered={isFiltered(col.key)}
+              unit={col.unit}
+              currentFilter={currentEncodedFilter(col.key)}
+              onApply={(encoded) => applyEncodedFilter(col.key, encoded)}
+              onClear={() => clearFilter(col.key)}
+            />
           {:else if col.filterable && effectiveValues.length > 0}
-            <!-- Enum/text checkbox dropdown -->
-            <DropdownMenuPrimitive.Root>
-              <DropdownMenuPrimitive.Trigger>
-                <button
-                  class={cn(
-                    'rounded p-0.5 hover:bg-accent transition-colors',
-                    isFiltered(col.key) ? 'text-primary' : 'text-muted-foreground opacity-60 hover:opacity-100',
-                  )}
-                  aria-label="Filter {col.header}"
-                >
-                  <Filter class="h-3 w-3" />
-                </button>
-              </DropdownMenuPrimitive.Trigger>
-              <DropdownMenuPrimitive.Content
-                align="start"
-                class="z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
-              >
-                {#each effectiveValues as value (value)}
-                  <DropdownMenuPrimitive.Item
-                    class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground outline-none select-none"
-                    onSelect={() => toggleFilterValue(col.key, value)}
-                  >
-                    <span
-                      class={cn(
-                        'h-3.5 w-3.5 rounded-sm border border-primary flex-shrink-0',
-                        isValueSelected(col.key, value) && 'bg-primary',
-                      )}
-                    ></span>
-                    {getFilterLabel(col, value)}
-                  </DropdownMenuPrimitive.Item>
-                {/each}
-                {#if isFiltered(col.key)}
-                  <DropdownMenuPrimitive.Separator class="my-1 h-px bg-border" />
-                  <DropdownMenuPrimitive.Item
-                    class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground outline-none select-none text-muted-foreground"
-                    onSelect={() => source.setFilter(col.key, new Set())}
-                  >
-                    Clear filter
-                  </DropdownMenuPrimitive.Item>
-                {/if}
-              </DropdownMenuPrimitive.Content>
-            </DropdownMenuPrimitive.Root>
+            <ListFilterPopover
+              columnLabel={col.header}
+              isFiltered={isFiltered(col.key)}
+              values={effectiveValues}
+              selectedValues={source.filters.get(col.key) ?? new Set()}
+              getLabel={(v) => getFilterLabel(col, v)}
+              onToggle={(v) => toggleFilterValue(col.key, v)}
+              onClear={() => clearFilter(col.key)}
+            />
           {/if}
         </div>
       </TableHead>
