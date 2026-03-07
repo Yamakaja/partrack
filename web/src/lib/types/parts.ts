@@ -8,14 +8,18 @@ export interface Part {
   mpn: string | null;
   manufacturer: string | null;
   description: string | null;
+  short_description: string | null;
   category: string | null;
   package: string | null;
   datasheet_url: string | null;
+  product_url: string | null;
+  image_url: string | null;
   lifecycle_status: LifecycleStatus | null;
   enrichment_source_id: string | null;
   enriched_at: string | null;
   preferred_parameter_source_id: string | null;
   created_at: string;
+  aliases: string[];
   // Inventory fields — present when team_id is passed to GET /parts/:id
   inventory_entry_id: string | null;
   quantity_on_hand: number | null;
@@ -39,6 +43,7 @@ export interface PartSummary {
   mpn: string | null;
   manufacturer: string | null;
   description: string | null;
+  short_description: string | null;
   category: string | null;
   package: string | null;
   lifecycle_status: LifecycleStatus | null;

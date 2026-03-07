@@ -441,8 +441,7 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		QuantityReceived int32  `json:"quantity_received"`
-		Reason           string `json:"reason"`
+		QuantityReceived int32 `json:"quantity_received"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -521,14 +520,11 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the stock adjustment.
-	var reason *string
-	if body.Reason != "" {
-		reason = &body.Reason
-	}
+	defaultReason := fmt.Sprintf("Received from order %s", orderID.String())
 	if _, err := qtx.CreateOrderStockAdjustment(r.Context(), dbgen.CreateOrderStockAdjustmentParams{
 		InventoryEntryID: invEntry.ID,
 		Delta:            body.QuantityReceived,
-		Reason:           reason,
+		Reason:           &defaultReason,
 		CreatedBy:        userID,
 		OrderLineItemID:  lineItemID,
 	}); err != nil {
@@ -610,10 +606,7 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		if stillNeeded <= 0 {
 			continue
 		}
-		allocate := remaining
-		if allocate > stillNeeded {
-			allocate = stillNeeded
-		}
+		allocate := min(remaining, stillNeeded)
 		if allocate > 0 {
 			if err := qtx.IncrementBuildPartAllocationReceived(r.Context(), dbgen.IncrementBuildPartAllocationReceivedParams{
 				BuildID:          bid,

@@ -533,85 +533,9 @@ func (q *Queue) handlePartEnrich(job Job) {
 	}
 	qtx := queries.WithTx(tx)
 
-	if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
-		PartID:              partID,
-		SourceDistributorID: cfg.DistributorID,
-	}); err != nil {
+	if err := persistEnrichmentResult(ctx, qtx, partID, cfg.DistributorID, result, true); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
-		q.publishError(job, "failed to delete parameters: "+err.Error())
-		return
-	}
-
-	for _, p := range result.Parameters {
-		var unit *string
-		if p.Unit != "" {
-			u := p.Unit
-			unit = &u
-		}
-		if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
-			PartID:              partID,
-			Name:                p.Name,
-			Value:               p.Value,
-			Unit:                unit,
-			SourceDistributorID: cfg.DistributorID,
-		}); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			q.publishError(job, "failed to insert parameter: "+err.Error())
-			return
-		}
-	}
-
-	for _, l := range result.Listings {
-		unitPrice, err := parseNumeric(l.UnitPrice)
-		if err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			q.publishError(job, "invalid unit_price: "+l.UnitPrice)
-			return
-		}
-		fixedCost, err := parseNumeric(l.FixedOrderCost)
-		if err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			q.publishError(job, "invalid fixed_order_cost: "+l.FixedOrderCost)
-			return
-		}
-		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
-		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
-			PartID:         partID,
-			DistributorID:  cfg.DistributorID,
-			Sku:            l.SKU,
-			PackagingType:  l.PackagingType,
-			UnitPrice:      unitPrice,
-			StockAvailable: l.StockAvailable,
-			Moq:            l.Moq,
-			FixedOrderCost: fixedCost,
-			PriceBreaks:    priceBreaksJSON,
-		}); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			q.publishError(job, "failed to upsert listing: "+err.Error())
-			return
-		}
-	}
-
-	var lifecycleStatus dbgen.NullPartLifecycleStatus
-	if result.LifecycleStatus != "" {
-		lifecycleStatus = dbgen.NullPartLifecycleStatus{
-			PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
-			Valid:               true,
-		}
-	}
-	var mpn *string
-	if result.MPN != "" {
-		s := result.MPN
-		mpn = &s
-	}
-	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
-		ID:                 partID,
-		EnrichmentSourceID: cfg.DistributorID,
-		LifecycleStatus:    lifecycleStatus,
-		Mpn:                mpn,
-	}); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		q.publishError(job, "failed to set enriched: "+err.Error())
+		q.publishError(job, "failed to persist enrichment: "+err.Error())
 		return
 	}
 
@@ -656,13 +580,6 @@ func ApplyEnrichmentResult(
 	result *distributor.EnrichmentResult,
 	fallbackMPN, fallbackManufacturer *string,
 ) (pgtype.UUID, error) {
-	strOrNil := func(s string) *string {
-		if s == "" {
-			return nil
-		}
-		return &s
-	}
-
 	mpn := strOrNil(result.MPN)
 	if mpn == nil {
 		mpn = fallbackMPN
@@ -733,69 +650,11 @@ func ApplyEnrichmentResult(
 	}
 	qtx := queries.WithTx(tx)
 
-	// For new parts only: insert parameters (plain INSERT; safe because the part has
-	// no prior rows). Existing parts keep their parameters to preserve curated data.
-	if partIsNew {
-		for _, p := range result.Parameters {
-			unit := strOrNil(p.Unit)
-			if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
-				PartID:              partID,
-				Name:                p.Name,
-				Value:               p.Value,
-				Unit:                unit,
-				SourceDistributorID: distributorID,
-			}); err != nil {
-				tx.Rollback(ctx) //nolint:errcheck
-				return pgtype.UUID{}, fmt.Errorf("insert parameter %q: %w", p.Name, err)
-			}
-		}
-	}
-
-	// Upsert listings — ON CONFLICT (distributor_id, sku) DO UPDATE, so existing
-	// listings for other SKUs or distributors are untouched.
-	for _, l := range result.Listings {
-		unitPrice, err := parseNumeric(l.UnitPrice)
-		if err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			return pgtype.UUID{}, fmt.Errorf("invalid unit_price %q: %w", l.UnitPrice, err)
-		}
-		fixedCost, err := parseNumeric(l.FixedOrderCost)
-		if err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			return pgtype.UUID{}, fmt.Errorf("invalid fixed_order_cost %q: %w", l.FixedOrderCost, err)
-		}
-		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
-		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
-			PartID:         partID,
-			DistributorID:  distributorID,
-			Sku:            l.SKU,
-			PackagingType:  l.PackagingType,
-			UnitPrice:      unitPrice,
-			StockAvailable: l.StockAvailable,
-			Moq:            l.Moq,
-			FixedOrderCost: fixedCost,
-			PriceBreaks:    priceBreaksJSON,
-		}); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			return pgtype.UUID{}, fmt.Errorf("upsert listing %q: %w", l.SKU, err)
-		}
-	}
-
-	var enrichedLifecycle dbgen.NullPartLifecycleStatus
-	if result.LifecycleStatus != "" {
-		enrichedLifecycle = dbgen.NullPartLifecycleStatus{
-			PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
-			Valid:               true,
-		}
-	}
-	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
-		ID:                 partID,
-		EnrichmentSourceID: distributorID,
-		LifecycleStatus:    enrichedLifecycle,
-		Mpn:                mpn,
-	}); err != nil {
+	// refreshParameters=partIsNew: refresh (delete+insert) for new parts, preserve
+	// curated parameters on existing ones. Listings, metadata, and aliases always updated.
+	if err := persistEnrichmentResult(ctx, qtx, partID, distributorID, result, partIsNew); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
-		return pgtype.UUID{}, fmt.Errorf("set enriched: %w", err)
+		return pgtype.UUID{}, fmt.Errorf("persist enrichment: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -918,4 +777,107 @@ func parseNumeric(s string) (pgtype.Numeric, error) {
 	}
 	err := n.Scan(s)
 	return n, err
+}
+
+// strOrNil returns a pointer to s, or nil if s is empty.
+func strOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// persistEnrichmentResult writes the distributor-sourced data from result into the
+// database within the provided transaction. It always upserts listings, updates part
+// metadata via SetPartEnriched, and refreshes aliases. When refreshParameters is true
+// it also replaces all distributor-sourced parameters for this distributor; when false
+// the existing parameters are left untouched (used to preserve curated data on
+// already-known parts). The caller is responsible for rolling back on error.
+func persistEnrichmentResult(
+	ctx context.Context,
+	qtx *dbgen.Queries,
+	partID pgtype.UUID,
+	distributorID pgtype.UUID,
+	result *distributor.EnrichmentResult,
+	refreshParameters bool,
+) error {
+	if refreshParameters {
+		if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
+			PartID:              partID,
+			SourceDistributorID: distributorID,
+		}); err != nil {
+			return fmt.Errorf("delete distributor parameters: %w", err)
+		}
+		for _, p := range result.Parameters {
+			if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
+				PartID:              partID,
+				Name:                p.Name,
+				Value:               p.Value,
+				Unit:                strOrNil(p.Unit),
+				SourceDistributorID: distributorID,
+			}); err != nil {
+				return fmt.Errorf("insert parameter %q: %w", p.Name, err)
+			}
+		}
+	}
+
+	for _, l := range result.Listings {
+		unitPrice, err := parseNumeric(l.UnitPrice)
+		if err != nil {
+			return fmt.Errorf("invalid unit_price %q: %w", l.UnitPrice, err)
+		}
+		fixedCost, err := parseNumeric(l.FixedOrderCost)
+		if err != nil {
+			return fmt.Errorf("invalid fixed_order_cost %q: %w", l.FixedOrderCost, err)
+		}
+		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
+		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
+			PartID:         partID,
+			DistributorID:  distributorID,
+			Sku:            l.SKU,
+			PackagingType:  l.PackagingType,
+			UnitPrice:      unitPrice,
+			StockAvailable: l.StockAvailable,
+			Moq:            l.Moq,
+			FixedOrderCost: fixedCost,
+			PriceBreaks:    priceBreaksJSON,
+		}); err != nil {
+			return fmt.Errorf("upsert listing %q: %w", l.SKU, err)
+		}
+	}
+
+	var lifecycleStatus dbgen.NullPartLifecycleStatus
+	if result.LifecycleStatus != "" {
+		lifecycleStatus = dbgen.NullPartLifecycleStatus{
+			PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
+			Valid:               true,
+		}
+	}
+	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
+		ID:                 partID,
+		EnrichmentSourceID: distributorID,
+		LifecycleStatus:    lifecycleStatus,
+		Mpn:                strOrNil(result.MPN),
+		Description:        strOrNil(result.Description),
+		DatasheetUrl:       strOrNil(result.DatasheetURL),
+		ShortDescription:   strOrNil(result.ShortDescription),
+		ProductUrl:         strOrNil(result.ProductURL),
+		ImageUrl:           strOrNil(result.ImageURL),
+	}); err != nil {
+		return fmt.Errorf("set enriched: %w", err)
+	}
+
+	if err := qtx.DeletePartAliases(ctx, partID); err != nil {
+		return fmt.Errorf("delete aliases: %w", err)
+	}
+	for _, alias := range result.Aliases {
+		if err := qtx.InsertPartAlias(ctx, dbgen.InsertPartAliasParams{
+			PartID: partID,
+			Alias:  alias,
+		}); err != nil {
+			return fmt.Errorf("insert alias %q: %w", alias, err)
+		}
+	}
+
+	return nil
 }

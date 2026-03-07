@@ -82,8 +82,8 @@
             {#if part.manufacturer}
               <span class="ml-1 text-muted-foreground">{part.manufacturer}</span>
             {/if}
-            {#if part.description}
-              <span class="block text-xs text-muted-foreground truncate">{part.description}</span>
+            {#if part.short_description ?? part.description}
+              <span class="block text-xs text-muted-foreground truncate">{part.short_description ?? part.description}</span>
             {/if}
           </button>
         </li>

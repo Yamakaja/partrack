@@ -282,6 +282,9 @@ type product struct {
 	Description            descriptionObj     `json:"Description"`
 	Category               nameObj            `json:"Category"`
 	DatasheetUrl           string             `json:"DatasheetUrl"`
+	ProductUrl             string             `json:"ProductUrl"`
+	PhotoUrl               string             `json:"PhotoUrl"`
+	OtherNames             []string           `json:"OtherNames"`
 	Parameters             []parameterValue   `json:"Parameters"`
 	ProductVariations      []productVariation `json:"ProductVariations"`
 	ProductStatus          statusObj          `json:"ProductStatus"`
@@ -380,17 +383,23 @@ func (c *Client) CredentialSpec() []distributor.CredentialField {
 
 // mapProductToEnrichment converts a DigiKey product struct to an EnrichmentResult.
 func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
-	result := &distributor.EnrichmentResult{
-		MPN:             p.ManufacturerPartNumber,
-		Manufacturer:    p.Manufacturer.Name,
-		Description:     p.Description.ProductDescription,
-		Category:        p.Category.Name,
-		DatasheetURL:    p.DatasheetUrl,
-		Package:         extractPackage(p.Parameters),
-		LifecycleStatus: mapProductStatus(p.ProductStatus.Status),
+	// Prefer the detailed description for the long description field; fall back to short.
+	description := p.Description.DetailedDescription
+	if description == "" {
+		description = p.Description.ProductDescription
 	}
-	if result.Description == "" {
-		result.Description = p.Description.DetailedDescription
+	result := &distributor.EnrichmentResult{
+		MPN:              p.ManufacturerPartNumber,
+		Manufacturer:     p.Manufacturer.Name,
+		Description:      description,
+		ShortDescription: p.Description.ProductDescription,
+		Category:         p.Category.Name,
+		DatasheetURL:     p.DatasheetUrl,
+		ProductURL:       p.ProductUrl,
+		ImageURL:         p.PhotoUrl,
+		Aliases:          p.OtherNames,
+		Package:          extractPackage(p.Parameters),
+		LifecycleStatus:  mapProductStatus(p.ProductStatus.Status),
 	}
 
 	for _, param := range p.Parameters {

@@ -545,6 +545,15 @@ type Part struct {
 	EnrichedAt                 pgtype.Timestamptz  `json:"enriched_at"`
 	PreferredParameterSourceID pgtype.UUID         `json:"preferred_parameter_source_id"`
 	CreatedAt                  pgtype.Timestamptz  `json:"created_at"`
+	ShortDescription           *string             `json:"short_description"`
+	ProductUrl                 *string             `json:"product_url"`
+	ImageUrl                   *string             `json:"image_url"`
+}
+
+type PartAlias struct {
+	ID     pgtype.UUID `json:"id"`
+	PartID pgtype.UUID `json:"part_id"`
+	Alias  string      `json:"alias"`
 }
 
 type PartParameter struct {

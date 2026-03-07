@@ -232,6 +232,10 @@
   {/if}
 {/snippet}
 
+{#snippet renderDescription(_value: unknown, row: PartSummary)}
+  {row.short_description ?? row.description ?? ''}
+{/snippet}
+
 <div class="flex flex-col h-full">
   <Topbar title="Parts" />
 
@@ -242,6 +246,7 @@
       onRowClick={(p) => navigate(`/teams/${teamId}/parts/${p.id}`)}
       renderers={{
         mpn: renderMpn,
+        description: renderDescription,
         lifecycle_status: renderLifecycle,
         quantity_on_hand: renderQty,
         stock_status: renderStock,

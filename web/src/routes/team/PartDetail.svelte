@@ -208,7 +208,7 @@
       {@const part = partQuery.data}
       <div class="space-y-6">
         <!-- Overview card -->
-        <MetadataCard title={part.mpn ?? '—'} titleClass="font-mono" description={part.description ?? '—'}>
+        <MetadataCard title={part.mpn ?? '—'} titleClass="font-mono" description={part.short_description ?? part.description ?? '—'}>
           <!-- Part metadata -->
           <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div><span class="text-muted-foreground">Manufacturer:</span> <span class="font-medium">{part.manufacturer ?? '—'}</span></div>
@@ -217,7 +217,19 @@
             {#if part.datasheet_url}
               <div><span class="text-muted-foreground">Datasheet:</span> <a href={part.datasheet_url} target="_blank" class="text-primary hover:underline">Link</a></div>
             {/if}
+            {#if part.product_url}
+              <div><span class="text-muted-foreground">Product Page:</span> <a href={part.product_url} target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Link</a></div>
+            {/if}
           </div>
+          {#if part.description && part.short_description && part.description !== part.short_description}
+            <p class="text-sm text-muted-foreground">{part.description}</p>
+          {/if}
+
+          {#snippet rightFull()}
+            {#if part.image_url}
+              <img src={part.image_url} alt={part.mpn ?? 'Part image'} class="h-full w-64 object-contain rounded border border-border bg-white p-2" />
+            {/if}
+          {/snippet}
 
           {#snippet footer()}
             {#if tracked}
@@ -250,6 +262,18 @@
             {/if}
           {/snippet}
         </MetadataCard>
+
+        <!-- Aliases -->
+        {#if part.aliases?.length > 0}
+          <section class="space-y-2">
+            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Also Known As</h3>
+            <div class="flex flex-wrap gap-1.5">
+              {#each part.aliases as alias}
+                <span class="inline-flex items-center rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground">{alias}</span>
+              {/each}
+            </div>
+          </section>
+        {/if}
 
         <!-- Stacked sections -->
         <section class="space-y-2">

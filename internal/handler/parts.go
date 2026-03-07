@@ -86,9 +86,12 @@ type partFullResponse struct {
 	Mpn                        *string `json:"mpn"`
 	Manufacturer               *string `json:"manufacturer"`
 	Description                *string `json:"description"`
+	ShortDescription           *string `json:"short_description"`
 	Category                   *string `json:"category"`
 	Package                    *string `json:"package"`
 	DatasheetURL               *string `json:"datasheet_url"`
+	ProductURL                 *string `json:"product_url"`
+	ImageURL                   *string `json:"image_url"`
 	LifecycleStatus            string  `json:"lifecycle_status"`
 	EnrichmentSourceID         *string `json:"enrichment_source_id"`
 	EnrichedAt                 *string `json:"enriched_at"`
@@ -98,16 +101,19 @@ type partFullResponse struct {
 
 func toPartFullResponse(p dbgen.Part) partFullResponse {
 	resp := partFullResponse{
-		ID:              p.ID.String(),
-		Scope:           string(p.Scope),
-		Mpn:             p.Mpn,
-		Manufacturer:    p.Manufacturer,
-		Description:     p.Description,
-		Category:        p.Category,
-		Package:         p.Package,
-		DatasheetURL:    p.DatasheetUrl,
-		LifecycleStatus: string(p.LifecycleStatus),
-		CreatedAt:       p.CreatedAt.Time.UTC().Format(time.RFC3339),
+		ID:               p.ID.String(),
+		Scope:            string(p.Scope),
+		Mpn:              p.Mpn,
+		Manufacturer:     p.Manufacturer,
+		Description:      p.Description,
+		ShortDescription: p.ShortDescription,
+		Category:         p.Category,
+		Package:          p.Package,
+		DatasheetURL:     p.DatasheetUrl,
+		ProductURL:       p.ProductUrl,
+		ImageURL:         p.ImageUrl,
+		LifecycleStatus:  string(p.LifecycleStatus),
+		CreatedAt:        p.CreatedAt.Time.UTC().Format(time.RFC3339),
 	}
 	if p.TeamID.Valid {
 		s := p.TeamID.String()
@@ -194,6 +200,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		Mpn                  *string `json:"mpn"`
 		Manufacturer         *string `json:"manufacturer"`
 		Description          *string `json:"description"`
+		ShortDescription     *string `json:"short_description"`
 		Category             *string `json:"category"`
 		Package              *string `json:"package"`
 		LifecycleStatus      string  `json:"lifecycle_status"`
@@ -211,6 +218,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			Mpn:                  p.Mpn,
 			Manufacturer:         p.Manufacturer,
 			Description:          p.Description,
+			ShortDescription:     p.ShortDescription,
 			Category:             p.Category,
 			Package:              p.Package,
 			LifecycleStatus:      string(p.LifecycleStatus),
@@ -380,7 +388,9 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		partBase = dbgen.Part{
 			ID: row.ID, Scope: row.Scope, TeamID: row.TeamID,
 			Mpn: row.Mpn, Manufacturer: row.Manufacturer, Description: row.Description,
+			ShortDescription: row.ShortDescription,
 			Category: row.Category, Package: row.Package, DatasheetUrl: row.DatasheetUrl,
+			ProductUrl: row.ProductUrl, ImageUrl: row.ImageUrl,
 			LifecycleStatus: row.LifecycleStatus,
 			EnrichmentSourceID: row.EnrichmentSourceID, EnrichedAt: row.EnrichedAt,
 			PreferredParameterSourceID: row.PreferredParameterSourceID,
@@ -425,6 +435,16 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
+	}
+
+	aliasRows, err := h.Queries.GetPartAliases(r.Context(), partID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	aliases := make([]string, len(aliasRows))
+	for i, a := range aliasRows {
+		aliases[i] = a
 	}
 
 	type userParam struct {
@@ -503,14 +523,18 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		"mpn":                           base.Mpn,
 		"manufacturer":                  base.Manufacturer,
 		"description":                   base.Description,
+		"short_description":             base.ShortDescription,
 		"category":                      base.Category,
 		"package":                       base.Package,
 		"datasheet_url":                 base.DatasheetURL,
+		"product_url":                   base.ProductURL,
+		"image_url":                     base.ImageURL,
 		"lifecycle_status":              base.LifecycleStatus,
 		"enrichment_source_id":          base.EnrichmentSourceID,
 		"enriched_at":                   base.EnrichedAt,
 		"preferred_parameter_source_id": base.PreferredParameterSourceID,
 		"created_at":                    base.CreatedAt,
+		"aliases":                       aliases,
 		"inventory_entry_id":            inventoryEntryID,
 		"quantity_on_hand":              quantityOnHand,
 		"minimum_stock_quantity":        minimumStockQuantity,

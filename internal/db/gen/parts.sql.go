@@ -58,7 +58,9 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   AND ($2::text IS NULL
        OR p.mpn ILIKE '%' || $2 || '%'
        OR p.description ILIKE '%' || $2 || '%'
-       OR p.manufacturer ILIKE '%' || $2 || '%')
+       OR p.short_description ILIKE '%' || $2 || '%'
+       OR p.manufacturer ILIKE '%' || $2 || '%'
+       OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || $2 || '%'))
   AND ($3::text IS NULL OR p.mpn = $3)
   AND ($4::text IS NULL OR p.category = $4)
   AND ($5::text IS NULL OR p.package = $5)
@@ -107,7 +109,7 @@ INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, pac
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, scope, team_id, mpn, manufacturer, description, category, package,
           datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
-          preferred_parameter_source_id, created_at
+          preferred_parameter_source_id, created_at, short_description, product_url, image_url
 `
 
 type CreatePartParams struct {
@@ -150,6 +152,9 @@ func (q *Queries) CreatePart(ctx context.Context, arg CreatePartParams) (Part, e
 		&i.EnrichedAt,
 		&i.PreferredParameterSourceID,
 		&i.CreatedAt,
+		&i.ShortDescription,
+		&i.ProductUrl,
+		&i.ImageUrl,
 	)
 	return i, err
 }
@@ -270,7 +275,7 @@ func (q *Queries) GetListingForRefresh(ctx context.Context, id pgtype.UUID) (Get
 const getPart = `-- name: GetPart :one
 SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
        datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
-       preferred_parameter_source_id, created_at
+       preferred_parameter_source_id, created_at, short_description, product_url, image_url
 FROM parts WHERE id = $1
 `
 
@@ -292,6 +297,9 @@ func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
 		&i.EnrichedAt,
 		&i.PreferredParameterSourceID,
 		&i.CreatedAt,
+		&i.ShortDescription,
+		&i.ProductUrl,
+		&i.ImageUrl,
 	)
 	return i, err
 }
@@ -342,6 +350,7 @@ SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
     p.category, p.package, p.datasheet_url, p.lifecycle_status,
     p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at,
+    p.short_description, p.product_url, p.image_url,
     ie.id                  AS inventory_entry_id,
     ie.quantity_on_hand,
     ie.minimum_stock_quantity,
@@ -375,6 +384,9 @@ type GetPartWithInventoryRow struct {
 	EnrichedAt                 pgtype.Timestamptz  `json:"enriched_at"`
 	PreferredParameterSourceID pgtype.UUID         `json:"preferred_parameter_source_id"`
 	CreatedAt                  pgtype.Timestamptz  `json:"created_at"`
+	ShortDescription           *string             `json:"short_description"`
+	ProductUrl                 *string             `json:"product_url"`
+	ImageUrl                   *string             `json:"image_url"`
 	InventoryEntryID           pgtype.UUID         `json:"inventory_entry_id"`
 	QuantityOnHand             *int32              `json:"quantity_on_hand"`
 	MinimumStockQuantity       *int32              `json:"minimum_stock_quantity"`
@@ -403,6 +415,9 @@ func (q *Queries) GetPartWithInventory(ctx context.Context, arg GetPartWithInven
 		&i.EnrichedAt,
 		&i.PreferredParameterSourceID,
 		&i.CreatedAt,
+		&i.ShortDescription,
+		&i.ProductUrl,
+		&i.ImageUrl,
 		&i.InventoryEntryID,
 		&i.QuantityOnHand,
 		&i.MinimumStockQuantity,
@@ -751,7 +766,7 @@ func (q *Queries) ListPartsByMPNAndManufacturer(ctx context.Context, arg ListPar
 
 const listPartsWithInventory = `-- name: ListPartsWithInventory :many
 SELECT
-    p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
+    p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
     p.category, p.package, p.lifecycle_status, p.created_at,
     ie.id            AS inventory_entry_id,
     ie.quantity_on_hand,
@@ -765,7 +780,9 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   AND ($2::text IS NULL
        OR p.mpn ILIKE '%' || $2 || '%'
        OR p.description ILIKE '%' || $2 || '%'
-       OR p.manufacturer ILIKE '%' || $2 || '%')
+       OR p.short_description ILIKE '%' || $2 || '%'
+       OR p.manufacturer ILIKE '%' || $2 || '%'
+       OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || $2 || '%'))
   AND ($3::text IS NULL OR p.mpn = $3)
   AND ($4::text IS NULL OR p.category = $4)
   AND ($5::text IS NULL OR p.package = $5)
@@ -803,6 +820,7 @@ type ListPartsWithInventoryRow struct {
 	Mpn                  *string             `json:"mpn"`
 	Manufacturer         *string             `json:"manufacturer"`
 	Description          *string             `json:"description"`
+	ShortDescription     *string             `json:"short_description"`
 	Category             *string             `json:"category"`
 	Package              *string             `json:"package"`
 	LifecycleStatus      PartLifecycleStatus `json:"lifecycle_status"`
@@ -843,6 +861,7 @@ func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithI
 			&i.Mpn,
 			&i.Manufacturer,
 			&i.Description,
+			&i.ShortDescription,
 			&i.Category,
 			&i.Package,
 			&i.LifecycleStatus,
@@ -868,7 +887,12 @@ UPDATE parts
 SET enrichment_source_id = $2,
     enriched_at          = NOW(),
     lifecycle_status     = COALESCE($3::part_lifecycle_status, lifecycle_status),
-    mpn                  = COALESCE($4, mpn)
+    mpn                  = COALESCE($4, mpn),
+    description          = COALESCE($5, description),
+    datasheet_url        = COALESCE($6, datasheet_url),
+    short_description    = COALESCE($7, short_description),
+    product_url          = COALESCE($8, product_url),
+    image_url            = COALESCE($9, image_url)
 WHERE id = $1
 `
 
@@ -877,16 +901,26 @@ type SetPartEnrichedParams struct {
 	EnrichmentSourceID pgtype.UUID             `json:"enrichment_source_id"`
 	LifecycleStatus    NullPartLifecycleStatus `json:"lifecycle_status"`
 	Mpn                *string                 `json:"mpn"`
+	Description        *string                 `json:"description"`
+	DatasheetUrl       *string                 `json:"datasheet_url"`
+	ShortDescription   *string                 `json:"short_description"`
+	ProductUrl         *string                 `json:"product_url"`
+	ImageUrl           *string                 `json:"image_url"`
 }
 
-// Records which distributor last enriched this part, when, and updates lifecycle_status
-// and mpn if the distributor provides them (NULL keeps the existing values).
+// Records which distributor last enriched this part, when, and updates all enrichable
+// fields. NULL keeps existing values (COALESCE pattern).
 func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams) error {
 	_, err := q.db.Exec(ctx, setPartEnriched,
 		arg.ID,
 		arg.EnrichmentSourceID,
 		arg.LifecycleStatus,
 		arg.Mpn,
+		arg.Description,
+		arg.DatasheetUrl,
+		arg.ShortDescription,
+		arg.ProductUrl,
+		arg.ImageUrl,
 	)
 	return err
 }
@@ -930,7 +964,7 @@ SET description                   = COALESCE($1, description),
 WHERE id = $7
 RETURNING id, scope, team_id, mpn, manufacturer, description, category, package,
           datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
-          preferred_parameter_source_id, created_at
+          preferred_parameter_source_id, created_at, short_description, product_url, image_url
 `
 
 type UpdatePartParams struct {
@@ -969,6 +1003,9 @@ func (q *Queries) UpdatePart(ctx context.Context, arg UpdatePartParams) (Part, e
 		&i.EnrichedAt,
 		&i.PreferredParameterSourceID,
 		&i.CreatedAt,
+		&i.ShortDescription,
+		&i.ProductUrl,
+		&i.ImageUrl,
 	)
 	return i, err
 }
