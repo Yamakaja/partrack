@@ -145,6 +145,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Delete("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}", h.RemoveSubstitute)
 
 					// Parts (team-scoped mutations)
+					r.Post("/parts/enrich-all", h.ReEnrichAll)
 					r.Post("/parts/{partId}/enrich", h.EnrichPart)
 					r.Post("/parts/{partId}/listings", h.AddListing)
 					r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)

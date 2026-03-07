@@ -290,3 +290,18 @@ WHERE mpn = $1
   AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
 ORDER BY scope DESC
 LIMIT 10;
+
+-- name: GetPartsForReenrichment :many
+-- Returns one (part_id, sku, distributor_id) per part in the team's inventory
+-- that has at least one distributor listing. Prefers the preferred_listing_id;
+-- falls back to the most-recently-created listing.
+SELECT DISTINCT ON (ie.part_id)
+    ie.part_id,
+    dl.sku,
+    dl.distributor_id
+FROM inventory_entries ie
+JOIN distributor_listings dl ON dl.part_id = ie.part_id
+WHERE ie.team_id = @team_id
+ORDER BY ie.part_id,
+    (ie.preferred_listing_id = dl.id) DESC NULLS LAST,
+    dl.id DESC;

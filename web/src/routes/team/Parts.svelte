@@ -1,10 +1,11 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { listParts, createPart, addListing } from '$lib/api/parts.js';
+  import { listParts, createPart, addListing, reenrichAllParts } from '$lib/api/parts.js';
   import { listCategories } from '$lib/api/categories.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
   import type { PartSummary } from '$lib/types/parts.js';
+  import CategoryPicker from '$lib/components/CategoryPicker.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
@@ -12,6 +13,7 @@
   import { DataTable, RemoteDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Dialog } from '$lib/components/ui/dialog/index.js';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -19,12 +21,16 @@
   import { navigate } from '$lib/router/index.svelte.js';
   import { consumePartsStockStatus } from '$lib/stores/navState.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { authStore } from '$lib/stores/auth.svelte.js';
   import { ApiError } from '$lib/api/client.js';
-  import { Plus } from 'lucide-svelte';
+  import { Plus, RefreshCw } from 'lucide-svelte';
 
   let { teamId }: { teamId: string } = $props();
 
   let searchValue = $state('');
+  let reenriching = $state(false);
+  let reenrichConfirmOpen = $state(false);
+  let categoryFilter = $state<number | null>(null);
   let createOpen = $state(false);
   let createMode = $state<'manual' | 'import'>('manual');
   let duplicateFound = $state<{ id: string; mpn: string | null; manufacturer: string | null; description: string | null } | null>(null);
@@ -143,6 +149,19 @@
     source.setFilter('stock_status', new Set([initialStockStatus]));
   }
 
+  async function doReenrichAll() {
+    reenrichConfirmOpen = false;
+    reenriching = true;
+    try {
+      const res = await reenrichAllParts(teamId);
+      pushToast('success', 'Re-enrichment queued', `${res.job_count} part${res.job_count === 1 ? '' : 's'} queued for enrichment.`);
+    } catch (err: any) {
+      pushToast('error', 'Re-enrichment failed', err.message);
+    } finally {
+      reenriching = false;
+    }
+  }
+
   async function handleCreate(e: Event) {
     e.preventDefault();
     creating = true;
@@ -246,7 +265,19 @@
 {/snippet}
 
 <div class="flex flex-col h-full">
-  <Topbar title="Parts" />
+  <Topbar title="Parts">
+  {#snippet actions()}
+    {#if authStore.user?.is_admin}
+      <Button size="sm" variant="outline" disabled={reenriching} onclick={() => (reenrichConfirmOpen = true)}>
+        <RefreshCw class="h-4 w-4 mr-1" />
+        {reenriching ? 'Enriching…' : 'Re-enrich All'}
+      </Button>
+    {/if}
+    <Button size="sm" onclick={() => (createOpen = true)}>
+      <Plus class="h-4 w-4 mr-1" /> Add Part
+    </Button>
+  {/snippet}
+  </Topbar>
 
   <div class="flex-1 overflow-auto p-6">
     <DataTable
@@ -268,15 +299,36 @@
           placeholder="Search MPN, description, manufacturer…"
           onchange={(v) => { searchValue = v; }}
         />
-      {/snippet}
-      {#snippet toolbarRight()}
-        <Button size="sm" onclick={() => (createOpen = true)}>
-          <Plus class="h-4 w-4 mr-1" /> Add Part
-        </Button>
+        <div class="w-48 flex-shrink-0">
+          <CategoryPicker
+            value={categoryFilter}
+            categories={categoriesQuery.data ?? []}
+            placeholder="All categories"
+            onSelect={(id) => {
+              categoryFilter = id;
+              source.setFilter('category_id', id != null ? new Set([String(id)]) : new Set());
+            }}
+          />
+        </div>
       {/snippet}
     </DataTable>
   </div>
 </div>
+
+<!-- Re-enrich All Confirmation Dialog -->
+<Dialog
+  bind:open={reenrichConfirmOpen}
+  title="Re-enrich all parts?"
+  confirmLabel="Re-enrich All"
+  onConfirm={doReenrichAll}
+>
+  {#snippet children()}
+    <div class="text-sm text-muted-foreground space-y-2">
+      <p>This will queue an enrichment job for every part in this team's inventory that has a distributor listing. Each job makes a live API call to the distributor.</p>
+      <p>For large inventories this may take a while to process and will count against your distributor API rate limits.</p>
+    </div>
+  {/snippet}
+</Dialog>
 
 <!-- Create Part Dialog -->
 <DialogPrimitive.Root bind:open={createOpen} onOpenChange={(o) => { if (!o) resetDialog(); }}>

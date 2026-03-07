@@ -295,8 +295,32 @@ type nameObj struct {
 }
 
 type categoryObj struct {
-	CategoryId int32  `json:"CategoryId"`
-	Name       string `json:"Name"`
+	CategoryId      int32         `json:"CategoryId"`
+	ParentId        int32         `json:"ParentId"`
+	Name            string        `json:"Name"`
+	ChildCategories []categoryObj `json:"ChildCategories"`
+}
+
+// categoryChain walks the ChildCategories tree and returns the full ancestry
+// ordered from most-specific (leaf, index 0) to least-specific (root, last).
+// DigiKey nests the matched subcategory inside the top-level category object.
+func categoryChain(c categoryObj) []distributor.DistributorCategory {
+	var chain []distributor.DistributorCategory
+	for {
+		chain = append(chain, distributor.DistributorCategory{
+			ID:   strconv.Itoa(int(c.CategoryId)),
+			Name: c.Name,
+		})
+		if len(c.ChildCategories) == 0 {
+			break
+		}
+		c = c.ChildCategories[0]
+	}
+	// Reverse so index 0 is the leaf (most specific).
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain
 }
 
 type descriptionObj struct {
@@ -393,19 +417,25 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 	if description == "" {
 		description = p.Description.ProductDescription
 	}
+	chain := categoryChain(p.Category)
+	var leafID, leafName string
+	if len(chain) > 0 {
+		leafID, leafName = chain[0].ID, chain[0].Name
+	}
 	result := &distributor.EnrichmentResult{
-		MPN:                     p.ManufacturerPartNumber,
-		Manufacturer:            p.Manufacturer.Name,
-		Description:             description,
-		ShortDescription:        p.Description.ProductDescription,
-		DistributorCategoryID:   strconv.Itoa(int(p.Category.CategoryId)),
-		DistributorCategoryName: p.Category.Name,
-		DatasheetURL:            p.DatasheetUrl,
-		ProductURL:              p.ProductUrl,
-		ImageURL:                p.PhotoUrl,
-		Aliases:                 p.OtherNames,
-		Package:                 extractPackage(p.Parameters),
-		LifecycleStatus:         mapProductStatus(p.ProductStatus.Status),
+		MPN:                      p.ManufacturerPartNumber,
+		Manufacturer:             p.Manufacturer.Name,
+		Description:              description,
+		ShortDescription:         p.Description.ProductDescription,
+		DistributorCategoryID:    leafID,
+		DistributorCategoryName:  leafName,
+		DistributorCategoryChain: chain,
+		DatasheetURL:             p.DatasheetUrl,
+		ProductURL:               p.ProductUrl,
+		ImageURL:                 p.PhotoUrl,
+		Aliases:                  p.OtherNames,
+		Package:                  extractPackage(p.Parameters),
+		LifecycleStatus:          mapProductStatus(p.ProductStatus.Status),
 	}
 
 	for _, param := range p.Parameters {

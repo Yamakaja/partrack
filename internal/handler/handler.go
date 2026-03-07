@@ -42,7 +42,8 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 	return h
 }
 
-// writeError writes a JSON error response.
+// writeError writes a JSON error response. For 5xx statuses it logs the
+// message and a stack trace to help with debugging.
 func writeError(w http.ResponseWriter, status int, message, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

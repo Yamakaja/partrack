@@ -442,6 +442,48 @@ func (q *Queries) GetPartWithInventory(ctx context.Context, arg GetPartWithInven
 	return i, err
 }
 
+const getPartsForReenrichment = `-- name: GetPartsForReenrichment :many
+SELECT DISTINCT ON (ie.part_id)
+    ie.part_id,
+    dl.sku,
+    dl.distributor_id
+FROM inventory_entries ie
+JOIN distributor_listings dl ON dl.part_id = ie.part_id
+WHERE ie.team_id = $1
+ORDER BY ie.part_id,
+    (ie.preferred_listing_id = dl.id) DESC NULLS LAST,
+    dl.id DESC
+`
+
+type GetPartsForReenrichmentRow struct {
+	PartID        pgtype.UUID `json:"part_id"`
+	Sku           string      `json:"sku"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+}
+
+// Returns one (part_id, sku, distributor_id) per part in the team's inventory
+// that has at least one distributor listing. Prefers the preferred_listing_id;
+// falls back to the most-recently-created listing.
+func (q *Queries) GetPartsForReenrichment(ctx context.Context, teamID pgtype.UUID) ([]GetPartsForReenrichmentRow, error) {
+	rows, err := q.db.Query(ctx, getPartsForReenrichment, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPartsForReenrichmentRow
+	for rows.Next() {
+		var i GetPartsForReenrichmentRow
+		if err := rows.Scan(&i.PartID, &i.Sku, &i.DistributorID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertDistributorParameter = `-- name: InsertDistributorParameter :one
 INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
 VALUES ($1, $2, $3, $4, 'distributor', $5)

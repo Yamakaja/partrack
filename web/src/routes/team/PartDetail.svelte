@@ -5,6 +5,7 @@
   import type { LifecycleStatus } from '$lib/types/parts.js';
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
   import { listStorageLocations } from '$lib/api/storage.js';
+  import CategoryPicker from '$lib/components/CategoryPicker.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
@@ -219,7 +220,7 @@
           <!-- Part metadata -->
           <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div><span class="text-muted-foreground">Manufacturer:</span> <span class="font-medium">{part.manufacturer ?? '—'}</span></div>
-            <div><span class="text-muted-foreground">Category:</span> <span class="font-medium">{part.category_name ?? '—'}</span></div>
+            <div><span class="text-muted-foreground">Category:</span> <span class="font-medium">{part.category_name ?? '—'}</span>{#if part.category_source === 'user'}<span class="ml-1 text-xs text-muted-foreground" title="Manually assigned">✎</span>{/if}</div>
             <div><span class="text-muted-foreground">Package:</span> <span class="font-medium">{part.package ?? '—'}</span></div>
             {#if part.datasheet_url}
               <div><span class="text-muted-foreground">Datasheet:</span> <a href={part.datasheet_url} target="_blank" class="text-primary hover:underline">Link</a></div>
@@ -365,25 +366,17 @@
           <Label for="ep-desc">Description</Label>
           <Input id="ep-desc" bind:value={editDescription} placeholder="e.g. 10kΩ 1% 0402 resistor" />
         </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="space-y-1">
-            <Label for="ep-category">Category</Label>
-            <select
-              id="ep-category"
-              class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={editCategoryId ?? ''}
-              onchange={(e) => { const v = (e.target as HTMLSelectElement).value; editCategoryId = v ? Number(v) : null; }}
-            >
-              <option value="">— None —</option>
-              {#each categoriesQuery.data ?? [] as cat}
-                <option value={cat.id}>{cat.display_name}</option>
-              {/each}
-            </select>
-          </div>
-          <div class="space-y-1">
-            <Label for="ep-package">Package</Label>
-            <Input id="ep-package" bind:value={editPackage} placeholder="e.g. 0402" />
-          </div>
+        <div class="space-y-1">
+          <Label for="ep-category">Category</Label>
+          <CategoryPicker
+            value={editCategoryId}
+            categories={categoriesQuery.data ?? []}
+            onSelect={(id) => { editCategoryId = id; }}
+          />
+        </div>
+        <div class="space-y-1">
+          <Label for="ep-package">Package</Label>
+          <Input id="ep-package" bind:value={editPackage} placeholder="e.g. 0402" />
         </div>
         <div class="space-y-1">
           <Label for="ep-datasheet">Datasheet URL</Label>

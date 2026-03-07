@@ -823,19 +823,24 @@ func persistEnrichmentResult(
 	}
 
 	// Resolve distributor category → partrack category mapping.
-	// Always upsert a mapping row (category_id may be NULL if unmapped).
+	// Walk the chain from most-specific (leaf) to least-specific (root), stopping at
+	// the first level that has an existing mapping. This lets a leaf without a direct
+	// mapping fall back to its parent category.
 	var resolvedCategoryID *int32
-	if result.DistributorCategoryID != "" && result.DistributorCategoryID != "0" {
+	for _, cat := range result.DistributorCategoryChain {
+		if cat.ID == "" || cat.ID == "0" {
+			continue
+		}
 		mapping, err := qtx.UpsertDistributorCategoryMapping(ctx, dbgen.UpsertDistributorCategoryMappingParams{
-			DistributorID:          distributorID,
-			DistributorCategoryID:  result.DistributorCategoryID,
-			DistributorCategoryName: result.DistributorCategoryName,
-			// Keep existing category_id (ON CONFLICT preserves it if already mapped by an admin).
-			// Pass NULL so the COALESCE in UpsertDistributorCategoryMapping keeps the existing value.
+			DistributorID:           distributorID,
+			DistributorCategoryID:   cat.ID,
+			DistributorCategoryName: cat.Name,
+			// Pass NULL so COALESCE preserves any admin-set mapping.
 			CategoryID: nil,
 		})
 		if err == nil && mapping.CategoryID != nil {
 			resolvedCategoryID = mapping.CategoryID
+			break
 		}
 	}
 

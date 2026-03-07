@@ -42,6 +42,7 @@
             <TableHead>Delta</TableHead>
             <TableHead>Reason</TableHead>
             <TableHead>Source</TableHead>
+            <TableHead>By</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -67,6 +68,7 @@
                   Manual
                 {/if}
               </TableCell>
+              <TableCell class="text-muted-foreground">{adj.created_by_display_name}</TableCell>
             </TableRow>
           {/each}
         </TableBody>

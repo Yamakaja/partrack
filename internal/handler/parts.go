@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -703,6 +704,37 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 	jobID := h.enqueueEnrich(teamIDStr, partID.String(), req.SKU, req.DistributorID, user.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// ReEnrichAll handles POST /api/v1/teams/{teamId}/parts/enrich-all
+// Enqueues enrichment for every part in the team's inventory that has a listing.
+// Restricted to global admins only.
+func (h *Handler) ReEnrichAll(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if !user.IsAdmin {
+		writeError(w, http.StatusForbidden, "requires global admin", "FORBIDDEN")
+		return
+	}
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+
+	rows, err := h.Queries.GetPartsForReenrichment(r.Context(), teamID)
+	if err != nil {
+		slog.Error("GetPartsForReenrichment failed", "team_id", chi.URLParam(r, "teamId"), "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	teamIDStr := chi.URLParam(r, "teamId")
+	for _, row := range rows {
+		h.enqueueEnrich(teamIDStr, row.PartID.String(), row.Sku, row.DistributorID.String(), user.ID)
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_count": len(rows)})
 }
 
 // enqueueEnrich enqueues a JobPartEnrich worker task and returns the job ID.

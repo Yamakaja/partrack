@@ -75,14 +75,24 @@ type SearchResult struct {
 	ExactMatchIndices []int
 }
 
+// DistributorCategory is one level in a distributor's category hierarchy.
+type DistributorCategory struct {
+	ID   string
+	Name string
+}
+
 // EnrichmentResult is the combined metadata and listings returned by EnrichPart.
 type EnrichmentResult struct {
 	MPN                    string // manufacturer part number; empty to leave unchanged
 	Manufacturer           string
 	Description            string          // long/detailed description
 	ShortDescription       string          // short/product description
-	DistributorCategoryID  string          // distributor's own category identifier
-	DistributorCategoryName string         // distributor's category display name
+	DistributorCategoryID   string // distributor's own category identifier (leaf/most-specific)
+	DistributorCategoryName string // distributor's category display name (leaf/most-specific)
+	// DistributorCategoryChain holds the full ancestry from most-specific (index 0)
+	// to least-specific (last index). Used by the worker to fall back to a parent
+	// mapping when the leaf has no direct mapping in distributor_category_mappings.
+	DistributorCategoryChain []DistributorCategory
 	Package                string
 	DatasheetURL           string
 	ProductURL             string   // distributor product page URL
