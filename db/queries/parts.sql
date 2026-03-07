@@ -1,6 +1,19 @@
 -- Parts catalog, parameters, and distributor listing queries.
 
+-- name: ListPartCategoryIDs :many
+-- Returns distinct category IDs present in the team's parts catalog
+-- (global parts + team-scoped parts). Used to populate the category filter picker.
+SELECT DISTINCT category_id
+FROM parts
+WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND category_id IS NOT NULL;
+
 -- name: ListParts :many
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = sqlc.narg('category_id')
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT id, scope, team_id, mpn, manufacturer, description, category, category_id, category_source,
        package, lifecycle_status, created_at
 FROM parts
@@ -10,7 +23,7 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
        OR description ILIKE '%' || sqlc.narg('q') || '%'
        OR manufacturer ILIKE '%' || sqlc.narg('q') || '%')
   AND (sqlc.narg('mpn_exact')::text IS NULL OR mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
+  AND (sqlc.narg('category_id')::int IS NULL OR category_id IN (SELECT id FROM cat_tree))
   AND (sqlc.narg('package')::text IS NULL OR package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -19,6 +32,11 @@ ORDER BY mpn NULLS LAST, id
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountParts :one
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = sqlc.narg('category_id')
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT COUNT(*) FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
   AND (sqlc.narg('q')::text IS NULL
@@ -26,7 +44,7 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
        OR description ILIKE '%' || sqlc.narg('q') || '%'
        OR manufacturer ILIKE '%' || sqlc.narg('q') || '%')
   AND (sqlc.narg('mpn_exact')::text IS NULL OR mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
+  AND (sqlc.narg('category_id')::int IS NULL OR category_id IN (SELECT id FROM cat_tree))
   AND (sqlc.narg('package')::text IS NULL OR package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -35,6 +53,11 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
 -- name: ListPartsWithInventory :many
 -- Like ListParts but LEFT JOINs the team's inventory entry for each part.
 -- All inventory fields are NULL for parts that are not tracked by the team.
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = sqlc.narg('category_id')
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
     p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.created_at,
@@ -56,7 +79,7 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
        OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%'
        OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || sqlc.narg('q') || '%'))
   AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id = sqlc.narg('category_id'))
+  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -72,6 +95,11 @@ ORDER BY p.mpn NULLS LAST, p.id
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountPartsWithInventory :one
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = sqlc.narg('category_id')
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT COUNT(*) FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
@@ -82,7 +110,7 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
        OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%'
        OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || sqlc.narg('q') || '%'))
   AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id = sqlc.narg('category_id'))
+  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR p.lifecycle_status = sqlc.narg('lifecycle_status'))

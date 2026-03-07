@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
   import { listParts, createPart, addListing, reenrichAllParts } from '$lib/api/parts.js';
-  import { listCategories } from '$lib/api/categories.js';
+  import { listCategories, listPartCategories } from '$lib/api/categories.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
   import type { PartSummary } from '$lib/types/parts.js';
@@ -97,6 +97,12 @@
     queryKey: ['categories'],
     queryFn: listCategories,
     staleTime: Infinity,
+  }));
+
+  const partCategoriesQuery = createQuery(() => ({
+    queryKey: ['teams', teamId, 'part-categories'],
+    queryFn: () => listPartCategories(teamId),
+    staleTime: 5 * 60 * 1000,
   }));
 
   const columns: ColumnSpec<PartSummary>[] = [
@@ -299,10 +305,11 @@
           placeholder="Search MPN, description, manufacturer…"
           onchange={(v) => { searchValue = v; }}
         />
-        <div class="w-48 flex-shrink-0">
+        <div class="w-80 flex-shrink-0">
           <CategoryPicker
             value={categoryFilter}
             categories={categoriesQuery.data ?? []}
+            availableIds={partCategoriesQuery.data}
             placeholder="All categories"
             onSelect={(id) => {
               categoryFilter = id;

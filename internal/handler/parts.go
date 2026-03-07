@@ -1024,6 +1024,28 @@ func (h *Handler) RefreshListing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
+// ListPartCategories handles GET /api/v1/teams/{teamId}/parts/categories
+// Returns the distinct set of category IDs present in the team's parts catalog.
+func (h *Handler) ListPartCategories(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	rows, err := h.Queries.ListPartCategoryIDs(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	ids := make([]int32, 0, len(rows))
+	for _, id := range rows {
+		if id != nil {
+			ids = append(ids, *id)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"category_ids": ids})
+}
+
 // RefreshAllListings handles POST /api/v1/teams/{teamId}/parts/{partId}/listings/refresh
 // Enqueues a stock/price refresh for every listing on the part. Returns 202 with job IDs.
 func (h *Handler) RefreshAllListings(w http.ResponseWriter, r *http.Request) {

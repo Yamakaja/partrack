@@ -83,6 +83,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					r.Get("/", h.GetTeam)
 					r.Get("/dashboard", h.GetDashboard)
+					r.Get("/parts/categories", h.ListPartCategories)
 
 					// 8. Inventory
 					r.Get("/inventory", h.ListInventory)

@@ -346,6 +346,7 @@ type productVariation struct {
 	MinimumOrderQuantity            int32        `json:"MinimumOrderQuantity"`
 	StandardPricing                 []priceBreak `json:"StandardPricing"`
 	MyPricing                       []priceBreak `json:"MyPricing"`
+	DigiReelFee                     float64      `json:"DigiReelFee"`
 }
 
 type priceBreak struct {
@@ -369,6 +370,7 @@ type pricingVariation struct {
 	MinimumOrderQuantity            int32        `json:"MinimumOrderQuantity"`
 	StandardPricing                 []priceBreak `json:"StandardPricing"`
 	MyPricing                       []priceBreak `json:"MyPricing"`
+	DigiReelFee                     float64      `json:"DigiReelFee"`
 }
 
 // keywordRequest mirrors the subset of DigiKey's KeywordRequest we care about.
@@ -467,7 +469,7 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 		listing := buildListing(
 			v.DigiKeyProductNumber, v.PackageType.Name,
 			v.QuantityAvailableforPackageType, v.MinimumOrderQuantity,
-			v.StandardPricing, v.MyPricing,
+			v.StandardPricing, v.MyPricing, v.DigiReelFee,
 		)
 		result.Listings = append(result.Listings, listing)
 	}
@@ -540,7 +542,7 @@ func (c *Client) RefreshListing(ctx context.Context, sku string, rawCreds json.R
 			listing := buildListing(
 				v.DigiKeyProductNumber, v.PackageType.Name,
 				v.QuantityAvailableforPackageType, v.MinimumOrderQuantity,
-				v.StandardPricing, v.MyPricing,
+				v.StandardPricing, v.MyPricing, v.DigiReelFee,
 			)
 			return &listing, nil
 		}
@@ -701,7 +703,7 @@ func mapProductStatus(status string) distributor.LifecycleStatus {
 // buildListing converts a DigiKey variation's fields into a distributor.Listing.
 // MyPricing takes precedence over StandardPricing when non-empty (account-level pricing).
 // Moq is clamped to a minimum of 1 to satisfy the DB CHECK constraint.
-func buildListing(sku, packagingType string, stock, moq int32, std, my []priceBreak) distributor.Listing {
+func buildListing(sku, packagingType string, stock, moq int32, std, my []priceBreak, reelFee float64) distributor.Listing {
 	if moq < 1 {
 		moq = 1
 	}
@@ -727,7 +729,7 @@ func buildListing(sku, packagingType string, stock, moq int32, std, my []priceBr
 		UnitPrice:      unitPrice,
 		StockAvailable: &stock32,
 		Moq:            moq,
-		FixedOrderCost: "0.0000",
+		FixedOrderCost: fmt.Sprintf("%.4f", reelFee),
 		PriceBreaks:    breaks,
 	}
 }

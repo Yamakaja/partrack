@@ -10,12 +10,15 @@
     onSelect,
     placeholder = 'Select category…',
     disabled = false,
+    availableIds = undefined,
   }: {
     value: number | null;
     categories: Category[];
     onSelect: (id: number | null) => void;
     placeholder?: string;
     disabled?: boolean;
+    /** When set, restricts the picker to these category IDs (plus their ancestors in tree view). */
+    availableIds?: Set<number>;
   } = $props();
 
   let open = $state(false);
@@ -49,6 +52,21 @@
 
   const selectedCategory = $derived(value != null ? categoryById.get(value) : undefined);
 
+  // When availableIds is set, expand it to include all ancestor IDs so the tree hierarchy is navigable.
+  // In search mode, only the original availableIds are shown (no ancestor-only entries).
+  const visibleIds = $derived.by(() => {
+    if (!availableIds) return null; // null = show all
+    const visible = new Set<number>(availableIds);
+    for (const id of availableIds) {
+      let cat = categoryById.get(id);
+      while (cat?.parent_id != null) {
+        visible.add(cat.parent_id);
+        cat = categoryById.get(cat.parent_id);
+      }
+    }
+    return visible;
+  });
+
   // Expand all root categories by default
   let expanded = $state<Set<number>>(new Set());
   $effect(() => {
@@ -74,16 +92,21 @@
   const trimmed = $derived(search.trim().toLowerCase());
 
   function getAncestorName(cat: Category): string {
-    if (cat.parent_id == null) return cat.display_name;
-    const parent = categoryById.get(cat.parent_id);
-    if (!parent) return cat.display_name;
-    return `${parent.display_name} › ${cat.display_name}`;
+    const parts: string[] = [cat.display_name];
+    let current = cat;
+    while (current.parent_id != null) {
+      const parent = categoryById.get(current.parent_id);
+      if (!parent) break;
+      parts.unshift(parent.display_name);
+      current = parent;
+    }
+    return parts.join(' › ');
   }
 
   const searchResults = $derived.by(() => {
     if (!trimmed) return null;
     return categories
-      .filter((c) => c.display_name.toLowerCase().includes(trimmed))
+      .filter((c) => c.display_name.toLowerCase().includes(trimmed) && (!availableIds || availableIds.has(c.id)))
       .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
   });
 </script>
@@ -166,7 +189,8 @@
       {:else}
         <!-- Hierarchical tree -->
         {#each childrenOf.get(null) ?? [] as root (root.id)}
-          {@const rootChildren = childrenOf.get(root.id) ?? []}
+          {#if !visibleIds || visibleIds.has(root.id)}
+          {@const rootChildren = (childrenOf.get(root.id) ?? []).filter((c) => !visibleIds || visibleIds.has(c.id))}
           {@const isExpanded = expanded.has(root.id)}
 
           <!-- Root row -->
@@ -205,22 +229,61 @@
           <!-- Children -->
           {#if isExpanded}
             {#each rootChildren as child (child.id)}
-              <button
-                type="button"
-                class={cn(
-                  'flex w-full items-center gap-2 rounded-sm pl-7 pr-2 py-1.5 text-sm hover:bg-accent text-left',
-                  value === child.id && 'bg-accent font-medium',
-                )}
-                onclick={() => select(child.id)}
-              >
-                <span class="h-4 w-4 flex-shrink-0 flex items-center justify-center">
-                  {#if value === child.id}
-                    <Check class="h-3.5 w-3.5" />
-                  {/if}
-                </span>
-                <span class="truncate">{child.display_name}</span>
-              </button>
+              {@const grandchildren = (childrenOf.get(child.id) ?? []).filter((c) => !visibleIds || visibleIds.has(c.id))}
+              {@const childExpanded = expanded.has(child.id)}
+              <div class="flex w-full items-center">
+                <button
+                  type="button"
+                  class={cn(
+                    'flex flex-1 items-center gap-2 rounded-sm pl-7 pr-2 py-1.5 text-sm hover:bg-accent text-left min-w-0',
+                    value === child.id && 'bg-accent font-medium',
+                  )}
+                  onclick={() => select(child.id)}
+                >
+                  <span class="h-4 w-4 flex-shrink-0 flex items-center justify-center">
+                    {#if value === child.id}
+                      <Check class="h-3.5 w-3.5" />
+                    {/if}
+                  </span>
+                  <span class="truncate">{child.display_name}</span>
+                </button>
+                {#if grandchildren.length > 0}
+                  <button
+                    type="button"
+                    class="px-1.5 py-1.5 text-muted-foreground hover:text-foreground flex-shrink-0"
+                    onclick={(e) => toggleExpand(child.id, e)}
+                    aria-label={childExpanded ? 'Collapse' : 'Expand'}
+                  >
+                    {#if childExpanded}
+                      <ChevronDown class="h-3.5 w-3.5" />
+                    {:else}
+                      <ChevronRight class="h-3.5 w-3.5" />
+                    {/if}
+                  </button>
+                {/if}
+              </div>
+              <!-- Grandchildren -->
+              {#if childExpanded}
+                {#each grandchildren as grandchild (grandchild.id)}
+                  <button
+                    type="button"
+                    class={cn(
+                      'flex w-full items-center gap-2 rounded-sm pl-14 pr-2 py-1.5 text-sm hover:bg-accent text-left',
+                      value === grandchild.id && 'bg-accent font-medium',
+                    )}
+                    onclick={() => select(grandchild.id)}
+                  >
+                    <span class="h-4 w-4 flex-shrink-0 flex items-center justify-center">
+                      {#if value === grandchild.id}
+                        <Check class="h-3.5 w-3.5" />
+                      {/if}
+                    </span>
+                    <span class="truncate">{grandchild.display_name}</span>
+                  </button>
+                {/each}
+              {/if}
             {/each}
+          {/if}
           {/if}
         {/each}
       {/if}

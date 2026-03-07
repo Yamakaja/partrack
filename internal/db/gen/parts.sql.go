@@ -12,6 +12,11 @@ import (
 )
 
 const countParts = `-- name: CountParts :one
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = $4
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT COUNT(*) FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
   AND ($2::text IS NULL
@@ -19,7 +24,7 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
        OR description ILIKE '%' || $2 || '%'
        OR manufacturer ILIKE '%' || $2 || '%')
   AND ($3::text IS NULL OR mpn = $3)
-  AND ($4::int IS NULL OR category_id = $4)
+  AND ($4::int IS NULL OR category_id IN (SELECT id FROM cat_tree))
   AND ($5::text IS NULL OR package = $5)
   AND ($6::part_lifecycle_status IS NULL
        OR lifecycle_status = $6)
@@ -52,6 +57,11 @@ func (q *Queries) CountParts(ctx context.Context, arg CountPartsParams) (int64, 
 }
 
 const countPartsWithInventory = `-- name: CountPartsWithInventory :one
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = $4
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT COUNT(*) FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
@@ -62,7 +72,7 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
        OR p.manufacturer ILIKE '%' || $2 || '%'
        OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || $2 || '%'))
   AND ($3::text IS NULL OR p.mpn = $3)
-  AND ($4::int IS NULL OR p.category_id = $4)
+  AND ($4::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND ($5::text IS NULL OR p.package = $5)
   AND ($6::part_lifecycle_status IS NULL
        OR p.lifecycle_status = $6)
@@ -621,8 +631,43 @@ func (q *Queries) ListParameters(ctx context.Context, partID pgtype.UUID) ([]Lis
 	return items, nil
 }
 
-const listParts = `-- name: ListParts :many
+const listPartCategoryIDs = `-- name: ListPartCategoryIDs :many
 
+SELECT DISTINCT category_id
+FROM parts
+WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
+  AND category_id IS NOT NULL
+`
+
+// Parts catalog, parameters, and distributor listing queries.
+// Returns distinct category IDs present in the team's parts catalog
+// (global parts + team-scoped parts). Used to populate the category filter picker.
+func (q *Queries) ListPartCategoryIDs(ctx context.Context, teamID pgtype.UUID) ([]*int32, error) {
+	rows, err := q.db.Query(ctx, listPartCategoryIDs, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*int32
+	for rows.Next() {
+		var category_id *int32
+		if err := rows.Scan(&category_id); err != nil {
+			return nil, err
+		}
+		items = append(items, category_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listParts = `-- name: ListParts :many
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = $4
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT id, scope, team_id, mpn, manufacturer, description, category, category_id, category_source,
        package, lifecycle_status, created_at
 FROM parts
@@ -632,7 +677,7 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
        OR description ILIKE '%' || $2 || '%'
        OR manufacturer ILIKE '%' || $2 || '%')
   AND ($3::text IS NULL OR mpn = $3)
-  AND ($4::int IS NULL OR category_id = $4)
+  AND ($4::int IS NULL OR category_id IN (SELECT id FROM cat_tree))
   AND ($5::text IS NULL OR package = $5)
   AND ($6::part_lifecycle_status IS NULL
        OR lifecycle_status = $6)
@@ -668,7 +713,6 @@ type ListPartsRow struct {
 	CreatedAt       pgtype.Timestamptz  `json:"created_at"`
 }
 
-// Parts catalog, parameters, and distributor listing queries.
 func (q *Queries) ListParts(ctx context.Context, arg ListPartsParams) ([]ListPartsRow, error) {
 	rows, err := q.db.Query(ctx, listParts,
 		arg.TeamID,
@@ -824,6 +868,11 @@ func (q *Queries) ListPartsByMPNAndManufacturer(ctx context.Context, arg ListPar
 }
 
 const listPartsWithInventory = `-- name: ListPartsWithInventory :many
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = $4
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
     p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.created_at,
@@ -845,7 +894,7 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
        OR p.manufacturer ILIKE '%' || $2 || '%'
        OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || $2 || '%'))
   AND ($3::text IS NULL OR p.mpn = $3)
-  AND ($4::int IS NULL OR p.category_id = $4)
+  AND ($4::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
   AND ($5::text IS NULL OR p.package = $5)
   AND ($6::part_lifecycle_status IS NULL
        OR p.lifecycle_status = $6)
