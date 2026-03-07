@@ -21,17 +21,6 @@
     queryKey: ['adjustments', teamId, entryId, limit, offset],
     queryFn: () => listAdjustments(teamId, entryId, { limit, offset }),
   }));
-
-  function sourceLabel(adj: {
-    order_line_item_id: string | null;
-    build_id: string | null;
-    general_checkout_id: string | null;
-  }): string {
-    if (adj.order_line_item_id) return 'Order';
-    if (adj.build_id) return 'Build';
-    if (adj.general_checkout_id) return 'Checkout';
-    return 'Manual';
-  }
 </script>
 
 <div class="space-y-3">
@@ -67,7 +56,17 @@
                 </span>
               </TableCell>
               <TableCell class="text-muted-foreground">{adj.reason ?? '—'}</TableCell>
-              <TableCell class="text-muted-foreground">{sourceLabel(adj)}</TableCell>
+              <TableCell class="text-muted-foreground">
+                {#if adj.source_type === 'order_line_item' && adj.source_order_id}
+                  <a href={`/teams/${teamId}/orders/${adj.source_order_id}`} class="underline hover:text-foreground">Order</a>
+                {:else if adj.source_type === 'build'}
+                  Build
+                {:else if adj.source_type === 'general_checkout'}
+                  Checkout
+                {:else}
+                  Manual
+                {/if}
+              </TableCell>
             </TableRow>
           {/each}
         </TableBody>

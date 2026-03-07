@@ -347,6 +347,7 @@ func (h *Handler) ListAdjustments(w http.ResponseWriter, r *http.Request) {
 		CreatedByDisplayName string  `json:"created_by_display_name"`
 		SourceType           *string `json:"source_type"`
 		SourceID             *string `json:"source_id"`
+		SourceOrderID        *string `json:"source_order_id"`
 	}
 	items := make([]item, len(rows))
 	for i, row := range rows {
@@ -364,6 +365,10 @@ func (h *Handler) ListAdjustments(w http.ResponseWriter, r *http.Request) {
 			sid := row.OrderLineItemID.String()
 			it.SourceType = &st
 			it.SourceID = &sid
+			if row.SourceOrderID.Valid {
+				soid := row.SourceOrderID.String()
+				it.SourceOrderID = &soid
+			}
 		case row.BuildID.Valid:
 			st := "build"
 			sid := row.BuildID.String()

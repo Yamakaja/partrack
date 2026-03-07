@@ -249,9 +249,12 @@ SELECT
     sa.id, sa.delta, sa.adjusted_at, sa.reason,
     sa.created_by,
     u.display_name AS created_by_display_name,
-    sa.order_line_item_id, sa.build_id, sa.general_checkout_id
+    sa.order_line_item_id,
+    oli.order_id AS source_order_id,
+    sa.build_id, sa.general_checkout_id
 FROM stock_adjustments sa
 JOIN users u ON u.id = sa.created_by
+LEFT JOIN order_line_items oli ON oli.id = sa.order_line_item_id
 WHERE sa.inventory_entry_id = $1
 ORDER BY sa.adjusted_at DESC
 LIMIT $3 OFFSET $2
@@ -271,6 +274,7 @@ type ListAdjustmentsRow struct {
 	CreatedBy            pgtype.UUID        `json:"created_by"`
 	CreatedByDisplayName string             `json:"created_by_display_name"`
 	OrderLineItemID      pgtype.UUID        `json:"order_line_item_id"`
+	SourceOrderID        pgtype.UUID        `json:"source_order_id"`
 	BuildID              pgtype.UUID        `json:"build_id"`
 	GeneralCheckoutID    pgtype.UUID        `json:"general_checkout_id"`
 }
@@ -292,6 +296,7 @@ func (q *Queries) ListAdjustments(ctx context.Context, arg ListAdjustmentsParams
 			&i.CreatedBy,
 			&i.CreatedByDisplayName,
 			&i.OrderLineItemID,
+			&i.SourceOrderID,
 			&i.BuildID,
 			&i.GeneralCheckoutID,
 		); err != nil {

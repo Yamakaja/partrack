@@ -77,9 +77,12 @@ SELECT
     sa.id, sa.delta, sa.adjusted_at, sa.reason,
     sa.created_by,
     u.display_name AS created_by_display_name,
-    sa.order_line_item_id, sa.build_id, sa.general_checkout_id
+    sa.order_line_item_id,
+    oli.order_id AS source_order_id,
+    sa.build_id, sa.general_checkout_id
 FROM stock_adjustments sa
 JOIN users u ON u.id = sa.created_by
+LEFT JOIN order_line_items oli ON oli.id = sa.order_line_item_id
 WHERE sa.inventory_entry_id = $1
 ORDER BY sa.adjusted_at DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');

@@ -252,16 +252,17 @@
           oninput={(e: Event) => {
             receiveQtys = { ...receiveQtys, [row.id]: (e.target as HTMLInputElement).value };
           }}
-          disabled={receivingItems.has(row.id)}
+          disabled={receivingItems.has(row.id) || row.quantity_received >= row.quantity_ordered}
         />
       {/snippet}
       {#snippet renderReceiveAction(_value: unknown, row: OrderLineItem)}
+        {@const fullyReceived = row.quantity_received >= row.quantity_ordered}
         <Button
           size="sm"
           onclick={() => handleReceive(row)}
-          disabled={receivingItems.has(row.id)}
+          disabled={receivingItems.has(row.id) || fullyReceived}
         >
-          {receivingItems.has(row.id) ? 'Saving…' : 'Receive'}
+          {receivingItems.has(row.id) ? 'Saving…' : fullyReceived ? 'Received' : 'Receive'}
         </Button>
       {/snippet}
       {#snippet renderReceiptStatus(_value: unknown, row: OrderLineItem)}

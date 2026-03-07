@@ -28,6 +28,17 @@ PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go
 - Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.
 - The test DB URL is `postgres://partrack:partrack@test-postgres/partrack-test`.
 
+## Frontend
+
+```bash
+cd web
+npm run dev      # Vite dev server (proxies /api to Go backend)
+npm run build    # production build → web/dist/
+npm run check    # svelte-check + tsc (type-check without emitting)
+```
+
+Stack: Svelte 5 + Vite + Tailwind CSS v4 + bits-ui v2 + TanStack Query v6. The dist output is embedded into the Go binary via `web/web.go`.
+
 ## Code Layout
 
 ```

@@ -26,9 +26,9 @@ export interface StockAdjustment {
   reason: string | null;
   created_by: string;
   created_by_display_name: string;
-  order_line_item_id: string | null;
-  build_id: string | null;
-  general_checkout_id: string | null;
+  source_type: 'order_line_item' | 'build' | 'general_checkout' | null;
+  source_id: string | null;
+  source_order_id: string | null;
 }
 
 export interface ReplenishPreviewItem {
