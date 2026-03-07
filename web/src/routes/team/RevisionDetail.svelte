@@ -9,15 +9,16 @@
   import { onMount } from 'svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
   import BOMImportProgressModal from '$lib/components/bom/BOMImportProgressModal.svelte';
-  import BOMLineItemRow from '$lib/components/bom/BOMLineItemRow.svelte';
   import BOMReviewDialog from '$lib/components/bom/BOMReviewDialog.svelte';
   import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
-  import { Table, TableHeader, TableBody, TableHead, TableRow } from '$lib/components/ui/table/index.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { linkAction } from '$lib/router/index.svelte.js';
   import { ClipboardCheck, Pencil } from 'lucide-svelte';
   import { formatDate } from '$lib/utils/date.js';
 
@@ -51,9 +52,6 @@
     }
   });
 
-  type FilterTab = 'all' | 'needs_attention' | 'auto' | 'ignored';
-  let activeFilter = $state<FilterTab>('all');
-
   // Review dialog state
   let reviewOpen = $state(false);
   let reviewItems = $state<BOMLineItem[]>([]);
@@ -77,19 +75,6 @@
   let needsAttentionCount = $derived(
     allItems.filter(i => !i.ignored && !i.resolved_part_id).length
   );
-
-  let filteredItems = $derived((): BOMLineItem[] => {
-    switch (activeFilter) {
-      case 'needs_attention':
-        return allItems.filter(i => !i.ignored && !i.resolved_part_id);
-      case 'auto':
-        return allItems.filter(i => i.resolution_state === 'auto_sku' || i.resolution_state === 'auto_mpn' || i.resolution_state === 'auto_prior_revision');
-      case 'ignored':
-        return allItems.filter(i => i.ignored);
-      default:
-        return allItems;
-    }
-  });
 
   function handleImportComplete() {
     jobDismissed = true;
@@ -165,17 +150,46 @@
     }
   }
 
-
-
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');
 
-  const filterTabs: { id: FilterTab; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'needs_attention', label: 'Needs Attention' },
-    { id: 'auto', label: 'Auto-resolved' },
-    { id: 'ignored', label: 'Ignored' },
+  // DataTable setup
+  type BOMRow = BOMLineItem & { status: string };
+
+  function itemStatus(item: BOMLineItem): string {
+    if (item.ignored) return 'Ignored';
+    if (!item.resolved_part_id) {
+      if (item.resolution_state === 'ambiguous') return 'Ambiguous';
+      return 'Unresolved';
+    }
+    if (item.resolution_state === 'auto_sku') return 'Auto (SKU)';
+    if (item.resolution_state === 'auto_mpn') return 'Auto (MPN)';
+    if (item.resolution_state === 'auto_prior_revision') return 'Auto (Prior)';
+    if (item.resolution_state === 'manual') return 'Manual';
+    return 'Resolved';
+  }
+
+  let rows = $derived(allItems.map(i => ({ ...i, status: itemStatus(i) })));
+
+  const columns: ColumnSpec<BOMRow>[] = [
+    { key: 'part_name',             header: 'Name',             type: 'text',    filterable: true },
+    { key: 'manufacturer',          header: 'Manufacturer',     type: 'text',    filterable: true },
+    { key: 'mpn',                   header: 'MPN',              type: 'text',    filterable: true },
+    { key: 'raw_description',       header: 'Description',      type: 'text' },
+    { key: 'reference_designators', header: 'Ref. Designators', type: 'text' },
+    { key: 'distributor_name',      header: 'Distributor',      type: 'text',    filterable: true },
+    { key: 'sku',                   header: 'SKU',              type: 'text' },
+    { key: 'quantity',              header: 'Qty',              type: 'numeric', align: 'right', sortable: true },
+    {
+      key: 'status',
+      header: 'Status',
+      type: 'enum',
+      filterable: true,
+      filterValues: ['Unresolved', 'Ambiguous', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Prior)', 'Manual', 'Resolved', 'Ignored'],
+    },
   ];
+
+  const source = new LocalDataSource<BOMRow>(() => rows, columns);
 </script>
 
 <div class="flex flex-col h-full">
@@ -291,62 +305,65 @@
           description="This revision has no BOM line items."
         />
       {:else}
-        <!-- Filter tabs -->
-        <div class="flex gap-1 border-b border-border pb-2">
-          {#each filterTabs as tab (tab.id)}
-            <button
-              type="button"
-              class="px-3 py-1 text-sm rounded-md transition-colors
-                     {activeFilter === tab.id
-                       ? 'bg-primary text-primary-foreground'
-                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'}"
-              onclick={() => { activeFilter = tab.id; }}
-            >
-              {tab.label}
-            </button>
-          {/each}
-        </div>
-
-        {@const items = filteredItems().sort((a, b) => b.quantity - a.quantity)}
-        {#if items.length === 0}
-          <div class="text-sm text-muted-foreground py-4 text-center">No items in this filter.</div>
-        {:else}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Manufacturer</TableHead>
-                <TableHead>MPN</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Reference Designators</TableHead>
-                <TableHead>Distributor</TableHead>
-                <TableHead>SKU</TableHead>
-                <TableHead class="text-center">Qty</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {#each items as item (item.id)}
-                <BOMLineItemRow
-                  {item}
-                  {teamId}
-                  onstatusclick={(id) => startReviewForItem(id)}
-                />
-              {/each}
-            </TableBody>
-          </Table>
-        {/if}
+        <DataTable
+          {source}
+          getRowKey={(row) => row.id}
+          onRowClick={(row) => startReviewForItem(row.id)}
+          rowClass={(row) => row.ignored ? 'opacity-50' : ''}
+          renderers={{ status: renderStatus, distributor_name: renderDistributor, reference_designators: renderRefDes }}
+          emptyMessage="No line items match the current filter"
+        />
       {/if}
     {/if}
   </div>
 </div>
+
+{#snippet renderStatus(value: unknown, row: BOMRow)}
+  {@const statusVariant = (() => {
+    switch (value as string) {
+      case 'Ignored':      return 'secondary' as const;
+      case 'Ambiguous':    return 'warning' as const;
+      case 'Unresolved':   return 'outline' as const;
+      default:             return 'success' as const;
+    }
+  })()}
+  <div class="inline-flex items-center gap-1.5">
+    <Badge variant={statusVariant}>{value as string}</Badge>
+    {#if row.resolved_part_id && row.resolved_part_mpn}
+      <a
+        use:linkAction
+        href="/teams/{teamId}/parts/{row.resolved_part_id}"
+        onclick={(e) => e.stopPropagation()}
+        class="font-mono text-xs text-muted-foreground hover:underline"
+      >{row.resolved_part_mpn}</a>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet renderDistributor(value: unknown, row: BOMRow)}
+  {#if value}
+    <div class="flex items-center gap-1">
+      <span>{value as string}</span>
+      <span
+        class="text-xs"
+        title={row.has_linked_distributor ? 'Distributor linked' : 'Distributor not linked'}
+      >{row.has_linked_distributor ? '✓' : '✕'}</span>
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet renderRefDes(value: unknown, _row: BOMRow)}
+  {@const s = value as string ?? ''}
+  <span class="font-mono text-xs text-muted-foreground">
+    {s.length > 80 ? s.slice(0, 80) + '…' : (s || '—')}
+  </span>
+{/snippet}
 
 {#if showImportModal}
   <BOMImportProgressModal
     {teamId}
     jobId={modalJobId}
     onStartReview={async () => {
-      activeFilter = 'needs_attention';
       await qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
       showImportModal = false;
       startFullReview();
