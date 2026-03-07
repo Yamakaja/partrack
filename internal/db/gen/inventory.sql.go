@@ -244,6 +244,27 @@ func (q *Queries) GetInventoryEntryForUpdate(ctx context.Context, id pgtype.UUID
 	return i, err
 }
 
+const getPreferredListingDistributorByPartID = `-- name: GetPreferredListingDistributorByPartID :one
+SELECT dl.distributor_id
+FROM inventory_entries ie
+JOIN distributor_listings dl ON dl.id = ie.preferred_listing_id
+WHERE ie.team_id = $1 AND ie.part_id = $2
+`
+
+type GetPreferredListingDistributorByPartIDParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	PartID pgtype.UUID `json:"part_id"`
+}
+
+// Returns the distributor_id of the team's preferred listing for a part.
+// Returns no rows if the inventory entry has no preferred listing set.
+func (q *Queries) GetPreferredListingDistributorByPartID(ctx context.Context, arg GetPreferredListingDistributorByPartIDParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPreferredListingDistributorByPartID, arg.TeamID, arg.PartID)
+	var distributor_id pgtype.UUID
+	err := row.Scan(&distributor_id)
+	return distributor_id, err
+}
+
 const listAdjustments = `-- name: ListAdjustments :many
 SELECT
     sa.id, sa.delta, sa.adjusted_at, sa.reason,

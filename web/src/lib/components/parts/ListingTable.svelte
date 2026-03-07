@@ -171,6 +171,7 @@
         <TableHead>Unit Price</TableHead>
         <TableHead>Stock</TableHead>
         <TableHead>MOQ</TableHead>
+        <TableHead>Fixed Cost</TableHead>
         <TableHead>Last Enriched</TableHead>
         <TableHead></TableHead>
       </TableRow>
@@ -211,6 +212,13 @@
             {/if}
           </TableCell>
           <TableCell>{listing.moq ?? 1}</TableCell>
+          <TableCell>
+            {#if listing.fixed_order_cost && listing.fixed_order_cost !== '0' && listing.fixed_order_cost !== '0.00'}
+              <PriceDisplay value={listing.fixed_order_cost} />
+            {:else}
+              <span class="text-muted-foreground">—</span>
+            {/if}
+          </TableCell>
           <TableCell class="text-xs text-muted-foreground">
             <DateDisplay value={listing.last_refreshed_at} />
           </TableCell>
@@ -252,14 +260,14 @@
         </TableRow>
         {#if isExpanded && hasBreaks}
           <TableRow class="bg-muted/30 hover:bg-muted/30">
-            <TableCell colspan={9} class="py-3 px-4">
+            <TableCell colspan={10} class="py-3 px-4">
               <PriceBreaksTable breaks={listing.price_breaks!} flatPrice={listing.unit_price} />
             </TableCell>
           </TableRow>
         {/if}
       {:else}
         <TableRow>
-          <TableCell colspan={9} class="text-center text-muted-foreground py-8">No listings yet</TableCell>
+          <TableCell colspan={10} class="text-center text-muted-foreground py-8">No listings yet</TableCell>
         </TableRow>
       {/each}
     </TableBody>

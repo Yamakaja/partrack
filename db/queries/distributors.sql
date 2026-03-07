@@ -65,7 +65,8 @@ SELECT
     d.name             AS distributor_name,
     d.api_type,
     dc.api_credentials,
-    dc.cache_duration_seconds
+    dc.cache_duration_seconds,
+    dc.preferred
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1 AND dc.enabled = TRUE AND d.api_type IS NOT NULL

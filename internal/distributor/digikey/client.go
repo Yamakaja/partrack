@@ -308,7 +308,7 @@ func categoryChain(c categoryObj) []distributor.DistributorCategory {
 	var chain []distributor.DistributorCategory
 	for {
 		chain = append(chain, distributor.DistributorCategory{
-			ID:   strconv.Itoa(int(c.CategoryId)),
+			Key:  strconv.Itoa(int(c.CategoryId)),
 			Name: c.Name,
 		})
 		if len(c.ChildCategories) == 0 {
@@ -419,19 +419,12 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 	if description == "" {
 		description = p.Description.ProductDescription
 	}
-	chain := categoryChain(p.Category)
-	var leafID, leafName string
-	if len(chain) > 0 {
-		leafID, leafName = chain[0].ID, chain[0].Name
-	}
 	result := &distributor.EnrichmentResult{
 		MPN:                      p.ManufacturerPartNumber,
 		Manufacturer:             p.Manufacturer.Name,
 		Description:              description,
 		ShortDescription:         p.Description.ProductDescription,
-		DistributorCategoryID:    leafID,
-		DistributorCategoryName:  leafName,
-		DistributorCategoryChain: chain,
+		DistributorCategoryChain: categoryChain(p.Category),
 		DatasheetURL:             p.DatasheetUrl,
 		ProductURL:               p.ProductUrl,
 		ImageURL:                 p.PhotoUrl,

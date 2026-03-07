@@ -48,8 +48,6 @@ func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*
 		MPN:             "LM317TEST",
 		Manufacturer:    "Texas Instruments",
 		Description:     "1.5A Adjustable Voltage Regulator",
-		DistributorCategoryID:   "0",
-		DistributorCategoryName: "Linear Regulators",
 		Package:         "TO-220AB",
 		DatasheetURL:    "",
 		LifecycleStatus: distributor.LifecycleStatusActive,

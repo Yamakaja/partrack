@@ -76,22 +76,26 @@ type SearchResult struct {
 }
 
 // DistributorCategory is one level in a distributor's category hierarchy.
+// Key is a stable, unique string the client guarantees is suitable as a DB
+// lookup key in distributor_category_mappings.distributor_category_id.
+// Clients with native category IDs should stringify them; clients without
+// (e.g. Mouser) should use a stable, normalised form of the category name.
+// Key must never be empty or "0" (reserved sentinel for "no category").
 type DistributorCategory struct {
-	ID   string
+	Key  string
 	Name string
 }
 
 // EnrichmentResult is the combined metadata and listings returned by EnrichPart.
 type EnrichmentResult struct {
-	MPN                    string // manufacturer part number; empty to leave unchanged
-	Manufacturer           string
-	Description            string          // long/detailed description
-	ShortDescription       string          // short/product description
-	DistributorCategoryID   string // distributor's own category identifier (leaf/most-specific)
-	DistributorCategoryName string // distributor's category display name (leaf/most-specific)
+	MPN              string // manufacturer part number; empty to leave unchanged
+	Manufacturer     string
+	Description      string // long/detailed description
+	ShortDescription string // short/product description
 	// DistributorCategoryChain holds the full ancestry from most-specific (index 0)
-	// to least-specific (last index). Used by the worker to fall back to a parent
-	// mapping when the leaf has no direct mapping in distributor_category_mappings.
+	// to least-specific (last index). The client is solely responsible for providing
+	// stable Key values; the worker uses them as-is for distributor_category_mappings
+	// lookups. May be nil when no category information is available.
 	DistributorCategoryChain []DistributorCategory
 	Package                string
 	DatasheetURL           string

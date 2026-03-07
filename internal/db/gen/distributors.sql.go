@@ -240,7 +240,8 @@ SELECT
     d.name             AS distributor_name,
     d.api_type,
     dc.api_credentials,
-    dc.cache_duration_seconds
+    dc.cache_duration_seconds,
+    dc.preferred
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1 AND dc.enabled = TRUE AND d.api_type IS NOT NULL
@@ -253,6 +254,7 @@ type ListEnabledDistributorConfigsForTeamRow struct {
 	ApiType              *string     `json:"api_type"`
 	ApiCredentials       []byte      `json:"api_credentials"`
 	CacheDurationSeconds int32       `json:"cache_duration_seconds"`
+	Preferred            bool        `json:"preferred"`
 }
 
 // Returns enabled configs where the distributor has an API integration,
@@ -272,6 +274,7 @@ func (q *Queries) ListEnabledDistributorConfigsForTeam(ctx context.Context, team
 			&i.ApiType,
 			&i.ApiCredentials,
 			&i.CacheDurationSeconds,
+			&i.Preferred,
 		); err != nil {
 			return nil, err
 		}

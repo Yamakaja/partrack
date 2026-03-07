@@ -477,7 +477,8 @@ func (q *Queue) handlePartEnrich(job Job) {
 
 	queries := dbgen.New(q.db)
 
-	if _, err := queries.GetPart(ctx, partID); err != nil {
+	part, err := queries.GetPart(ctx, partID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			q.publishError(job, fmt.Sprintf("part %s not found", partIDStr))
 		} else {
@@ -513,6 +514,15 @@ func (q *Queue) handlePartEnrich(job Job) {
 		return
 	}
 
+	// Determine whether this distributor is the authoritative source for part
+	// metadata and parameters. Priority order:
+	//   1. Part's explicit preferred_parameter_source_id (user-set override).
+	//   2. Team's preferred distributor config flag.
+	//   3. Team's preferred listing distributor for this part.
+	// If none of the above designate a different distributor, treat this one as
+	// authoritative (no competing preference to protect).
+	isAuthoritative := isEnrichmentAuthoritative(ctx, queries, part, distributorID, teamID, cfg.Preferred, configs)
+
 	result, err := client.EnrichPart(ctx, sku, json.RawMessage(cfg.ApiCredentials))
 	if err != nil {
 		q.publishError(job, "enrichment failed: "+err.Error())
@@ -533,7 +543,7 @@ func (q *Queue) handlePartEnrich(job Job) {
 	}
 	qtx := queries.WithTx(tx)
 
-	if err := persistEnrichmentResult(ctx, qtx, partID, cfg.DistributorID, result, true); err != nil {
+	if err := persistEnrichmentResult(ctx, qtx, partID, cfg.DistributorID, result, isAuthoritative, isAuthoritative); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
 		q.publishError(job, "failed to persist enrichment: "+err.Error())
 		return
@@ -644,16 +654,26 @@ func ApplyEnrichmentResult(
 		partIsNew = true
 	}
 
-	// 3. Apply enrichment data in a transaction.
+	// 3. Determine whether this distributor is authoritative for the part's metadata
+	// and parameters. New parts get full enrichment. For existing parts, respect the
+	// part's preferred_parameter_source_id if set; if not set, allow updates.
+	updateMetadata := partIsNew
+	if !partIsNew {
+		existingPart, err := queries.GetPart(ctx, partID)
+		if err == nil {
+			updateMetadata = !existingPart.PreferredParameterSourceID.Valid ||
+				existingPart.PreferredParameterSourceID == distributorID
+		}
+	}
+
+	// 4. Apply enrichment data in a transaction.
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return pgtype.UUID{}, fmt.Errorf("begin tx: %w", err)
 	}
 	qtx := queries.WithTx(tx)
 
-	// refreshParameters=partIsNew: refresh (delete+insert) for new parts, preserve
-	// curated parameters on existing ones. Listings, metadata, and aliases always updated.
-	if err := persistEnrichmentResult(ctx, qtx, partID, distributorID, result, partIsNew); err != nil {
+	if err := persistEnrichmentResult(ctx, qtx, partID, distributorID, result, partIsNew, updateMetadata); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
 		return pgtype.UUID{}, fmt.Errorf("persist enrichment: %w", err)
 	}
@@ -788,12 +808,57 @@ func strOrNil(s string) *string {
 	return &s
 }
 
+// isEnrichmentAuthoritative returns true when distributorID should be treated as the
+// authoritative source for a part's metadata and parameters. The decision follows this
+// priority order:
+//  1. Part's explicit preferred_parameter_source_id — if set, only that distributor wins.
+//  2. Team's preferred listing distributor for this part — if set, that distributor wins.
+//  3. Team's distributor config preferred flag — if any config is marked preferred, only
+//     the preferred one wins.
+//  4. No preference configured anywhere — treat all distributors as authoritative.
+func isEnrichmentAuthoritative(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	part dbgen.Part,
+	distributorID pgtype.UUID,
+	teamID pgtype.UUID,
+	cfgPreferred bool,
+	allConfigs []dbgen.ListEnabledDistributorConfigsForTeamRow,
+) bool {
+	// 1. Part-level explicit preference overrides everything.
+	if part.PreferredParameterSourceID.Valid {
+		return part.PreferredParameterSourceID == distributorID
+	}
+
+	// 2. Team's preferred listing for this part.
+	prefListingDist, err := queries.GetPreferredListingDistributorByPartID(ctx, dbgen.GetPreferredListingDistributorByPartIDParams{
+		TeamID: teamID,
+		PartID: part.ID,
+	})
+	if err == nil {
+		return prefListingDist == distributorID
+	}
+
+	// 3. Team distributor config preferred flag.
+	for _, c := range allConfigs {
+		if c.Preferred {
+			// At least one distributor is marked preferred; this one must be it.
+			return cfgPreferred
+		}
+	}
+
+	// 4. No preference set — any distributor is authoritative.
+	return true
+}
+
 // persistEnrichmentResult writes the distributor-sourced data from result into the
-// database within the provided transaction. It always upserts listings, updates part
-// metadata via SetPartEnriched, and refreshes aliases. When refreshParameters is true
-// it also replaces all distributor-sourced parameters for this distributor; when false
-// the existing parameters are left untouched (used to preserve curated data on
-// already-known parts). The caller is responsible for rolling back on error.
+// database within the provided transaction. It always upserts listings. When
+// refreshParameters is true it replaces all distributor-sourced parameters; when false
+// existing parameters are left untouched (preserves curated data on known parts).
+// When updateMetadata is true it also updates part metadata (description, category,
+// URLs, lifecycle) and refreshes aliases; when false those fields are left unchanged.
+// Both are false when a non-authoritative distributor is enriching a part that already
+// has a preferred metadata source. The caller is responsible for rolling back on error.
 func persistEnrichmentResult(
 	ctx context.Context,
 	qtx *dbgen.Queries,
@@ -801,6 +866,7 @@ func persistEnrichmentResult(
 	distributorID pgtype.UUID,
 	result *distributor.EnrichmentResult,
 	refreshParameters bool,
+	updateMetadata bool,
 ) error {
 	if refreshParameters {
 		if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
@@ -828,12 +894,12 @@ func persistEnrichmentResult(
 	// mapping fall back to its parent category.
 	var resolvedCategoryID *int32
 	for _, cat := range result.DistributorCategoryChain {
-		if cat.ID == "" || cat.ID == "0" {
+		if cat.Key == "" || cat.Key == "0" {
 			continue
 		}
 		mapping, err := qtx.UpsertDistributorCategoryMapping(ctx, dbgen.UpsertDistributorCategoryMappingParams{
 			DistributorID:           distributorID,
-			DistributorCategoryID:   cat.ID,
+			DistributorCategoryID:   cat.Key,
 			DistributorCategoryName: cat.Name,
 			// Pass NULL so COALESCE preserves any admin-set mapping.
 			CategoryID: nil,
@@ -844,8 +910,12 @@ func persistEnrichmentResult(
 		}
 	}
 
-	distCategoryID := strOrNil(result.DistributorCategoryID)
-	distCategoryName := strOrNil(result.DistributorCategoryName)
+	var distCategoryID, distCategoryName *string
+	if len(result.DistributorCategoryChain) > 0 {
+		leaf := result.DistributorCategoryChain[0]
+		distCategoryID = &leaf.Key
+		distCategoryName = &leaf.Name
+	}
 
 	for _, l := range result.Listings {
 		unitPrice, err := parseNumeric(l.UnitPrice)
@@ -874,37 +944,39 @@ func persistEnrichmentResult(
 		}
 	}
 
-	var lifecycleStatus dbgen.NullPartLifecycleStatus
-	if result.LifecycleStatus != "" {
-		lifecycleStatus = dbgen.NullPartLifecycleStatus{
-			PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
-			Valid:               true,
+	if updateMetadata {
+		var lifecycleStatus dbgen.NullPartLifecycleStatus
+		if result.LifecycleStatus != "" {
+			lifecycleStatus = dbgen.NullPartLifecycleStatus{
+				PartLifecycleStatus: dbgen.PartLifecycleStatus(result.LifecycleStatus),
+				Valid:               true,
+			}
 		}
-	}
-	if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
-		ID:                 partID,
-		EnrichmentSourceID: distributorID,
-		LifecycleStatus:    lifecycleStatus,
-		Mpn:                strOrNil(result.MPN),
-		Description:        strOrNil(result.Description),
-		DatasheetUrl:       strOrNil(result.DatasheetURL),
-		ShortDescription:   strOrNil(result.ShortDescription),
-		ProductUrl:         strOrNil(result.ProductURL),
-		ImageUrl:           strOrNil(result.ImageURL),
-		NewCategoryID:      resolvedCategoryID,
-	}); err != nil {
-		return fmt.Errorf("set enriched: %w", err)
-	}
-
-	if err := qtx.DeletePartAliases(ctx, partID); err != nil {
-		return fmt.Errorf("delete aliases: %w", err)
-	}
-	for _, alias := range result.Aliases {
-		if err := qtx.InsertPartAlias(ctx, dbgen.InsertPartAliasParams{
-			PartID: partID,
-			Alias:  alias,
+		if err := qtx.SetPartEnriched(ctx, dbgen.SetPartEnrichedParams{
+			ID:                 partID,
+			EnrichmentSourceID: distributorID,
+			LifecycleStatus:    lifecycleStatus,
+			Mpn:                strOrNil(result.MPN),
+			Description:        strOrNil(result.Description),
+			DatasheetUrl:       strOrNil(result.DatasheetURL),
+			ShortDescription:   strOrNil(result.ShortDescription),
+			ProductUrl:         strOrNil(result.ProductURL),
+			ImageUrl:           strOrNil(result.ImageURL),
+			NewCategoryID:      resolvedCategoryID,
 		}); err != nil {
-			return fmt.Errorf("insert alias %q: %w", alias, err)
+			return fmt.Errorf("set enriched: %w", err)
+		}
+
+		if err := qtx.DeletePartAliases(ctx, partID); err != nil {
+			return fmt.Errorf("delete aliases: %w", err)
+		}
+		for _, alias := range result.Aliases {
+			if err := qtx.InsertPartAlias(ctx, dbgen.InsertPartAliasParams{
+				PartID: partID,
+				Alias:  alias,
+			}); err != nil {
+				return fmt.Errorf("insert alias %q: %w", alias, err)
+			}
 		}
 	}
 
