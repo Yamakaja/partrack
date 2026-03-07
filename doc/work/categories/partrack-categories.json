@@ -1,0 +1,7278 @@
+{
+  "categories": [
+    {
+      "id": 1,
+      "digikey_id": 6,
+      "name": "Battery Products",
+      "slug": "battery-products",
+      "parent_id": null,
+      "sort_order": 1
+    },
+    {
+      "id": 2,
+      "digikey_id": 27,
+      "name": "Boxes, Enclosures, Racks",
+      "slug": "boxes-enclosures-racks",
+      "parent_id": null,
+      "sort_order": 2
+    },
+    {
+      "id": 3,
+      "digikey_id": 21,
+      "name": "Cable Assemblies",
+      "slug": "cable-assemblies",
+      "parent_id": null,
+      "sort_order": 3
+    },
+    {
+      "id": 4,
+      "digikey_id": 22,
+      "name": "Cables, Wires",
+      "slug": "cables-wires",
+      "parent_id": null,
+      "sort_order": 4
+    },
+    {
+      "id": 5,
+      "digikey_id": 3,
+      "name": "Capacitors",
+      "slug": "capacitors",
+      "parent_id": null,
+      "sort_order": 5
+    },
+    {
+      "id": 6,
+      "digikey_id": 9,
+      "name": "Circuit Protection",
+      "slug": "circuit-protection",
+      "parent_id": null,
+      "sort_order": 6
+    },
+    {
+      "id": 7,
+      "digikey_id": 20,
+      "name": "Connectors, Interconnects",
+      "slug": "connectors-interconnects",
+      "parent_id": null,
+      "sort_order": 7
+    },
+    {
+      "id": 8,
+      "digikey_id": 12,
+      "name": "Crystals, Oscillators, Resonators",
+      "slug": "crystals-oscillators-resonators",
+      "parent_id": null,
+      "sort_order": 8
+    },
+    {
+      "id": 9,
+      "digikey_id": 33,
+      "name": "Development Boards, Kits, Programmers",
+      "slug": "development-boards-kits-programmers",
+      "parent_id": null,
+      "sort_order": 9
+    },
+    {
+      "id": 10,
+      "digikey_id": 19,
+      "name": "Discrete Semiconductor Products",
+      "slug": "discrete-semiconductor-products",
+      "parent_id": null,
+      "sort_order": 10
+    },
+    {
+      "id": 11,
+      "digikey_id": 45,
+      "name": "Embedded Computers",
+      "slug": "embedded-computers",
+      "parent_id": null,
+      "sort_order": 11
+    },
+    {
+      "id": 12,
+      "digikey_id": 16,
+      "name": "Fans, Blowers, Thermal Management",
+      "slug": "fans-blowers-thermal-management",
+      "parent_id": null,
+      "sort_order": 12
+    },
+    {
+      "id": 13,
+      "digikey_id": 36,
+      "name": "Filters",
+      "slug": "filters",
+      "parent_id": null,
+      "sort_order": 13
+    },
+    {
+      "id": 14,
+      "digikey_id": 26,
+      "name": "Hardware, Fasteners, Accessories",
+      "slug": "hardware-fasteners-accessories",
+      "parent_id": null,
+      "sort_order": 14
+    },
+    {
+      "id": 15,
+      "digikey_id": 4,
+      "name": "Inductors, Coils, Chokes",
+      "slug": "inductors-coils-chokes",
+      "parent_id": null,
+      "sort_order": 15
+    },
+    {
+      "id": 16,
+      "digikey_id": 32,
+      "name": "Integrated Circuits (ICs)",
+      "slug": "integrated-circuits-ics",
+      "parent_id": null,
+      "sort_order": 16
+    },
+    {
+      "id": 17,
+      "digikey_id": 39,
+      "name": "Isolators",
+      "slug": "isolators",
+      "parent_id": null,
+      "sort_order": 17
+    },
+    {
+      "id": 18,
+      "digikey_id": 46,
+      "name": "Magnetics - Transformer, Inductor Components",
+      "slug": "magnetics-transformer-inductor-components",
+      "parent_id": null,
+      "sort_order": 18
+    },
+    {
+      "id": 19,
+      "digikey_id": 24,
+      "name": "Memory - Modules, Cards",
+      "slug": "memory-modules-cards",
+      "parent_id": null,
+      "sort_order": 19
+    },
+    {
+      "id": 20,
+      "digikey_id": 13,
+      "name": "Motors, Actuators, Solenoids and Drivers",
+      "slug": "motors-actuators-solenoids-and-drivers",
+      "parent_id": null,
+      "sort_order": 20
+    },
+    {
+      "id": 21,
+      "digikey_id": 44,
+      "name": "Networking Solutions",
+      "slug": "networking-solutions",
+      "parent_id": null,
+      "sort_order": 21
+    },
+    {
+      "id": 22,
+      "digikey_id": 42,
+      "name": "Optical Inspection Equipment",
+      "slug": "optical-inspection-equipment",
+      "parent_id": null,
+      "sort_order": 22
+    },
+    {
+      "id": 23,
+      "digikey_id": 41,
+      "name": "Optics",
+      "slug": "optics",
+      "parent_id": null,
+      "sort_order": 23
+    },
+    {
+      "id": 24,
+      "digikey_id": 7,
+      "name": "Optoelectronics",
+      "slug": "optoelectronics",
+      "parent_id": null,
+      "sort_order": 24
+    },
+    {
+      "id": 25,
+      "digikey_id": 5,
+      "name": "Potentiometers, Variable Resistors",
+      "slug": "potentiometers-variable-resistors",
+      "parent_id": null,
+      "sort_order": 25
+    },
+    {
+      "id": 26,
+      "digikey_id": 43,
+      "name": "Power Supplies - Board Mount",
+      "slug": "power-supplies-board-mount",
+      "parent_id": null,
+      "sort_order": 26
+    },
+    {
+      "id": 27,
+      "digikey_id": 8,
+      "name": "Power Supplies - External/Internal (Off-Board)",
+      "slug": "power-supplies-external-internal-off-board",
+      "parent_id": null,
+      "sort_order": 27
+    },
+    {
+      "id": 28,
+      "digikey_id": 30,
+      "name": "Prototyping, Fabrication Products",
+      "slug": "prototyping-fabrication-products",
+      "parent_id": null,
+      "sort_order": 28
+    },
+    {
+      "id": 29,
+      "digikey_id": 14,
+      "name": "Relays",
+      "slug": "relays",
+      "parent_id": null,
+      "sort_order": 29
+    },
+    {
+      "id": 30,
+      "digikey_id": 2,
+      "name": "Resistors",
+      "slug": "resistors",
+      "parent_id": null,
+      "sort_order": 30
+    },
+    {
+      "id": 31,
+      "digikey_id": 37,
+      "name": "RF and Wireless",
+      "slug": "rf-and-wireless",
+      "parent_id": null,
+      "sort_order": 31
+    },
+    {
+      "id": 32,
+      "digikey_id": 25,
+      "name": "Sensors, Transducers",
+      "slug": "sensors-transducers",
+      "parent_id": null,
+      "sort_order": 32
+    },
+    {
+      "id": 33,
+      "digikey_id": 18,
+      "name": "Soldering, Desoldering, Rework Products",
+      "slug": "soldering-desoldering-rework-products",
+      "parent_id": null,
+      "sort_order": 33
+    },
+    {
+      "id": 34,
+      "digikey_id": 15,
+      "name": "Switches",
+      "slug": "switches",
+      "parent_id": null,
+      "sort_order": 34
+    },
+    {
+      "id": 35,
+      "digikey_id": 29,
+      "name": "Test and Measurement",
+      "slug": "test-and-measurement",
+      "parent_id": null,
+      "sort_order": 35
+    },
+    {
+      "id": 36,
+      "digikey_id": 11,
+      "name": "Transformers",
+      "slug": "transformers",
+      "parent_id": null,
+      "sort_order": 36
+    },
+    {
+      "id": 101,
+      "digikey_id": 90,
+      "name": "Batteries Non-Rechargeable (Primary)",
+      "slug": "batteries-non-rechargeable-primary",
+      "parent_id": 1,
+      "sort_order": 1
+    },
+    {
+      "id": 102,
+      "digikey_id": 91,
+      "name": "Batteries Rechargeable (Secondary)",
+      "slug": "batteries-rechargeable-secondary",
+      "parent_id": 1,
+      "sort_order": 2
+    },
+    {
+      "id": 103,
+      "digikey_id": 85,
+      "name": "Battery Chargers",
+      "slug": "battery-chargers",
+      "parent_id": 1,
+      "sort_order": 3
+    },
+    {
+      "id": 104,
+      "digikey_id": 86,
+      "name": "Battery Holders, Clips, Contacts",
+      "slug": "battery-holders-clips-contacts",
+      "parent_id": 1,
+      "sort_order": 4
+    },
+    {
+      "id": 105,
+      "digikey_id": 89,
+      "name": "Battery Packs",
+      "slug": "battery-packs",
+      "parent_id": 1,
+      "sort_order": 5
+    },
+    {
+      "id": 106,
+      "digikey_id": 594,
+      "name": "Boxes",
+      "slug": "boxes",
+      "parent_id": 2,
+      "sort_order": 1
+    },
+    {
+      "id": 107,
+      "digikey_id": 588,
+      "name": "Card Racks",
+      "slug": "card-racks",
+      "parent_id": 2,
+      "sort_order": 2
+    },
+    {
+      "id": 108,
+      "digikey_id": 589,
+      "name": "Backplanes",
+      "slug": "backplanes",
+      "parent_id": 2,
+      "sort_order": 3
+    },
+    {
+      "id": 109,
+      "digikey_id": 975,
+      "name": "Evaluation, Development Board Enclosures",
+      "slug": "evaluation-development-board-enclosures",
+      "parent_id": 2,
+      "sort_order": 4
+    },
+    {
+      "id": 110,
+      "digikey_id": 597,
+      "name": "Racks",
+      "slug": "racks",
+      "parent_id": 2,
+      "sort_order": 5
+    },
+    {
+      "id": 111,
+      "digikey_id": 456,
+      "name": "Coaxial Cables (RF)",
+      "slug": "coaxial-cables-rf",
+      "parent_id": 3,
+      "sort_order": 1
+    },
+    {
+      "id": 112,
+      "digikey_id": 458,
+      "name": "Flat Flex Jumpers, Cables (FFC, FPC)",
+      "slug": "flat-flex-jumpers-cables-ffc-fpc",
+      "parent_id": 3,
+      "sort_order": 2
+    },
+    {
+      "id": 113,
+      "digikey_id": 457,
+      "name": "Flat Flex Ribbon Jumpers, Cables",
+      "slug": "flat-flex-ribbon-jumpers-cables",
+      "parent_id": 3,
+      "sort_order": 3
+    },
+    {
+      "id": 114,
+      "digikey_id": 453,
+      "name": "Jumper Wires, Pre-Crimped Leads",
+      "slug": "jumper-wires-pre-crimped-leads",
+      "parent_id": 3,
+      "sort_order": 4
+    },
+    {
+      "id": 115,
+      "digikey_id": 451,
+      "name": "Modular/Ethernet Cables (RJ45, RJ11)",
+      "slug": "modular-ethernet-cables-rj45-rj11",
+      "parent_id": 3,
+      "sort_order": 5
+    },
+    {
+      "id": 116,
+      "digikey_id": 460,
+      "name": "Pluggable Cables",
+      "slug": "pluggable-cables",
+      "parent_id": 3,
+      "sort_order": 6
+    },
+    {
+      "id": 117,
+      "digikey_id": 450,
+      "name": "Rectangular Cable Assemblies",
+      "slug": "rectangular-cable-assemblies",
+      "parent_id": 3,
+      "sort_order": 7
+    },
+    {
+      "id": 118,
+      "digikey_id": 455,
+      "name": "USB Cables",
+      "slug": "usb-cables",
+      "parent_id": 3,
+      "sort_order": 8
+    },
+    {
+      "id": 119,
+      "digikey_id": 449,
+      "name": "Fiber Optic Cables",
+      "slug": "fiber-optic-cables",
+      "parent_id": 3,
+      "sort_order": 9
+    },
+    {
+      "id": 120,
+      "digikey_id": 448,
+      "name": "Circular Cable Assemblies",
+      "slug": "circular-cable-assemblies",
+      "parent_id": 3,
+      "sort_order": 10
+    },
+    {
+      "id": 121,
+      "digikey_id": 461,
+      "name": "D-Sub Cables",
+      "slug": "d-sub-cables",
+      "parent_id": 3,
+      "sort_order": 11
+    },
+    {
+      "id": 122,
+      "digikey_id": 462,
+      "name": "Video Cables (DVI, HDMI)",
+      "slug": "video-cables-dvi-hdmi",
+      "parent_id": 3,
+      "sort_order": 12
+    },
+    {
+      "id": 123,
+      "digikey_id": 475,
+      "name": "Coaxial Cables (RF)",
+      "slug": "coaxial-cables-rf",
+      "parent_id": 4,
+      "sort_order": 1
+    },
+    {
+      "id": 124,
+      "digikey_id": 471,
+      "name": "Fiber Optic Cables",
+      "slug": "fiber-optic-cables",
+      "parent_id": 4,
+      "sort_order": 2
+    },
+    {
+      "id": 125,
+      "digikey_id": 476,
+      "name": "Flat Flex Cables (FFC, FPC)",
+      "slug": "flat-flex-cables-ffc-fpc",
+      "parent_id": 4,
+      "sort_order": 3
+    },
+    {
+      "id": 126,
+      "digikey_id": 472,
+      "name": "Flat Ribbon Cables",
+      "slug": "flat-ribbon-cables",
+      "parent_id": 4,
+      "sort_order": 4
+    },
+    {
+      "id": 127,
+      "digikey_id": 473,
+      "name": "Multiple Conductor Cables",
+      "slug": "multiple-conductor-cables",
+      "parent_id": 4,
+      "sort_order": 5
+    },
+    {
+      "id": 128,
+      "digikey_id": 474,
+      "name": "Single Conductor Cables (Hook-Up Wire)",
+      "slug": "single-conductor-cables-hook-up-wire",
+      "parent_id": 4,
+      "sort_order": 6
+    },
+    {
+      "id": 129,
+      "digikey_id": 60,
+      "name": "Ceramic Capacitors",
+      "slug": "ceramic-capacitors",
+      "parent_id": 5,
+      "sort_order": 1
+    },
+    {
+      "id": 130,
+      "digikey_id": 58,
+      "name": "Aluminum Electrolytic Capacitors",
+      "slug": "aluminum-electrolytic-capacitors",
+      "parent_id": 5,
+      "sort_order": 2
+    },
+    {
+      "id": 131,
+      "digikey_id": 59,
+      "name": "Tantalum Capacitors",
+      "slug": "tantalum-capacitors",
+      "parent_id": 5,
+      "sort_order": 3
+    },
+    {
+      "id": 132,
+      "digikey_id": 70,
+      "name": "Tantalum - Polymer Capacitors",
+      "slug": "tantalum-polymer-capacitors",
+      "parent_id": 5,
+      "sort_order": 4
+    },
+    {
+      "id": 133,
+      "digikey_id": 69,
+      "name": "Aluminum - Polymer Capacitors",
+      "slug": "aluminum-polymer-capacitors",
+      "parent_id": 5,
+      "sort_order": 5
+    },
+    {
+      "id": 134,
+      "digikey_id": 62,
+      "name": "Film Capacitors",
+      "slug": "film-capacitors",
+      "parent_id": 5,
+      "sort_order": 6
+    },
+    {
+      "id": 135,
+      "digikey_id": 64,
+      "name": "Mica and PTFE Capacitors",
+      "slug": "mica-and-ptfe-capacitors",
+      "parent_id": 5,
+      "sort_order": 7
+    },
+    {
+      "id": 136,
+      "digikey_id": 66,
+      "name": "Thin Film Capacitors",
+      "slug": "thin-film-capacitors",
+      "parent_id": 5,
+      "sort_order": 8
+    },
+    {
+      "id": 137,
+      "digikey_id": 61,
+      "name": "Electric Double Layer (EDLC), Supercapacitors",
+      "slug": "electric-double-layer-edlc-supercapacitors",
+      "parent_id": 5,
+      "sort_order": 9
+    },
+    {
+      "id": 138,
+      "digikey_id": 65,
+      "name": "Trimmers, Variable Capacitors",
+      "slug": "trimmers-variable-capacitors",
+      "parent_id": 5,
+      "sort_order": 10
+    },
+    {
+      "id": 139,
+      "digikey_id": 57,
+      "name": "Capacitor Networks, Arrays",
+      "slug": "capacitor-networks-arrays",
+      "parent_id": 5,
+      "sort_order": 11
+    },
+    {
+      "id": 140,
+      "digikey_id": 68,
+      "name": "Silicon Capacitors",
+      "slug": "silicon-capacitors",
+      "parent_id": 5,
+      "sort_order": 12
+    },
+    {
+      "id": 141,
+      "digikey_id": 67,
+      "name": "Niobium Oxide Capacitors",
+      "slug": "niobium-oxide-capacitors",
+      "parent_id": 5,
+      "sort_order": 13
+    },
+    {
+      "id": 142,
+      "digikey_id": 2040,
+      "name": "Transient Voltage Suppressors (TVS)",
+      "slug": "transient-voltage-suppressors-tvs",
+      "parent_id": 6,
+      "sort_order": 1
+    },
+    {
+      "id": 143,
+      "digikey_id": 150,
+      "name": "PTC Resettable Fuses",
+      "slug": "ptc-resettable-fuses",
+      "parent_id": 6,
+      "sort_order": 2
+    },
+    {
+      "id": 144,
+      "digikey_id": 141,
+      "name": "Varistors, MOVs",
+      "slug": "varistors-movs",
+      "parent_id": 6,
+      "sort_order": 3
+    },
+    {
+      "id": 145,
+      "digikey_id": 142,
+      "name": "Gas Discharge Tube Arresters (GDT)",
+      "slug": "gas-discharge-tube-arresters-gdt",
+      "parent_id": 6,
+      "sort_order": 4
+    },
+    {
+      "id": 146,
+      "digikey_id": 152,
+      "name": "Surge Suppression ICs",
+      "slug": "surge-suppression-ics",
+      "parent_id": 6,
+      "sort_order": 5
+    },
+    {
+      "id": 147,
+      "digikey_id": 151,
+      "name": "Inrush Current Limiters (ICL)",
+      "slug": "inrush-current-limiters-icl",
+      "parent_id": 6,
+      "sort_order": 6
+    },
+    {
+      "id": 148,
+      "digikey_id": 139,
+      "name": "Fuses",
+      "slug": "fuses",
+      "parent_id": 6,
+      "sort_order": 7
+    },
+    {
+      "id": 149,
+      "digikey_id": 155,
+      "name": "Electrical, Specialty Fuses",
+      "slug": "electrical-specialty-fuses",
+      "parent_id": 6,
+      "sort_order": 8
+    },
+    {
+      "id": 150,
+      "digikey_id": 140,
+      "name": "Fuseholders",
+      "slug": "fuseholders",
+      "parent_id": 6,
+      "sort_order": 9
+    },
+    {
+      "id": 151,
+      "digikey_id": 143,
+      "name": "Circuit Breakers",
+      "slug": "circuit-breakers",
+      "parent_id": 6,
+      "sort_order": 10
+    },
+    {
+      "id": 152,
+      "digikey_id": 146,
+      "name": "Thermal Cutoffs (Thermal Fuses)",
+      "slug": "thermal-cutoffs-thermal-fuses",
+      "parent_id": 6,
+      "sort_order": 11
+    },
+    {
+      "id": 153,
+      "digikey_id": 2027,
+      "name": "Rectangular Connectors",
+      "slug": "rectangular-connectors",
+      "parent_id": 7,
+      "sort_order": 1
+    },
+    {
+      "id": 154,
+      "digikey_id": 2030,
+      "name": "Terminal Blocks",
+      "slug": "terminal-blocks",
+      "parent_id": 7,
+      "sort_order": 2
+    },
+    {
+      "id": 155,
+      "digikey_id": 2031,
+      "name": "Terminals",
+      "slug": "terminals",
+      "parent_id": 7,
+      "sort_order": 3
+    },
+    {
+      "id": 156,
+      "digikey_id": 2005,
+      "name": "Circular Connectors",
+      "slug": "circular-connectors",
+      "parent_id": 7,
+      "sort_order": 4
+    },
+    {
+      "id": 157,
+      "digikey_id": 2004,
+      "name": "Card Edge Connectors",
+      "slug": "card-edge-connectors",
+      "parent_id": 7,
+      "sort_order": 5
+    },
+    {
+      "id": 158,
+      "digikey_id": 2011,
+      "name": "D-Sub, D-Shaped Connectors",
+      "slug": "d-sub-d-shaped-connectors",
+      "parent_id": 7,
+      "sort_order": 6
+    },
+    {
+      "id": 159,
+      "digikey_id": 2007,
+      "name": "Coaxial Connectors (RF)",
+      "slug": "coaxial-connectors-rf",
+      "parent_id": 7,
+      "sort_order": 7
+    },
+    {
+      "id": 160,
+      "digikey_id": 2013,
+      "name": "FFC, FPC (Flat Flexible) Connectors",
+      "slug": "ffc-fpc-flat-flexible-connectors",
+      "parent_id": 7,
+      "sort_order": 8
+    },
+    {
+      "id": 161,
+      "digikey_id": 2000,
+      "name": "Backplane Connectors",
+      "slug": "backplane-connectors",
+      "parent_id": 7,
+      "sort_order": 9
+    },
+    {
+      "id": 162,
+      "digikey_id": 2028,
+      "name": "Sockets for ICs, Transistors",
+      "slug": "sockets-for-ics-transistors",
+      "parent_id": 7,
+      "sort_order": 10
+    },
+    {
+      "id": 163,
+      "digikey_id": 2026,
+      "name": "AC Power Connectors",
+      "slug": "ac-power-connectors",
+      "parent_id": 7,
+      "sort_order": 11
+    },
+    {
+      "id": 164,
+      "digikey_id": 2022,
+      "name": "Modular/Ethernet Connectors",
+      "slug": "modular-ethernet-connectors",
+      "parent_id": 7,
+      "sort_order": 12
+    },
+    {
+      "id": 165,
+      "digikey_id": 2015,
+      "name": "Heavy Duty Connectors",
+      "slug": "heavy-duty-connectors",
+      "parent_id": 7,
+      "sort_order": 13
+    },
+    {
+      "id": 166,
+      "digikey_id": 2017,
+      "name": "Keystone Connectors",
+      "slug": "keystone-connectors",
+      "parent_id": 7,
+      "sort_order": 14
+    },
+    {
+      "id": 167,
+      "digikey_id": 2003,
+      "name": "Blade Type Power Connectors",
+      "slug": "blade-type-power-connectors",
+      "parent_id": 7,
+      "sort_order": 15
+    },
+    {
+      "id": 168,
+      "digikey_id": 2032,
+      "name": "USB, DVI, HDMI Connectors",
+      "slug": "usb-dvi-hdmi-connectors",
+      "parent_id": 7,
+      "sort_order": 16
+    },
+    {
+      "id": 169,
+      "digikey_id": 2014,
+      "name": "Fiber Optic Connectors",
+      "slug": "fiber-optic-connectors",
+      "parent_id": 7,
+      "sort_order": 17
+    },
+    {
+      "id": 170,
+      "digikey_id": 2024,
+      "name": "Pluggable Connectors",
+      "slug": "pluggable-connectors",
+      "parent_id": 7,
+      "sort_order": 18
+    },
+    {
+      "id": 171,
+      "digikey_id": 2001,
+      "name": "Banana and Tip Connectors",
+      "slug": "banana-and-tip-connectors",
+      "parent_id": 7,
+      "sort_order": 19
+    },
+    {
+      "id": 172,
+      "digikey_id": 2002,
+      "name": "Barrel Connectors",
+      "slug": "barrel-connectors",
+      "parent_id": 7,
+      "sort_order": 20
+    },
+    {
+      "id": 173,
+      "digikey_id": 2021,
+      "name": "Memory Connectors",
+      "slug": "memory-connectors",
+      "parent_id": 7,
+      "sort_order": 21
+    },
+    {
+      "id": 174,
+      "digikey_id": 304,
+      "name": "Shunts, Jumpers",
+      "slug": "shunts-jumpers",
+      "parent_id": 7,
+      "sort_order": 22
+    },
+    {
+      "id": 175,
+      "digikey_id": 171,
+      "name": "Crystals",
+      "slug": "crystals",
+      "parent_id": 8,
+      "sort_order": 1
+    },
+    {
+      "id": 176,
+      "digikey_id": 172,
+      "name": "Oscillators",
+      "slug": "oscillators",
+      "parent_id": 8,
+      "sort_order": 2
+    },
+    {
+      "id": 177,
+      "digikey_id": 176,
+      "name": "Pin Configurable/Selectable Oscillators",
+      "slug": "pin-configurable-selectable-oscillators",
+      "parent_id": 8,
+      "sort_order": 3
+    },
+    {
+      "id": 178,
+      "digikey_id": 169,
+      "name": "Programmable Oscillators",
+      "slug": "programmable-oscillators",
+      "parent_id": 8,
+      "sort_order": 4
+    },
+    {
+      "id": 179,
+      "digikey_id": 174,
+      "name": "Resonators",
+      "slug": "resonators",
+      "parent_id": 8,
+      "sort_order": 5
+    },
+    {
+      "id": 180,
+      "digikey_id": 173,
+      "name": "VCOs (Voltage Controlled Oscillators)",
+      "slug": "vcos-voltage-controlled-oscillators",
+      "parent_id": 8,
+      "sort_order": 6
+    },
+    {
+      "id": 181,
+      "digikey_id": 2041,
+      "name": "Evaluation Boards",
+      "slug": "evaluation-boards",
+      "parent_id": 9,
+      "sort_order": 1
+    },
+    {
+      "id": 182,
+      "digikey_id": 799,
+      "name": "Programmers, Emulators, and Debuggers",
+      "slug": "programmers-emulators-and-debuggers",
+      "parent_id": 9,
+      "sort_order": 2
+    },
+    {
+      "id": 183,
+      "digikey_id": 798,
+      "name": "Programming Adapters, Sockets",
+      "slug": "programming-adapters-sockets",
+      "parent_id": 9,
+      "sort_order": 3
+    },
+    {
+      "id": 184,
+      "digikey_id": 2042,
+      "name": "Diodes",
+      "slug": "diodes",
+      "parent_id": 10,
+      "sort_order": 1
+    },
+    {
+      "id": 185,
+      "digikey_id": 2045,
+      "name": "Transistors",
+      "slug": "transistors",
+      "parent_id": 10,
+      "sort_order": 2
+    },
+    {
+      "id": 186,
+      "digikey_id": 2043,
+      "name": "Thyristors",
+      "slug": "thyristors",
+      "parent_id": 10,
+      "sort_order": 3
+    },
+    {
+      "id": 187,
+      "digikey_id": 296,
+      "name": "Power Driver Modules",
+      "slug": "power-driver-modules",
+      "parent_id": 10,
+      "sort_order": 4
+    },
+    {
+      "id": 188,
+      "digikey_id": 1164,
+      "name": "Current Regulation - Diodes, Transistors",
+      "slug": "current-regulation-diodes-transistors",
+      "parent_id": 10,
+      "sort_order": 5
+    },
+    {
+      "id": 189,
+      "digikey_id": 933,
+      "name": "Single Board Computers (SBCs)",
+      "slug": "single-board-computers-sbcs",
+      "parent_id": 11,
+      "sort_order": 1
+    },
+    {
+      "id": 190,
+      "digikey_id": 932,
+      "name": "Embedded Computer Interface Boards",
+      "slug": "embedded-computer-interface-boards",
+      "parent_id": 11,
+      "sort_order": 2
+    },
+    {
+      "id": 191,
+      "digikey_id": 2046,
+      "name": "Fans",
+      "slug": "fans",
+      "parent_id": 12,
+      "sort_order": 1
+    },
+    {
+      "id": 192,
+      "digikey_id": 2047,
+      "name": "Thermal",
+      "slug": "thermal",
+      "parent_id": 12,
+      "sort_order": 2
+    },
+    {
+      "id": 193,
+      "digikey_id": 841,
+      "name": "Ferrite Beads and Chips",
+      "slug": "ferrite-beads-and-chips",
+      "parent_id": 13,
+      "sort_order": 1
+    },
+    {
+      "id": 194,
+      "digikey_id": 840,
+      "name": "Cable Ferrites",
+      "slug": "cable-ferrites",
+      "parent_id": 13,
+      "sort_order": 2
+    },
+    {
+      "id": 195,
+      "digikey_id": 839,
+      "name": "Common Mode Chokes",
+      "slug": "common-mode-chokes",
+      "parent_id": 13,
+      "sort_order": 3
+    },
+    {
+      "id": 196,
+      "digikey_id": 835,
+      "name": "EMI/RFI Filters (LC, RC Networks)",
+      "slug": "emi-rfi-filters-lc-rc-networks",
+      "parent_id": 13,
+      "sort_order": 4
+    },
+    {
+      "id": 197,
+      "digikey_id": 845,
+      "name": "Feed Through, Pass Through Capacitors",
+      "slug": "feed-through-pass-through-capacitors",
+      "parent_id": 13,
+      "sort_order": 5
+    },
+    {
+      "id": 198,
+      "digikey_id": 838,
+      "name": "Power Line Filter Modules",
+      "slug": "power-line-filter-modules",
+      "parent_id": 13,
+      "sort_order": 6
+    },
+    {
+      "id": 199,
+      "digikey_id": 844,
+      "name": "RF Filters",
+      "slug": "rf-filters",
+      "parent_id": 13,
+      "sort_order": 7
+    },
+    {
+      "id": 200,
+      "digikey_id": 836,
+      "name": "SAW Filters",
+      "slug": "saw-filters",
+      "parent_id": 13,
+      "sort_order": 8
+    },
+    {
+      "id": 201,
+      "digikey_id": 846,
+      "name": "Ceramic Filters",
+      "slug": "ceramic-filters",
+      "parent_id": 13,
+      "sort_order": 9
+    },
+    {
+      "id": 202,
+      "digikey_id": 847,
+      "name": "Monolithic Crystals",
+      "slug": "monolithic-crystals",
+      "parent_id": 13,
+      "sort_order": 10
+    },
+    {
+      "id": 203,
+      "digikey_id": 582,
+      "name": "Board Spacers, Standoffs",
+      "slug": "board-spacers-standoffs",
+      "parent_id": 14,
+      "sort_order": 1
+    },
+    {
+      "id": 204,
+      "digikey_id": 578,
+      "name": "Board Supports",
+      "slug": "board-supports",
+      "parent_id": 14,
+      "sort_order": 2
+    },
+    {
+      "id": 205,
+      "digikey_id": 572,
+      "name": "Screws, Bolts",
+      "slug": "screws-bolts",
+      "parent_id": 14,
+      "sort_order": 3
+    },
+    {
+      "id": 206,
+      "digikey_id": 573,
+      "name": "Nuts",
+      "slug": "nuts",
+      "parent_id": 14,
+      "sort_order": 4
+    },
+    {
+      "id": 207,
+      "digikey_id": 2048,
+      "name": "Washers",
+      "slug": "washers",
+      "parent_id": 14,
+      "sort_order": 5
+    },
+    {
+      "id": 208,
+      "digikey_id": 585,
+      "name": "Component Insulators, Mounts, Spacers",
+      "slug": "component-insulators-mounts-spacers",
+      "parent_id": 14,
+      "sort_order": 6
+    },
+    {
+      "id": 209,
+      "digikey_id": 580,
+      "name": "DIN Rail Channel",
+      "slug": "din-rail-channel",
+      "parent_id": 14,
+      "sort_order": 7
+    },
+    {
+      "id": 210,
+      "digikey_id": 71,
+      "name": "Fixed Inductors",
+      "slug": "fixed-inductors",
+      "parent_id": 15,
+      "sort_order": 1
+    },
+    {
+      "id": 211,
+      "digikey_id": 72,
+      "name": "Adjustable Inductors",
+      "slug": "adjustable-inductors",
+      "parent_id": 15,
+      "sort_order": 2
+    },
+    {
+      "id": 212,
+      "digikey_id": 73,
+      "name": "Arrays, Signal Transformers",
+      "slug": "arrays-signal-transformers",
+      "parent_id": 15,
+      "sort_order": 3
+    },
+    {
+      "id": 213,
+      "digikey_id": 75,
+      "name": "Wireless Charging Coils",
+      "slug": "wireless-charging-coils",
+      "parent_id": 15,
+      "sort_order": 4
+    },
+    {
+      "id": 214,
+      "digikey_id": 2012,
+      "name": "Embedded",
+      "slug": "embedded",
+      "parent_id": 16,
+      "sort_order": 1
+    },
+    {
+      "id": 215,
+      "digikey_id": 2025,
+      "name": "Power Management (PMIC)",
+      "slug": "power-management-pmic",
+      "parent_id": 16,
+      "sort_order": 2
+    },
+    {
+      "id": 216,
+      "digikey_id": 2019,
+      "name": "Logic",
+      "slug": "logic",
+      "parent_id": 16,
+      "sort_order": 3
+    },
+    {
+      "id": 217,
+      "digikey_id": 2016,
+      "name": "Interface",
+      "slug": "interface",
+      "parent_id": 16,
+      "sort_order": 4
+    },
+    {
+      "id": 218,
+      "digikey_id": 2009,
+      "name": "Data Acquisition",
+      "slug": "data-acquisition",
+      "parent_id": 16,
+      "sort_order": 5
+    },
+    {
+      "id": 219,
+      "digikey_id": 2018,
+      "name": "Linear",
+      "slug": "linear",
+      "parent_id": 16,
+      "sort_order": 6
+    },
+    {
+      "id": 220,
+      "digikey_id": 2020,
+      "name": "Memory",
+      "slug": "memory",
+      "parent_id": 16,
+      "sort_order": 7
+    },
+    {
+      "id": 221,
+      "digikey_id": 2006,
+      "name": "Clock/Timing",
+      "slug": "clock-timing",
+      "parent_id": 16,
+      "sort_order": 8
+    },
+    {
+      "id": 222,
+      "digikey_id": 741,
+      "name": "Audio Special Purpose",
+      "slug": "audio-special-purpose",
+      "parent_id": 16,
+      "sort_order": 9
+    },
+    {
+      "id": 223,
+      "digikey_id": 686,
+      "name": "Specialized ICs",
+      "slug": "specialized-ics",
+      "parent_id": 16,
+      "sort_order": 10
+    },
+    {
+      "id": 224,
+      "digikey_id": 2058,
+      "name": "Optocouplers, Optoisolators",
+      "slug": "optocouplers-optoisolators",
+      "parent_id": 17,
+      "sort_order": 1
+    },
+    {
+      "id": 225,
+      "digikey_id": 901,
+      "name": "Digital Isolators",
+      "slug": "digital-isolators",
+      "parent_id": 17,
+      "sort_order": 2
+    },
+    {
+      "id": 226,
+      "digikey_id": 906,
+      "name": "Isolators - Gate Drivers",
+      "slug": "isolators-gate-drivers",
+      "parent_id": 17,
+      "sort_order": 3
+    },
+    {
+      "id": 227,
+      "digikey_id": 905,
+      "name": "Special Purpose Isolators",
+      "slug": "special-purpose-isolators",
+      "parent_id": 17,
+      "sort_order": 4
+    },
+    {
+      "id": 228,
+      "digikey_id": 936,
+      "name": "Ferrite Cores",
+      "slug": "ferrite-cores",
+      "parent_id": 18,
+      "sort_order": 1
+    },
+    {
+      "id": 229,
+      "digikey_id": 934,
+      "name": "Magnet Wire",
+      "slug": "magnet-wire",
+      "parent_id": 18,
+      "sort_order": 2
+    },
+    {
+      "id": 230,
+      "digikey_id": 505,
+      "name": "Memory - Modules",
+      "slug": "memory-modules",
+      "parent_id": 19,
+      "sort_order": 1
+    },
+    {
+      "id": 231,
+      "digikey_id": 501,
+      "name": "Memory Cards",
+      "slug": "memory-cards",
+      "parent_id": 19,
+      "sort_order": 2
+    },
+    {
+      "id": 232,
+      "digikey_id": 503,
+      "name": "Solid State Drives (SSDs), Hard Disk Drives (HDDs)",
+      "slug": "solid-state-drives-ssds-hard-disk-drives-hdds",
+      "parent_id": 19,
+      "sort_order": 3
+    },
+    {
+      "id": 233,
+      "digikey_id": 504,
+      "name": "USB Flash Drives",
+      "slug": "usb-flash-drives",
+      "parent_id": 19,
+      "sort_order": 4
+    },
+    {
+      "id": 234,
+      "digikey_id": 178,
+      "name": "Motors - AC, DC",
+      "slug": "motors-ac-dc",
+      "parent_id": 20,
+      "sort_order": 1
+    },
+    {
+      "id": 235,
+      "digikey_id": 179,
+      "name": "Stepper Motors",
+      "slug": "stepper-motors",
+      "parent_id": 20,
+      "sort_order": 2
+    },
+    {
+      "id": 236,
+      "digikey_id": 180,
+      "name": "Solenoids",
+      "slug": "solenoids",
+      "parent_id": 20,
+      "sort_order": 3
+    },
+    {
+      "id": 237,
+      "digikey_id": 1157,
+      "name": "Electric Actuators/Cylinders",
+      "slug": "electric-actuators-cylinders",
+      "parent_id": 20,
+      "sort_order": 4
+    },
+    {
+      "id": 238,
+      "digikey_id": 181,
+      "name": "Motor Driver Boards, Modules",
+      "slug": "motor-driver-boards-modules",
+      "parent_id": 20,
+      "sort_order": 5
+    },
+    {
+      "id": 239,
+      "digikey_id": 928,
+      "name": "Gateways, Routers",
+      "slug": "gateways-routers",
+      "parent_id": 21,
+      "sort_order": 1
+    },
+    {
+      "id": 240,
+      "digikey_id": 927,
+      "name": "Switches, Hubs",
+      "slug": "switches-hubs",
+      "parent_id": 21,
+      "sort_order": 2
+    },
+    {
+      "id": 241,
+      "digikey_id": 929,
+      "name": "Media Converters",
+      "slug": "media-converters",
+      "parent_id": 21,
+      "sort_order": 3
+    },
+    {
+      "id": 242,
+      "digikey_id": 930,
+      "name": "Serial Device Servers",
+      "slug": "serial-device-servers",
+      "parent_id": 21,
+      "sort_order": 4
+    },
+    {
+      "id": 243,
+      "digikey_id": 914,
+      "name": "Microscopes",
+      "slug": "microscopes",
+      "parent_id": 22,
+      "sort_order": 1
+    },
+    {
+      "id": 244,
+      "digikey_id": 913,
+      "name": "Cameras",
+      "slug": "cameras",
+      "parent_id": 22,
+      "sort_order": 2
+    },
+    {
+      "id": 245,
+      "digikey_id": 1077,
+      "name": "Machine Vision - Lenses",
+      "slug": "machine-vision-lenses",
+      "parent_id": 22,
+      "sort_order": 3
+    },
+    {
+      "id": 246,
+      "digikey_id": 1121,
+      "name": "Machine Vision - Accessories",
+      "slug": "machine-vision-accessories",
+      "parent_id": 22,
+      "sort_order": 4
+    },
+    {
+      "id": 247,
+      "digikey_id": 917,
+      "name": "Lamps - Magnifying, Task",
+      "slug": "lamps-magnifying-task",
+      "parent_id": 22,
+      "sort_order": 5
+    },
+    {
+      "id": 248,
+      "digikey_id": 918,
+      "name": "Loupes, Magnifiers",
+      "slug": "loupes-magnifiers",
+      "parent_id": 22,
+      "sort_order": 6
+    },
+    {
+      "id": 249,
+      "digikey_id": 919,
+      "name": "Video Inspection Systems",
+      "slug": "video-inspection-systems",
+      "parent_id": 22,
+      "sort_order": 7
+    },
+    {
+      "id": 250,
+      "digikey_id": 916,
+      "name": "Eyepieces, Lenses",
+      "slug": "eyepieces-lenses",
+      "parent_id": 22,
+      "sort_order": 8
+    },
+    {
+      "id": 251,
+      "digikey_id": 920,
+      "name": "Illumination Sources",
+      "slug": "illumination-sources",
+      "parent_id": 22,
+      "sort_order": 9
+    },
+    {
+      "id": 252,
+      "digikey_id": 1045,
+      "name": "Lenses",
+      "slug": "lenses",
+      "parent_id": 23,
+      "sort_order": 1
+    },
+    {
+      "id": 253,
+      "digikey_id": 2060,
+      "name": "Laser Optics",
+      "slug": "laser-optics",
+      "parent_id": 23,
+      "sort_order": 2
+    },
+    {
+      "id": 254,
+      "digikey_id": 1044,
+      "name": "Filters",
+      "slug": "filters",
+      "parent_id": 23,
+      "sort_order": 3
+    },
+    {
+      "id": 255,
+      "digikey_id": 1156,
+      "name": "Beamsplitters",
+      "slug": "beamsplitters",
+      "parent_id": 23,
+      "sort_order": 4
+    },
+    {
+      "id": 256,
+      "digikey_id": 1158,
+      "name": "Mirrors",
+      "slug": "mirrors",
+      "parent_id": 23,
+      "sort_order": 5
+    },
+    {
+      "id": 257,
+      "digikey_id": 1046,
+      "name": "Polarizers",
+      "slug": "polarizers",
+      "parent_id": 23,
+      "sort_order": 6
+    },
+    {
+      "id": 258,
+      "digikey_id": 1122,
+      "name": "Prisms",
+      "slug": "prisms",
+      "parent_id": 23,
+      "sort_order": 7
+    },
+    {
+      "id": 259,
+      "digikey_id": 105,
+      "name": "LED Indication - Discrete",
+      "slug": "led-indication-discrete",
+      "parent_id": 24,
+      "sort_order": 1
+    },
+    {
+      "id": 260,
+      "digikey_id": 111,
+      "name": "LED COBs, Engines, Modules, Strips",
+      "slug": "led-cobs-engines-modules-strips",
+      "parent_id": 24,
+      "sort_order": 2
+    },
+    {
+      "id": 261,
+      "digikey_id": 124,
+      "name": "LED White Lighting",
+      "slug": "led-white-lighting",
+      "parent_id": 24,
+      "sort_order": 3
+    },
+    {
+      "id": 262,
+      "digikey_id": 125,
+      "name": "LED Color Lighting",
+      "slug": "led-color-lighting",
+      "parent_id": 24,
+      "sort_order": 4
+    },
+    {
+      "id": 263,
+      "digikey_id": 94,
+      "name": "LED Emitters - Infrared, UV, Visible",
+      "slug": "led-emitters-infrared-uv-visible",
+      "parent_id": 24,
+      "sort_order": 5
+    },
+    {
+      "id": 264,
+      "digikey_id": 126,
+      "name": "LED Addressable, Specialty",
+      "slug": "led-addressable-specialty",
+      "parent_id": 24,
+      "sort_order": 6
+    },
+    {
+      "id": 265,
+      "digikey_id": 92,
+      "name": "LED Character and Numeric",
+      "slug": "led-character-and-numeric",
+      "parent_id": 24,
+      "sort_order": 7
+    },
+    {
+      "id": 266,
+      "digikey_id": 96,
+      "name": "LED Dot Matrix and Cluster",
+      "slug": "led-dot-matrix-and-cluster",
+      "parent_id": 24,
+      "sort_order": 8
+    },
+    {
+      "id": 267,
+      "digikey_id": 106,
+      "name": "Circuit Board Indicators, Arrays, Light Bars, Bar Graphs",
+      "slug": "circuit-board-indicators-arrays-light-bars-bar-graphs",
+      "parent_id": 24,
+      "sort_order": 9
+    },
+    {
+      "id": 268,
+      "digikey_id": 108,
+      "name": "Panel Indicators, Pilot Lights",
+      "slug": "panel-indicators-pilot-lights",
+      "parent_id": 24,
+      "sort_order": 10
+    },
+    {
+      "id": 269,
+      "digikey_id": 102,
+      "name": "Light Pipes",
+      "slug": "light-pipes",
+      "parent_id": 24,
+      "sort_order": 11
+    },
+    {
+      "id": 270,
+      "digikey_id": 99,
+      "name": "LCD, OLED Character and Numeric",
+      "slug": "lcd-oled-character-and-numeric",
+      "parent_id": 24,
+      "sort_order": 12
+    },
+    {
+      "id": 271,
+      "digikey_id": 107,
+      "name": "LCD, OLED, Graphic",
+      "slug": "lcd-oled-graphic",
+      "parent_id": 24,
+      "sort_order": 13
+    },
+    {
+      "id": 272,
+      "digikey_id": 118,
+      "name": "Fiber Optic Transceiver Modules",
+      "slug": "fiber-optic-transceiver-modules",
+      "parent_id": 24,
+      "sort_order": 14
+    },
+    {
+      "id": 273,
+      "digikey_id": 117,
+      "name": "Fiber Optic Receivers",
+      "slug": "fiber-optic-receivers",
+      "parent_id": 24,
+      "sort_order": 15
+    },
+    {
+      "id": 274,
+      "digikey_id": 116,
+      "name": "Fiber Optic Transmitters - Discrete",
+      "slug": "fiber-optic-transmitters-discrete",
+      "parent_id": 24,
+      "sort_order": 16
+    },
+    {
+      "id": 275,
+      "digikey_id": 115,
+      "name": "Fiber Optic Transmitters - Drive Circuitry Integrated",
+      "slug": "fiber-optic-transmitters-drive-circuitry-integrated",
+      "parent_id": 24,
+      "sort_order": 17
+    },
+    {
+      "id": 276,
+      "digikey_id": 119,
+      "name": "Fiber Optic Attenuators",
+      "slug": "fiber-optic-attenuators",
+      "parent_id": 24,
+      "sort_order": 18
+    },
+    {
+      "id": 277,
+      "digikey_id": 120,
+      "name": "Fiber Optic Switches, Multiplexers, Demultiplexers",
+      "slug": "fiber-optic-switches-multiplexers-demultiplexers",
+      "parent_id": 24,
+      "sort_order": 19
+    },
+    {
+      "id": 278,
+      "digikey_id": 95,
+      "name": "Laser Diodes, Modules",
+      "slug": "laser-diodes-modules",
+      "parent_id": 24,
+      "sort_order": 20
+    },
+    {
+      "id": 279,
+      "digikey_id": 1055,
+      "name": "Laser Diodes, Modules - Laser Delivery, Laser Fibers",
+      "slug": "laser-diodes-modules-laser-delivery-laser-fibers",
+      "parent_id": 24,
+      "sort_order": 21
+    },
+    {
+      "id": 280,
+      "digikey_id": 1119,
+      "name": "HeNe Laser Heads",
+      "slug": "hene-laser-heads",
+      "parent_id": 24,
+      "sort_order": 22
+    },
+    {
+      "id": 281,
+      "digikey_id": 1008,
+      "name": "HeNe Laser Systems",
+      "slug": "hene-laser-systems",
+      "parent_id": 24,
+      "sort_order": 23
+    },
+    {
+      "id": 282,
+      "digikey_id": 1047,
+      "name": "Optomechanical",
+      "slug": "optomechanical",
+      "parent_id": 24,
+      "sort_order": 24
+    },
+    {
+      "id": 283,
+      "digikey_id": 112,
+      "name": "Lenses",
+      "slug": "lenses",
+      "parent_id": 24,
+      "sort_order": 25
+    },
+    {
+      "id": 284,
+      "digikey_id": 122,
+      "name": "Reflectors",
+      "slug": "reflectors",
+      "parent_id": 24,
+      "sort_order": 26
+    },
+    {
+      "id": 285,
+      "digikey_id": 103,
+      "name": "Vacuum Fluorescent (VFD)",
+      "slug": "vacuum-fluorescent-vfd",
+      "parent_id": 24,
+      "sort_order": 27
+    },
+    {
+      "id": 286,
+      "digikey_id": 101,
+      "name": "Incandescent, Neon Lamps",
+      "slug": "incandescent-neon-lamps",
+      "parent_id": 24,
+      "sort_order": 28
+    },
+    {
+      "id": 287,
+      "digikey_id": 114,
+      "name": "Display, Monitor - LCD Driver/Controller",
+      "slug": "display-monitor-lcd-driver-controller",
+      "parent_id": 24,
+      "sort_order": 29
+    },
+    {
+      "id": 288,
+      "digikey_id": 1168,
+      "name": "Display Backlights",
+      "slug": "display-backlights",
+      "parent_id": 24,
+      "sort_order": 30
+    },
+    {
+      "id": 289,
+      "digikey_id": 84,
+      "name": "Rotary Potentiometers, Rheostats",
+      "slug": "rotary-potentiometers-rheostats",
+      "parent_id": 25,
+      "sort_order": 1
+    },
+    {
+      "id": 290,
+      "digikey_id": 80,
+      "name": "Trimmer Potentiometers",
+      "slug": "trimmer-potentiometers",
+      "parent_id": 25,
+      "sort_order": 2
+    },
+    {
+      "id": 291,
+      "digikey_id": 78,
+      "name": "Slide Potentiometers",
+      "slug": "slide-potentiometers",
+      "parent_id": 25,
+      "sort_order": 3
+    },
+    {
+      "id": 292,
+      "digikey_id": 83,
+      "name": "Adjustable Power Resistor",
+      "slug": "adjustable-power-resistor",
+      "parent_id": 25,
+      "sort_order": 4
+    },
+    {
+      "id": 293,
+      "digikey_id": 77,
+      "name": "Thumbwheel Potentiometers",
+      "slug": "thumbwheel-potentiometers",
+      "parent_id": 25,
+      "sort_order": 5
+    },
+    {
+      "id": 294,
+      "digikey_id": 922,
+      "name": "DC DC Converters",
+      "slug": "dc-dc-converters",
+      "parent_id": 26,
+      "sort_order": 1
+    },
+    {
+      "id": 295,
+      "digikey_id": 923,
+      "name": "AC DC Converters",
+      "slug": "ac-dc-converters",
+      "parent_id": 26,
+      "sort_order": 2
+    },
+    {
+      "id": 296,
+      "digikey_id": 924,
+      "name": "LED Drivers",
+      "slug": "led-drivers",
+      "parent_id": 26,
+      "sort_order": 3
+    },
+    {
+      "id": 297,
+      "digikey_id": 133,
+      "name": "AC DC Converters",
+      "slug": "ac-dc-converters",
+      "parent_id": 27,
+      "sort_order": 1
+    },
+    {
+      "id": 298,
+      "digikey_id": 130,
+      "name": "AC DC Desktop, Wall Power Adapters",
+      "slug": "ac-dc-desktop-wall-power-adapters",
+      "parent_id": 27,
+      "sort_order": 2
+    },
+    {
+      "id": 299,
+      "digikey_id": 132,
+      "name": "DC DC Converters",
+      "slug": "dc-dc-converters",
+      "parent_id": 27,
+      "sort_order": 3
+    },
+    {
+      "id": 300,
+      "digikey_id": 1064,
+      "name": "Industrial, DIN Rail Power Supplies",
+      "slug": "industrial-din-rail-power-supplies",
+      "parent_id": 27,
+      "sort_order": 4
+    },
+    {
+      "id": 301,
+      "digikey_id": 137,
+      "name": "LED Drivers",
+      "slug": "led-drivers",
+      "parent_id": 27,
+      "sort_order": 5
+    },
+    {
+      "id": 302,
+      "digikey_id": 138,
+      "name": "Power over Ethernet (PoE)",
+      "slug": "power-over-ethernet-poe",
+      "parent_id": 27,
+      "sort_order": 6
+    },
+    {
+      "id": 303,
+      "digikey_id": 134,
+      "name": "AC DC Configurable Power Supply Chassis",
+      "slug": "ac-dc-configurable-power-supply-chassis",
+      "parent_id": 27,
+      "sort_order": 7
+    },
+    {
+      "id": 304,
+      "digikey_id": 136,
+      "name": "AC DC Configurable Power Supply Modules",
+      "slug": "ac-dc-configurable-power-supply-modules",
+      "parent_id": 27,
+      "sort_order": 8
+    },
+    {
+      "id": 305,
+      "digikey_id": 955,
+      "name": "AC DC Configurable Power Supplies (Factory Assembled)",
+      "slug": "ac-dc-configurable-power-supplies-factory-assembled",
+      "parent_id": 27,
+      "sort_order": 9
+    },
+    {
+      "id": 306,
+      "digikey_id": 638,
+      "name": "Solderless Breadboards",
+      "slug": "solderless-breadboards",
+      "parent_id": 28,
+      "sort_order": 1
+    },
+    {
+      "id": 307,
+      "digikey_id": 636,
+      "name": "Prototype Boards Perforated",
+      "slug": "prototype-boards-perforated",
+      "parent_id": 28,
+      "sort_order": 2
+    },
+    {
+      "id": 308,
+      "digikey_id": 643,
+      "name": "Adapter, Breakout Boards",
+      "slug": "adapter-breakout-boards",
+      "parent_id": 28,
+      "sort_order": 3
+    },
+    {
+      "id": 309,
+      "digikey_id": 640,
+      "name": "Jumper Wire",
+      "slug": "jumper-wire",
+      "parent_id": 28,
+      "sort_order": 4
+    },
+    {
+      "id": 310,
+      "digikey_id": 641,
+      "name": "Card Extenders",
+      "slug": "card-extenders",
+      "parent_id": 28,
+      "sort_order": 5
+    },
+    {
+      "id": 311,
+      "digikey_id": 188,
+      "name": "Power Relays, Over 2 Amps",
+      "slug": "power-relays-over-2-amps",
+      "parent_id": 29,
+      "sort_order": 1
+    },
+    {
+      "id": 312,
+      "digikey_id": 189,
+      "name": "Signal Relays, Up to 2 Amps",
+      "slug": "signal-relays-up-to-2-amps",
+      "parent_id": 29,
+      "sort_order": 2
+    },
+    {
+      "id": 313,
+      "digikey_id": 183,
+      "name": "Solid State Relays (SSR)",
+      "slug": "solid-state-relays-ssr",
+      "parent_id": 29,
+      "sort_order": 3
+    },
+    {
+      "id": 314,
+      "digikey_id": 969,
+      "name": "Contactors (Electromechanical)",
+      "slug": "contactors-electromechanical",
+      "parent_id": 29,
+      "sort_order": 4
+    },
+    {
+      "id": 315,
+      "digikey_id": 963,
+      "name": "High Frequency (RF) Relays",
+      "slug": "high-frequency-rf-relays",
+      "parent_id": 29,
+      "sort_order": 5
+    },
+    {
+      "id": 316,
+      "digikey_id": 964,
+      "name": "Reed Relays",
+      "slug": "reed-relays",
+      "parent_id": 29,
+      "sort_order": 6
+    },
+    {
+      "id": 317,
+      "digikey_id": 52,
+      "name": "Chip Resistor - Surface Mount",
+      "slug": "chip-resistor-surface-mount",
+      "parent_id": 30,
+      "sort_order": 1
+    },
+    {
+      "id": 318,
+      "digikey_id": 53,
+      "name": "Through Hole Resistors",
+      "slug": "through-hole-resistors",
+      "parent_id": 30,
+      "sort_order": 2
+    },
+    {
+      "id": 319,
+      "digikey_id": 54,
+      "name": "Chassis Mount Resistors",
+      "slug": "chassis-mount-resistors",
+      "parent_id": 30,
+      "sort_order": 3
+    },
+    {
+      "id": 320,
+      "digikey_id": 50,
+      "name": "Resistor Networks, Arrays",
+      "slug": "resistor-networks-arrays",
+      "parent_id": 30,
+      "sort_order": 4
+    },
+    {
+      "id": 321,
+      "digikey_id": 55,
+      "name": "Specialized Resistors",
+      "slug": "specialized-resistors",
+      "parent_id": 30,
+      "sort_order": 5
+    },
+    {
+      "id": 322,
+      "digikey_id": 56,
+      "name": "Precision Trimmed Resistors",
+      "slug": "precision-trimmed-resistors",
+      "parent_id": 30,
+      "sort_order": 6
+    },
+    {
+      "id": 323,
+      "digikey_id": 875,
+      "name": "RF Antennas",
+      "slug": "rf-antennas",
+      "parent_id": 31,
+      "sort_order": 1
+    },
+    {
+      "id": 324,
+      "digikey_id": 879,
+      "name": "RF Transceiver ICs",
+      "slug": "rf-transceiver-ics",
+      "parent_id": 31,
+      "sort_order": 2
+    },
+    {
+      "id": 325,
+      "digikey_id": 872,
+      "name": "RF Transceiver Modules and Modems",
+      "slug": "rf-transceiver-modules-and-modems",
+      "parent_id": 31,
+      "sort_order": 3
+    },
+    {
+      "id": 326,
+      "digikey_id": 870,
+      "name": "RF Receivers",
+      "slug": "rf-receivers",
+      "parent_id": 31,
+      "sort_order": 4
+    },
+    {
+      "id": 327,
+      "digikey_id": 871,
+      "name": "RF Transmitters",
+      "slug": "rf-transmitters",
+      "parent_id": 31,
+      "sort_order": 5
+    },
+    {
+      "id": 328,
+      "digikey_id": 860,
+      "name": "RF Amplifiers",
+      "slug": "rf-amplifiers",
+      "parent_id": 31,
+      "sort_order": 6
+    },
+    {
+      "id": 329,
+      "digikey_id": 865,
+      "name": "RF Switches",
+      "slug": "rf-switches",
+      "parent_id": 31,
+      "sort_order": 7
+    },
+    {
+      "id": 330,
+      "digikey_id": 861,
+      "name": "RF Mixers",
+      "slug": "rf-mixers",
+      "parent_id": 31,
+      "sort_order": 8
+    },
+    {
+      "id": 331,
+      "digikey_id": 852,
+      "name": "Attenuators",
+      "slug": "attenuators",
+      "parent_id": 31,
+      "sort_order": 9
+    },
+    {
+      "id": 332,
+      "digikey_id": 850,
+      "name": "RF Directional Coupler",
+      "slug": "rf-directional-coupler",
+      "parent_id": 31,
+      "sort_order": 10
+    },
+    {
+      "id": 333,
+      "digikey_id": 851,
+      "name": "RF Power Dividers/Splitters",
+      "slug": "rf-power-dividers-splitters",
+      "parent_id": 31,
+      "sort_order": 11
+    },
+    {
+      "id": 334,
+      "digikey_id": 867,
+      "name": "RF Shields",
+      "slug": "rf-shields",
+      "parent_id": 31,
+      "sort_order": 12
+    },
+    {
+      "id": 335,
+      "digikey_id": 869,
+      "name": "RFI and EMI - Shielding and Absorbing Materials",
+      "slug": "rfi-and-emi-shielding-and-absorbing-materials",
+      "parent_id": 31,
+      "sort_order": 13
+    },
+    {
+      "id": 336,
+      "digikey_id": 945,
+      "name": "RFI and EMI - Contacts, Fingerstock and Gaskets",
+      "slug": "rfi-and-emi-contacts-fingerstock-and-gaskets",
+      "parent_id": 31,
+      "sort_order": 14
+    },
+    {
+      "id": 337,
+      "digikey_id": 1010,
+      "name": "RF Circulators and Isolators",
+      "slug": "rf-circulators-and-isolators",
+      "parent_id": 31,
+      "sort_order": 15
+    },
+    {
+      "id": 338,
+      "digikey_id": 868,
+      "name": "RF Multiplexers",
+      "slug": "rf-multiplexers",
+      "parent_id": 31,
+      "sort_order": 16
+    },
+    {
+      "id": 339,
+      "digikey_id": 876,
+      "name": "RF Front End (LNA + PA)",
+      "slug": "rf-front-end-lna-pa",
+      "parent_id": 31,
+      "sort_order": 17
+    },
+    {
+      "id": 340,
+      "digikey_id": 863,
+      "name": "RF Misc ICs and Modules",
+      "slug": "rf-misc-ics-and-modules",
+      "parent_id": 31,
+      "sort_order": 18
+    },
+    {
+      "id": 341,
+      "digikey_id": 849,
+      "name": "Balun",
+      "slug": "balun",
+      "parent_id": 31,
+      "sort_order": 19
+    },
+    {
+      "id": 342,
+      "digikey_id": 853,
+      "name": "RFID Transponders, Tags",
+      "slug": "rfid-transponders-tags",
+      "parent_id": 31,
+      "sort_order": 20
+    },
+    {
+      "id": 343,
+      "digikey_id": 854,
+      "name": "RFID Reader Modules",
+      "slug": "rfid-reader-modules",
+      "parent_id": 31,
+      "sort_order": 21
+    },
+    {
+      "id": 344,
+      "digikey_id": 855,
+      "name": "RFID Antennas",
+      "slug": "rfid-antennas",
+      "parent_id": 31,
+      "sort_order": 22
+    },
+    {
+      "id": 345,
+      "digikey_id": 880,
+      "name": "RFID, RF Access, Monitoring ICs",
+      "slug": "rfid-rf-access-monitoring-ics",
+      "parent_id": 31,
+      "sort_order": 23
+    },
+    {
+      "id": 346,
+      "digikey_id": 873,
+      "name": "RF Receiver, Transmitter, and Transceiver Finished Units",
+      "slug": "rf-receiver-transmitter-and-transceiver-finished-units",
+      "parent_id": 31,
+      "sort_order": 24
+    },
+    {
+      "id": 347,
+      "digikey_id": 862,
+      "name": "RF Detectors",
+      "slug": "rf-detectors",
+      "parent_id": 31,
+      "sort_order": 25
+    },
+    {
+      "id": 348,
+      "digikey_id": 864,
+      "name": "RF Power Controller ICs",
+      "slug": "rf-power-controller-ics",
+      "parent_id": 31,
+      "sort_order": 26
+    },
+    {
+      "id": 349,
+      "digikey_id": 2075,
+      "name": "Temperature Sensors",
+      "slug": "temperature-sensors",
+      "parent_id": 32,
+      "sort_order": 1
+    },
+    {
+      "id": 350,
+      "digikey_id": 2071,
+      "name": "Optical Sensors",
+      "slug": "optical-sensors",
+      "parent_id": 32,
+      "sort_order": 2
+    },
+    {
+      "id": 351,
+      "digikey_id": 2070,
+      "name": "Motion Sensors",
+      "slug": "motion-sensors",
+      "parent_id": 32,
+      "sort_order": 3
+    },
+    {
+      "id": 352,
+      "digikey_id": 2068,
+      "name": "Magnetic Sensors",
+      "slug": "magnetic-sensors",
+      "parent_id": 32,
+      "sort_order": 4
+    },
+    {
+      "id": 353,
+      "digikey_id": 2072,
+      "name": "Position Sensors",
+      "slug": "position-sensors",
+      "parent_id": 32,
+      "sort_order": 5
+    },
+    {
+      "id": 354,
+      "digikey_id": 525,
+      "name": "Current Sensors",
+      "slug": "current-sensors",
+      "parent_id": 32,
+      "sort_order": 6
+    },
+    {
+      "id": 355,
+      "digikey_id": 512,
+      "name": "Pressure Sensors, Transducers",
+      "slug": "pressure-sensors-transducers",
+      "parent_id": 32,
+      "sort_order": 7
+    },
+    {
+      "id": 356,
+      "digikey_id": 529,
+      "name": "Humidity, Moisture Sensors",
+      "slug": "humidity-moisture-sensors",
+      "parent_id": 32,
+      "sort_order": 8
+    },
+    {
+      "id": 357,
+      "digikey_id": 530,
+      "name": "Gas Sensors",
+      "slug": "gas-sensors",
+      "parent_id": 32,
+      "sort_order": 9
+    },
+    {
+      "id": 358,
+      "digikey_id": 524,
+      "name": "Proximity Sensors",
+      "slug": "proximity-sensors",
+      "parent_id": 32,
+      "sort_order": 10
+    },
+    {
+      "id": 359,
+      "digikey_id": 507,
+      "name": "Encoders",
+      "slug": "encoders",
+      "parent_id": 32,
+      "sort_order": 11
+    },
+    {
+      "id": 360,
+      "digikey_id": 521,
+      "name": "Float, Level Sensors",
+      "slug": "float-level-sensors",
+      "parent_id": 32,
+      "sort_order": 12
+    },
+    {
+      "id": 361,
+      "digikey_id": 520,
+      "name": "Flow Sensors",
+      "slug": "flow-sensors",
+      "parent_id": 32,
+      "sort_order": 13
+    },
+    {
+      "id": 362,
+      "digikey_id": 531,
+      "name": "Force Sensors, Load Cells",
+      "slug": "force-sensors-load-cells",
+      "parent_id": 32,
+      "sort_order": 14
+    },
+    {
+      "id": 363,
+      "digikey_id": 527,
+      "name": "Ultrasonic Receivers, Transmitters",
+      "slug": "ultrasonic-receivers-transmitters",
+      "parent_id": 32,
+      "sort_order": 15
+    },
+    {
+      "id": 364,
+      "digikey_id": 514,
+      "name": "Solar Cells",
+      "slug": "solar-cells",
+      "parent_id": 32,
+      "sort_order": 16
+    },
+    {
+      "id": 365,
+      "digikey_id": 557,
+      "name": "Sensor, Transducer Amplifiers",
+      "slug": "sensor-transducer-amplifiers",
+      "parent_id": 32,
+      "sort_order": 17
+    },
+    {
+      "id": 366,
+      "digikey_id": 561,
+      "name": "Specialized Sensors",
+      "slug": "specialized-sensors",
+      "parent_id": 32,
+      "sort_order": 18
+    },
+    {
+      "id": 367,
+      "digikey_id": 539,
+      "name": "Color Sensors",
+      "slug": "color-sensors",
+      "parent_id": 32,
+      "sort_order": 19
+    },
+    {
+      "id": 368,
+      "digikey_id": 559,
+      "name": "Strain Gauges",
+      "slug": "strain-gauges",
+      "parent_id": 32,
+      "sort_order": 20
+    },
+    {
+      "id": 369,
+      "digikey_id": 528,
+      "name": "Shock Sensors",
+      "slug": "shock-sensors",
+      "parent_id": 32,
+      "sort_order": 21
+    },
+    {
+      "id": 370,
+      "digikey_id": 509,
+      "name": "Particle, Dust Sensors",
+      "slug": "particle-dust-sensors",
+      "parent_id": 32,
+      "sort_order": 22
+    },
+    {
+      "id": 371,
+      "digikey_id": 2069,
+      "name": "Magnets",
+      "slug": "magnets",
+      "parent_id": 32,
+      "sort_order": 23
+    },
+    {
+      "id": 372,
+      "digikey_id": 971,
+      "name": "Touch Sensors",
+      "slug": "touch-sensors",
+      "parent_id": 32,
+      "sort_order": 24
+    },
+    {
+      "id": 373,
+      "digikey_id": 522,
+      "name": "LVDT Transducers",
+      "slug": "lvdt-transducers",
+      "parent_id": 32,
+      "sort_order": 25
+    },
+    {
+      "id": 374,
+      "digikey_id": 262,
+      "name": "Solder",
+      "slug": "solder",
+      "parent_id": 33,
+      "sort_order": 1
+    },
+    {
+      "id": 375,
+      "digikey_id": 265,
+      "name": "Desoldering Braid, Wick, Pumps",
+      "slug": "desoldering-braid-wick-pumps",
+      "parent_id": 33,
+      "sort_order": 2
+    },
+    {
+      "id": 376,
+      "digikey_id": 266,
+      "name": "Flux, Flux Remover",
+      "slug": "flux-flux-remover",
+      "parent_id": 33,
+      "sort_order": 3
+    },
+    {
+      "id": 377,
+      "digikey_id": 272,
+      "name": "Solder Stencils, Templates",
+      "slug": "solder-stencils-templates",
+      "parent_id": 33,
+      "sort_order": 4
+    },
+    {
+      "id": 378,
+      "digikey_id": 268,
+      "name": "Soldering Irons, Tweezers, Handles",
+      "slug": "soldering-irons-tweezers-handles",
+      "parent_id": 33,
+      "sort_order": 5
+    },
+    {
+      "id": 379,
+      "digikey_id": 264,
+      "name": "Soldering, Desoldering, Rework Stations",
+      "slug": "soldering-desoldering-rework-stations",
+      "parent_id": 33,
+      "sort_order": 6
+    },
+    {
+      "id": 380,
+      "digikey_id": 199,
+      "name": "Pushbutton Switches",
+      "slug": "pushbutton-switches",
+      "parent_id": 34,
+      "sort_order": 1
+    },
+    {
+      "id": 381,
+      "digikey_id": 195,
+      "name": "Rocker Switches",
+      "slug": "rocker-switches",
+      "parent_id": 34,
+      "sort_order": 2
+    },
+    {
+      "id": 382,
+      "digikey_id": 197,
+      "name": "Tactile Switches",
+      "slug": "tactile-switches",
+      "parent_id": 34,
+      "sort_order": 3
+    },
+    {
+      "id": 383,
+      "digikey_id": 201,
+      "name": "Toggle Switches",
+      "slug": "toggle-switches",
+      "parent_id": 34,
+      "sort_order": 4
+    },
+    {
+      "id": 384,
+      "digikey_id": 194,
+      "name": "DIP Switches",
+      "slug": "dip-switches",
+      "parent_id": 34,
+      "sort_order": 5
+    },
+    {
+      "id": 385,
+      "digikey_id": 200,
+      "name": "Rotary Switches",
+      "slug": "rotary-switches",
+      "parent_id": 34,
+      "sort_order": 6
+    },
+    {
+      "id": 386,
+      "digikey_id": 213,
+      "name": "Slide Switches",
+      "slug": "slide-switches",
+      "parent_id": 34,
+      "sort_order": 7
+    },
+    {
+      "id": 387,
+      "digikey_id": 203,
+      "name": "Selector Switches",
+      "slug": "selector-switches",
+      "parent_id": 34,
+      "sort_order": 8
+    },
+    {
+      "id": 388,
+      "digikey_id": 193,
+      "name": "Magnetic, Reed Switches",
+      "slug": "magnetic-reed-switches",
+      "parent_id": 34,
+      "sort_order": 9
+    },
+    {
+      "id": 389,
+      "digikey_id": 198,
+      "name": "Limit Switches",
+      "slug": "limit-switches",
+      "parent_id": 34,
+      "sort_order": 10
+    },
+    {
+      "id": 390,
+      "digikey_id": 196,
+      "name": "Keylock Switches",
+      "slug": "keylock-switches",
+      "parent_id": 34,
+      "sort_order": 11
+    },
+    {
+      "id": 391,
+      "digikey_id": 202,
+      "name": "Keypad Switches",
+      "slug": "keypad-switches",
+      "parent_id": 34,
+      "sort_order": 12
+    },
+    {
+      "id": 392,
+      "digikey_id": 204,
+      "name": "Navigation Switches, Joystick",
+      "slug": "navigation-switches-joystick",
+      "parent_id": 34,
+      "sort_order": 13
+    },
+    {
+      "id": 393,
+      "digikey_id": 214,
+      "name": "Thumbwheel Switches",
+      "slug": "thumbwheel-switches",
+      "parent_id": 34,
+      "sort_order": 14
+    },
+    {
+      "id": 394,
+      "digikey_id": 2078,
+      "name": "Test Equipment",
+      "slug": "test-equipment",
+      "parent_id": 35,
+      "sort_order": 1
+    },
+    {
+      "id": 395,
+      "digikey_id": 2079,
+      "name": "Test Leads",
+      "slug": "test-leads",
+      "parent_id": 35,
+      "sort_order": 2
+    },
+    {
+      "id": 396,
+      "digikey_id": 616,
+      "name": "Test Points",
+      "slug": "test-points",
+      "parent_id": 35,
+      "sort_order": 3
+    },
+    {
+      "id": 397,
+      "digikey_id": 622,
+      "name": "Test Probe Tips",
+      "slug": "test-probe-tips",
+      "parent_id": 35,
+      "sort_order": 4
+    },
+    {
+      "id": 398,
+      "digikey_id": 617,
+      "name": "Thermometers",
+      "slug": "thermometers",
+      "parent_id": 35,
+      "sort_order": 5
+    },
+    {
+      "id": 399,
+      "digikey_id": 1017,
+      "name": "Data Acquisition (DAQ)",
+      "slug": "data-acquisition-daq",
+      "parent_id": 35,
+      "sort_order": 6
+    },
+    {
+      "id": 400,
+      "digikey_id": 164,
+      "name": "Power Transformers",
+      "slug": "power-transformers",
+      "parent_id": 36,
+      "sort_order": 1
+    },
+    {
+      "id": 401,
+      "digikey_id": 168,
+      "name": "Switching Converter, SMPS Transformers",
+      "slug": "switching-converter-smps-transformers",
+      "parent_id": 36,
+      "sort_order": 2
+    },
+    {
+      "id": 402,
+      "digikey_id": 163,
+      "name": "Current Sense Transformers",
+      "slug": "current-sense-transformers",
+      "parent_id": 36,
+      "sort_order": 3
+    },
+    {
+      "id": 403,
+      "digikey_id": 166,
+      "name": "Pulse Transformers",
+      "slug": "pulse-transformers",
+      "parent_id": 36,
+      "sort_order": 4
+    },
+    {
+      "id": 404,
+      "digikey_id": 162,
+      "name": "Audio Transformers",
+      "slug": "audio-transformers",
+      "parent_id": 36,
+      "sort_order": 5
+    },
+    {
+      "id": 405,
+      "digikey_id": 167,
+      "name": "Isolation Transformers and Autotransformers, Step Up, Step Down",
+      "slug": "isolation-transformers-and-autotransformers-step-up-step-down",
+      "parent_id": 36,
+      "sort_order": 6
+    },
+    {
+      "id": 406,
+      "digikey_id": 165,
+      "name": "Specialty Transformers",
+      "slug": "specialty-transformers",
+      "parent_id": 36,
+      "sort_order": 7
+    },
+    {
+      "id": 1001,
+      "digikey_id": 149,
+      "name": "Mixed Technology",
+      "slug": "mixed-technology",
+      "parent_id": 142,
+      "sort_order": 1
+    },
+    {
+      "id": 1002,
+      "digikey_id": 992,
+      "name": "Surge Protection Devices (SPDs)",
+      "slug": "surge-protection-devices-spds",
+      "parent_id": 142,
+      "sort_order": 2
+    },
+    {
+      "id": 1003,
+      "digikey_id": 147,
+      "name": "Thyristors",
+      "slug": "thyristors",
+      "parent_id": 142,
+      "sort_order": 3
+    },
+    {
+      "id": 1004,
+      "digikey_id": 144,
+      "name": "TVS Diodes",
+      "slug": "tvs-diodes",
+      "parent_id": 142,
+      "sort_order": 4
+    },
+    {
+      "id": 1005,
+      "digikey_id": 314,
+      "name": "Headers, Male Pins",
+      "slug": "headers-male-pins",
+      "parent_id": 153,
+      "sort_order": 1
+    },
+    {
+      "id": 1006,
+      "digikey_id": 315,
+      "name": "Headers, Receptacles, Female Sockets",
+      "slug": "headers-receptacles-female-sockets",
+      "parent_id": 153,
+      "sort_order": 2
+    },
+    {
+      "id": 1007,
+      "digikey_id": 400,
+      "name": "Board Spacers, Stackers (Board to Board)",
+      "slug": "board-spacers-stackers-board-to-board",
+      "parent_id": 153,
+      "sort_order": 3
+    },
+    {
+      "id": 1008,
+      "digikey_id": 308,
+      "name": "Arrays, Edge Type, Mezzanine (Board to Board)",
+      "slug": "arrays-edge-type-mezzanine-board-to-board",
+      "parent_id": 153,
+      "sort_order": 4
+    },
+    {
+      "id": 1009,
+      "digikey_id": 316,
+      "name": "Free Hanging, Panel Mount",
+      "slug": "free-hanging-panel-mount",
+      "parent_id": 153,
+      "sort_order": 5
+    },
+    {
+      "id": 1010,
+      "digikey_id": 317,
+      "name": "Board In, Direct Wire to Board",
+      "slug": "board-in-direct-wire-to-board",
+      "parent_id": 153,
+      "sort_order": 6
+    },
+    {
+      "id": 1011,
+      "digikey_id": 408,
+      "name": "Spring Loaded",
+      "slug": "spring-loaded",
+      "parent_id": 153,
+      "sort_order": 7
+    },
+    {
+      "id": 1012,
+      "digikey_id": 318,
+      "name": "Headers, Specialty Pin",
+      "slug": "headers-specialty-pin",
+      "parent_id": 153,
+      "sort_order": 8
+    },
+    {
+      "id": 1013,
+      "digikey_id": 370,
+      "name": "Headers, Plugs and Sockets",
+      "slug": "headers-plugs-and-sockets",
+      "parent_id": 154,
+      "sort_order": 1
+    },
+    {
+      "id": 1014,
+      "digikey_id": 368,
+      "name": "Barrier Blocks",
+      "slug": "barrier-blocks",
+      "parent_id": 154,
+      "sort_order": 2
+    },
+    {
+      "id": 1015,
+      "digikey_id": 371,
+      "name": "Wire to Board",
+      "slug": "wire-to-board",
+      "parent_id": 154,
+      "sort_order": 3
+    },
+    {
+      "id": 1016,
+      "digikey_id": 369,
+      "name": "Din Rail, Channel",
+      "slug": "din-rail-channel",
+      "parent_id": 154,
+      "sort_order": 4
+    },
+    {
+      "id": 1017,
+      "digikey_id": 412,
+      "name": "Power Distribution",
+      "slug": "power-distribution",
+      "parent_id": 154,
+      "sort_order": 5
+    },
+    {
+      "id": 1018,
+      "digikey_id": 433,
+      "name": "Specialized",
+      "slug": "specialized",
+      "parent_id": 154,
+      "sort_order": 6
+    },
+    {
+      "id": 1019,
+      "digikey_id": 394,
+      "name": "Ring Connectors",
+      "slug": "ring-connectors",
+      "parent_id": 155,
+      "sort_order": 1
+    },
+    {
+      "id": 1020,
+      "digikey_id": 392,
+      "name": "Quick Connects, Quick Disconnect Connectors",
+      "slug": "quick-connects-quick-disconnect-connectors",
+      "parent_id": 155,
+      "sort_order": 2
+    },
+    {
+      "id": 1021,
+      "digikey_id": 391,
+      "name": "Spade Connectors",
+      "slug": "spade-connectors",
+      "parent_id": 155,
+      "sort_order": 3
+    },
+    {
+      "id": 1022,
+      "digikey_id": 395,
+      "name": "Lugs",
+      "slug": "lugs",
+      "parent_id": 155,
+      "sort_order": 4
+    },
+    {
+      "id": 1023,
+      "digikey_id": 324,
+      "name": "PC Pin Receptacles, Socket Connectors",
+      "slug": "pc-pin-receptacles-socket-connectors",
+      "parent_id": 155,
+      "sort_order": 5
+    },
+    {
+      "id": 1024,
+      "digikey_id": 323,
+      "name": "PC Pin, Single Post Connectors",
+      "slug": "pc-pin-single-post-connectors",
+      "parent_id": 155,
+      "sort_order": 6
+    },
+    {
+      "id": 1025,
+      "digikey_id": 393,
+      "name": "Barrel, Bullet Connectors",
+      "slug": "barrel-bullet-connectors",
+      "parent_id": 155,
+      "sort_order": 7
+    },
+    {
+      "id": 1026,
+      "digikey_id": 305,
+      "name": "Wire Splice Connectors",
+      "slug": "wire-splice-connectors",
+      "parent_id": 155,
+      "sort_order": 8
+    },
+    {
+      "id": 1027,
+      "digikey_id": 356,
+      "name": "Specialized Connectors",
+      "slug": "specialized-connectors",
+      "parent_id": 155,
+      "sort_order": 9
+    },
+    {
+      "id": 1028,
+      "digikey_id": 313,
+      "name": "Backshells and Cable Clamps",
+      "slug": "backshells-and-cable-clamps",
+      "parent_id": 156,
+      "sort_order": 1
+    },
+    {
+      "id": 1029,
+      "digikey_id": 329,
+      "name": "Circular Connector Accessories",
+      "slug": "circular-connector-accessories",
+      "parent_id": 156,
+      "sort_order": 2
+    },
+    {
+      "id": 1030,
+      "digikey_id": 378,
+      "name": "Circular Connector Adapters",
+      "slug": "circular-connector-adapters",
+      "parent_id": 156,
+      "sort_order": 3
+    },
+    {
+      "id": 1031,
+      "digikey_id": 436,
+      "name": "Circular Connector Assemblies",
+      "slug": "circular-connector-assemblies",
+      "parent_id": 156,
+      "sort_order": 4
+    },
+    {
+      "id": 1032,
+      "digikey_id": 330,
+      "name": "Circular Connector Contacts",
+      "slug": "circular-connector-contacts",
+      "parent_id": 156,
+      "sort_order": 5
+    },
+    {
+      "id": 1033,
+      "digikey_id": 320,
+      "name": "Circular Connector Housings",
+      "slug": "circular-connector-housings",
+      "parent_id": 156,
+      "sort_order": 6
+    },
+    {
+      "id": 1034,
+      "digikey_id": 349,
+      "name": "Card Edge Connector Accessories",
+      "slug": "card-edge-connector-accessories",
+      "parent_id": 157,
+      "sort_order": 1
+    },
+    {
+      "id": 1035,
+      "digikey_id": 429,
+      "name": "Card Edge Connector Adapters",
+      "slug": "card-edge-connector-adapters",
+      "parent_id": 157,
+      "sort_order": 2
+    },
+    {
+      "id": 1036,
+      "digikey_id": 345,
+      "name": "Card Edge Connector Contacts",
+      "slug": "card-edge-connector-contacts",
+      "parent_id": 157,
+      "sort_order": 3
+    },
+    {
+      "id": 1037,
+      "digikey_id": 354,
+      "name": "Card Edge Connector Housings",
+      "slug": "card-edge-connector-housings",
+      "parent_id": 157,
+      "sort_order": 4
+    },
+    {
+      "id": 1038,
+      "digikey_id": 303,
+      "name": "Edgeboard Connectors",
+      "slug": "edgeboard-connectors",
+      "parent_id": 157,
+      "sort_order": 5
+    },
+    {
+      "id": 1039,
+      "digikey_id": 439,
+      "name": "D-Sub Connector Assemblies",
+      "slug": "d-sub-connector-assemblies",
+      "parent_id": 158,
+      "sort_order": 1
+    },
+    {
+      "id": 1040,
+      "digikey_id": 321,
+      "name": "D-Sub, D-Shaped Connector Housings",
+      "slug": "d-sub-d-shaped-connector-housings",
+      "parent_id": 158,
+      "sort_order": 2
+    },
+    {
+      "id": 1041,
+      "digikey_id": 355,
+      "name": "D-Sub, D-Shaped Connector Backshells, Hoods",
+      "slug": "d-sub-d-shaped-connector-backshells-hoods",
+      "parent_id": 158,
+      "sort_order": 3
+    },
+    {
+      "id": 1042,
+      "digikey_id": 438,
+      "name": "Centronics Connectors",
+      "slug": "centronics-connectors",
+      "parent_id": 158,
+      "sort_order": 4
+    },
+    {
+      "id": 1043,
+      "digikey_id": 342,
+      "name": "Coaxial Connector (RF) Accessories",
+      "slug": "coaxial-connector-rf-accessories",
+      "parent_id": 159,
+      "sort_order": 1
+    },
+    {
+      "id": 1044,
+      "digikey_id": 374,
+      "name": "Coaxial Connector (RF) Adapters",
+      "slug": "coaxial-connector-rf-adapters",
+      "parent_id": 159,
+      "sort_order": 2
+    },
+    {
+      "id": 1045,
+      "digikey_id": 437,
+      "name": "Coaxial Connector (RF) Assemblies",
+      "slug": "coaxial-connector-rf-assemblies",
+      "parent_id": 159,
+      "sort_order": 3
+    },
+    {
+      "id": 1046,
+      "digikey_id": 388,
+      "name": "Coaxial Connector (RF) Contacts",
+      "slug": "coaxial-connector-rf-contacts",
+      "parent_id": 159,
+      "sort_order": 4
+    },
+    {
+      "id": 1047,
+      "digikey_id": 382,
+      "name": "Coaxial Connector (RF) Terminators",
+      "slug": "coaxial-connector-rf-terminators",
+      "parent_id": 159,
+      "sort_order": 5
+    },
+    {
+      "id": 1048,
+      "digikey_id": 350,
+      "name": "FFC, FPC (Flat Flexible) Connector Accessories",
+      "slug": "ffc-fpc-flat-flexible-connector-accessories",
+      "parent_id": 160,
+      "sort_order": 1
+    },
+    {
+      "id": 1049,
+      "digikey_id": 399,
+      "name": "FFC, FPC (Flat Flexible) Connector Assemblies",
+      "slug": "ffc-fpc-flat-flexible-connector-assemblies",
+      "parent_id": 160,
+      "sort_order": 2
+    },
+    {
+      "id": 1050,
+      "digikey_id": 344,
+      "name": "FFC, FPC (Flat Flexible) Connector Contacts",
+      "slug": "ffc-fpc-flat-flexible-connector-contacts",
+      "parent_id": 160,
+      "sort_order": 3
+    },
+    {
+      "id": 1051,
+      "digikey_id": 390,
+      "name": "FFC, FPC (Flat Flexible) Connector Housings",
+      "slug": "ffc-fpc-flat-flexible-connector-housings",
+      "parent_id": 160,
+      "sort_order": 4
+    },
+    {
+      "id": 1052,
+      "digikey_id": 407,
+      "name": "Specialized",
+      "slug": "specialized",
+      "parent_id": 161,
+      "sort_order": 1
+    },
+    {
+      "id": 1053,
+      "digikey_id": 372,
+      "name": "Backplane Connector Housings",
+      "slug": "backplane-connector-housings",
+      "parent_id": 161,
+      "sort_order": 2
+    },
+    {
+      "id": 1054,
+      "digikey_id": 307,
+      "name": "DIN 41612",
+      "slug": "din-41612",
+      "parent_id": 161,
+      "sort_order": 3
+    },
+    {
+      "id": 1055,
+      "digikey_id": 406,
+      "name": "Hard Metric, Standard",
+      "slug": "hard-metric-standard",
+      "parent_id": 161,
+      "sort_order": 4
+    },
+    {
+      "id": 1056,
+      "digikey_id": 409,
+      "name": "IC Sockets",
+      "slug": "ic-sockets",
+      "parent_id": 162,
+      "sort_order": 1
+    },
+    {
+      "id": 1057,
+      "digikey_id": 410,
+      "name": "Socket Accessories",
+      "slug": "socket-accessories",
+      "parent_id": 162,
+      "sort_order": 2
+    },
+    {
+      "id": 1058,
+      "digikey_id": 411,
+      "name": "Socket Adapters",
+      "slug": "socket-adapters",
+      "parent_id": 162,
+      "sort_order": 3
+    },
+    {
+      "id": 1059,
+      "digikey_id": 1170,
+      "name": "Plugs and Receptacles",
+      "slug": "plugs-and-receptacles",
+      "parent_id": 163,
+      "sort_order": 1
+    },
+    {
+      "id": 1060,
+      "digikey_id": 341,
+      "name": "Power Entry Connector Accessories",
+      "slug": "power-entry-connector-accessories",
+      "parent_id": 163,
+      "sort_order": 2
+    },
+    {
+      "id": 1061,
+      "digikey_id": 301,
+      "name": "Power Entry Modules (PEM)",
+      "slug": "power-entry-modules-pem",
+      "parent_id": 163,
+      "sort_order": 3
+    },
+    {
+      "id": 1062,
+      "digikey_id": 366,
+      "name": "Modular/Ethernet Connector (RJ45, RJ11) Jacks",
+      "slug": "modular-ethernet-connector-rj45-rj11-jacks",
+      "parent_id": 164,
+      "sort_order": 1
+    },
+    {
+      "id": 1063,
+      "digikey_id": 365,
+      "name": "Modular/Ethernet Connector (RJ45) Jacks With Magnetics",
+      "slug": "modular-ethernet-connector-rj45-jacks-with-magnetics",
+      "parent_id": 164,
+      "sort_order": 2
+    },
+    {
+      "id": 1064,
+      "digikey_id": 367,
+      "name": "Modular/Ethernet Connector (RJ45, RJ11) Plugs",
+      "slug": "modular-ethernet-connector-rj45-rj11-plugs",
+      "parent_id": 164,
+      "sort_order": 3
+    },
+    {
+      "id": 1065,
+      "digikey_id": 358,
+      "name": "Heavy Duty Connector Accessories",
+      "slug": "heavy-duty-connector-accessories",
+      "parent_id": 165,
+      "sort_order": 1
+    },
+    {
+      "id": 1066,
+      "digikey_id": 327,
+      "name": "Heavy Duty Connector Assemblies",
+      "slug": "heavy-duty-connector-assemblies",
+      "parent_id": 165,
+      "sort_order": 2
+    },
+    {
+      "id": 1067,
+      "digikey_id": 337,
+      "name": "Heavy Duty Connector Contacts",
+      "slug": "heavy-duty-connector-contacts",
+      "parent_id": 165,
+      "sort_order": 3
+    },
+    {
+      "id": 1068,
+      "digikey_id": 362,
+      "name": "Heavy Duty Connector Frames",
+      "slug": "heavy-duty-connector-frames",
+      "parent_id": 165,
+      "sort_order": 4
+    },
+    {
+      "id": 1069,
+      "digikey_id": 363,
+      "name": "Heavy Duty Connector Housings, Hoods, Bases",
+      "slug": "heavy-duty-connector-housings-hoods-bases",
+      "parent_id": 165,
+      "sort_order": 5
+    },
+    {
+      "id": 1070,
+      "digikey_id": 361,
+      "name": "Heavy Duty Connector Inserts, Modules",
+      "slug": "heavy-duty-connector-inserts-modules",
+      "parent_id": 165,
+      "sort_order": 6
+    },
+    {
+      "id": 1071,
+      "digikey_id": 426,
+      "name": "Keystone Connector Accessories",
+      "slug": "keystone-connector-accessories",
+      "parent_id": 166,
+      "sort_order": 1
+    },
+    {
+      "id": 1072,
+      "digikey_id": 427,
+      "name": "Keystone Faceplates, Frames",
+      "slug": "keystone-faceplates-frames",
+      "parent_id": 166,
+      "sort_order": 2
+    },
+    {
+      "id": 1073,
+      "digikey_id": 428,
+      "name": "Keystone Inserts",
+      "slug": "keystone-inserts",
+      "parent_id": 166,
+      "sort_order": 3
+    },
+    {
+      "id": 1074,
+      "digikey_id": 360,
+      "name": "Blade Type Power Connector Accessories",
+      "slug": "blade-type-power-connector-accessories",
+      "parent_id": 167,
+      "sort_order": 1
+    },
+    {
+      "id": 1075,
+      "digikey_id": 357,
+      "name": "Blade Type Power Connector Assemblies",
+      "slug": "blade-type-power-connector-assemblies",
+      "parent_id": 167,
+      "sort_order": 2
+    },
+    {
+      "id": 1076,
+      "digikey_id": 420,
+      "name": "Blade Type Power Connector Contacts",
+      "slug": "blade-type-power-connector-contacts",
+      "parent_id": 167,
+      "sort_order": 3
+    },
+    {
+      "id": 1077,
+      "digikey_id": 419,
+      "name": "Blade Type Power Connector Housings",
+      "slug": "blade-type-power-connector-housings",
+      "parent_id": 167,
+      "sort_order": 4
+    },
+    {
+      "id": 1078,
+      "digikey_id": 347,
+      "name": "USB, DVI, HDMI Connector Accessories",
+      "slug": "usb-dvi-hdmi-connector-accessories",
+      "parent_id": 168,
+      "sort_order": 1
+    },
+    {
+      "id": 1079,
+      "digikey_id": 377,
+      "name": "USB, DVI, HDMI Connector Adapters",
+      "slug": "usb-dvi-hdmi-connector-adapters",
+      "parent_id": 168,
+      "sort_order": 2
+    },
+    {
+      "id": 1080,
+      "digikey_id": 312,
+      "name": "USB, DVI, HDMI Connector Assemblies",
+      "slug": "usb-dvi-hdmi-connector-assemblies",
+      "parent_id": 168,
+      "sort_order": 3
+    },
+    {
+      "id": 1081,
+      "digikey_id": 389,
+      "name": "Fiber Optic Connector Accessories",
+      "slug": "fiber-optic-connector-accessories",
+      "parent_id": 169,
+      "sort_order": 1
+    },
+    {
+      "id": 1082,
+      "digikey_id": 387,
+      "name": "Fiber Optic Connector Adapters",
+      "slug": "fiber-optic-connector-adapters",
+      "parent_id": 169,
+      "sort_order": 2
+    },
+    {
+      "id": 1083,
+      "digikey_id": 440,
+      "name": "Fiber Optic Connector Assemblies",
+      "slug": "fiber-optic-connector-assemblies",
+      "parent_id": 169,
+      "sort_order": 3
+    },
+    {
+      "id": 1084,
+      "digikey_id": 445,
+      "name": "Fiber Optic Connector Housings",
+      "slug": "fiber-optic-connector-housings",
+      "parent_id": 169,
+      "sort_order": 4
+    },
+    {
+      "id": 1085,
+      "digikey_id": 346,
+      "name": "Pluggable Connector Accessories",
+      "slug": "pluggable-connector-accessories",
+      "parent_id": 170,
+      "sort_order": 1
+    },
+    {
+      "id": 1086,
+      "digikey_id": 443,
+      "name": "Pluggable Connector Assemblies",
+      "slug": "pluggable-connector-assemblies",
+      "parent_id": 170,
+      "sort_order": 2
+    },
+    {
+      "id": 1087,
+      "digikey_id": 351,
+      "name": "Banana and Tip Connector Accessories",
+      "slug": "banana-and-tip-connector-accessories",
+      "parent_id": 171,
+      "sort_order": 1
+    },
+    {
+      "id": 1088,
+      "digikey_id": 381,
+      "name": "Banana and Tip Connector Adapters",
+      "slug": "banana-and-tip-connector-adapters",
+      "parent_id": 171,
+      "sort_order": 2
+    },
+    {
+      "id": 1089,
+      "digikey_id": 310,
+      "name": "Binding Posts",
+      "slug": "binding-posts",
+      "parent_id": 171,
+      "sort_order": 3
+    },
+    {
+      "id": 1090,
+      "digikey_id": 302,
+      "name": "Jacks, Plugs",
+      "slug": "jacks-plugs",
+      "parent_id": 171,
+      "sort_order": 4
+    },
+    {
+      "id": 1091,
+      "digikey_id": 434,
+      "name": "Audio Connectors",
+      "slug": "audio-connectors",
+      "parent_id": 172,
+      "sort_order": 1
+    },
+    {
+      "id": 1092,
+      "digikey_id": 348,
+      "name": "Barrel Connector Accessories",
+      "slug": "barrel-connector-accessories",
+      "parent_id": 172,
+      "sort_order": 2
+    },
+    {
+      "id": 1093,
+      "digikey_id": 376,
+      "name": "Barrel Connector Adapters",
+      "slug": "barrel-connector-adapters",
+      "parent_id": 172,
+      "sort_order": 3
+    },
+    {
+      "id": 1094,
+      "digikey_id": 435,
+      "name": "Power Connectors",
+      "slug": "power-connectors",
+      "parent_id": 172,
+      "sort_order": 4
+    },
+    {
+      "id": 1095,
+      "digikey_id": 413,
+      "name": "Inline Module Sockets",
+      "slug": "inline-module-sockets",
+      "parent_id": 173,
+      "sort_order": 1
+    },
+    {
+      "id": 1096,
+      "digikey_id": 352,
+      "name": "Memory Connector Accessories",
+      "slug": "memory-connector-accessories",
+      "parent_id": 173,
+      "sort_order": 2
+    },
+    {
+      "id": 1097,
+      "digikey_id": 414,
+      "name": "PC Card Sockets",
+      "slug": "pc-card-sockets",
+      "parent_id": 173,
+      "sort_order": 3
+    },
+    {
+      "id": 1098,
+      "digikey_id": 421,
+      "name": "PC Cards - Adapters",
+      "slug": "pc-cards-adapters",
+      "parent_id": 173,
+      "sort_order": 4
+    },
+    {
+      "id": 1099,
+      "digikey_id": 787,
+      "name": "Evaluation and Demonstration Boards and Kits",
+      "slug": "evaluation-and-demonstration-boards-and-kits",
+      "parent_id": 181,
+      "sort_order": 1
+    },
+    {
+      "id": 1100,
+      "digikey_id": 786,
+      "name": "Embedded MCU, DSP Evaluation Boards",
+      "slug": "embedded-mcu-dsp-evaluation-boards",
+      "parent_id": 181,
+      "sort_order": 2
+    },
+    {
+      "id": 1101,
+      "digikey_id": 796,
+      "name": "Embedded Complex Logic (FPGA, CPLD) Evaluation Boards",
+      "slug": "embedded-complex-logic-fpga-cpld-evaluation-boards",
+      "parent_id": 181,
+      "sort_order": 3
+    },
+    {
+      "id": 1102,
+      "digikey_id": 1165,
+      "name": "RF, RFID, Wireless Evaluation Boards",
+      "slug": "rf-rfid-wireless-evaluation-boards",
+      "parent_id": 181,
+      "sort_order": 4
+    },
+    {
+      "id": 1103,
+      "digikey_id": 797,
+      "name": "Expansion Boards, Daughter Cards",
+      "slug": "expansion-boards-daughter-cards",
+      "parent_id": 181,
+      "sort_order": 5
+    },
+    {
+      "id": 1104,
+      "digikey_id": 795,
+      "name": "Sensor Evaluation Boards",
+      "slug": "sensor-evaluation-boards",
+      "parent_id": 181,
+      "sort_order": 6
+    },
+    {
+      "id": 1105,
+      "digikey_id": 792,
+      "name": "DC/DC & AC/DC (Off-Line) SMPS Evaluation Boards",
+      "slug": "dc-dc-ac-dc-off-line-smps-evaluation-boards",
+      "parent_id": 181,
+      "sort_order": 7
+    },
+    {
+      "id": 1106,
+      "digikey_id": 299,
+      "name": "Bridge Rectifiers",
+      "slug": "bridge-rectifiers",
+      "parent_id": 184,
+      "sort_order": 1
+    },
+    {
+      "id": 1107,
+      "digikey_id": 2085,
+      "name": "Rectifiers",
+      "slug": "rectifiers",
+      "parent_id": 184,
+      "sort_order": 2
+    },
+    {
+      "id": 1108,
+      "digikey_id": 284,
+      "name": "RF Diodes",
+      "slug": "rf-diodes",
+      "parent_id": 184,
+      "sort_order": 3
+    },
+    {
+      "id": 1109,
+      "digikey_id": 282,
+      "name": "Variable Capacitance (Varicaps, Varactors)",
+      "slug": "variable-capacitance-varicaps-varactors",
+      "parent_id": 184,
+      "sort_order": 4
+    },
+    {
+      "id": 1110,
+      "digikey_id": 2086,
+      "name": "Zener",
+      "slug": "zener",
+      "parent_id": 184,
+      "sort_order": 5
+    },
+    {
+      "id": 1111,
+      "digikey_id": 2087,
+      "name": "Bipolar (BJT)",
+      "slug": "bipolar-bjt",
+      "parent_id": 185,
+      "sort_order": 1
+    },
+    {
+      "id": 1112,
+      "digikey_id": 2088,
+      "name": "FETs, MOSFETs",
+      "slug": "fets-mosfets",
+      "parent_id": 185,
+      "sort_order": 2
+    },
+    {
+      "id": 1113,
+      "digikey_id": 2089,
+      "name": "IGBTs",
+      "slug": "igbts",
+      "parent_id": 185,
+      "sort_order": 3
+    },
+    {
+      "id": 1114,
+      "digikey_id": 288,
+      "name": "JFETs",
+      "slug": "jfets",
+      "parent_id": 185,
+      "sort_order": 4
+    },
+    {
+      "id": 1115,
+      "digikey_id": 290,
+      "name": "Programmable Unijunction",
+      "slug": "programmable-unijunction",
+      "parent_id": 185,
+      "sort_order": 5
+    },
+    {
+      "id": 1116,
+      "digikey_id": 294,
+      "name": "Special Purpose",
+      "slug": "special-purpose",
+      "parent_id": 185,
+      "sort_order": 6
+    },
+    {
+      "id": 1117,
+      "digikey_id": 274,
+      "name": "DIACs, SIDACs",
+      "slug": "diacs-sidacs",
+      "parent_id": 186,
+      "sort_order": 1
+    },
+    {
+      "id": 1118,
+      "digikey_id": 281,
+      "name": "SCRs",
+      "slug": "scrs",
+      "parent_id": 186,
+      "sort_order": 2
+    },
+    {
+      "id": 1119,
+      "digikey_id": 298,
+      "name": "SCRs - Modules",
+      "slug": "scrs-modules",
+      "parent_id": 186,
+      "sort_order": 3
+    },
+    {
+      "id": 1120,
+      "digikey_id": 300,
+      "name": "TRIACs",
+      "slug": "triacs",
+      "parent_id": 186,
+      "sort_order": 4
+    },
+    {
+      "id": 1121,
+      "digikey_id": 216,
+      "name": "AC Fans",
+      "slug": "ac-fans",
+      "parent_id": 191,
+      "sort_order": 1
+    },
+    {
+      "id": 1122,
+      "digikey_id": 217,
+      "name": "DC Brushless Fans (BLDC)",
+      "slug": "dc-brushless-fans-bldc",
+      "parent_id": 191,
+      "sort_order": 2
+    },
+    {
+      "id": 1123,
+      "digikey_id": 223,
+      "name": "Fan Accessories",
+      "slug": "fan-accessories",
+      "parent_id": 191,
+      "sort_order": 3
+    },
+    {
+      "id": 1124,
+      "digikey_id": 974,
+      "name": "Fan Cords",
+      "slug": "fan-cords",
+      "parent_id": 191,
+      "sort_order": 4
+    },
+    {
+      "id": 1125,
+      "digikey_id": 221,
+      "name": "Finger Guards, Filters & Sleeves",
+      "slug": "finger-guards-filters-sleeves",
+      "parent_id": 191,
+      "sort_order": 5
+    },
+    {
+      "id": 1126,
+      "digikey_id": 219,
+      "name": "Heat Sinks",
+      "slug": "heat-sinks",
+      "parent_id": 192,
+      "sort_order": 1
+    },
+    {
+      "id": 1127,
+      "digikey_id": 218,
+      "name": "Pads, Sheets, Bridges",
+      "slug": "pads-sheets-bridges",
+      "parent_id": 192,
+      "sort_order": 2
+    },
+    {
+      "id": 1128,
+      "digikey_id": 220,
+      "name": "Adhesives, Epoxies, Greases, Pastes",
+      "slug": "adhesives-epoxies-greases-pastes",
+      "parent_id": 192,
+      "sort_order": 3
+    },
+    {
+      "id": 1129,
+      "digikey_id": 222,
+      "name": "Thermoelectric, Peltier Modules",
+      "slug": "thermoelectric-peltier-modules",
+      "parent_id": 192,
+      "sort_order": 4
+    },
+    {
+      "id": 1130,
+      "digikey_id": 977,
+      "name": "Heat Pipes, Vapor Chambers",
+      "slug": "heat-pipes-vapor-chambers",
+      "parent_id": 192,
+      "sort_order": 5
+    },
+    {
+      "id": 1131,
+      "digikey_id": 226,
+      "name": "Liquid Cooling, Heating",
+      "slug": "liquid-cooling-heating",
+      "parent_id": 192,
+      "sort_order": 6
+    },
+    {
+      "id": 1132,
+      "digikey_id": 583,
+      "name": "Bushing, Shoulder Washers",
+      "slug": "bushing-shoulder-washers",
+      "parent_id": 207,
+      "sort_order": 1
+    },
+    {
+      "id": 1133,
+      "digikey_id": 571,
+      "name": "Standard Washers",
+      "slug": "standard-washers",
+      "parent_id": 207,
+      "sort_order": 2
+    },
+    {
+      "id": 1134,
+      "digikey_id": 685,
+      "name": "Microcontrollers",
+      "slug": "microcontrollers",
+      "parent_id": 214,
+      "sort_order": 1
+    },
+    {
+      "id": 1135,
+      "digikey_id": 696,
+      "name": "FPGAs (Field Programmable Gate Array)",
+      "slug": "fpgas-field-programmable-gate-array",
+      "parent_id": 214,
+      "sort_order": 2
+    },
+    {
+      "id": 1136,
+      "digikey_id": 694,
+      "name": "Microprocessors",
+      "slug": "microprocessors",
+      "parent_id": 214,
+      "sort_order": 3
+    },
+    {
+      "id": 1137,
+      "digikey_id": 695,
+      "name": "CPLDs (Complex Programmable Logic Devices)",
+      "slug": "cplds-complex-programmable-logic-devices",
+      "parent_id": 214,
+      "sort_order": 4
+    },
+    {
+      "id": 1138,
+      "digikey_id": 698,
+      "name": "DSP (Digital Signal Processors)",
+      "slug": "dsp-digital-signal-processors",
+      "parent_id": 214,
+      "sort_order": 5
+    },
+    {
+      "id": 1139,
+      "digikey_id": 777,
+      "name": "System On Chip (SoC)",
+      "slug": "system-on-chip-soc",
+      "parent_id": 214,
+      "sort_order": 6
+    },
+    {
+      "id": 1140,
+      "digikey_id": 719,
+      "name": "PLDs (Programmable Logic Device)",
+      "slug": "plds-programmable-logic-device",
+      "parent_id": 214,
+      "sort_order": 7
+    },
+    {
+      "id": 1141,
+      "digikey_id": 721,
+      "name": "Microcontrollers, Microprocessor, FPGA Modules",
+      "slug": "microcontrollers-microprocessor-fpga-modules",
+      "parent_id": 214,
+      "sort_order": 8
+    },
+    {
+      "id": 1142,
+      "digikey_id": 767,
+      "name": "FPGAs (Field Programmable Gate Array) with Microcontrollers",
+      "slug": "fpgas-field-programmable-gate-array-with-microcontrollers",
+      "parent_id": 214,
+      "sort_order": 9
+    },
+    {
+      "id": 1143,
+      "digikey_id": 699,
+      "name": "Voltage Regulators - Linear, Low Drop Out (LDO) Regulators",
+      "slug": "voltage-regulators-linear-low-drop-out-ldo-regulators",
+      "parent_id": 215,
+      "sort_order": 1
+    },
+    {
+      "id": 1144,
+      "digikey_id": 739,
+      "name": "Voltage Regulators - DC DC Switching Regulators",
+      "slug": "voltage-regulators-dc-dc-switching-regulators",
+      "parent_id": 215,
+      "sort_order": 2
+    },
+    {
+      "id": 1145,
+      "digikey_id": 715,
+      "name": "DC DC Switching Controllers",
+      "slug": "dc-dc-switching-controllers",
+      "parent_id": 215,
+      "sort_order": 3
+    },
+    {
+      "id": 1146,
+      "digikey_id": 691,
+      "name": "Supervisors",
+      "slug": "supervisors",
+      "parent_id": 215,
+      "sort_order": 4
+    },
+    {
+      "id": 1147,
+      "digikey_id": 730,
+      "name": "Gate Drivers",
+      "slug": "gate-drivers",
+      "parent_id": 215,
+      "sort_order": 5
+    },
+    {
+      "id": 1148,
+      "digikey_id": 726,
+      "name": "Power Distribution Switches, Load Drivers",
+      "slug": "power-distribution-switches-load-drivers",
+      "parent_id": 215,
+      "sort_order": 6
+    },
+    {
+      "id": 1149,
+      "digikey_id": 745,
+      "name": "LED Drivers",
+      "slug": "led-drivers",
+      "parent_id": 215,
+      "sort_order": 7
+    },
+    {
+      "id": 1150,
+      "digikey_id": 744,
+      "name": "Motor Drivers, Controllers",
+      "slug": "motor-drivers-controllers",
+      "parent_id": 215,
+      "sort_order": 8
+    },
+    {
+      "id": 1151,
+      "digikey_id": 746,
+      "name": "Full, Half-Bridge (H Bridge) Drivers",
+      "slug": "full-half-bridge-h-bridge-drivers",
+      "parent_id": 215,
+      "sort_order": 9
+    },
+    {
+      "id": 1152,
+      "digikey_id": 713,
+      "name": "Battery Management",
+      "slug": "battery-management",
+      "parent_id": 215,
+      "sort_order": 10
+    },
+    {
+      "id": 1153,
+      "digikey_id": 781,
+      "name": "Battery Chargers",
+      "slug": "battery-chargers",
+      "parent_id": 215,
+      "sort_order": 11
+    },
+    {
+      "id": 1154,
+      "digikey_id": 693,
+      "name": "Voltage Reference",
+      "slug": "voltage-reference",
+      "parent_id": 215,
+      "sort_order": 12
+    },
+    {
+      "id": 1155,
+      "digikey_id": 750,
+      "name": "Special Purpose Regulators",
+      "slug": "special-purpose-regulators",
+      "parent_id": 215,
+      "sort_order": 13
+    },
+    {
+      "id": 1156,
+      "digikey_id": 761,
+      "name": "Power Management - Specialized",
+      "slug": "power-management-specialized",
+      "parent_id": 215,
+      "sort_order": 14
+    },
+    {
+      "id": 1157,
+      "digikey_id": 718,
+      "name": "Hot Swap Controllers",
+      "slug": "hot-swap-controllers",
+      "parent_id": 215,
+      "sort_order": 15
+    },
+    {
+      "id": 1158,
+      "digikey_id": 748,
+      "name": "AC DC Converters, Offline Switchers",
+      "slug": "ac-dc-converters-offline-switchers",
+      "parent_id": 215,
+      "sort_order": 16
+    },
+    {
+      "id": 1159,
+      "digikey_id": 734,
+      "name": "Current Regulation/Management",
+      "slug": "current-regulation-management",
+      "parent_id": 215,
+      "sort_order": 17
+    },
+    {
+      "id": 1160,
+      "digikey_id": 759,
+      "name": "PFC (Power Factor Correction)",
+      "slug": "pfc-power-factor-correction",
+      "parent_id": 215,
+      "sort_order": 18
+    },
+    {
+      "id": 1161,
+      "digikey_id": 760,
+      "name": "Power Supply Controllers, Monitors",
+      "slug": "power-supply-controllers-monitors",
+      "parent_id": 215,
+      "sort_order": 19
+    },
+    {
+      "id": 1162,
+      "digikey_id": 779,
+      "name": "Power Over Ethernet (PoE) Controllers",
+      "slug": "power-over-ethernet-poe-controllers",
+      "parent_id": 215,
+      "sort_order": 20
+    },
+    {
+      "id": 1163,
+      "digikey_id": 758,
+      "name": "OR Controllers, Ideal Diodes",
+      "slug": "or-controllers-ideal-diodes",
+      "parent_id": 215,
+      "sort_order": 21
+    },
+    {
+      "id": 1164,
+      "digikey_id": 729,
+      "name": "Display Drivers",
+      "slug": "display-drivers",
+      "parent_id": 215,
+      "sort_order": 22
+    },
+    {
+      "id": 1165,
+      "digikey_id": 776,
+      "name": "Voltage Regulators - Linear + Switching",
+      "slug": "voltage-regulators-linear-switching",
+      "parent_id": 215,
+      "sort_order": 23
+    },
+    {
+      "id": 1166,
+      "digikey_id": 765,
+      "name": "Energy Metering",
+      "slug": "energy-metering",
+      "parent_id": 215,
+      "sort_order": 24
+    },
+    {
+      "id": 1167,
+      "digikey_id": 681,
+      "name": "Laser Drivers",
+      "slug": "laser-drivers",
+      "parent_id": 215,
+      "sort_order": 25
+    },
+    {
+      "id": 1168,
+      "digikey_id": 704,
+      "name": "Buffers, Drivers, Receivers, Transceivers",
+      "slug": "buffers-drivers-receivers-transceivers",
+      "parent_id": 216,
+      "sort_order": 1
+    },
+    {
+      "id": 1169,
+      "digikey_id": 705,
+      "name": "Gates and Inverters",
+      "slug": "gates-and-inverters",
+      "parent_id": 216,
+      "sort_order": 2
+    },
+    {
+      "id": 1170,
+      "digikey_id": 706,
+      "name": "Flip Flops",
+      "slug": "flip-flops",
+      "parent_id": 216,
+      "sort_order": 3
+    },
+    {
+      "id": 1171,
+      "digikey_id": 708,
+      "name": "Latches",
+      "slug": "latches",
+      "parent_id": 216,
+      "sort_order": 4
+    },
+    {
+      "id": 1172,
+      "digikey_id": 743,
+      "name": "Signal Switches, Multiplexers, Decoders",
+      "slug": "signal-switches-multiplexers-decoders",
+      "parent_id": 216,
+      "sort_order": 5
+    },
+    {
+      "id": 1173,
+      "digikey_id": 732,
+      "name": "Translators, Level Shifters",
+      "slug": "translators-level-shifters",
+      "parent_id": 216,
+      "sort_order": 6
+    },
+    {
+      "id": 1174,
+      "digikey_id": 731,
+      "name": "Counters, Dividers",
+      "slug": "counters-dividers",
+      "parent_id": 216,
+      "sort_order": 7
+    },
+    {
+      "id": 1175,
+      "digikey_id": 712,
+      "name": "Shift Registers",
+      "slug": "shift-registers",
+      "parent_id": 216,
+      "sort_order": 8
+    },
+    {
+      "id": 1176,
+      "digikey_id": 707,
+      "name": "FIFOs Memory",
+      "slug": "fifos-memory",
+      "parent_id": 216,
+      "sort_order": 9
+    },
+    {
+      "id": 1177,
+      "digikey_id": 703,
+      "name": "Specialty Logic",
+      "slug": "specialty-logic",
+      "parent_id": 216,
+      "sort_order": 10
+    },
+    {
+      "id": 1178,
+      "digikey_id": 710,
+      "name": "Drivers, Receivers, Transceivers",
+      "slug": "drivers-receivers-transceivers",
+      "parent_id": 217,
+      "sort_order": 1
+    },
+    {
+      "id": 1179,
+      "digikey_id": 747,
+      "name": "Analog Switches, Multiplexers, Demultiplexers",
+      "slug": "analog-switches-multiplexers-demultiplexers",
+      "parent_id": 217,
+      "sort_order": 2
+    },
+    {
+      "id": 1180,
+      "digikey_id": 749,
+      "name": "I/O Expanders",
+      "slug": "i-o-expanders",
+      "parent_id": 217,
+      "sort_order": 3
+    },
+    {
+      "id": 1181,
+      "digikey_id": 755,
+      "name": "Serializers, Deserializers",
+      "slug": "serializers-deserializers",
+      "parent_id": 217,
+      "sort_order": 4
+    },
+    {
+      "id": 1182,
+      "digikey_id": 756,
+      "name": "Signal Buffers, Repeaters, Splitters",
+      "slug": "signal-buffers-repeaters-splitters",
+      "parent_id": 217,
+      "sort_order": 5
+    },
+    {
+      "id": 1183,
+      "digikey_id": 753,
+      "name": "Controllers",
+      "slug": "controllers",
+      "parent_id": 217,
+      "sort_order": 6
+    },
+    {
+      "id": 1184,
+      "digikey_id": 716,
+      "name": "CODECS",
+      "slug": "codecs",
+      "parent_id": 217,
+      "sort_order": 7
+    },
+    {
+      "id": 1185,
+      "digikey_id": 752,
+      "name": "Sensor and Detector Interfaces",
+      "slug": "sensor-and-detector-interfaces",
+      "parent_id": 217,
+      "sort_order": 8
+    },
+    {
+      "id": 1186,
+      "digikey_id": 560,
+      "name": "Sensor, Capacitive Touch",
+      "slug": "sensor-capacitive-touch",
+      "parent_id": 217,
+      "sort_order": 9
+    },
+    {
+      "id": 1187,
+      "digikey_id": 714,
+      "name": "UARTs",
+      "slug": "uarts",
+      "parent_id": 217,
+      "sort_order": 10
+    },
+    {
+      "id": 1188,
+      "digikey_id": 702,
+      "name": "Telecom",
+      "slug": "telecom",
+      "parent_id": 217,
+      "sort_order": 11
+    },
+    {
+      "id": 1189,
+      "digikey_id": 754,
+      "name": "Specialized",
+      "slug": "specialized",
+      "parent_id": 217,
+      "sort_order": 12
+    },
+    {
+      "id": 1190,
+      "digikey_id": 735,
+      "name": "Filters - Active",
+      "slug": "filters-active",
+      "parent_id": 217,
+      "sort_order": 13
+    },
+    {
+      "id": 1191,
+      "digikey_id": 768,
+      "name": "ADCs/DACs - Special Purpose",
+      "slug": "adcs-dacs-special-purpose",
+      "parent_id": 218,
+      "sort_order": 1
+    },
+    {
+      "id": 1192,
+      "digikey_id": 724,
+      "name": "Analog Front End (AFE)",
+      "slug": "analog-front-end-afe",
+      "parent_id": 218,
+      "sort_order": 2
+    },
+    {
+      "id": 1193,
+      "digikey_id": 700,
+      "name": "Analog to Digital Converters (ADC)",
+      "slug": "analog-to-digital-converters-adc",
+      "parent_id": 218,
+      "sort_order": 3
+    },
+    {
+      "id": 1194,
+      "digikey_id": 717,
+      "name": "Digital Potentiometers",
+      "slug": "digital-potentiometers",
+      "parent_id": 218,
+      "sort_order": 4
+    },
+    {
+      "id": 1195,
+      "digikey_id": 701,
+      "name": "Digital to Analog Converters (DAC)",
+      "slug": "digital-to-analog-converters-dac",
+      "parent_id": 218,
+      "sort_order": 5
+    },
+    {
+      "id": 1196,
+      "digikey_id": 775,
+      "name": "Touch Screen Controllers",
+      "slug": "touch-screen-controllers",
+      "parent_id": 218,
+      "sort_order": 6
+    },
+    {
+      "id": 1197,
+      "digikey_id": 2034,
+      "name": "Amplifiers",
+      "slug": "amplifiers",
+      "parent_id": 219,
+      "sort_order": 1
+    },
+    {
+      "id": 1198,
+      "digikey_id": 772,
+      "name": "Analog Multipliers, Dividers",
+      "slug": "analog-multipliers-dividers",
+      "parent_id": 219,
+      "sort_order": 2
+    },
+    {
+      "id": 1199,
+      "digikey_id": 692,
+      "name": "Comparators",
+      "slug": "comparators",
+      "parent_id": 219,
+      "sort_order": 3
+    },
+    {
+      "id": 1200,
+      "digikey_id": 684,
+      "name": "Video Processing",
+      "slug": "video-processing",
+      "parent_id": 219,
+      "sort_order": 4
+    },
+    {
+      "id": 1201,
+      "digikey_id": 766,
+      "name": "Batteries",
+      "slug": "batteries",
+      "parent_id": 220,
+      "sort_order": 1
+    },
+    {
+      "id": 1202,
+      "digikey_id": 697,
+      "name": "Configuration PROMs for FPGAs",
+      "slug": "configuration-proms-for-fpgas",
+      "parent_id": 220,
+      "sort_order": 2
+    },
+    {
+      "id": 1203,
+      "digikey_id": 736,
+      "name": "Controllers",
+      "slug": "controllers",
+      "parent_id": 220,
+      "sort_order": 3
+    },
+    {
+      "id": 1204,
+      "digikey_id": 774,
+      "name": "Memory",
+      "slug": "memory",
+      "parent_id": 220,
+      "sort_order": 4
+    },
+    {
+      "id": 1205,
+      "digikey_id": 728,
+      "name": "Clock Generators, PLLs, Frequency Synthesizers",
+      "slug": "clock-generators-plls-frequency-synthesizers",
+      "parent_id": 221,
+      "sort_order": 1
+    },
+    {
+      "id": 1206,
+      "digikey_id": 764,
+      "name": "Clock Buffers, Drivers",
+      "slug": "clock-buffers-drivers",
+      "parent_id": 221,
+      "sort_order": 2
+    },
+    {
+      "id": 1207,
+      "digikey_id": 690,
+      "name": "Real Time Clocks",
+      "slug": "real-time-clocks",
+      "parent_id": 221,
+      "sort_order": 3
+    },
+    {
+      "id": 1208,
+      "digikey_id": 689,
+      "name": "Programmable Timers and Oscillators",
+      "slug": "programmable-timers-and-oscillators",
+      "parent_id": 221,
+      "sort_order": 4
+    },
+    {
+      "id": 1209,
+      "digikey_id": 763,
+      "name": "Application Specific Clock/Timing",
+      "slug": "application-specific-clock-timing",
+      "parent_id": 221,
+      "sort_order": 5
+    },
+    {
+      "id": 1210,
+      "digikey_id": 902,
+      "name": "Logic Output Optoisolators",
+      "slug": "logic-output-optoisolators",
+      "parent_id": 224,
+      "sort_order": 1
+    },
+    {
+      "id": 1211,
+      "digikey_id": 903,
+      "name": "Transistor, Photovoltaic Output Optoisolators",
+      "slug": "transistor-photovoltaic-output-optoisolators",
+      "parent_id": 224,
+      "sort_order": 2
+    },
+    {
+      "id": 1212,
+      "digikey_id": 904,
+      "name": "Triac, SCR Output Optoisolators",
+      "slug": "triac-scr-output-optoisolators",
+      "parent_id": 224,
+      "sort_order": 3
+    },
+    {
+      "id": 1213,
+      "digikey_id": 1048,
+      "name": "Faraday Isolators",
+      "slug": "faraday-isolators",
+      "parent_id": 253,
+      "sort_order": 1
+    },
+    {
+      "id": 1214,
+      "digikey_id": 1050,
+      "name": "Laser Modulators",
+      "slug": "laser-modulators",
+      "parent_id": 253,
+      "sort_order": 2
+    },
+    {
+      "id": 1215,
+      "digikey_id": 1049,
+      "name": "Pockels Cells",
+      "slug": "pockels-cells",
+      "parent_id": 253,
+      "sort_order": 3
+    },
+    {
+      "id": 1216,
+      "digikey_id": 1042,
+      "name": "Beam Expanders",
+      "slug": "beam-expanders",
+      "parent_id": 253,
+      "sort_order": 4
+    },
+    {
+      "id": 1217,
+      "digikey_id": 1041,
+      "name": "F-Theta Lenses",
+      "slug": "f-theta-lenses",
+      "parent_id": 253,
+      "sort_order": 5
+    },
+    {
+      "id": 1218,
+      "digikey_id": 1043,
+      "name": "Focus Lenses",
+      "slug": "focus-lenses",
+      "parent_id": 253,
+      "sort_order": 6
+    },
+    {
+      "id": 1219,
+      "digikey_id": 508,
+      "name": "NTC Thermistors",
+      "slug": "ntc-thermistors",
+      "parent_id": 349,
+      "sort_order": 1
+    },
+    {
+      "id": 1220,
+      "digikey_id": 513,
+      "name": "Thermocouples, Temperature Probes",
+      "slug": "thermocouples-temperature-probes",
+      "parent_id": 349,
+      "sort_order": 2
+    },
+    {
+      "id": 1221,
+      "digikey_id": 535,
+      "name": "RTD (Resistance Temperature Detector)",
+      "slug": "rtd-resistance-temperature-detector",
+      "parent_id": 349,
+      "sort_order": 3
+    },
+    {
+      "id": 1222,
+      "digikey_id": 518,
+      "name": "Analog and Digital Output",
+      "slug": "analog-and-digital-output",
+      "parent_id": 349,
+      "sort_order": 4
+    },
+    {
+      "id": 1223,
+      "digikey_id": 550,
+      "name": "PTC Thermistors",
+      "slug": "ptc-thermistors",
+      "parent_id": 349,
+      "sort_order": 5
+    },
+    {
+      "id": 1224,
+      "digikey_id": 516,
+      "name": "Thermostats - Mechanical",
+      "slug": "thermostats-mechanical",
+      "parent_id": 349,
+      "sort_order": 6
+    },
+    {
+      "id": 1225,
+      "digikey_id": 564,
+      "name": "Thermostats - Solid State",
+      "slug": "thermostats-solid-state",
+      "parent_id": 349,
+      "sort_order": 7
+    },
+    {
+      "id": 1226,
+      "digikey_id": 532,
+      "name": "Image Sensors, Camera",
+      "slug": "image-sensors-camera",
+      "parent_id": 350,
+      "sort_order": 1
+    },
+    {
+      "id": 1227,
+      "digikey_id": 1003,
+      "name": "Camera Modules",
+      "slug": "camera-modules",
+      "parent_id": 350,
+      "sort_order": 2
+    },
+    {
+      "id": 1228,
+      "digikey_id": 543,
+      "name": "Photodiodes",
+      "slug": "photodiodes",
+      "parent_id": 350,
+      "sort_order": 3
+    },
+    {
+      "id": 1229,
+      "digikey_id": 544,
+      "name": "Phototransistors",
+      "slug": "phototransistors",
+      "parent_id": 350,
+      "sort_order": 4
+    },
+    {
+      "id": 1230,
+      "digikey_id": 536,
+      "name": "Ambient Light, IR, UV Sensors",
+      "slug": "ambient-light-ir-uv-sensors",
+      "parent_id": 350,
+      "sort_order": 5
+    },
+    {
+      "id": 1231,
+      "digikey_id": 541,
+      "name": "Photo Detectors - Remote Receiver",
+      "slug": "photo-detectors-remote-receiver",
+      "parent_id": 350,
+      "sort_order": 6
+    },
+    {
+      "id": 1232,
+      "digikey_id": 542,
+      "name": "Distance Measuring",
+      "slug": "distance-measuring",
+      "parent_id": 350,
+      "sort_order": 7
+    },
+    {
+      "id": 1233,
+      "digikey_id": 547,
+      "name": "Photointerrupters - Slot Type - Logic Output",
+      "slug": "photointerrupters-slot-type-logic-output",
+      "parent_id": 350,
+      "sort_order": 8
+    },
+    {
+      "id": 1234,
+      "digikey_id": 548,
+      "name": "Photointerrupters - Slot Type - Transistor Output",
+      "slug": "photointerrupters-slot-type-transistor-output",
+      "parent_id": 350,
+      "sort_order": 9
+    },
+    {
+      "id": 1235,
+      "digikey_id": 1011,
+      "name": "Photonics - Counters, Detectors, SPCM",
+      "slug": "photonics-counters-detectors-spcm",
+      "parent_id": 350,
+      "sort_order": 10
+    },
+    {
+      "id": 1236,
+      "digikey_id": 546,
+      "name": "Reflective - Analog Output",
+      "slug": "reflective-analog-output",
+      "parent_id": 350,
+      "sort_order": 11
+    },
+    {
+      "id": 1237,
+      "digikey_id": 556,
+      "name": "Reflective - Logic Output",
+      "slug": "reflective-logic-output",
+      "parent_id": 350,
+      "sort_order": 12
+    },
+    {
+      "id": 1238,
+      "digikey_id": 515,
+      "name": "Accelerometers",
+      "slug": "accelerometers",
+      "parent_id": 351,
+      "sort_order": 1
+    },
+    {
+      "id": 1239,
+      "digikey_id": 567,
+      "name": "IMUs (Inertial Measurement Units)",
+      "slug": "imus-inertial-measurement-units",
+      "parent_id": 351,
+      "sort_order": 2
+    },
+    {
+      "id": 1240,
+      "digikey_id": 555,
+      "name": "Gyroscopes",
+      "slug": "gyroscopes",
+      "parent_id": 351,
+      "sort_order": 3
+    },
+    {
+      "id": 1241,
+      "digikey_id": 534,
+      "name": "Optical Motion Sensors",
+      "slug": "optical-motion-sensors",
+      "parent_id": 351,
+      "sort_order": 4
+    },
+    {
+      "id": 1242,
+      "digikey_id": 533,
+      "name": "Inclinometers",
+      "slug": "inclinometers",
+      "parent_id": 351,
+      "sort_order": 5
+    },
+    {
+      "id": 1243,
+      "digikey_id": 519,
+      "name": "Vibration Sensors",
+      "slug": "vibration-sensors",
+      "parent_id": 351,
+      "sort_order": 6
+    },
+    {
+      "id": 1244,
+      "digikey_id": 553,
+      "name": "Compass, Magnetic Field (Modules)",
+      "slug": "compass-magnetic-field-modules",
+      "parent_id": 352,
+      "sort_order": 1
+    },
+    {
+      "id": 1245,
+      "digikey_id": 554,
+      "name": "Linear, Compass (ICs)",
+      "slug": "linear-compass-ics",
+      "parent_id": 352,
+      "sort_order": 2
+    },
+    {
+      "id": 1246,
+      "digikey_id": 552,
+      "name": "Position, Proximity, Speed (Modules)",
+      "slug": "position-proximity-speed-modules",
+      "parent_id": 352,
+      "sort_order": 3
+    },
+    {
+      "id": 1247,
+      "digikey_id": 565,
+      "name": "Switches (Solid State)",
+      "slug": "switches-solid-state",
+      "parent_id": 352,
+      "sort_order": 4
+    },
+    {
+      "id": 1248,
+      "digikey_id": 549,
+      "name": "Angle, Linear Position Measuring",
+      "slug": "angle-linear-position-measuring",
+      "parent_id": 353,
+      "sort_order": 1
+    },
+    {
+      "id": 1249,
+      "digikey_id": 511,
+      "name": "Multi Purpose Magnets",
+      "slug": "multi-purpose-magnets",
+      "parent_id": 371,
+      "sort_order": 1
+    },
+    {
+      "id": 1250,
+      "digikey_id": 566,
+      "name": "Sensor Matched Magnets",
+      "slug": "sensor-matched-magnets",
+      "parent_id": 371,
+      "sort_order": 2
+    },
+    {
+      "id": 1251,
+      "digikey_id": 614,
+      "name": "Oscilloscopes",
+      "slug": "oscilloscopes",
+      "parent_id": 394,
+      "sort_order": 1
+    },
+    {
+      "id": 1252,
+      "digikey_id": 615,
+      "name": "Multimeters",
+      "slug": "multimeters",
+      "parent_id": 394,
+      "sort_order": 2
+    },
+    {
+      "id": 1253,
+      "digikey_id": 633,
+      "name": "Power Supplies (Test, Bench)",
+      "slug": "power-supplies-test-bench",
+      "parent_id": 394,
+      "sort_order": 3
+    },
+    {
+      "id": 1254,
+      "digikey_id": 630,
+      "name": "Function Generators",
+      "slug": "function-generators",
+      "parent_id": 394,
+      "sort_order": 4
+    },
+    {
+      "id": 1255,
+      "digikey_id": 631,
+      "name": "RF Analyzers",
+      "slug": "rf-analyzers",
+      "parent_id": 394,
+      "sort_order": 5
+    },
+    {
+      "id": 1256,
+      "digikey_id": 634,
+      "name": "Electrical Testers, Current Probes",
+      "slug": "electrical-testers-current-probes",
+      "parent_id": 394,
+      "sort_order": 6
+    },
+    {
+      "id": 1257,
+      "digikey_id": 632,
+      "name": "Environmental Testers",
+      "slug": "environmental-testers",
+      "parent_id": 394,
+      "sort_order": 7
+    },
+    {
+      "id": 1258,
+      "digikey_id": 618,
+      "name": "Specialty Equipment",
+      "slug": "specialty-equipment",
+      "parent_id": 394,
+      "sort_order": 8
+    },
+    {
+      "id": 1259,
+      "digikey_id": 629,
+      "name": "Oscilloscope Probes",
+      "slug": "oscilloscope-probes",
+      "parent_id": 395,
+      "sort_order": 1
+    },
+    {
+      "id": 1260,
+      "digikey_id": 627,
+      "name": "Banana, Meter Interface",
+      "slug": "banana-meter-interface",
+      "parent_id": 395,
+      "sort_order": 2
+    },
+    {
+      "id": 1261,
+      "digikey_id": 623,
+      "name": "Alligator, Crocodile, Heavy Duty Clips",
+      "slug": "alligator-crocodile-heavy-duty-clips",
+      "parent_id": 395,
+      "sort_order": 3
+    },
+    {
+      "id": 1262,
+      "digikey_id": 626,
+      "name": "Jumper, Specialty",
+      "slug": "jumper-specialty",
+      "parent_id": 395,
+      "sort_order": 4
+    },
+    {
+      "id": 1263,
+      "digikey_id": 625,
+      "name": "BNC Interface",
+      "slug": "bnc-interface",
+      "parent_id": 395,
+      "sort_order": 5
+    },
+    {
+      "id": 1264,
+      "digikey_id": 621,
+      "name": "Thermocouples, Temperature Probes",
+      "slug": "thermocouples-temperature-probes",
+      "parent_id": 395,
+      "sort_order": 6
+    }
+  ],
+  "mappings": [
+    {
+      "digikey_id": 6,
+      "partrack_id": 1
+    },
+    {
+      "digikey_id": 27,
+      "partrack_id": 2
+    },
+    {
+      "digikey_id": 21,
+      "partrack_id": 3
+    },
+    {
+      "digikey_id": 22,
+      "partrack_id": 4
+    },
+    {
+      "digikey_id": 3,
+      "partrack_id": 5
+    },
+    {
+      "digikey_id": 9,
+      "partrack_id": 6
+    },
+    {
+      "digikey_id": 20,
+      "partrack_id": 7
+    },
+    {
+      "digikey_id": 12,
+      "partrack_id": 8
+    },
+    {
+      "digikey_id": 33,
+      "partrack_id": 9
+    },
+    {
+      "digikey_id": 19,
+      "partrack_id": 10
+    },
+    {
+      "digikey_id": 45,
+      "partrack_id": 11
+    },
+    {
+      "digikey_id": 16,
+      "partrack_id": 12
+    },
+    {
+      "digikey_id": 36,
+      "partrack_id": 13
+    },
+    {
+      "digikey_id": 26,
+      "partrack_id": 14
+    },
+    {
+      "digikey_id": 4,
+      "partrack_id": 15
+    },
+    {
+      "digikey_id": 32,
+      "partrack_id": 16
+    },
+    {
+      "digikey_id": 39,
+      "partrack_id": 17
+    },
+    {
+      "digikey_id": 46,
+      "partrack_id": 18
+    },
+    {
+      "digikey_id": 24,
+      "partrack_id": 19
+    },
+    {
+      "digikey_id": 13,
+      "partrack_id": 20
+    },
+    {
+      "digikey_id": 44,
+      "partrack_id": 21
+    },
+    {
+      "digikey_id": 42,
+      "partrack_id": 22
+    },
+    {
+      "digikey_id": 41,
+      "partrack_id": 23
+    },
+    {
+      "digikey_id": 7,
+      "partrack_id": 24
+    },
+    {
+      "digikey_id": 5,
+      "partrack_id": 25
+    },
+    {
+      "digikey_id": 43,
+      "partrack_id": 26
+    },
+    {
+      "digikey_id": 8,
+      "partrack_id": 27
+    },
+    {
+      "digikey_id": 30,
+      "partrack_id": 28
+    },
+    {
+      "digikey_id": 14,
+      "partrack_id": 29
+    },
+    {
+      "digikey_id": 2,
+      "partrack_id": 30
+    },
+    {
+      "digikey_id": 37,
+      "partrack_id": 31
+    },
+    {
+      "digikey_id": 25,
+      "partrack_id": 32
+    },
+    {
+      "digikey_id": 18,
+      "partrack_id": 33
+    },
+    {
+      "digikey_id": 15,
+      "partrack_id": 34
+    },
+    {
+      "digikey_id": 29,
+      "partrack_id": 35
+    },
+    {
+      "digikey_id": 11,
+      "partrack_id": 36
+    },
+    {
+      "digikey_id": 90,
+      "partrack_id": 101
+    },
+    {
+      "digikey_id": 91,
+      "partrack_id": 102
+    },
+    {
+      "digikey_id": 85,
+      "partrack_id": 103
+    },
+    {
+      "digikey_id": 86,
+      "partrack_id": 104
+    },
+    {
+      "digikey_id": 89,
+      "partrack_id": 105
+    },
+    {
+      "digikey_id": 594,
+      "partrack_id": 106
+    },
+    {
+      "digikey_id": 588,
+      "partrack_id": 107
+    },
+    {
+      "digikey_id": 589,
+      "partrack_id": 108
+    },
+    {
+      "digikey_id": 975,
+      "partrack_id": 109
+    },
+    {
+      "digikey_id": 597,
+      "partrack_id": 110
+    },
+    {
+      "digikey_id": 456,
+      "partrack_id": 111
+    },
+    {
+      "digikey_id": 458,
+      "partrack_id": 112
+    },
+    {
+      "digikey_id": 457,
+      "partrack_id": 113
+    },
+    {
+      "digikey_id": 453,
+      "partrack_id": 114
+    },
+    {
+      "digikey_id": 451,
+      "partrack_id": 115
+    },
+    {
+      "digikey_id": 460,
+      "partrack_id": 116
+    },
+    {
+      "digikey_id": 450,
+      "partrack_id": 117
+    },
+    {
+      "digikey_id": 455,
+      "partrack_id": 118
+    },
+    {
+      "digikey_id": 449,
+      "partrack_id": 119
+    },
+    {
+      "digikey_id": 448,
+      "partrack_id": 120
+    },
+    {
+      "digikey_id": 461,
+      "partrack_id": 121
+    },
+    {
+      "digikey_id": 462,
+      "partrack_id": 122
+    },
+    {
+      "digikey_id": 475,
+      "partrack_id": 123
+    },
+    {
+      "digikey_id": 471,
+      "partrack_id": 124
+    },
+    {
+      "digikey_id": 476,
+      "partrack_id": 125
+    },
+    {
+      "digikey_id": 472,
+      "partrack_id": 126
+    },
+    {
+      "digikey_id": 473,
+      "partrack_id": 127
+    },
+    {
+      "digikey_id": 474,
+      "partrack_id": 128
+    },
+    {
+      "digikey_id": 60,
+      "partrack_id": 129
+    },
+    {
+      "digikey_id": 58,
+      "partrack_id": 130
+    },
+    {
+      "digikey_id": 59,
+      "partrack_id": 131
+    },
+    {
+      "digikey_id": 70,
+      "partrack_id": 132
+    },
+    {
+      "digikey_id": 69,
+      "partrack_id": 133
+    },
+    {
+      "digikey_id": 62,
+      "partrack_id": 134
+    },
+    {
+      "digikey_id": 64,
+      "partrack_id": 135
+    },
+    {
+      "digikey_id": 66,
+      "partrack_id": 136
+    },
+    {
+      "digikey_id": 61,
+      "partrack_id": 137
+    },
+    {
+      "digikey_id": 65,
+      "partrack_id": 138
+    },
+    {
+      "digikey_id": 57,
+      "partrack_id": 139
+    },
+    {
+      "digikey_id": 68,
+      "partrack_id": 140
+    },
+    {
+      "digikey_id": 67,
+      "partrack_id": 141
+    },
+    {
+      "digikey_id": 2040,
+      "partrack_id": 142
+    },
+    {
+      "digikey_id": 150,
+      "partrack_id": 143
+    },
+    {
+      "digikey_id": 141,
+      "partrack_id": 144
+    },
+    {
+      "digikey_id": 142,
+      "partrack_id": 145
+    },
+    {
+      "digikey_id": 152,
+      "partrack_id": 146
+    },
+    {
+      "digikey_id": 151,
+      "partrack_id": 147
+    },
+    {
+      "digikey_id": 139,
+      "partrack_id": 148
+    },
+    {
+      "digikey_id": 155,
+      "partrack_id": 149
+    },
+    {
+      "digikey_id": 140,
+      "partrack_id": 150
+    },
+    {
+      "digikey_id": 143,
+      "partrack_id": 151
+    },
+    {
+      "digikey_id": 146,
+      "partrack_id": 152
+    },
+    {
+      "digikey_id": 2027,
+      "partrack_id": 153
+    },
+    {
+      "digikey_id": 2030,
+      "partrack_id": 154
+    },
+    {
+      "digikey_id": 2031,
+      "partrack_id": 155
+    },
+    {
+      "digikey_id": 2005,
+      "partrack_id": 156
+    },
+    {
+      "digikey_id": 2004,
+      "partrack_id": 157
+    },
+    {
+      "digikey_id": 2011,
+      "partrack_id": 158
+    },
+    {
+      "digikey_id": 2007,
+      "partrack_id": 159
+    },
+    {
+      "digikey_id": 2013,
+      "partrack_id": 160
+    },
+    {
+      "digikey_id": 2000,
+      "partrack_id": 161
+    },
+    {
+      "digikey_id": 2028,
+      "partrack_id": 162
+    },
+    {
+      "digikey_id": 2026,
+      "partrack_id": 163
+    },
+    {
+      "digikey_id": 2022,
+      "partrack_id": 164
+    },
+    {
+      "digikey_id": 2015,
+      "partrack_id": 165
+    },
+    {
+      "digikey_id": 2017,
+      "partrack_id": 166
+    },
+    {
+      "digikey_id": 2003,
+      "partrack_id": 167
+    },
+    {
+      "digikey_id": 2032,
+      "partrack_id": 168
+    },
+    {
+      "digikey_id": 2014,
+      "partrack_id": 169
+    },
+    {
+      "digikey_id": 2024,
+      "partrack_id": 170
+    },
+    {
+      "digikey_id": 2001,
+      "partrack_id": 171
+    },
+    {
+      "digikey_id": 2002,
+      "partrack_id": 172
+    },
+    {
+      "digikey_id": 2021,
+      "partrack_id": 173
+    },
+    {
+      "digikey_id": 304,
+      "partrack_id": 174
+    },
+    {
+      "digikey_id": 171,
+      "partrack_id": 175
+    },
+    {
+      "digikey_id": 172,
+      "partrack_id": 176
+    },
+    {
+      "digikey_id": 176,
+      "partrack_id": 177
+    },
+    {
+      "digikey_id": 169,
+      "partrack_id": 178
+    },
+    {
+      "digikey_id": 174,
+      "partrack_id": 179
+    },
+    {
+      "digikey_id": 173,
+      "partrack_id": 180
+    },
+    {
+      "digikey_id": 2041,
+      "partrack_id": 181
+    },
+    {
+      "digikey_id": 799,
+      "partrack_id": 182
+    },
+    {
+      "digikey_id": 798,
+      "partrack_id": 183
+    },
+    {
+      "digikey_id": 2042,
+      "partrack_id": 184
+    },
+    {
+      "digikey_id": 2045,
+      "partrack_id": 185
+    },
+    {
+      "digikey_id": 2043,
+      "partrack_id": 186
+    },
+    {
+      "digikey_id": 296,
+      "partrack_id": 187
+    },
+    {
+      "digikey_id": 1164,
+      "partrack_id": 188
+    },
+    {
+      "digikey_id": 933,
+      "partrack_id": 189
+    },
+    {
+      "digikey_id": 932,
+      "partrack_id": 190
+    },
+    {
+      "digikey_id": 2046,
+      "partrack_id": 191
+    },
+    {
+      "digikey_id": 2047,
+      "partrack_id": 192
+    },
+    {
+      "digikey_id": 841,
+      "partrack_id": 193
+    },
+    {
+      "digikey_id": 840,
+      "partrack_id": 194
+    },
+    {
+      "digikey_id": 839,
+      "partrack_id": 195
+    },
+    {
+      "digikey_id": 835,
+      "partrack_id": 196
+    },
+    {
+      "digikey_id": 845,
+      "partrack_id": 197
+    },
+    {
+      "digikey_id": 838,
+      "partrack_id": 198
+    },
+    {
+      "digikey_id": 844,
+      "partrack_id": 199
+    },
+    {
+      "digikey_id": 836,
+      "partrack_id": 200
+    },
+    {
+      "digikey_id": 846,
+      "partrack_id": 201
+    },
+    {
+      "digikey_id": 847,
+      "partrack_id": 202
+    },
+    {
+      "digikey_id": 582,
+      "partrack_id": 203
+    },
+    {
+      "digikey_id": 578,
+      "partrack_id": 204
+    },
+    {
+      "digikey_id": 572,
+      "partrack_id": 205
+    },
+    {
+      "digikey_id": 573,
+      "partrack_id": 206
+    },
+    {
+      "digikey_id": 2048,
+      "partrack_id": 207
+    },
+    {
+      "digikey_id": 585,
+      "partrack_id": 208
+    },
+    {
+      "digikey_id": 580,
+      "partrack_id": 209
+    },
+    {
+      "digikey_id": 71,
+      "partrack_id": 210
+    },
+    {
+      "digikey_id": 72,
+      "partrack_id": 211
+    },
+    {
+      "digikey_id": 73,
+      "partrack_id": 212
+    },
+    {
+      "digikey_id": 75,
+      "partrack_id": 213
+    },
+    {
+      "digikey_id": 2012,
+      "partrack_id": 214
+    },
+    {
+      "digikey_id": 2025,
+      "partrack_id": 215
+    },
+    {
+      "digikey_id": 2019,
+      "partrack_id": 216
+    },
+    {
+      "digikey_id": 2016,
+      "partrack_id": 217
+    },
+    {
+      "digikey_id": 2009,
+      "partrack_id": 218
+    },
+    {
+      "digikey_id": 2018,
+      "partrack_id": 219
+    },
+    {
+      "digikey_id": 2020,
+      "partrack_id": 220
+    },
+    {
+      "digikey_id": 2006,
+      "partrack_id": 221
+    },
+    {
+      "digikey_id": 741,
+      "partrack_id": 222
+    },
+    {
+      "digikey_id": 686,
+      "partrack_id": 223
+    },
+    {
+      "digikey_id": 2058,
+      "partrack_id": 224
+    },
+    {
+      "digikey_id": 901,
+      "partrack_id": 225
+    },
+    {
+      "digikey_id": 906,
+      "partrack_id": 226
+    },
+    {
+      "digikey_id": 905,
+      "partrack_id": 227
+    },
+    {
+      "digikey_id": 936,
+      "partrack_id": 228
+    },
+    {
+      "digikey_id": 934,
+      "partrack_id": 229
+    },
+    {
+      "digikey_id": 505,
+      "partrack_id": 230
+    },
+    {
+      "digikey_id": 501,
+      "partrack_id": 231
+    },
+    {
+      "digikey_id": 503,
+      "partrack_id": 232
+    },
+    {
+      "digikey_id": 504,
+      "partrack_id": 233
+    },
+    {
+      "digikey_id": 178,
+      "partrack_id": 234
+    },
+    {
+      "digikey_id": 179,
+      "partrack_id": 235
+    },
+    {
+      "digikey_id": 180,
+      "partrack_id": 236
+    },
+    {
+      "digikey_id": 1157,
+      "partrack_id": 237
+    },
+    {
+      "digikey_id": 181,
+      "partrack_id": 238
+    },
+    {
+      "digikey_id": 928,
+      "partrack_id": 239
+    },
+    {
+      "digikey_id": 927,
+      "partrack_id": 240
+    },
+    {
+      "digikey_id": 929,
+      "partrack_id": 241
+    },
+    {
+      "digikey_id": 930,
+      "partrack_id": 242
+    },
+    {
+      "digikey_id": 914,
+      "partrack_id": 243
+    },
+    {
+      "digikey_id": 913,
+      "partrack_id": 244
+    },
+    {
+      "digikey_id": 1077,
+      "partrack_id": 245
+    },
+    {
+      "digikey_id": 1121,
+      "partrack_id": 246
+    },
+    {
+      "digikey_id": 917,
+      "partrack_id": 247
+    },
+    {
+      "digikey_id": 918,
+      "partrack_id": 248
+    },
+    {
+      "digikey_id": 919,
+      "partrack_id": 249
+    },
+    {
+      "digikey_id": 916,
+      "partrack_id": 250
+    },
+    {
+      "digikey_id": 920,
+      "partrack_id": 251
+    },
+    {
+      "digikey_id": 1045,
+      "partrack_id": 252
+    },
+    {
+      "digikey_id": 2060,
+      "partrack_id": 253
+    },
+    {
+      "digikey_id": 1044,
+      "partrack_id": 254
+    },
+    {
+      "digikey_id": 1156,
+      "partrack_id": 255
+    },
+    {
+      "digikey_id": 1158,
+      "partrack_id": 256
+    },
+    {
+      "digikey_id": 1046,
+      "partrack_id": 257
+    },
+    {
+      "digikey_id": 1122,
+      "partrack_id": 258
+    },
+    {
+      "digikey_id": 105,
+      "partrack_id": 259
+    },
+    {
+      "digikey_id": 111,
+      "partrack_id": 260
+    },
+    {
+      "digikey_id": 124,
+      "partrack_id": 261
+    },
+    {
+      "digikey_id": 125,
+      "partrack_id": 262
+    },
+    {
+      "digikey_id": 94,
+      "partrack_id": 263
+    },
+    {
+      "digikey_id": 126,
+      "partrack_id": 264
+    },
+    {
+      "digikey_id": 92,
+      "partrack_id": 265
+    },
+    {
+      "digikey_id": 96,
+      "partrack_id": 266
+    },
+    {
+      "digikey_id": 106,
+      "partrack_id": 267
+    },
+    {
+      "digikey_id": 108,
+      "partrack_id": 268
+    },
+    {
+      "digikey_id": 102,
+      "partrack_id": 269
+    },
+    {
+      "digikey_id": 99,
+      "partrack_id": 270
+    },
+    {
+      "digikey_id": 107,
+      "partrack_id": 271
+    },
+    {
+      "digikey_id": 118,
+      "partrack_id": 272
+    },
+    {
+      "digikey_id": 117,
+      "partrack_id": 273
+    },
+    {
+      "digikey_id": 116,
+      "partrack_id": 274
+    },
+    {
+      "digikey_id": 115,
+      "partrack_id": 275
+    },
+    {
+      "digikey_id": 119,
+      "partrack_id": 276
+    },
+    {
+      "digikey_id": 120,
+      "partrack_id": 277
+    },
+    {
+      "digikey_id": 95,
+      "partrack_id": 278
+    },
+    {
+      "digikey_id": 1055,
+      "partrack_id": 279
+    },
+    {
+      "digikey_id": 1119,
+      "partrack_id": 280
+    },
+    {
+      "digikey_id": 1008,
+      "partrack_id": 281
+    },
+    {
+      "digikey_id": 1047,
+      "partrack_id": 282
+    },
+    {
+      "digikey_id": 112,
+      "partrack_id": 283
+    },
+    {
+      "digikey_id": 122,
+      "partrack_id": 284
+    },
+    {
+      "digikey_id": 103,
+      "partrack_id": 285
+    },
+    {
+      "digikey_id": 101,
+      "partrack_id": 286
+    },
+    {
+      "digikey_id": 114,
+      "partrack_id": 287
+    },
+    {
+      "digikey_id": 1168,
+      "partrack_id": 288
+    },
+    {
+      "digikey_id": 84,
+      "partrack_id": 289
+    },
+    {
+      "digikey_id": 80,
+      "partrack_id": 290
+    },
+    {
+      "digikey_id": 78,
+      "partrack_id": 291
+    },
+    {
+      "digikey_id": 83,
+      "partrack_id": 292
+    },
+    {
+      "digikey_id": 77,
+      "partrack_id": 293
+    },
+    {
+      "digikey_id": 922,
+      "partrack_id": 294
+    },
+    {
+      "digikey_id": 923,
+      "partrack_id": 295
+    },
+    {
+      "digikey_id": 924,
+      "partrack_id": 296
+    },
+    {
+      "digikey_id": 133,
+      "partrack_id": 297
+    },
+    {
+      "digikey_id": 130,
+      "partrack_id": 298
+    },
+    {
+      "digikey_id": 132,
+      "partrack_id": 299
+    },
+    {
+      "digikey_id": 1064,
+      "partrack_id": 300
+    },
+    {
+      "digikey_id": 137,
+      "partrack_id": 301
+    },
+    {
+      "digikey_id": 138,
+      "partrack_id": 302
+    },
+    {
+      "digikey_id": 134,
+      "partrack_id": 303
+    },
+    {
+      "digikey_id": 136,
+      "partrack_id": 304
+    },
+    {
+      "digikey_id": 955,
+      "partrack_id": 305
+    },
+    {
+      "digikey_id": 638,
+      "partrack_id": 306
+    },
+    {
+      "digikey_id": 636,
+      "partrack_id": 307
+    },
+    {
+      "digikey_id": 643,
+      "partrack_id": 308
+    },
+    {
+      "digikey_id": 640,
+      "partrack_id": 309
+    },
+    {
+      "digikey_id": 641,
+      "partrack_id": 310
+    },
+    {
+      "digikey_id": 188,
+      "partrack_id": 311
+    },
+    {
+      "digikey_id": 189,
+      "partrack_id": 312
+    },
+    {
+      "digikey_id": 183,
+      "partrack_id": 313
+    },
+    {
+      "digikey_id": 969,
+      "partrack_id": 314
+    },
+    {
+      "digikey_id": 963,
+      "partrack_id": 315
+    },
+    {
+      "digikey_id": 964,
+      "partrack_id": 316
+    },
+    {
+      "digikey_id": 52,
+      "partrack_id": 317
+    },
+    {
+      "digikey_id": 53,
+      "partrack_id": 318
+    },
+    {
+      "digikey_id": 54,
+      "partrack_id": 319
+    },
+    {
+      "digikey_id": 50,
+      "partrack_id": 320
+    },
+    {
+      "digikey_id": 55,
+      "partrack_id": 321
+    },
+    {
+      "digikey_id": 56,
+      "partrack_id": 322
+    },
+    {
+      "digikey_id": 875,
+      "partrack_id": 323
+    },
+    {
+      "digikey_id": 879,
+      "partrack_id": 324
+    },
+    {
+      "digikey_id": 872,
+      "partrack_id": 325
+    },
+    {
+      "digikey_id": 870,
+      "partrack_id": 326
+    },
+    {
+      "digikey_id": 871,
+      "partrack_id": 327
+    },
+    {
+      "digikey_id": 860,
+      "partrack_id": 328
+    },
+    {
+      "digikey_id": 865,
+      "partrack_id": 329
+    },
+    {
+      "digikey_id": 861,
+      "partrack_id": 330
+    },
+    {
+      "digikey_id": 852,
+      "partrack_id": 331
+    },
+    {
+      "digikey_id": 850,
+      "partrack_id": 332
+    },
+    {
+      "digikey_id": 851,
+      "partrack_id": 333
+    },
+    {
+      "digikey_id": 867,
+      "partrack_id": 334
+    },
+    {
+      "digikey_id": 869,
+      "partrack_id": 335
+    },
+    {
+      "digikey_id": 945,
+      "partrack_id": 336
+    },
+    {
+      "digikey_id": 1010,
+      "partrack_id": 337
+    },
+    {
+      "digikey_id": 868,
+      "partrack_id": 338
+    },
+    {
+      "digikey_id": 876,
+      "partrack_id": 339
+    },
+    {
+      "digikey_id": 863,
+      "partrack_id": 340
+    },
+    {
+      "digikey_id": 849,
+      "partrack_id": 341
+    },
+    {
+      "digikey_id": 853,
+      "partrack_id": 342
+    },
+    {
+      "digikey_id": 854,
+      "partrack_id": 343
+    },
+    {
+      "digikey_id": 855,
+      "partrack_id": 344
+    },
+    {
+      "digikey_id": 880,
+      "partrack_id": 345
+    },
+    {
+      "digikey_id": 873,
+      "partrack_id": 346
+    },
+    {
+      "digikey_id": 862,
+      "partrack_id": 347
+    },
+    {
+      "digikey_id": 864,
+      "partrack_id": 348
+    },
+    {
+      "digikey_id": 2075,
+      "partrack_id": 349
+    },
+    {
+      "digikey_id": 2071,
+      "partrack_id": 350
+    },
+    {
+      "digikey_id": 2070,
+      "partrack_id": 351
+    },
+    {
+      "digikey_id": 2068,
+      "partrack_id": 352
+    },
+    {
+      "digikey_id": 2072,
+      "partrack_id": 353
+    },
+    {
+      "digikey_id": 525,
+      "partrack_id": 354
+    },
+    {
+      "digikey_id": 512,
+      "partrack_id": 355
+    },
+    {
+      "digikey_id": 529,
+      "partrack_id": 356
+    },
+    {
+      "digikey_id": 530,
+      "partrack_id": 357
+    },
+    {
+      "digikey_id": 524,
+      "partrack_id": 358
+    },
+    {
+      "digikey_id": 507,
+      "partrack_id": 359
+    },
+    {
+      "digikey_id": 521,
+      "partrack_id": 360
+    },
+    {
+      "digikey_id": 520,
+      "partrack_id": 361
+    },
+    {
+      "digikey_id": 531,
+      "partrack_id": 362
+    },
+    {
+      "digikey_id": 527,
+      "partrack_id": 363
+    },
+    {
+      "digikey_id": 514,
+      "partrack_id": 364
+    },
+    {
+      "digikey_id": 557,
+      "partrack_id": 365
+    },
+    {
+      "digikey_id": 561,
+      "partrack_id": 366
+    },
+    {
+      "digikey_id": 539,
+      "partrack_id": 367
+    },
+    {
+      "digikey_id": 559,
+      "partrack_id": 368
+    },
+    {
+      "digikey_id": 528,
+      "partrack_id": 369
+    },
+    {
+      "digikey_id": 509,
+      "partrack_id": 370
+    },
+    {
+      "digikey_id": 2069,
+      "partrack_id": 371
+    },
+    {
+      "digikey_id": 971,
+      "partrack_id": 372
+    },
+    {
+      "digikey_id": 522,
+      "partrack_id": 373
+    },
+    {
+      "digikey_id": 262,
+      "partrack_id": 374
+    },
+    {
+      "digikey_id": 265,
+      "partrack_id": 375
+    },
+    {
+      "digikey_id": 266,
+      "partrack_id": 376
+    },
+    {
+      "digikey_id": 272,
+      "partrack_id": 377
+    },
+    {
+      "digikey_id": 268,
+      "partrack_id": 378
+    },
+    {
+      "digikey_id": 264,
+      "partrack_id": 379
+    },
+    {
+      "digikey_id": 199,
+      "partrack_id": 380
+    },
+    {
+      "digikey_id": 195,
+      "partrack_id": 381
+    },
+    {
+      "digikey_id": 197,
+      "partrack_id": 382
+    },
+    {
+      "digikey_id": 201,
+      "partrack_id": 383
+    },
+    {
+      "digikey_id": 194,
+      "partrack_id": 384
+    },
+    {
+      "digikey_id": 200,
+      "partrack_id": 385
+    },
+    {
+      "digikey_id": 213,
+      "partrack_id": 386
+    },
+    {
+      "digikey_id": 203,
+      "partrack_id": 387
+    },
+    {
+      "digikey_id": 193,
+      "partrack_id": 388
+    },
+    {
+      "digikey_id": 198,
+      "partrack_id": 389
+    },
+    {
+      "digikey_id": 196,
+      "partrack_id": 390
+    },
+    {
+      "digikey_id": 202,
+      "partrack_id": 391
+    },
+    {
+      "digikey_id": 204,
+      "partrack_id": 392
+    },
+    {
+      "digikey_id": 214,
+      "partrack_id": 393
+    },
+    {
+      "digikey_id": 2078,
+      "partrack_id": 394
+    },
+    {
+      "digikey_id": 2079,
+      "partrack_id": 395
+    },
+    {
+      "digikey_id": 616,
+      "partrack_id": 396
+    },
+    {
+      "digikey_id": 622,
+      "partrack_id": 397
+    },
+    {
+      "digikey_id": 617,
+      "partrack_id": 398
+    },
+    {
+      "digikey_id": 1017,
+      "partrack_id": 399
+    },
+    {
+      "digikey_id": 164,
+      "partrack_id": 400
+    },
+    {
+      "digikey_id": 168,
+      "partrack_id": 401
+    },
+    {
+      "digikey_id": 163,
+      "partrack_id": 402
+    },
+    {
+      "digikey_id": 166,
+      "partrack_id": 403
+    },
+    {
+      "digikey_id": 162,
+      "partrack_id": 404
+    },
+    {
+      "digikey_id": 167,
+      "partrack_id": 405
+    },
+    {
+      "digikey_id": 165,
+      "partrack_id": 406
+    },
+    {
+      "digikey_id": 149,
+      "partrack_id": 1001
+    },
+    {
+      "digikey_id": 992,
+      "partrack_id": 1002
+    },
+    {
+      "digikey_id": 147,
+      "partrack_id": 1003
+    },
+    {
+      "digikey_id": 144,
+      "partrack_id": 1004
+    },
+    {
+      "digikey_id": 314,
+      "partrack_id": 1005
+    },
+    {
+      "digikey_id": 315,
+      "partrack_id": 1006
+    },
+    {
+      "digikey_id": 400,
+      "partrack_id": 1007
+    },
+    {
+      "digikey_id": 308,
+      "partrack_id": 1008
+    },
+    {
+      "digikey_id": 316,
+      "partrack_id": 1009
+    },
+    {
+      "digikey_id": 317,
+      "partrack_id": 1010
+    },
+    {
+      "digikey_id": 408,
+      "partrack_id": 1011
+    },
+    {
+      "digikey_id": 318,
+      "partrack_id": 1012
+    },
+    {
+      "digikey_id": 370,
+      "partrack_id": 1013
+    },
+    {
+      "digikey_id": 368,
+      "partrack_id": 1014
+    },
+    {
+      "digikey_id": 371,
+      "partrack_id": 1015
+    },
+    {
+      "digikey_id": 369,
+      "partrack_id": 1016
+    },
+    {
+      "digikey_id": 412,
+      "partrack_id": 1017
+    },
+    {
+      "digikey_id": 433,
+      "partrack_id": 1018
+    },
+    {
+      "digikey_id": 394,
+      "partrack_id": 1019
+    },
+    {
+      "digikey_id": 392,
+      "partrack_id": 1020
+    },
+    {
+      "digikey_id": 391,
+      "partrack_id": 1021
+    },
+    {
+      "digikey_id": 395,
+      "partrack_id": 1022
+    },
+    {
+      "digikey_id": 324,
+      "partrack_id": 1023
+    },
+    {
+      "digikey_id": 323,
+      "partrack_id": 1024
+    },
+    {
+      "digikey_id": 393,
+      "partrack_id": 1025
+    },
+    {
+      "digikey_id": 305,
+      "partrack_id": 1026
+    },
+    {
+      "digikey_id": 356,
+      "partrack_id": 1027
+    },
+    {
+      "digikey_id": 313,
+      "partrack_id": 1028
+    },
+    {
+      "digikey_id": 329,
+      "partrack_id": 1029
+    },
+    {
+      "digikey_id": 378,
+      "partrack_id": 1030
+    },
+    {
+      "digikey_id": 436,
+      "partrack_id": 1031
+    },
+    {
+      "digikey_id": 330,
+      "partrack_id": 1032
+    },
+    {
+      "digikey_id": 320,
+      "partrack_id": 1033
+    },
+    {
+      "digikey_id": 349,
+      "partrack_id": 1034
+    },
+    {
+      "digikey_id": 429,
+      "partrack_id": 1035
+    },
+    {
+      "digikey_id": 345,
+      "partrack_id": 1036
+    },
+    {
+      "digikey_id": 354,
+      "partrack_id": 1037
+    },
+    {
+      "digikey_id": 303,
+      "partrack_id": 1038
+    },
+    {
+      "digikey_id": 439,
+      "partrack_id": 1039
+    },
+    {
+      "digikey_id": 321,
+      "partrack_id": 1040
+    },
+    {
+      "digikey_id": 355,
+      "partrack_id": 1041
+    },
+    {
+      "digikey_id": 438,
+      "partrack_id": 1042
+    },
+    {
+      "digikey_id": 342,
+      "partrack_id": 1043
+    },
+    {
+      "digikey_id": 374,
+      "partrack_id": 1044
+    },
+    {
+      "digikey_id": 437,
+      "partrack_id": 1045
+    },
+    {
+      "digikey_id": 388,
+      "partrack_id": 1046
+    },
+    {
+      "digikey_id": 382,
+      "partrack_id": 1047
+    },
+    {
+      "digikey_id": 350,
+      "partrack_id": 1048
+    },
+    {
+      "digikey_id": 399,
+      "partrack_id": 1049
+    },
+    {
+      "digikey_id": 344,
+      "partrack_id": 1050
+    },
+    {
+      "digikey_id": 390,
+      "partrack_id": 1051
+    },
+    {
+      "digikey_id": 407,
+      "partrack_id": 1052
+    },
+    {
+      "digikey_id": 372,
+      "partrack_id": 1053
+    },
+    {
+      "digikey_id": 307,
+      "partrack_id": 1054
+    },
+    {
+      "digikey_id": 406,
+      "partrack_id": 1055
+    },
+    {
+      "digikey_id": 409,
+      "partrack_id": 1056
+    },
+    {
+      "digikey_id": 410,
+      "partrack_id": 1057
+    },
+    {
+      "digikey_id": 411,
+      "partrack_id": 1058
+    },
+    {
+      "digikey_id": 1170,
+      "partrack_id": 1059
+    },
+    {
+      "digikey_id": 341,
+      "partrack_id": 1060
+    },
+    {
+      "digikey_id": 301,
+      "partrack_id": 1061
+    },
+    {
+      "digikey_id": 366,
+      "partrack_id": 1062
+    },
+    {
+      "digikey_id": 365,
+      "partrack_id": 1063
+    },
+    {
+      "digikey_id": 367,
+      "partrack_id": 1064
+    },
+    {
+      "digikey_id": 358,
+      "partrack_id": 1065
+    },
+    {
+      "digikey_id": 327,
+      "partrack_id": 1066
+    },
+    {
+      "digikey_id": 337,
+      "partrack_id": 1067
+    },
+    {
+      "digikey_id": 362,
+      "partrack_id": 1068
+    },
+    {
+      "digikey_id": 363,
+      "partrack_id": 1069
+    },
+    {
+      "digikey_id": 361,
+      "partrack_id": 1070
+    },
+    {
+      "digikey_id": 426,
+      "partrack_id": 1071
+    },
+    {
+      "digikey_id": 427,
+      "partrack_id": 1072
+    },
+    {
+      "digikey_id": 428,
+      "partrack_id": 1073
+    },
+    {
+      "digikey_id": 360,
+      "partrack_id": 1074
+    },
+    {
+      "digikey_id": 357,
+      "partrack_id": 1075
+    },
+    {
+      "digikey_id": 420,
+      "partrack_id": 1076
+    },
+    {
+      "digikey_id": 419,
+      "partrack_id": 1077
+    },
+    {
+      "digikey_id": 347,
+      "partrack_id": 1078
+    },
+    {
+      "digikey_id": 377,
+      "partrack_id": 1079
+    },
+    {
+      "digikey_id": 312,
+      "partrack_id": 1080
+    },
+    {
+      "digikey_id": 389,
+      "partrack_id": 1081
+    },
+    {
+      "digikey_id": 387,
+      "partrack_id": 1082
+    },
+    {
+      "digikey_id": 440,
+      "partrack_id": 1083
+    },
+    {
+      "digikey_id": 445,
+      "partrack_id": 1084
+    },
+    {
+      "digikey_id": 346,
+      "partrack_id": 1085
+    },
+    {
+      "digikey_id": 443,
+      "partrack_id": 1086
+    },
+    {
+      "digikey_id": 351,
+      "partrack_id": 1087
+    },
+    {
+      "digikey_id": 381,
+      "partrack_id": 1088
+    },
+    {
+      "digikey_id": 310,
+      "partrack_id": 1089
+    },
+    {
+      "digikey_id": 302,
+      "partrack_id": 1090
+    },
+    {
+      "digikey_id": 434,
+      "partrack_id": 1091
+    },
+    {
+      "digikey_id": 348,
+      "partrack_id": 1092
+    },
+    {
+      "digikey_id": 376,
+      "partrack_id": 1093
+    },
+    {
+      "digikey_id": 435,
+      "partrack_id": 1094
+    },
+    {
+      "digikey_id": 413,
+      "partrack_id": 1095
+    },
+    {
+      "digikey_id": 352,
+      "partrack_id": 1096
+    },
+    {
+      "digikey_id": 414,
+      "partrack_id": 1097
+    },
+    {
+      "digikey_id": 421,
+      "partrack_id": 1098
+    },
+    {
+      "digikey_id": 787,
+      "partrack_id": 1099
+    },
+    {
+      "digikey_id": 786,
+      "partrack_id": 1100
+    },
+    {
+      "digikey_id": 796,
+      "partrack_id": 1101
+    },
+    {
+      "digikey_id": 1165,
+      "partrack_id": 1102
+    },
+    {
+      "digikey_id": 797,
+      "partrack_id": 1103
+    },
+    {
+      "digikey_id": 795,
+      "partrack_id": 1104
+    },
+    {
+      "digikey_id": 792,
+      "partrack_id": 1105
+    },
+    {
+      "digikey_id": 299,
+      "partrack_id": 1106
+    },
+    {
+      "digikey_id": 2085,
+      "partrack_id": 1107
+    },
+    {
+      "digikey_id": 284,
+      "partrack_id": 1108
+    },
+    {
+      "digikey_id": 282,
+      "partrack_id": 1109
+    },
+    {
+      "digikey_id": 2086,
+      "partrack_id": 1110
+    },
+    {
+      "digikey_id": 2087,
+      "partrack_id": 1111
+    },
+    {
+      "digikey_id": 2088,
+      "partrack_id": 1112
+    },
+    {
+      "digikey_id": 2089,
+      "partrack_id": 1113
+    },
+    {
+      "digikey_id": 288,
+      "partrack_id": 1114
+    },
+    {
+      "digikey_id": 290,
+      "partrack_id": 1115
+    },
+    {
+      "digikey_id": 294,
+      "partrack_id": 1116
+    },
+    {
+      "digikey_id": 274,
+      "partrack_id": 1117
+    },
+    {
+      "digikey_id": 281,
+      "partrack_id": 1118
+    },
+    {
+      "digikey_id": 298,
+      "partrack_id": 1119
+    },
+    {
+      "digikey_id": 300,
+      "partrack_id": 1120
+    },
+    {
+      "digikey_id": 216,
+      "partrack_id": 1121
+    },
+    {
+      "digikey_id": 217,
+      "partrack_id": 1122
+    },
+    {
+      "digikey_id": 223,
+      "partrack_id": 1123
+    },
+    {
+      "digikey_id": 974,
+      "partrack_id": 1124
+    },
+    {
+      "digikey_id": 221,
+      "partrack_id": 1125
+    },
+    {
+      "digikey_id": 219,
+      "partrack_id": 1126
+    },
+    {
+      "digikey_id": 218,
+      "partrack_id": 1127
+    },
+    {
+      "digikey_id": 220,
+      "partrack_id": 1128
+    },
+    {
+      "digikey_id": 222,
+      "partrack_id": 1129
+    },
+    {
+      "digikey_id": 977,
+      "partrack_id": 1130
+    },
+    {
+      "digikey_id": 226,
+      "partrack_id": 1131
+    },
+    {
+      "digikey_id": 583,
+      "partrack_id": 1132
+    },
+    {
+      "digikey_id": 571,
+      "partrack_id": 1133
+    },
+    {
+      "digikey_id": 685,
+      "partrack_id": 1134
+    },
+    {
+      "digikey_id": 696,
+      "partrack_id": 1135
+    },
+    {
+      "digikey_id": 694,
+      "partrack_id": 1136
+    },
+    {
+      "digikey_id": 695,
+      "partrack_id": 1137
+    },
+    {
+      "digikey_id": 698,
+      "partrack_id": 1138
+    },
+    {
+      "digikey_id": 777,
+      "partrack_id": 1139
+    },
+    {
+      "digikey_id": 719,
+      "partrack_id": 1140
+    },
+    {
+      "digikey_id": 721,
+      "partrack_id": 1141
+    },
+    {
+      "digikey_id": 767,
+      "partrack_id": 1142
+    },
+    {
+      "digikey_id": 699,
+      "partrack_id": 1143
+    },
+    {
+      "digikey_id": 739,
+      "partrack_id": 1144
+    },
+    {
+      "digikey_id": 715,
+      "partrack_id": 1145
+    },
+    {
+      "digikey_id": 691,
+      "partrack_id": 1146
+    },
+    {
+      "digikey_id": 730,
+      "partrack_id": 1147
+    },
+    {
+      "digikey_id": 726,
+      "partrack_id": 1148
+    },
+    {
+      "digikey_id": 745,
+      "partrack_id": 1149
+    },
+    {
+      "digikey_id": 744,
+      "partrack_id": 1150
+    },
+    {
+      "digikey_id": 746,
+      "partrack_id": 1151
+    },
+    {
+      "digikey_id": 713,
+      "partrack_id": 1152
+    },
+    {
+      "digikey_id": 781,
+      "partrack_id": 1153
+    },
+    {
+      "digikey_id": 693,
+      "partrack_id": 1154
+    },
+    {
+      "digikey_id": 750,
+      "partrack_id": 1155
+    },
+    {
+      "digikey_id": 761,
+      "partrack_id": 1156
+    },
+    {
+      "digikey_id": 718,
+      "partrack_id": 1157
+    },
+    {
+      "digikey_id": 748,
+      "partrack_id": 1158
+    },
+    {
+      "digikey_id": 734,
+      "partrack_id": 1159
+    },
+    {
+      "digikey_id": 759,
+      "partrack_id": 1160
+    },
+    {
+      "digikey_id": 760,
+      "partrack_id": 1161
+    },
+    {
+      "digikey_id": 779,
+      "partrack_id": 1162
+    },
+    {
+      "digikey_id": 758,
+      "partrack_id": 1163
+    },
+    {
+      "digikey_id": 729,
+      "partrack_id": 1164
+    },
+    {
+      "digikey_id": 776,
+      "partrack_id": 1165
+    },
+    {
+      "digikey_id": 765,
+      "partrack_id": 1166
+    },
+    {
+      "digikey_id": 681,
+      "partrack_id": 1167
+    },
+    {
+      "digikey_id": 704,
+      "partrack_id": 1168
+    },
+    {
+      "digikey_id": 705,
+      "partrack_id": 1169
+    },
+    {
+      "digikey_id": 706,
+      "partrack_id": 1170
+    },
+    {
+      "digikey_id": 708,
+      "partrack_id": 1171
+    },
+    {
+      "digikey_id": 743,
+      "partrack_id": 1172
+    },
+    {
+      "digikey_id": 732,
+      "partrack_id": 1173
+    },
+    {
+      "digikey_id": 731,
+      "partrack_id": 1174
+    },
+    {
+      "digikey_id": 712,
+      "partrack_id": 1175
+    },
+    {
+      "digikey_id": 707,
+      "partrack_id": 1176
+    },
+    {
+      "digikey_id": 703,
+      "partrack_id": 1177
+    },
+    {
+      "digikey_id": 710,
+      "partrack_id": 1178
+    },
+    {
+      "digikey_id": 747,
+      "partrack_id": 1179
+    },
+    {
+      "digikey_id": 749,
+      "partrack_id": 1180
+    },
+    {
+      "digikey_id": 755,
+      "partrack_id": 1181
+    },
+    {
+      "digikey_id": 756,
+      "partrack_id": 1182
+    },
+    {
+      "digikey_id": 753,
+      "partrack_id": 1183
+    },
+    {
+      "digikey_id": 716,
+      "partrack_id": 1184
+    },
+    {
+      "digikey_id": 752,
+      "partrack_id": 1185
+    },
+    {
+      "digikey_id": 560,
+      "partrack_id": 1186
+    },
+    {
+      "digikey_id": 714,
+      "partrack_id": 1187
+    },
+    {
+      "digikey_id": 702,
+      "partrack_id": 1188
+    },
+    {
+      "digikey_id": 754,
+      "partrack_id": 1189
+    },
+    {
+      "digikey_id": 735,
+      "partrack_id": 1190
+    },
+    {
+      "digikey_id": 768,
+      "partrack_id": 1191
+    },
+    {
+      "digikey_id": 724,
+      "partrack_id": 1192
+    },
+    {
+      "digikey_id": 700,
+      "partrack_id": 1193
+    },
+    {
+      "digikey_id": 717,
+      "partrack_id": 1194
+    },
+    {
+      "digikey_id": 701,
+      "partrack_id": 1195
+    },
+    {
+      "digikey_id": 775,
+      "partrack_id": 1196
+    },
+    {
+      "digikey_id": 2034,
+      "partrack_id": 1197
+    },
+    {
+      "digikey_id": 772,
+      "partrack_id": 1198
+    },
+    {
+      "digikey_id": 692,
+      "partrack_id": 1199
+    },
+    {
+      "digikey_id": 684,
+      "partrack_id": 1200
+    },
+    {
+      "digikey_id": 766,
+      "partrack_id": 1201
+    },
+    {
+      "digikey_id": 697,
+      "partrack_id": 1202
+    },
+    {
+      "digikey_id": 736,
+      "partrack_id": 1203
+    },
+    {
+      "digikey_id": 774,
+      "partrack_id": 1204
+    },
+    {
+      "digikey_id": 728,
+      "partrack_id": 1205
+    },
+    {
+      "digikey_id": 764,
+      "partrack_id": 1206
+    },
+    {
+      "digikey_id": 690,
+      "partrack_id": 1207
+    },
+    {
+      "digikey_id": 689,
+      "partrack_id": 1208
+    },
+    {
+      "digikey_id": 763,
+      "partrack_id": 1209
+    },
+    {
+      "digikey_id": 902,
+      "partrack_id": 1210
+    },
+    {
+      "digikey_id": 903,
+      "partrack_id": 1211
+    },
+    {
+      "digikey_id": 904,
+      "partrack_id": 1212
+    },
+    {
+      "digikey_id": 1048,
+      "partrack_id": 1213
+    },
+    {
+      "digikey_id": 1050,
+      "partrack_id": 1214
+    },
+    {
+      "digikey_id": 1049,
+      "partrack_id": 1215
+    },
+    {
+      "digikey_id": 1042,
+      "partrack_id": 1216
+    },
+    {
+      "digikey_id": 1041,
+      "partrack_id": 1217
+    },
+    {
+      "digikey_id": 1043,
+      "partrack_id": 1218
+    },
+    {
+      "digikey_id": 508,
+      "partrack_id": 1219
+    },
+    {
+      "digikey_id": 513,
+      "partrack_id": 1220
+    },
+    {
+      "digikey_id": 535,
+      "partrack_id": 1221
+    },
+    {
+      "digikey_id": 518,
+      "partrack_id": 1222
+    },
+    {
+      "digikey_id": 550,
+      "partrack_id": 1223
+    },
+    {
+      "digikey_id": 516,
+      "partrack_id": 1224
+    },
+    {
+      "digikey_id": 564,
+      "partrack_id": 1225
+    },
+    {
+      "digikey_id": 532,
+      "partrack_id": 1226
+    },
+    {
+      "digikey_id": 1003,
+      "partrack_id": 1227
+    },
+    {
+      "digikey_id": 543,
+      "partrack_id": 1228
+    },
+    {
+      "digikey_id": 544,
+      "partrack_id": 1229
+    },
+    {
+      "digikey_id": 536,
+      "partrack_id": 1230
+    },
+    {
+      "digikey_id": 541,
+      "partrack_id": 1231
+    },
+    {
+      "digikey_id": 542,
+      "partrack_id": 1232
+    },
+    {
+      "digikey_id": 547,
+      "partrack_id": 1233
+    },
+    {
+      "digikey_id": 548,
+      "partrack_id": 1234
+    },
+    {
+      "digikey_id": 1011,
+      "partrack_id": 1235
+    },
+    {
+      "digikey_id": 546,
+      "partrack_id": 1236
+    },
+    {
+      "digikey_id": 556,
+      "partrack_id": 1237
+    },
+    {
+      "digikey_id": 515,
+      "partrack_id": 1238
+    },
+    {
+      "digikey_id": 567,
+      "partrack_id": 1239
+    },
+    {
+      "digikey_id": 555,
+      "partrack_id": 1240
+    },
+    {
+      "digikey_id": 534,
+      "partrack_id": 1241
+    },
+    {
+      "digikey_id": 533,
+      "partrack_id": 1242
+    },
+    {
+      "digikey_id": 519,
+      "partrack_id": 1243
+    },
+    {
+      "digikey_id": 553,
+      "partrack_id": 1244
+    },
+    {
+      "digikey_id": 554,
+      "partrack_id": 1245
+    },
+    {
+      "digikey_id": 552,
+      "partrack_id": 1246
+    },
+    {
+      "digikey_id": 565,
+      "partrack_id": 1247
+    },
+    {
+      "digikey_id": 549,
+      "partrack_id": 1248
+    },
+    {
+      "digikey_id": 511,
+      "partrack_id": 1249
+    },
+    {
+      "digikey_id": 566,
+      "partrack_id": 1250
+    },
+    {
+      "digikey_id": 614,
+      "partrack_id": 1251
+    },
+    {
+      "digikey_id": 615,
+      "partrack_id": 1252
+    },
+    {
+      "digikey_id": 633,
+      "partrack_id": 1253
+    },
+    {
+      "digikey_id": 630,
+      "partrack_id": 1254
+    },
+    {
+      "digikey_id": 631,
+      "partrack_id": 1255
+    },
+    {
+      "digikey_id": 634,
+      "partrack_id": 1256
+    },
+    {
+      "digikey_id": 632,
+      "partrack_id": 1257
+    },
+    {
+      "digikey_id": 618,
+      "partrack_id": 1258
+    },
+    {
+      "digikey_id": 629,
+      "partrack_id": 1259
+    },
+    {
+      "digikey_id": 627,
+      "partrack_id": 1260
+    },
+    {
+      "digikey_id": 623,
+      "partrack_id": 1261
+    },
+    {
+      "digikey_id": 626,
+      "partrack_id": 1262
+    },
+    {
+      "digikey_id": 625,
+      "partrack_id": 1263
+    },
+    {
+      "digikey_id": 621,
+      "partrack_id": 1264
+    }
+  ]
+}

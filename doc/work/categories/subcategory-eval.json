@@ -1,0 +1,2463 @@
+[
+  {
+    "top_id": 6,
+    "top_name": "Battery Products",
+    "children": [
+      {
+        "id": 90,
+        "name": "Batteries Non-Rechargeable (Primary)",
+        "keep": true
+      },
+      {
+        "id": 91,
+        "name": "Batteries Rechargeable (Secondary)",
+        "keep": true
+      },
+      {
+        "id": 85,
+        "name": "Battery Chargers",
+        "keep": true
+      },
+      {
+        "id": 86,
+        "name": "Battery Holders, Clips, Contacts",
+        "keep": true
+      },
+      {
+        "id": 89,
+        "name": "Battery Packs",
+        "keep": true
+      },
+      {
+        "id": 87,
+        "name": "Battery Product Accessories",
+        "keep": false
+      },
+      {
+        "id": 88,
+        "name": "Cigarette Lighter Assemblies",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 27,
+    "top_name": "Boxes, Enclosures, Racks",
+    "children": [
+      {
+        "id": 594,
+        "name": "Boxes",
+        "keep": true
+      },
+      {
+        "id": 595,
+        "name": "Box Accessories",
+        "keep": false
+      },
+      {
+        "id": 596,
+        "name": "Box Components",
+        "keep": false
+      },
+      {
+        "id": 588,
+        "name": "Card Racks",
+        "keep": true
+      },
+      {
+        "id": 589,
+        "name": "Backplanes",
+        "keep": true
+      },
+      {
+        "id": 591,
+        "name": "Card Guides",
+        "keep": false
+      },
+      {
+        "id": 600,
+        "name": "Card Guide Accessories",
+        "keep": false
+      },
+      {
+        "id": 601,
+        "name": "Card Rack Accessories",
+        "keep": false
+      },
+      {
+        "id": 960,
+        "name": "Cams",
+        "keep": false
+      },
+      {
+        "id": 975,
+        "name": "Evaluation, Development Board Enclosures",
+        "keep": true
+      },
+      {
+        "id": 590,
+        "name": "Handles",
+        "keep": false
+      },
+      {
+        "id": 973,
+        "name": "Latches, Locks",
+        "keep": false
+      },
+      {
+        "id": 592,
+        "name": "Patchbay, Jack Panels",
+        "keep": false
+      },
+      {
+        "id": 593,
+        "name": "Patchbay, Jack Panel Accessories",
+        "keep": false
+      },
+      {
+        "id": 597,
+        "name": "Racks",
+        "keep": true
+      },
+      {
+        "id": 598,
+        "name": "Rack Accessories",
+        "keep": false
+      },
+      {
+        "id": 599,
+        "name": "Rack Components",
+        "keep": false
+      },
+      {
+        "id": 602,
+        "name": "Rack Thermal Management",
+        "keep": false
+      },
+      {
+        "id": 1097,
+        "name": "Storage",
+        "keep": false
+      },
+      {
+        "id": 1098,
+        "name": "Storage Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 21,
+    "top_name": "Cable Assemblies",
+    "children": [
+      {
+        "id": 456,
+        "name": "Coaxial Cables (RF)",
+        "keep": true
+      },
+      {
+        "id": 458,
+        "name": "Flat Flex Jumpers, Cables (FFC, FPC)",
+        "keep": true
+      },
+      {
+        "id": 457,
+        "name": "Flat Flex Ribbon Jumpers, Cables",
+        "keep": true
+      },
+      {
+        "id": 453,
+        "name": "Jumper Wires, Pre-Crimped Leads",
+        "keep": true
+      },
+      {
+        "id": 451,
+        "name": "Modular/Ethernet Cables (RJ45, RJ11)",
+        "keep": true
+      },
+      {
+        "id": 460,
+        "name": "Pluggable Cables",
+        "keep": true
+      },
+      {
+        "id": 450,
+        "name": "Rectangular Cable Assemblies",
+        "keep": true
+      },
+      {
+        "id": 455,
+        "name": "USB Cables",
+        "keep": true
+      },
+      {
+        "id": 449,
+        "name": "Fiber Optic Cables",
+        "keep": true
+      },
+      {
+        "id": 448,
+        "name": "Circular Cable Assemblies",
+        "keep": true
+      },
+      {
+        "id": 461,
+        "name": "D-Sub Cables",
+        "keep": true
+      },
+      {
+        "id": 462,
+        "name": "Video Cables (DVI, HDMI)",
+        "keep": true
+      },
+      {
+        "id": 452,
+        "name": "Power, Line Cables and Extension Cords",
+        "keep": false
+      },
+      {
+        "id": 2038,
+        "name": "Barrel Connector Cables",
+        "keep": false
+      },
+      {
+        "id": 459,
+        "name": "Between Series Adapter Cables",
+        "keep": false
+      },
+      {
+        "id": 466,
+        "name": "D-Shaped, Centronics Cables",
+        "keep": false
+      },
+      {
+        "id": 454,
+        "name": "Firewire Cables (IEEE 1394)",
+        "keep": false
+      },
+      {
+        "id": 465,
+        "name": "LGH Cables",
+        "keep": false
+      },
+      {
+        "id": 468,
+        "name": "Smart Cables",
+        "keep": false
+      },
+      {
+        "id": 469,
+        "name": "Solid State Lighting Cables",
+        "keep": false
+      },
+      {
+        "id": 467,
+        "name": "Specialized Cable Assemblies",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 22,
+    "top_name": "Cables, Wires",
+    "children": [
+      {
+        "id": 475,
+        "name": "Coaxial Cables (RF)",
+        "keep": true
+      },
+      {
+        "id": 471,
+        "name": "Fiber Optic Cables",
+        "keep": true
+      },
+      {
+        "id": 476,
+        "name": "Flat Flex Cables (FFC, FPC)",
+        "keep": true
+      },
+      {
+        "id": 472,
+        "name": "Flat Ribbon Cables",
+        "keep": true
+      },
+      {
+        "id": 473,
+        "name": "Multiple Conductor Cables",
+        "keep": true
+      },
+      {
+        "id": 474,
+        "name": "Single Conductor Cables (Hook-Up Wire)",
+        "keep": true
+      },
+      {
+        "id": 477,
+        "name": "Modular - Flat Cable",
+        "keep": false
+      },
+      {
+        "id": 470,
+        "name": "Wire Wrap",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 3,
+    "top_name": "Capacitors",
+    "children": [
+      {
+        "id": 60,
+        "name": "Ceramic Capacitors",
+        "keep": true
+      },
+      {
+        "id": 58,
+        "name": "Aluminum Electrolytic Capacitors",
+        "keep": true
+      },
+      {
+        "id": 59,
+        "name": "Tantalum Capacitors",
+        "keep": true
+      },
+      {
+        "id": 70,
+        "name": "Tantalum - Polymer Capacitors",
+        "keep": true
+      },
+      {
+        "id": 69,
+        "name": "Aluminum - Polymer Capacitors",
+        "keep": true
+      },
+      {
+        "id": 62,
+        "name": "Film Capacitors",
+        "keep": true
+      },
+      {
+        "id": 64,
+        "name": "Mica and PTFE Capacitors",
+        "keep": true
+      },
+      {
+        "id": 66,
+        "name": "Thin Film Capacitors",
+        "keep": true
+      },
+      {
+        "id": 61,
+        "name": "Electric Double Layer (EDLC), Supercapacitors",
+        "keep": true
+      },
+      {
+        "id": 65,
+        "name": "Trimmers, Variable Capacitors",
+        "keep": true
+      },
+      {
+        "id": 57,
+        "name": "Capacitor Networks, Arrays",
+        "keep": true
+      },
+      {
+        "id": 68,
+        "name": "Silicon Capacitors",
+        "keep": true
+      },
+      {
+        "id": 67,
+        "name": "Niobium Oxide Capacitors",
+        "keep": true
+      },
+      {
+        "id": 2112,
+        "name": "Motor Start, Motor Run Capacitors (AC)",
+        "keep": false
+      },
+      {
+        "id": 63,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 9,
+    "top_name": "Circuit Protection",
+    "children": [
+      {
+        "id": 2040,
+        "name": "Transient Voltage Suppressors (TVS)",
+        "keep": true
+      },
+      {
+        "id": 150,
+        "name": "PTC Resettable Fuses",
+        "keep": true
+      },
+      {
+        "id": 141,
+        "name": "Varistors, MOVs",
+        "keep": true
+      },
+      {
+        "id": 142,
+        "name": "Gas Discharge Tube Arresters (GDT)",
+        "keep": true
+      },
+      {
+        "id": 152,
+        "name": "Surge Suppression ICs",
+        "keep": true
+      },
+      {
+        "id": 151,
+        "name": "Inrush Current Limiters (ICL)",
+        "keep": true
+      },
+      {
+        "id": 139,
+        "name": "Fuses",
+        "keep": true
+      },
+      {
+        "id": 155,
+        "name": "Electrical, Specialty Fuses",
+        "keep": true
+      },
+      {
+        "id": 140,
+        "name": "Fuseholders",
+        "keep": true
+      },
+      {
+        "id": 143,
+        "name": "Circuit Breakers",
+        "keep": true
+      },
+      {
+        "id": 146,
+        "name": "Thermal Cutoffs (Thermal Fuses)",
+        "keep": true
+      },
+      {
+        "id": 145,
+        "name": "Circuit Protection Accessories",
+        "keep": false
+      },
+      {
+        "id": 148,
+        "name": "Ground Fault Circuit Interrupter (GFCI)",
+        "keep": false
+      },
+      {
+        "id": 154,
+        "name": "Lighting Protection",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 20,
+    "top_name": "Connectors, Interconnects",
+    "children": [
+      {
+        "id": 2027,
+        "name": "Rectangular Connectors",
+        "keep": true
+      },
+      {
+        "id": 2030,
+        "name": "Terminal Blocks",
+        "keep": true
+      },
+      {
+        "id": 2031,
+        "name": "Terminals",
+        "keep": true
+      },
+      {
+        "id": 2005,
+        "name": "Circular Connectors",
+        "keep": true
+      },
+      {
+        "id": 2004,
+        "name": "Card Edge Connectors",
+        "keep": true
+      },
+      {
+        "id": 2011,
+        "name": "D-Sub, D-Shaped Connectors",
+        "keep": true
+      },
+      {
+        "id": 2007,
+        "name": "Coaxial Connectors (RF)",
+        "keep": true
+      },
+      {
+        "id": 2013,
+        "name": "FFC, FPC (Flat Flexible) Connectors",
+        "keep": true
+      },
+      {
+        "id": 2000,
+        "name": "Backplane Connectors",
+        "keep": true
+      },
+      {
+        "id": 2028,
+        "name": "Sockets for ICs, Transistors",
+        "keep": true
+      },
+      {
+        "id": 2026,
+        "name": "AC Power Connectors",
+        "keep": true
+      },
+      {
+        "id": 2022,
+        "name": "Modular/Ethernet Connectors",
+        "keep": true
+      },
+      {
+        "id": 2015,
+        "name": "Heavy Duty Connectors",
+        "keep": true
+      },
+      {
+        "id": 2017,
+        "name": "Keystone Connectors",
+        "keep": true
+      },
+      {
+        "id": 2003,
+        "name": "Blade Type Power Connectors",
+        "keep": true
+      },
+      {
+        "id": 2032,
+        "name": "USB, DVI, HDMI Connectors",
+        "keep": true
+      },
+      {
+        "id": 2014,
+        "name": "Fiber Optic Connectors",
+        "keep": true
+      },
+      {
+        "id": 2024,
+        "name": "Pluggable Connectors",
+        "keep": true
+      },
+      {
+        "id": 2001,
+        "name": "Banana and Tip Connectors",
+        "keep": true
+      },
+      {
+        "id": 2002,
+        "name": "Barrel Connectors",
+        "keep": true
+      },
+      {
+        "id": 2021,
+        "name": "Memory Connectors",
+        "keep": true
+      },
+      {
+        "id": 2008,
+        "name": "Contacts",
+        "keep": false
+      },
+      {
+        "id": 2023,
+        "name": "Photovoltaic (Solar Panel) Connectors",
+        "keep": false
+      },
+      {
+        "id": 2029,
+        "name": "Solid State Lighting Connectors",
+        "keep": false
+      },
+      {
+        "id": 304,
+        "name": "Shunts, Jumpers",
+        "keep": true
+      },
+      {
+        "id": 422,
+        "name": "Terminal Junction Systems",
+        "keep": false
+      },
+      {
+        "id": 306,
+        "name": "Terminal Strips and Turret Boards",
+        "keep": false
+      },
+      {
+        "id": 373,
+        "name": "Between Series Adapters",
+        "keep": false
+      },
+      {
+        "id": 441,
+        "name": "LGH Connectors",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 12,
+    "top_name": "Crystals, Oscillators, Resonators",
+    "children": [
+      {
+        "id": 171,
+        "name": "Crystals",
+        "keep": true
+      },
+      {
+        "id": 172,
+        "name": "Oscillators",
+        "keep": true
+      },
+      {
+        "id": 176,
+        "name": "Pin Configurable/Selectable Oscillators",
+        "keep": true
+      },
+      {
+        "id": 169,
+        "name": "Programmable Oscillators",
+        "keep": true
+      },
+      {
+        "id": 174,
+        "name": "Resonators",
+        "keep": true
+      },
+      {
+        "id": 173,
+        "name": "VCOs (Voltage Controlled Oscillators)",
+        "keep": true
+      },
+      {
+        "id": 175,
+        "name": "Crystal, Oscillator, Resonator Accessories",
+        "keep": false
+      },
+      {
+        "id": 170,
+        "name": "Stand Alone Programmers",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 33,
+    "top_name": "Development Boards, Kits, Programmers",
+    "children": [
+      {
+        "id": 2041,
+        "name": "Evaluation Boards",
+        "keep": true
+      },
+      {
+        "id": 799,
+        "name": "Programmers, Emulators, and Debuggers",
+        "keep": true
+      },
+      {
+        "id": 798,
+        "name": "Programming Adapters, Sockets",
+        "keep": true
+      },
+      {
+        "id": 783,
+        "name": "Accessories",
+        "keep": false
+      },
+      {
+        "id": 784,
+        "name": "Software, Services",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 19,
+    "top_name": "Discrete Semiconductor Products",
+    "children": [
+      {
+        "id": 2042,
+        "name": "Diodes",
+        "keep": true
+      },
+      {
+        "id": 2045,
+        "name": "Transistors",
+        "keep": true
+      },
+      {
+        "id": 2043,
+        "name": "Thyristors",
+        "keep": true
+      },
+      {
+        "id": 296,
+        "name": "Power Driver Modules",
+        "keep": true
+      },
+      {
+        "id": 1164,
+        "name": "Current Regulation - Diodes, Transistors",
+        "keep": true
+      }
+    ]
+  },
+  {
+    "top_id": 45,
+    "top_name": "Embedded Computers",
+    "children": [
+      {
+        "id": 933,
+        "name": "Single Board Computers (SBCs)",
+        "keep": true
+      },
+      {
+        "id": 932,
+        "name": "Embedded Computer Interface Boards",
+        "keep": true
+      },
+      {
+        "id": 931,
+        "name": "Embedded Computer Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 16,
+    "top_name": "Fans, Blowers, Thermal Management",
+    "children": [
+      {
+        "id": 2046,
+        "name": "Fans",
+        "keep": true
+      },
+      {
+        "id": 2047,
+        "name": "Thermal",
+        "keep": true
+      },
+      {
+        "id": 1005,
+        "name": "Heat Tape, Heat Blankets and Heaters",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 36,
+    "top_name": "Filters",
+    "children": [
+      {
+        "id": 841,
+        "name": "Ferrite Beads and Chips",
+        "keep": true
+      },
+      {
+        "id": 840,
+        "name": "Cable Ferrites",
+        "keep": true
+      },
+      {
+        "id": 839,
+        "name": "Common Mode Chokes",
+        "keep": true
+      },
+      {
+        "id": 835,
+        "name": "EMI/RFI Filters (LC, RC Networks)",
+        "keep": true
+      },
+      {
+        "id": 845,
+        "name": "Feed Through, Pass Through Capacitors",
+        "keep": true
+      },
+      {
+        "id": 838,
+        "name": "Power Line Filter Modules",
+        "keep": true
+      },
+      {
+        "id": 844,
+        "name": "RF Filters",
+        "keep": true
+      },
+      {
+        "id": 836,
+        "name": "SAW Filters",
+        "keep": true
+      },
+      {
+        "id": 846,
+        "name": "Ceramic Filters",
+        "keep": true
+      },
+      {
+        "id": 847,
+        "name": "Monolithic Crystals",
+        "keep": true
+      },
+      {
+        "id": 843,
+        "name": "Ferrite Disks and Plates",
+        "keep": false
+      },
+      {
+        "id": 842,
+        "name": "DSL Filters",
+        "keep": false
+      },
+      {
+        "id": 837,
+        "name": "Helical Filters",
+        "keep": false
+      },
+      {
+        "id": 834,
+        "name": "Filter Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 26,
+    "top_name": "Hardware, Fasteners, Accessories",
+    "children": [
+      {
+        "id": 582,
+        "name": "Board Spacers, Standoffs",
+        "keep": true
+      },
+      {
+        "id": 578,
+        "name": "Board Supports",
+        "keep": true
+      },
+      {
+        "id": 572,
+        "name": "Screws, Bolts",
+        "keep": true
+      },
+      {
+        "id": 573,
+        "name": "Nuts",
+        "keep": true
+      },
+      {
+        "id": 2048,
+        "name": "Washers",
+        "keep": true
+      },
+      {
+        "id": 585,
+        "name": "Component Insulators, Mounts, Spacers",
+        "keep": true
+      },
+      {
+        "id": 580,
+        "name": "DIN Rail Channel",
+        "keep": true
+      },
+      {
+        "id": 570,
+        "name": "Bumpers, Feet, Pads, Grips",
+        "keep": false
+      },
+      {
+        "id": 574,
+        "name": "Mounting Brackets",
+        "keep": false
+      },
+      {
+        "id": 576,
+        "name": "Rivets",
+        "keep": false
+      },
+      {
+        "id": 568,
+        "name": "Knobs",
+        "keep": false
+      },
+      {
+        "id": 584,
+        "name": "Screw Grommets",
+        "keep": false
+      },
+      {
+        "id": 979,
+        "name": "Bearings",
+        "keep": false
+      },
+      {
+        "id": 976,
+        "name": "Hinges",
+        "keep": false
+      },
+      {
+        "id": 954,
+        "name": "Clips, Hangers, Hooks",
+        "keep": false
+      },
+      {
+        "id": 581,
+        "name": "Hole Plugs - Tapered Caps",
+        "keep": false
+      },
+      {
+        "id": 587,
+        "name": "Foam",
+        "keep": false
+      },
+      {
+        "id": 967,
+        "name": "Reclosable Fasteners",
+        "keep": false
+      },
+      {
+        "id": 1172,
+        "name": "Seals - Cord Stock",
+        "keep": false
+      },
+      {
+        "id": 1171,
+        "name": "Seals - O-Rings",
+        "keep": false
+      },
+      {
+        "id": 3004,
+        "name": "Springs",
+        "keep": false
+      },
+      {
+        "id": 586,
+        "name": "Structural, Motion Hardware",
+        "keep": false
+      },
+      {
+        "id": 579,
+        "name": "Miscellaneous",
+        "keep": false
+      },
+      {
+        "id": 569,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 4,
+    "top_name": "Inductors, Coils, Chokes",
+    "children": [
+      {
+        "id": 71,
+        "name": "Fixed Inductors",
+        "keep": true
+      },
+      {
+        "id": 72,
+        "name": "Adjustable Inductors",
+        "keep": true
+      },
+      {
+        "id": 73,
+        "name": "Arrays, Signal Transformers",
+        "keep": true
+      },
+      {
+        "id": 75,
+        "name": "Wireless Charging Coils",
+        "keep": true
+      },
+      {
+        "id": 74,
+        "name": "Delay Lines",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 32,
+    "top_name": "Integrated Circuits (ICs)",
+    "children": [
+      {
+        "id": 2012,
+        "name": "Embedded",
+        "keep": true
+      },
+      {
+        "id": 2025,
+        "name": "Power Management (PMIC)",
+        "keep": true
+      },
+      {
+        "id": 2019,
+        "name": "Logic",
+        "keep": true
+      },
+      {
+        "id": 2016,
+        "name": "Interface",
+        "keep": true
+      },
+      {
+        "id": 2009,
+        "name": "Data Acquisition",
+        "keep": true
+      },
+      {
+        "id": 2018,
+        "name": "Linear",
+        "keep": true
+      },
+      {
+        "id": 2020,
+        "name": "Memory",
+        "keep": true
+      },
+      {
+        "id": 2006,
+        "name": "Clock/Timing",
+        "keep": true
+      },
+      {
+        "id": 741,
+        "name": "Audio Special Purpose",
+        "keep": true
+      },
+      {
+        "id": 686,
+        "name": "Specialized ICs",
+        "keep": true
+      }
+    ]
+  },
+  {
+    "top_id": 39,
+    "top_name": "Isolators",
+    "children": [
+      {
+        "id": 2058,
+        "name": "Optocouplers, Optoisolators",
+        "keep": true
+      },
+      {
+        "id": 901,
+        "name": "Digital Isolators",
+        "keep": true
+      },
+      {
+        "id": 906,
+        "name": "Isolators - Gate Drivers",
+        "keep": true
+      },
+      {
+        "id": 905,
+        "name": "Special Purpose Isolators",
+        "keep": true
+      }
+    ]
+  },
+  {
+    "top_id": 46,
+    "top_name": "Magnetics - Transformer, Inductor Components",
+    "children": [
+      {
+        "id": 936,
+        "name": "Ferrite Cores",
+        "keep": true
+      },
+      {
+        "id": 934,
+        "name": "Magnet Wire",
+        "keep": true
+      },
+      {
+        "id": 935,
+        "name": "Bobbins (Coil Formers), Mounts, Hardware",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 24,
+    "top_name": "Memory - Modules, Cards",
+    "children": [
+      {
+        "id": 505,
+        "name": "Memory - Modules",
+        "keep": true
+      },
+      {
+        "id": 501,
+        "name": "Memory Cards",
+        "keep": true
+      },
+      {
+        "id": 503,
+        "name": "Solid State Drives (SSDs), Hard Disk Drives (HDDs)",
+        "keep": true
+      },
+      {
+        "id": 504,
+        "name": "USB Flash Drives",
+        "keep": true
+      },
+      {
+        "id": 502,
+        "name": "Specialized",
+        "keep": false
+      },
+      {
+        "id": 500,
+        "name": "Memory Card, Module Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 13,
+    "top_name": "Motors, Actuators, Solenoids and Drivers",
+    "children": [
+      {
+        "id": 178,
+        "name": "Motors - AC, DC",
+        "keep": true
+      },
+      {
+        "id": 179,
+        "name": "Stepper Motors",
+        "keep": true
+      },
+      {
+        "id": 180,
+        "name": "Solenoids",
+        "keep": true
+      },
+      {
+        "id": 1157,
+        "name": "Electric Actuators/Cylinders",
+        "keep": true
+      },
+      {
+        "id": 181,
+        "name": "Motor Driver Boards, Modules",
+        "keep": true
+      },
+      {
+        "id": 2113,
+        "name": "Variable Frequency Drives (VFDs, VSDs)",
+        "keep": false
+      },
+      {
+        "id": 177,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 44,
+    "top_name": "Networking Solutions",
+    "children": [
+      {
+        "id": 928,
+        "name": "Gateways, Routers",
+        "keep": true
+      },
+      {
+        "id": 927,
+        "name": "Switches, Hubs",
+        "keep": true
+      },
+      {
+        "id": 929,
+        "name": "Media Converters",
+        "keep": true
+      },
+      {
+        "id": 930,
+        "name": "Serial Device Servers",
+        "keep": true
+      },
+      {
+        "id": 925,
+        "name": "Accessories",
+        "keep": false
+      },
+      {
+        "id": 926,
+        "name": "Miscellaneous",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 42,
+    "top_name": "Optical Inspection Equipment",
+    "children": [
+      {
+        "id": 914,
+        "name": "Microscopes",
+        "keep": true
+      },
+      {
+        "id": 913,
+        "name": "Cameras",
+        "keep": true
+      },
+      {
+        "id": 1077,
+        "name": "Machine Vision - Lenses",
+        "keep": true
+      },
+      {
+        "id": 1121,
+        "name": "Machine Vision - Accessories",
+        "keep": true
+      },
+      {
+        "id": 917,
+        "name": "Lamps - Magnifying, Task",
+        "keep": true
+      },
+      {
+        "id": 918,
+        "name": "Loupes, Magnifiers",
+        "keep": true
+      },
+      {
+        "id": 919,
+        "name": "Video Inspection Systems",
+        "keep": true
+      },
+      {
+        "id": 916,
+        "name": "Eyepieces, Lenses",
+        "keep": true
+      },
+      {
+        "id": 920,
+        "name": "Illumination Sources",
+        "keep": true
+      },
+      {
+        "id": 915,
+        "name": "Arms, Mounts, Stands",
+        "keep": false
+      },
+      {
+        "id": 912,
+        "name": "Optical Inspection Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 41,
+    "top_name": "Optics",
+    "children": [
+      {
+        "id": 1045,
+        "name": "Lenses",
+        "keep": true
+      },
+      {
+        "id": 2060,
+        "name": "Laser Optics",
+        "keep": true
+      },
+      {
+        "id": 1044,
+        "name": "Filters",
+        "keep": true
+      },
+      {
+        "id": 1156,
+        "name": "Beamsplitters",
+        "keep": true
+      },
+      {
+        "id": 1158,
+        "name": "Mirrors",
+        "keep": true
+      },
+      {
+        "id": 1046,
+        "name": "Polarizers",
+        "keep": true
+      },
+      {
+        "id": 1122,
+        "name": "Prisms",
+        "keep": true
+      }
+    ]
+  },
+  {
+    "top_id": 7,
+    "top_name": "Optoelectronics",
+    "children": [
+      {
+        "id": 105,
+        "name": "LED Indication - Discrete",
+        "keep": true
+      },
+      {
+        "id": 111,
+        "name": "LED COBs, Engines, Modules, Strips",
+        "keep": true
+      },
+      {
+        "id": 124,
+        "name": "LED White Lighting",
+        "keep": true
+      },
+      {
+        "id": 125,
+        "name": "LED Color Lighting",
+        "keep": true
+      },
+      {
+        "id": 94,
+        "name": "LED Emitters - Infrared, UV, Visible",
+        "keep": true
+      },
+      {
+        "id": 126,
+        "name": "LED Addressable, Specialty",
+        "keep": true
+      },
+      {
+        "id": 92,
+        "name": "LED Character and Numeric",
+        "keep": true
+      },
+      {
+        "id": 96,
+        "name": "LED Dot Matrix and Cluster",
+        "keep": true
+      },
+      {
+        "id": 106,
+        "name": "Circuit Board Indicators, Arrays, Light Bars, Bar Graphs",
+        "keep": true
+      },
+      {
+        "id": 108,
+        "name": "Panel Indicators, Pilot Lights",
+        "keep": true
+      },
+      {
+        "id": 102,
+        "name": "Light Pipes",
+        "keep": true
+      },
+      {
+        "id": 99,
+        "name": "LCD, OLED Character and Numeric",
+        "keep": true
+      },
+      {
+        "id": 107,
+        "name": "LCD, OLED, Graphic",
+        "keep": true
+      },
+      {
+        "id": 118,
+        "name": "Fiber Optic Transceiver Modules",
+        "keep": true
+      },
+      {
+        "id": 117,
+        "name": "Fiber Optic Receivers",
+        "keep": true
+      },
+      {
+        "id": 116,
+        "name": "Fiber Optic Transmitters - Discrete",
+        "keep": true
+      },
+      {
+        "id": 115,
+        "name": "Fiber Optic Transmitters - Drive Circuitry Integrated",
+        "keep": true
+      },
+      {
+        "id": 119,
+        "name": "Fiber Optic Attenuators",
+        "keep": true
+      },
+      {
+        "id": 120,
+        "name": "Fiber Optic Switches, Multiplexers, Demultiplexers",
+        "keep": true
+      },
+      {
+        "id": 95,
+        "name": "Laser Diodes, Modules",
+        "keep": true
+      },
+      {
+        "id": 1055,
+        "name": "Laser Diodes, Modules - Laser Delivery, Laser Fibers",
+        "keep": true
+      },
+      {
+        "id": 1119,
+        "name": "HeNe Laser Heads",
+        "keep": true
+      },
+      {
+        "id": 1008,
+        "name": "HeNe Laser Systems",
+        "keep": true
+      },
+      {
+        "id": 1047,
+        "name": "Optomechanical",
+        "keep": true
+      },
+      {
+        "id": 112,
+        "name": "Lenses",
+        "keep": true
+      },
+      {
+        "id": 122,
+        "name": "Reflectors",
+        "keep": true
+      },
+      {
+        "id": 103,
+        "name": "Vacuum Fluorescent (VFD)",
+        "keep": true
+      },
+      {
+        "id": 101,
+        "name": "Incandescent, Neon Lamps",
+        "keep": true
+      },
+      {
+        "id": 114,
+        "name": "Display, Monitor - LCD Driver/Controller",
+        "keep": true
+      },
+      {
+        "id": 1168,
+        "name": "Display Backlights",
+        "keep": true
+      },
+      {
+        "id": 93,
+        "name": "Display Bezels, Lenses",
+        "keep": false
+      },
+      {
+        "id": 97,
+        "name": "Ballasts, Inverters",
+        "keep": false
+      },
+      {
+        "id": 104,
+        "name": "Cold Cathode Fluorescent (CCFL) & UV Lamps",
+        "keep": false
+      },
+      {
+        "id": 127,
+        "name": "Electroluminescent",
+        "keep": false
+      },
+      {
+        "id": 110,
+        "name": "Touch Screen Overlays",
+        "keep": false
+      },
+      {
+        "id": 109,
+        "name": "Lamp Replacements",
+        "keep": false
+      },
+      {
+        "id": 129,
+        "name": "LED Lighting Kits",
+        "keep": false
+      },
+      {
+        "id": 121,
+        "name": "LED Thermal Products",
+        "keep": false
+      },
+      {
+        "id": 123,
+        "name": "Remote Phosphor Light Source",
+        "keep": false
+      },
+      {
+        "id": 100,
+        "name": "Spacers, Standoffs",
+        "keep": false
+      },
+      {
+        "id": 966,
+        "name": "Laser Diode, Module Accessories",
+        "keep": false
+      },
+      {
+        "id": 1009,
+        "name": "HeNe Laser System Accessories",
+        "keep": false
+      },
+      {
+        "id": 1161,
+        "name": "Lighting Fixtures",
+        "keep": false
+      },
+      {
+        "id": 128,
+        "name": "Xenon Lighting",
+        "keep": false
+      },
+      {
+        "id": 98,
+        "name": "Optoelectronics Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 5,
+    "top_name": "Potentiometers, Variable Resistors",
+    "children": [
+      {
+        "id": 84,
+        "name": "Rotary Potentiometers, Rheostats",
+        "keep": true
+      },
+      {
+        "id": 80,
+        "name": "Trimmer Potentiometers",
+        "keep": true
+      },
+      {
+        "id": 78,
+        "name": "Slide Potentiometers",
+        "keep": true
+      },
+      {
+        "id": 83,
+        "name": "Adjustable Power Resistor",
+        "keep": true
+      },
+      {
+        "id": 77,
+        "name": "Thumbwheel Potentiometers",
+        "keep": true
+      },
+      {
+        "id": 82,
+        "name": "Joystick Potentiometers",
+        "keep": false
+      },
+      {
+        "id": 79,
+        "name": "Scale Dials",
+        "keep": false
+      },
+      {
+        "id": 81,
+        "name": "Value Display Potentiometers",
+        "keep": false
+      },
+      {
+        "id": 76,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 43,
+    "top_name": "Power Supplies - Board Mount",
+    "children": [
+      {
+        "id": 922,
+        "name": "DC DC Converters",
+        "keep": true
+      },
+      {
+        "id": 923,
+        "name": "AC DC Converters",
+        "keep": true
+      },
+      {
+        "id": 924,
+        "name": "LED Drivers",
+        "keep": true
+      },
+      {
+        "id": 921,
+        "name": "Board Mount Power Supply Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 8,
+    "top_name": "Power Supplies - External/Internal (Off-Board)",
+    "children": [
+      {
+        "id": 133,
+        "name": "AC DC Converters",
+        "keep": true
+      },
+      {
+        "id": 130,
+        "name": "AC DC Desktop, Wall Power Adapters",
+        "keep": true
+      },
+      {
+        "id": 132,
+        "name": "DC DC Converters",
+        "keep": true
+      },
+      {
+        "id": 1064,
+        "name": "Industrial, DIN Rail Power Supplies",
+        "keep": true
+      },
+      {
+        "id": 137,
+        "name": "LED Drivers",
+        "keep": true
+      },
+      {
+        "id": 138,
+        "name": "Power over Ethernet (PoE)",
+        "keep": true
+      },
+      {
+        "id": 134,
+        "name": "AC DC Configurable Power Supply Chassis",
+        "keep": true
+      },
+      {
+        "id": 136,
+        "name": "AC DC Configurable Power Supply Modules",
+        "keep": true
+      },
+      {
+        "id": 955,
+        "name": "AC DC Configurable Power Supplies (Factory Assembled)",
+        "keep": true
+      },
+      {
+        "id": 135,
+        "name": "AC AC Wall Power Adapters",
+        "keep": false
+      },
+      {
+        "id": 131,
+        "name": "External/Internal Power Supply Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 30,
+    "top_name": "Prototyping, Fabrication Products",
+    "children": [
+      {
+        "id": 638,
+        "name": "Solderless Breadboards",
+        "keep": true
+      },
+      {
+        "id": 636,
+        "name": "Prototype Boards Perforated",
+        "keep": true
+      },
+      {
+        "id": 643,
+        "name": "Adapter, Breakout Boards",
+        "keep": true
+      },
+      {
+        "id": 640,
+        "name": "Jumper Wire",
+        "keep": true
+      },
+      {
+        "id": 641,
+        "name": "Card Extenders",
+        "keep": true
+      },
+      {
+        "id": 637,
+        "name": "Prototype Boards Unperforated",
+        "keep": false
+      },
+      {
+        "id": 943,
+        "name": "3D Printers",
+        "keep": false
+      },
+      {
+        "id": 956,
+        "name": "3D Printing Accessories",
+        "keep": false
+      },
+      {
+        "id": 944,
+        "name": "3D Printing Materials",
+        "keep": false
+      },
+      {
+        "id": 639,
+        "name": "Etching and Fabrication Equipment",
+        "keep": false
+      },
+      {
+        "id": 972,
+        "name": "PCB Routers, Milling Machines",
+        "keep": false
+      },
+      {
+        "id": 644,
+        "name": "Drill Bits, End Mills",
+        "keep": false
+      },
+      {
+        "id": 642,
+        "name": "Coating, Grease, Repair",
+        "keep": false
+      },
+      {
+        "id": 1159,
+        "name": "Custom Configurable PCB's",
+        "keep": false
+      },
+      {
+        "id": 635,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 14,
+    "top_name": "Relays",
+    "children": [
+      {
+        "id": 188,
+        "name": "Power Relays, Over 2 Amps",
+        "keep": true
+      },
+      {
+        "id": 189,
+        "name": "Signal Relays, Up to 2 Amps",
+        "keep": true
+      },
+      {
+        "id": 183,
+        "name": "Solid State Relays (SSR)",
+        "keep": true
+      },
+      {
+        "id": 969,
+        "name": "Contactors (Electromechanical)",
+        "keep": true
+      },
+      {
+        "id": 963,
+        "name": "High Frequency (RF) Relays",
+        "keep": true
+      },
+      {
+        "id": 964,
+        "name": "Reed Relays",
+        "keep": true
+      },
+      {
+        "id": 962,
+        "name": "Automotive Relays",
+        "keep": false
+      },
+      {
+        "id": 970,
+        "name": "Contactors (Solid State)",
+        "keep": false
+      },
+      {
+        "id": 184,
+        "name": "Relay Sockets",
+        "keep": false
+      },
+      {
+        "id": 186,
+        "name": "I/O Relay Modules",
+        "keep": false
+      },
+      {
+        "id": 190,
+        "name": "I/O Relay Module Racks",
+        "keep": false
+      },
+      {
+        "id": 182,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 2,
+    "top_name": "Resistors",
+    "children": [
+      {
+        "id": 52,
+        "name": "Chip Resistor - Surface Mount",
+        "keep": true
+      },
+      {
+        "id": 53,
+        "name": "Through Hole Resistors",
+        "keep": true
+      },
+      {
+        "id": 54,
+        "name": "Chassis Mount Resistors",
+        "keep": true
+      },
+      {
+        "id": 50,
+        "name": "Resistor Networks, Arrays",
+        "keep": true
+      },
+      {
+        "id": 55,
+        "name": "Specialized Resistors",
+        "keep": true
+      },
+      {
+        "id": 56,
+        "name": "Precision Trimmed Resistors",
+        "keep": true
+      },
+      {
+        "id": 51,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 37,
+    "top_name": "RF and Wireless",
+    "children": [
+      {
+        "id": 875,
+        "name": "RF Antennas",
+        "keep": true
+      },
+      {
+        "id": 879,
+        "name": "RF Transceiver ICs",
+        "keep": true
+      },
+      {
+        "id": 872,
+        "name": "RF Transceiver Modules and Modems",
+        "keep": true
+      },
+      {
+        "id": 870,
+        "name": "RF Receivers",
+        "keep": true
+      },
+      {
+        "id": 871,
+        "name": "RF Transmitters",
+        "keep": true
+      },
+      {
+        "id": 860,
+        "name": "RF Amplifiers",
+        "keep": true
+      },
+      {
+        "id": 865,
+        "name": "RF Switches",
+        "keep": true
+      },
+      {
+        "id": 861,
+        "name": "RF Mixers",
+        "keep": true
+      },
+      {
+        "id": 852,
+        "name": "Attenuators",
+        "keep": true
+      },
+      {
+        "id": 850,
+        "name": "RF Directional Coupler",
+        "keep": true
+      },
+      {
+        "id": 851,
+        "name": "RF Power Dividers/Splitters",
+        "keep": true
+      },
+      {
+        "id": 867,
+        "name": "RF Shields",
+        "keep": true
+      },
+      {
+        "id": 869,
+        "name": "RFI and EMI - Shielding and Absorbing Materials",
+        "keep": true
+      },
+      {
+        "id": 945,
+        "name": "RFI and EMI - Contacts, Fingerstock and Gaskets",
+        "keep": true
+      },
+      {
+        "id": 1010,
+        "name": "RF Circulators and Isolators",
+        "keep": true
+      },
+      {
+        "id": 868,
+        "name": "RF Multiplexers",
+        "keep": true
+      },
+      {
+        "id": 876,
+        "name": "RF Front End (LNA + PA)",
+        "keep": true
+      },
+      {
+        "id": 863,
+        "name": "RF Misc ICs and Modules",
+        "keep": true
+      },
+      {
+        "id": 849,
+        "name": "Balun",
+        "keep": true
+      },
+      {
+        "id": 853,
+        "name": "RFID Transponders, Tags",
+        "keep": true
+      },
+      {
+        "id": 854,
+        "name": "RFID Reader Modules",
+        "keep": true
+      },
+      {
+        "id": 855,
+        "name": "RFID Antennas",
+        "keep": true
+      },
+      {
+        "id": 880,
+        "name": "RFID, RF Access, Monitoring ICs",
+        "keep": true
+      },
+      {
+        "id": 873,
+        "name": "RF Receiver, Transmitter, and Transceiver Finished Units",
+        "keep": true
+      },
+      {
+        "id": 862,
+        "name": "RF Detectors",
+        "keep": true
+      },
+      {
+        "id": 864,
+        "name": "RF Power Controller ICs",
+        "keep": true
+      },
+      {
+        "id": 877,
+        "name": "RF Modulators",
+        "keep": false
+      },
+      {
+        "id": 878,
+        "name": "RF Demodulators",
+        "keep": false
+      },
+      {
+        "id": 857,
+        "name": "RFID Accessories",
+        "keep": false
+      },
+      {
+        "id": 866,
+        "name": "RF Accessories",
+        "keep": false
+      },
+      {
+        "id": 1163,
+        "name": "Subscriber Identification Module (SIM) Cards",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 25,
+    "top_name": "Sensors, Transducers",
+    "children": [
+      {
+        "id": 2075,
+        "name": "Temperature Sensors",
+        "keep": true
+      },
+      {
+        "id": 2071,
+        "name": "Optical Sensors",
+        "keep": true
+      },
+      {
+        "id": 2070,
+        "name": "Motion Sensors",
+        "keep": true
+      },
+      {
+        "id": 2068,
+        "name": "Magnetic Sensors",
+        "keep": true
+      },
+      {
+        "id": 2072,
+        "name": "Position Sensors",
+        "keep": true
+      },
+      {
+        "id": 525,
+        "name": "Current Sensors",
+        "keep": true
+      },
+      {
+        "id": 512,
+        "name": "Pressure Sensors, Transducers",
+        "keep": true
+      },
+      {
+        "id": 529,
+        "name": "Humidity, Moisture Sensors",
+        "keep": true
+      },
+      {
+        "id": 530,
+        "name": "Gas Sensors",
+        "keep": true
+      },
+      {
+        "id": 524,
+        "name": "Proximity Sensors",
+        "keep": true
+      },
+      {
+        "id": 507,
+        "name": "Encoders",
+        "keep": true
+      },
+      {
+        "id": 521,
+        "name": "Float, Level Sensors",
+        "keep": true
+      },
+      {
+        "id": 520,
+        "name": "Flow Sensors",
+        "keep": true
+      },
+      {
+        "id": 531,
+        "name": "Force Sensors, Load Cells",
+        "keep": true
+      },
+      {
+        "id": 527,
+        "name": "Ultrasonic Receivers, Transmitters",
+        "keep": true
+      },
+      {
+        "id": 514,
+        "name": "Solar Cells",
+        "keep": true
+      },
+      {
+        "id": 557,
+        "name": "Sensor, Transducer Amplifiers",
+        "keep": true
+      },
+      {
+        "id": 561,
+        "name": "Specialized Sensors",
+        "keep": true
+      },
+      {
+        "id": 539,
+        "name": "Color Sensors",
+        "keep": true
+      },
+      {
+        "id": 559,
+        "name": "Strain Gauges",
+        "keep": true
+      },
+      {
+        "id": 528,
+        "name": "Shock Sensors",
+        "keep": true
+      },
+      {
+        "id": 509,
+        "name": "Particle, Dust Sensors",
+        "keep": true
+      },
+      {
+        "id": 2069,
+        "name": "Magnets",
+        "keep": true
+      },
+      {
+        "id": 971,
+        "name": "Touch Sensors",
+        "keep": true
+      },
+      {
+        "id": 522,
+        "name": "LVDT Transducers",
+        "keep": true
+      },
+      {
+        "id": 551,
+        "name": "Multifunction",
+        "keep": false
+      },
+      {
+        "id": 538,
+        "name": "IrDA Transceiver Modules",
+        "keep": false
+      },
+      {
+        "id": 563,
+        "name": "Proximity/Occupancy Sensors Finished Units",
+        "keep": false
+      },
+      {
+        "id": 949,
+        "name": "Sensor Cable Accessories",
+        "keep": false
+      },
+      {
+        "id": 950,
+        "name": "Sensor Cable Assemblies",
+        "keep": false
+      },
+      {
+        "id": 951,
+        "name": "Sensor Interface Junction Blocks",
+        "keep": false
+      },
+      {
+        "id": 510,
+        "name": "Sensor, Transducer Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 18,
+    "top_name": "Soldering, Desoldering, Rework Products",
+    "children": [
+      {
+        "id": 262,
+        "name": "Solder",
+        "keep": true
+      },
+      {
+        "id": 265,
+        "name": "Desoldering Braid, Wick, Pumps",
+        "keep": true
+      },
+      {
+        "id": 266,
+        "name": "Flux, Flux Remover",
+        "keep": true
+      },
+      {
+        "id": 272,
+        "name": "Solder Stencils, Templates",
+        "keep": true
+      },
+      {
+        "id": 268,
+        "name": "Soldering Irons, Tweezers, Handles",
+        "keep": true
+      },
+      {
+        "id": 264,
+        "name": "Soldering, Desoldering, Rework Stations",
+        "keep": true
+      },
+      {
+        "id": 270,
+        "name": "Soldering, Desoldering, Rework Tips, Nozzles",
+        "keep": false
+      },
+      {
+        "id": 263,
+        "name": "Solder Sponges, Tip Cleaners",
+        "keep": false
+      },
+      {
+        "id": 267,
+        "name": "Holders, Stands",
+        "keep": false
+      },
+      {
+        "id": 269,
+        "name": "Fume, Smoke Extraction",
+        "keep": false
+      },
+      {
+        "id": 261,
+        "name": "Soldering, Desoldering, Rework Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 15,
+    "top_name": "Switches",
+    "children": [
+      {
+        "id": 199,
+        "name": "Pushbutton Switches",
+        "keep": true
+      },
+      {
+        "id": 195,
+        "name": "Rocker Switches",
+        "keep": true
+      },
+      {
+        "id": 197,
+        "name": "Tactile Switches",
+        "keep": true
+      },
+      {
+        "id": 201,
+        "name": "Toggle Switches",
+        "keep": true
+      },
+      {
+        "id": 194,
+        "name": "DIP Switches",
+        "keep": true
+      },
+      {
+        "id": 200,
+        "name": "Rotary Switches",
+        "keep": true
+      },
+      {
+        "id": 213,
+        "name": "Slide Switches",
+        "keep": true
+      },
+      {
+        "id": 203,
+        "name": "Selector Switches",
+        "keep": true
+      },
+      {
+        "id": 193,
+        "name": "Magnetic, Reed Switches",
+        "keep": true
+      },
+      {
+        "id": 198,
+        "name": "Limit Switches",
+        "keep": true
+      },
+      {
+        "id": 196,
+        "name": "Keylock Switches",
+        "keep": true
+      },
+      {
+        "id": 202,
+        "name": "Keypad Switches",
+        "keep": true
+      },
+      {
+        "id": 204,
+        "name": "Navigation Switches, Joystick",
+        "keep": true
+      },
+      {
+        "id": 214,
+        "name": "Thumbwheel Switches",
+        "keep": true
+      },
+      {
+        "id": 153,
+        "name": "Disconnect Switch Components",
+        "keep": false
+      },
+      {
+        "id": 2076,
+        "name": "Configurable Switch Components",
+        "keep": false
+      },
+      {
+        "id": 211,
+        "name": "Pushbutton Switches - Hall Effect",
+        "keep": false
+      },
+      {
+        "id": 212,
+        "name": "Programmable Display Switches",
+        "keep": false
+      },
+      {
+        "id": 192,
+        "name": "Accessories",
+        "keep": false
+      },
+      {
+        "id": 215,
+        "name": "Accessories - Boots, Seals",
+        "keep": false
+      },
+      {
+        "id": 210,
+        "name": "Accessories - Caps",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 29,
+    "top_name": "Test and Measurement",
+    "children": [
+      {
+        "id": 2078,
+        "name": "Test Equipment",
+        "keep": true
+      },
+      {
+        "id": 2079,
+        "name": "Test Leads",
+        "keep": true
+      },
+      {
+        "id": 616,
+        "name": "Test Points",
+        "keep": true
+      },
+      {
+        "id": 622,
+        "name": "Test Probe Tips",
+        "keep": true
+      },
+      {
+        "id": 617,
+        "name": "Thermometers",
+        "keep": true
+      },
+      {
+        "id": 1017,
+        "name": "Data Acquisition (DAQ)",
+        "keep": true
+      },
+      {
+        "id": 1018,
+        "name": "GPIB & Communications",
+        "keep": false
+      },
+      {
+        "id": 613,
+        "name": "Test and Measurement Accessories",
+        "keep": false
+      }
+    ]
+  },
+  {
+    "top_id": 11,
+    "top_name": "Transformers",
+    "children": [
+      {
+        "id": 164,
+        "name": "Power Transformers",
+        "keep": true
+      },
+      {
+        "id": 168,
+        "name": "Switching Converter, SMPS Transformers",
+        "keep": true
+      },
+      {
+        "id": 163,
+        "name": "Current Sense Transformers",
+        "keep": true
+      },
+      {
+        "id": 166,
+        "name": "Pulse Transformers",
+        "keep": true
+      },
+      {
+        "id": 162,
+        "name": "Audio Transformers",
+        "keep": true
+      },
+      {
+        "id": 167,
+        "name": "Isolation Transformers and Autotransformers, Step Up, Step Down",
+        "keep": true
+      },
+      {
+        "id": 165,
+        "name": "Specialty Transformers",
+        "keep": true
+      },
+      {
+        "id": 161,
+        "name": "Accessories",
+        "keep": false
+      }
+    ]
+  }
+]
