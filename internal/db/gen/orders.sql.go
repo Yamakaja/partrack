@@ -568,14 +568,17 @@ const listOrders = `-- name: ListOrders :many
 SELECT
     o.id, o.distributor_id, d.name AS distributor_name,
     o.status, o.external_reference, o.created_at,
-    COUNT(oli.id) AS item_count
+    u.display_name AS created_by_display_name,
+    COUNT(oli.id) AS item_count,
+    SUM(oli.quantity_ordered * oli.unit_price_snapshot + oli.fixed_order_cost_snapshot)::numeric AS total_price
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
+JOIN users u ON u.id = o.created_by
 LEFT JOIN order_line_items oli ON oli.order_id = o.id
 WHERE o.team_id = $1
   AND ($2::order_status IS NULL OR o.status = $2)
   AND ($3::uuid IS NULL OR o.distributor_id = $3)
-GROUP BY o.id, d.name
+GROUP BY o.id, d.name, u.display_name
 ORDER BY o.created_at DESC
 LIMIT $5 OFFSET $4
 `
@@ -589,13 +592,15 @@ type ListOrdersParams struct {
 }
 
 type ListOrdersRow struct {
-	ID                pgtype.UUID        `json:"id"`
-	DistributorID     pgtype.UUID        `json:"distributor_id"`
-	DistributorName   string             `json:"distributor_name"`
-	Status            OrderStatus        `json:"status"`
-	ExternalReference *string            `json:"external_reference"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	ItemCount         int64              `json:"item_count"`
+	ID                   pgtype.UUID        `json:"id"`
+	DistributorID        pgtype.UUID        `json:"distributor_id"`
+	DistributorName      string             `json:"distributor_name"`
+	Status               OrderStatus        `json:"status"`
+	ExternalReference    *string            `json:"external_reference"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	CreatedByDisplayName string             `json:"created_by_display_name"`
+	ItemCount            int64              `json:"item_count"`
+	TotalPrice           pgtype.Numeric     `json:"total_price"`
 }
 
 func (q *Queries) ListOrders(ctx context.Context, arg ListOrdersParams) ([]ListOrdersRow, error) {
@@ -620,7 +625,9 @@ func (q *Queries) ListOrders(ctx context.Context, arg ListOrdersParams) ([]ListO
 			&i.Status,
 			&i.ExternalReference,
 			&i.CreatedAt,
+			&i.CreatedByDisplayName,
 			&i.ItemCount,
+			&i.TotalPrice,
 		); err != nil {
 			return nil, err
 		}

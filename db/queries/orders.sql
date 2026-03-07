@@ -2,14 +2,17 @@
 SELECT
     o.id, o.distributor_id, d.name AS distributor_name,
     o.status, o.external_reference, o.created_at,
-    COUNT(oli.id) AS item_count
+    u.display_name AS created_by_display_name,
+    COUNT(oli.id) AS item_count,
+    SUM(oli.quantity_ordered * oli.unit_price_snapshot + oli.fixed_order_cost_snapshot)::numeric AS total_price
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
+JOIN users u ON u.id = o.created_by
 LEFT JOIN order_line_items oli ON oli.order_id = o.id
 WHERE o.team_id = $1
   AND (sqlc.narg('status')::order_status IS NULL OR o.status = sqlc.narg('status'))
   AND (sqlc.narg('distributor_id')::uuid IS NULL OR o.distributor_id = sqlc.narg('distributor_id'))
-GROUP BY o.id, d.name
+GROUP BY o.id, d.name, u.display_name
 ORDER BY o.created_at DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 

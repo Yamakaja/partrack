@@ -56,12 +56,14 @@
   }
 
   function apply() {
-    const hasA = valA.trim() !== '';
-    const hasB = valB.trim() !== '';
+    const aStr = String(valA ?? '').trim();
+    const bStr = String(valB ?? '').trim();
+    const hasA = aStr !== '';
+    const hasB = bStr !== '';
     if (!hasA && (mode !== 'range' || !hasB)) {
       onClear();
     } else {
-      onApply(encode(mode, valA.trim(), valB.trim()));
+      onApply(encode(mode, aStr, bStr));
     }
     open = false;
   }
@@ -127,6 +129,7 @@
             type="number"
             bind:value={valA}
             placeholder="0"
+            onkeydown={(e) => e.key === 'Enter' && apply()}
             class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </label>
@@ -137,6 +140,7 @@
             type="number"
             bind:value={valA}
             placeholder="0"
+            onkeydown={(e) => e.key === 'Enter' && apply()}
             class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </label>
@@ -147,6 +151,7 @@
             type="number"
             bind:value={valA}
             placeholder="0"
+            onkeydown={(e) => e.key === 'Enter' && apply()}
             class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </label>
@@ -157,6 +162,7 @@
             type="number"
             bind:value={valA}
             placeholder="0"
+            onkeydown={(e) => e.key === 'Enter' && apply()}
             class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </label>
@@ -166,6 +172,7 @@
             type="number"
             bind:value={valB}
             placeholder="0"
+            onkeydown={(e) => e.key === 'Enter' && apply()}
             class="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </label>

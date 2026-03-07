@@ -3,6 +3,7 @@
   import { listOrders } from '$lib/api/orders.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
@@ -74,6 +75,19 @@
       header: '# Items',
       type: 'numeric',
       align: 'right',
+      filterable: true,
+    },
+    {
+      key: 'total_price',
+      header: 'Total',
+      type: 'numeric',
+      align: 'right',
+      filterable: true,
+    },
+    {
+      key: 'created_by_display_name',
+      header: 'Created By',
+      type: 'text',
     },
     {
       key: 'created_at',
@@ -100,6 +114,10 @@
   </Badge>
 {/snippet}
 
+{#snippet renderTotalPrice(value: unknown, _row: OrderRow)}
+  <PriceDisplay value={value as string | null} />
+{/snippet}
+
 {#snippet renderCreatedAt(value: unknown, _row: OrderRow)}
   <DateDisplay value={String(value)} />
 {/snippet}
@@ -117,7 +135,7 @@
         {source}
         getRowKey={(o) => o.id}
         onRowClick={(o) => navigate(`/teams/${teamId}/orders/${o.id}`)}
-        renderers={{ id: renderId, status: renderStatus, created_at: renderCreatedAt }}
+        renderers={{ id: renderId, status: renderStatus, total_price: renderTotalPrice, created_at: renderCreatedAt }}
         emptyMessage="No orders yet"
         exportFilename="orders.csv"
       />

@@ -63,6 +63,7 @@ export interface Order {
   updated_at: string;
   total_price: string | null;
   line_item_count: number;
+  created_by_display_name: string;
 }
 
 export interface OrderLineItem {

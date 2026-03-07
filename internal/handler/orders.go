@@ -108,25 +108,29 @@ func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type orderItem struct {
-		ID                string  `json:"id"`
-		DistributorID     string  `json:"distributor_id"`
-		DistributorName   string  `json:"distributor_name"`
-		Status            string  `json:"status"`
-		ExternalReference *string `json:"external_reference"`
-		CreatedAt         string  `json:"created_at"`
-		ItemCount         int64   `json:"item_count"`
+		ID                   string  `json:"id"`
+		DistributorID        string  `json:"distributor_id"`
+		DistributorName      string  `json:"distributor_name"`
+		Status               string  `json:"status"`
+		ExternalReference    *string `json:"external_reference"`
+		CreatedAt            string  `json:"created_at"`
+		CreatedByDisplayName string  `json:"created_by_display_name"`
+		LineItemCount        int64   `json:"line_item_count"`
+		TotalPrice           *string `json:"total_price"`
 	}
 
 	items := make([]orderItem, len(rows))
 	for i, o := range rows {
 		items[i] = orderItem{
-			ID:                o.ID.String(),
-			DistributorID:     o.DistributorID.String(),
-			DistributorName:   o.DistributorName,
-			Status:            string(o.Status),
-			ExternalReference: o.ExternalReference,
-			CreatedAt:         o.CreatedAt.Time.UTC().Format(time.RFC3339),
-			ItemCount:         o.ItemCount,
+			ID:                   o.ID.String(),
+			DistributorID:        o.DistributorID.String(),
+			DistributorName:      o.DistributorName,
+			Status:               string(o.Status),
+			ExternalReference:    o.ExternalReference,
+			CreatedAt:            o.CreatedAt.Time.UTC().Format(time.RFC3339),
+			CreatedByDisplayName: o.CreatedByDisplayName,
+			LineItemCount:        o.ItemCount,
+			TotalPrice:           numericString(o.TotalPrice),
 		}
 	}
 
