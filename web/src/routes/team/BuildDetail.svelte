@@ -210,27 +210,11 @@
 </script>
 
 {#snippet renderMpn(value: unknown, row: BuildConsumedItem | BuildPartAllocation)}
-  {#if value && row.part_id}
-    <a
-      href="/teams/{teamId}/parts/{row.part_id}"
-      onclick={(e) => { e.stopPropagation(); navigate(`/teams/${teamId}/parts/${row.part_id}`); e.preventDefault(); }}
-      class="font-mono font-medium text-xs hover:underline"
-    >{value}</a>
-  {:else}
-    <span class="font-mono font-medium text-xs text-muted-foreground">—</span>
-  {/if}
+    <span class="font-mono font-medium text-xs hover:underline">{value && row.part_id ? value : "—"}</span>
 {/snippet}
 
 {#snippet renderPreviewMpn(value: unknown, row: BuildPreviewItem)}
-  {#if value && row.resolved_part_id}
-    <a
-      href="/teams/{teamId}/parts/{row.resolved_part_id}"
-      onclick={(e) => { e.stopPropagation(); navigate(`/teams/${teamId}/parts/${row.resolved_part_id}`); e.preventDefault(); }}
-      class="font-mono font-medium text-xs hover:underline"
-    >{value}</a>
-  {:else}
-    <span class="font-mono font-medium text-xs text-muted-foreground">—</span>
-  {/if}
+    <span class="font-mono font-medium text-xs hover:underline">{value && row.resolved_part_id ? value : "—"}</span>
 {/snippet}
 
 {#snippet renderAllocStatus(_value: unknown, row: BuildPartAllocation)}
@@ -373,6 +357,7 @@
             getRowKey={(row) => row.inventory_entry_id}
             renderers={{ part_mpn: renderMpn }}
             emptyMessage="No consumed parts recorded."
+            onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.part_id}`);}}
           />
 
         {:else if build.status === 'ordered' || build.status === 'ready'}
@@ -382,6 +367,8 @@
             getRowKey={(row) => row.part_id}
             renderers={{ part_mpn: renderMpn, _status: renderAllocStatus }}
             emptyMessage="No allocation data available."
+            onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.part_id}`);}}
+
           />
 
         {:else}
@@ -398,6 +385,8 @@
               getRowKey={(row) => row.bom_line_item_id}
               renderers={{ resolved_part_mpn: renderPreviewMpn, sufficient: renderSufficient }}
               emptyMessage="No parts data."
+              onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.resolved_part_id}`);}}
+
             />
             {#if build.status === 'pending'}
               <p class="text-sm text-muted-foreground mt-1">
