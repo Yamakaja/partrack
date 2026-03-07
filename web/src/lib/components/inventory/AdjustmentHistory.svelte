@@ -5,6 +5,7 @@
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import Pagination from '$lib/components/common/Pagination.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+    import { linkAction } from '$lib/router/index.svelte';
 
   let {
     entryId,
@@ -59,9 +60,9 @@
               <TableCell class="text-muted-foreground">{adj.reason ?? '—'}</TableCell>
               <TableCell class="text-muted-foreground">
                 {#if adj.source_type === 'order_line_item' && adj.source_order_id}
-                  <a href={`/teams/${teamId}/orders/${adj.source_order_id}`} class="underline hover:text-foreground">Order</a>
+                  <a use:linkAction href={`/teams/${teamId}/orders/${adj.source_order_id}`} class="underline hover:text-foreground">Order</a>
                 {:else if adj.source_type === 'build'}
-                  Build
+                  <a use:linkAction href={`/teams/${teamId}/builds/${adj.source_id}`} class="underline hover:text-foreground">Build</a>
                 {:else if adj.source_type === 'general_checkout'}
                   Checkout
                 {:else}

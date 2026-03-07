@@ -355,6 +355,30 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type consumedItemResp struct {
+		InventoryEntryID string  `json:"inventory_entry_id"`
+		PartID           string  `json:"part_id"`
+		PartMpn          *string `json:"part_mpn"`
+		QuantityDeducted int32   `json:"quantity_deducted"`
+	}
+	var consumedItems []consumedItemResp
+	if build.Status == "assembled" {
+		deductions, err := h.Queries.ListBuildDeductions(r.Context(), buildID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		consumedItems = make([]consumedItemResp, len(deductions))
+		for i, d := range deductions {
+			consumedItems[i] = consumedItemResp{
+				InventoryEntryID: d.InventoryEntryID.String(),
+				PartID:           d.PartID.String(),
+				PartMpn:          d.PartMpn,
+				QuantityDeducted: -d.Delta,
+			}
+		}
+	}
+
 	type allocationResp struct {
 		ID               string  `json:"id"`
 		PartID           string  `json:"part_id"`
@@ -396,6 +420,7 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		"assembled_quantity":        build.AssembledQuantity,
 		"allocations":               allocs,
 		"order_ids":                 orderIDStrs,
+		"items":                     consumedItems,
 	}
 	if build.AssembledAt.Valid {
 		resp["assembled_at"] = build.AssembledAt.Time.UTC().Format(time.RFC3339)

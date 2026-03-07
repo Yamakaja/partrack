@@ -32,3 +32,7 @@ export function receiveLineItem(teamId: string, orderId: string, itemId: string,
     { quantity_received },
   );
 }
+
+export function cancelOrder(teamId: string, orderId: string) {
+  return request<void>('DELETE', `/api/v1/teams/${teamId}/orders/${orderId}`);
+}

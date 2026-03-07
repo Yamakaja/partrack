@@ -343,9 +343,7 @@
           <Input id="adj-reason" bind:value={adjustReason} placeholder="Optional reason" />
         </div>
         <div class="flex justify-end gap-2 pt-2">
-          <Dialog.Close>
-            <Button variant="outline" type="button">Cancel</Button>
-          </Dialog.Close>
+          <Button variant="outline" type="button" onclick={() => adjustOpen = false}>Cancel</Button>
           <Button type="submit" disabled={adjusting || !adjustDelta || adjustDelta === '0'}>
             {adjusting ? 'Adjusting…' : 'Apply'}
           </Button>
@@ -393,9 +391,7 @@
           </Select>
         </div>
         <div class="flex justify-end gap-2 pt-2">
-          <Dialog.Close>
-            <Button variant="outline" type="button">Cancel</Button>
-          </Dialog.Close>
+          <Button variant="outline" type="button" onclick={() => editPartOpen = false}>Cancel</Button>
           <Button type="submit" disabled={editPartSaving}>
             {editPartSaving ? 'Saving…' : 'Save Changes'}
           </Button>
@@ -432,9 +428,7 @@
           </div>
         </div>
         <div class="flex justify-end gap-2 pt-2">
-          <Dialog.Close>
-            <Button variant="outline" type="button">Cancel</Button>
-          </Dialog.Close>
+          <Button variant="outline" type="button" onclick={() => editOpen = false}>Cancel</Button>
           <Button type="submit" disabled={editSaving}>
             {editSaving ? 'Saving…' : 'Save Changes'}
           </Button>

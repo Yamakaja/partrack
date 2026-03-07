@@ -169,9 +169,9 @@
         <TableHead>SKU</TableHead>
         <TableHead>Packaging</TableHead>
         <TableHead>Unit Price</TableHead>
+        <TableHead>Fixed Cost</TableHead>
         <TableHead>Stock</TableHead>
         <TableHead>MOQ</TableHead>
-        <TableHead>Fixed Cost</TableHead>
         <TableHead>Last Enriched</TableHead>
         <TableHead></TableHead>
       </TableRow>
@@ -203,6 +203,13 @@
             <PriceDisplay value={listing.unit_price} decimals={4} />
           </TableCell>
           <TableCell>
+            {#if listing.fixed_order_cost && listing.fixed_order_cost !== '0' && listing.fixed_order_cost !== '0.00'}
+              <PriceDisplay value={listing.fixed_order_cost} />
+            {:else}
+              <span class="text-muted-foreground">—</span>
+            {/if}
+          </TableCell>
+          <TableCell>
             {#if listing.stock_available === null || listing.stock_available === undefined}
               <Badge variant="outline">Unknown</Badge>
             {:else if listing.stock_available === 0}
@@ -212,13 +219,6 @@
             {/if}
           </TableCell>
           <TableCell>{listing.moq ?? 1}</TableCell>
-          <TableCell>
-            {#if listing.fixed_order_cost && listing.fixed_order_cost !== '0' && listing.fixed_order_cost !== '0.00'}
-              <PriceDisplay value={listing.fixed_order_cost} />
-            {:else}
-              <span class="text-muted-foreground">—</span>
-            {/if}
-          </TableCell>
           <TableCell class="text-xs text-muted-foreground">
             <DateDisplay value={listing.last_refreshed_at} />
           </TableCell>

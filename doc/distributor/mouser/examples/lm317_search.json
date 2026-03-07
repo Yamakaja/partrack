@@ -1,0 +1,367 @@
+{
+  "Errors": [],
+  "SearchResults": {
+    "NumberOfResult": 3,
+    "Parts": [
+      {
+        "Availability": "10476 Auf Lager",
+        "DataSheetUrl": "",
+        "Description": "Lineare Spannungsregler 8Pin 100mA Adj Vltg Reg A 595-LM317LIDR A 595-LM317LIDR",
+        "FactoryStock": "0",
+        "ImagePath": "https://www.mouser.com/images/texasinstruments/images/ITP_TI_SOIC-8_D_t.jpg",
+        "Category": "Lineare Spannungsregler",
+        "LeadTime": "42 Tage",
+        "LifecycleStatus": null,
+        "Manufacturer": "Texas Instruments",
+        "ManufacturerPartNumber": "LM317LID",
+        "Min": "1",
+        "Mult": "1",
+        "MouserPartNumber": "595-LM317LID",
+        "ProductAttributes": [
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "Tube"
+          },
+          {
+            "AttributeName": "Standardpackungsmenge",
+            "AttributeValue": "75"
+          }
+        ],
+        "PriceBreaks": [
+          {
+            "Quantity": 1,
+            "Price": "0,903 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 10,
+            "Price": "0,651 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 75,
+            "Price": "0,502 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 300,
+            "Price": "0,479 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 525,
+            "Price": "0,464 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 1050,
+            "Price": "0,431 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 4050,
+            "Price": "0,417 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 8025,
+            "Price": "0,41 €",
+            "Currency": "EUR"
+          }
+        ],
+        "AlternatePackagings": [
+          {
+            "APMfrPN": "LM317LIDR"
+          },
+          {
+            "APMfrPN": " LM317LIDRG4"
+          }
+        ],
+        "ProductDetailUrl": "https://www.mouser.de/ProductDetail/Texas-Instruments/LM317LID?qs=iSMark9AYDUr%252BB%2Fg03%252BAoA%3D%3D",
+        "Reeling": false,
+        "ROHSStatus": "RoHS Compliant",
+        "SuggestedReplacement": "595-LM317LIDR",
+        "MultiSimBlue": 0,
+        "UnitWeightKg": {
+          "UnitWeight": 0.0000726
+        },
+        "AvailabilityInStock": "10476",
+        "AvailabilityOnOrder": [],
+        "InfoMessages": [],
+        "SurchargeMessages": null,
+        "ProductCompliance": [
+          {
+            "ComplianceName": "TARIC",
+            "ComplianceValue": "8542399000"
+          },
+          {
+            "ComplianceName": "CNHTS",
+            "ComplianceValue": "8542399000"
+          },
+          {
+            "ComplianceName": "CAHTS",
+            "ComplianceValue": "8542390000"
+          },
+          {
+            "ComplianceName": "USHTS",
+            "ComplianceValue": "8542390070"
+          },
+          {
+            "ComplianceName": "JPHTS",
+            "ComplianceValue": "8542390990"
+          },
+          {
+            "ComplianceName": "MXHTS",
+            "ComplianceValue": "8542399999"
+          },
+          {
+            "ComplianceName": "ECCN",
+            "ComplianceValue": "EAR99"
+          }
+        ]
+      },
+      {
+        "Availability": "37061 Auf Lager",
+        "DataSheetUrl": "",
+        "Description": "Lineare Spannungsregler 3-Terminal Adj Reg A 595-LM317LID A 595- A 595-LM317LID",
+        "FactoryStock": "0",
+        "ImagePath": "https://www.mouser.com/images/texasinstruments/images/ITP_TI_SOIC-8_D_t.jpg",
+        "Category": "Lineare Spannungsregler",
+        "LeadTime": "42 Tage",
+        "LifecycleStatus": null,
+        "Manufacturer": "Texas Instruments",
+        "ManufacturerPartNumber": "LM317LIDR",
+        "Min": "1",
+        "Mult": "1",
+        "MouserPartNumber": "595-LM317LIDR",
+        "ProductAttributes": [
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "Reel"
+          },
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "Cut Tape"
+          },
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "MouseReel",
+            "AttributeCost": "Für die MouseReel™ wird Ihrem Warenkorb automatisch eine Gebühr von 5,00 € hinzugefügt. MouseReel™ Bestellungen sind weder stornierbar, noch können sie zurückgegeben werden."
+          },
+          {
+            "AttributeName": "Standardpackungsmenge",
+            "AttributeValue": "2500"
+          }
+        ],
+        "PriceBreaks": [
+          {
+            "Quantity": 1,
+            "Price": "0,275 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 10,
+            "Price": "0,189 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 25,
+            "Price": "0,169 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 100,
+            "Price": "0,144 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 250,
+            "Price": "0,133 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 500,
+            "Price": "0,126 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 1000,
+            "Price": "0,121 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 2500,
+            "Price": "0,114 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 7500,
+            "Price": "0,109 €",
+            "Currency": "EUR"
+          }
+        ],
+        "AlternatePackagings": [
+          {
+            "APMfrPN": "LM317LID"
+          },
+          {
+            "APMfrPN": " LM317LIDRG4"
+          }
+        ],
+        "ProductDetailUrl": "https://www.mouser.de/ProductDetail/Texas-Instruments/LM317LIDR?qs=iSMark9AYDVHo6O4QJ%252BLyA%3D%3D",
+        "Reeling": true,
+        "ROHSStatus": "RoHS Compliant",
+        "SuggestedReplacement": "595-LM317LID",
+        "MultiSimBlue": 0,
+        "UnitWeightKg": {
+          "UnitWeight": 0.0000726
+        },
+        "AvailabilityInStock": "37061",
+        "AvailabilityOnOrder": [],
+        "InfoMessages": [],
+        "SurchargeMessages": null,
+        "ProductCompliance": [
+          {
+            "ComplianceName": "TARIC",
+            "ComplianceValue": "8542399000"
+          },
+          {
+            "ComplianceName": "CNHTS",
+            "ComplianceValue": "8542399000"
+          },
+          {
+            "ComplianceName": "CAHTS",
+            "ComplianceValue": "8542390000"
+          },
+          {
+            "ComplianceName": "USHTS",
+            "ComplianceValue": "8542390070"
+          },
+          {
+            "ComplianceName": "JPHTS",
+            "ComplianceValue": "8542390990"
+          },
+          {
+            "ComplianceName": "MXHTS",
+            "ComplianceValue": "8542399999"
+          },
+          {
+            "ComplianceName": "ECCN",
+            "ComplianceValue": "EAR99"
+          }
+        ]
+      },
+      {
+        "Availability": "4792 Auf Lager",
+        "DataSheetUrl": "",
+        "Description": "Lineare Spannungsregler 100mA Adj Vltg Reg A LT 595-LM317LIDR AL ALT 595-LM317LIDR",
+        "FactoryStock": "0",
+        "ImagePath": "https://www.mouser.com/images/texasinstruments/images/ITP_TI_SOIC-8_D_t.jpg",
+        "Category": "Lineare Spannungsregler",
+        "LeadTime": "42 Tage",
+        "LifecycleStatus": null,
+        "Manufacturer": "Texas Instruments",
+        "ManufacturerPartNumber": "LM317LIDRG4",
+        "Min": "1",
+        "Mult": "1",
+        "MouserPartNumber": "595-LM317LIDRG4",
+        "ProductAttributes": [
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "Reel"
+          },
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "Cut Tape"
+          },
+          {
+            "AttributeName": "Verpackung",
+            "AttributeValue": "MouseReel",
+            "AttributeCost": "Für die MouseReel™ wird Ihrem Warenkorb automatisch eine Gebühr von 5,00 € hinzugefügt. MouseReel™ Bestellungen sind weder stornierbar, noch können sie zurückgegeben werden."
+          },
+          {
+            "AttributeName": "Standardpackungsmenge",
+            "AttributeValue": "2500"
+          }
+        ],
+        "PriceBreaks": [
+          {
+            "Quantity": 1,
+            "Price": "0,335 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 10,
+            "Price": "0,33 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 100,
+            "Price": "0,281 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 2500,
+            "Price": "0,132 €",
+            "Currency": "EUR"
+          },
+          {
+            "Quantity": 7500,
+            "Price": "0,117 €",
+            "Currency": "EUR"
+          }
+        ],
+        "AlternatePackagings": [
+          {
+            "APMfrPN": "LM317LID"
+          },
+          {
+            "APMfrPN": " LM317LIDR"
+          }
+        ],
+        "ProductDetailUrl": "https://www.mouser.de/ProductDetail/Texas-Instruments/LM317LIDRG4?qs=iSMark9AYDWCW0pbymKIMA%3D%3D",
+        "Reeling": true,
+        "ROHSStatus": "RoHS Compliant",
+        "SuggestedReplacement": "595-LM317LIDR",
+        "MultiSimBlue": 0,
+        "UnitWeightKg": {
+          "UnitWeight": 0.0000726
+        },
+        "AvailabilityInStock": "4792",
+        "AvailabilityOnOrder": [],
+        "InfoMessages": [],
+        "SurchargeMessages": null,
+        "ProductCompliance": [
+          {
+            "ComplianceName": "TARIC",
+            "ComplianceValue": "8542399000"
+          },
+          {
+            "ComplianceName": "CNHTS",
+            "ComplianceValue": "8542399000"
+          },
+          {
+            "ComplianceName": "CAHTS",
+            "ComplianceValue": "8542390000"
+          },
+          {
+            "ComplianceName": "USHTS",
+            "ComplianceValue": "8542390070"
+          },
+          {
+            "ComplianceName": "JPHTS",
+            "ComplianceValue": "8542390990"
+          },
+          {
+            "ComplianceName": "MXHTS",
+            "ComplianceValue": "8542399999"
+          },
+          {
+            "ComplianceName": "ECCN",
+            "ComplianceValue": "EAR99"
+          }
+        ]
+      }
+    ]
+  }
+}

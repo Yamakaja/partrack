@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, type Component } from 'svelte';
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-  import { currentRoute, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
+  import { currentRoute, linkAction, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
   import { openForTeam, closeSSE } from '$lib/api/sse.js';
@@ -140,7 +140,7 @@
   {:else}
     <div class="flex h-screen flex-col items-center justify-center gap-2">
       <p class="text-lg font-medium">404 — Page not found</p>
-      <a href="/" class="text-primary text-sm underline">Go home</a>
+      <a use:linkAction href="/" class="text-primary text-sm underline">Go home</a>
     </div>
   {/if}
 

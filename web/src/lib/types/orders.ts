@@ -113,12 +113,10 @@ export interface BuildPartAllocation {
 }
 
 export interface BuildConsumedItem {
-  bom_line_item_id: string;
-  reference_designators: string;
+  inventory_entry_id: string;
   part_id: string;
   part_mpn: string | null;
   quantity_deducted: number;
-  inventory_entry_id: string;
 }
 
 export interface GeneralCheckout {

@@ -408,13 +408,13 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 			ID: row.ID, Scope: row.Scope, TeamID: row.TeamID,
 			Mpn: row.Mpn, Manufacturer: row.Manufacturer, Description: row.Description,
 			ShortDescription: row.ShortDescription,
-			Category: row.Category, CategoryID: row.CategoryID, CategorySource: row.CategorySource,
+			Category:         row.Category, CategoryID: row.CategoryID, CategorySource: row.CategorySource,
 			Package: row.Package, DatasheetUrl: row.DatasheetUrl,
 			ProductUrl: row.ProductUrl, ImageUrl: row.ImageUrl,
-			LifecycleStatus: row.LifecycleStatus,
+			LifecycleStatus:    row.LifecycleStatus,
 			EnrichmentSourceID: row.EnrichmentSourceID, EnrichedAt: row.EnrichedAt,
 			PreferredParameterSourceID: row.PreferredParameterSourceID,
-			CreatedAt: row.CreatedAt,
+			CreatedAt:                  row.CreatedAt,
 		}
 		categoryName = row.CategoryName
 		categoryParentID = row.CategoryParentID
@@ -465,9 +465,7 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	aliases := make([]string, len(aliasRows))
-	for i, a := range aliasRows {
-		aliases[i] = a
-	}
+	copy(aliases, aliasRows)
 
 	type userParam struct {
 		ID    string  `json:"id"`

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getOrder, markOrderPlaced, receiveLineItem } from '$lib/api/orders.js';
+  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder } from '$lib/api/orders.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
@@ -29,6 +29,8 @@
   let markingPlaced = $state(false);
   let placedRef = $state('');
   let showPlacedInput = $state(false);
+  let showCancelConfirm = $state(false);
+  let cancelling = $state(false);
 
   function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
     switch (status) {
@@ -60,6 +62,21 @@
     if (receiveQtys[item.id] !== undefined) return receiveQtys[item.id];
     const remaining = item.quantity_ordered - item.quantity_received;
     return String(remaining > 0 ? remaining : 0);
+  }
+
+  async function handleCancel() {
+    cancelling = true;
+    try {
+      await cancelOrder(teamId, orderId);
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['orders', teamId] });
+      showCancelConfirm = false;
+      pushToast('success', 'Order cancelled');
+    } catch (err: any) {
+      pushToast('error', 'Failed to cancel order', err.message);
+    } finally {
+      cancelling = false;
+    }
   }
 
   async function handleMarkPlaced() {
@@ -181,6 +198,11 @@
       ]}
     >
       {#snippet actions()}
+        {#if order.status !== 'received' && order.status !== 'cancelled'}
+          <Button variant="outline" class="text-destructive border-destructive hover:bg-destructive/10" size="sm" onclick={() => { showCancelConfirm = true; }}>
+            Cancel Order
+          </Button>
+        {/if}
         {#if order.status !== 'received'}
           <Button variant="outline" size="sm" onclick={handleExportCSV}>
             {order.status === 'exported' ? 'Re-export CSV' : 'Export CSV'}
@@ -290,6 +312,22 @@
         }}
       />
     </div>
+
+    <Dialog
+      open={showCancelConfirm}
+      title="Cancel this order?"
+      confirmLabel={cancelling ? 'Cancelling…' : 'Cancel Order'}
+      class="max-w-md"
+      onConfirm={handleCancel}
+      onCancel={() => { showCancelConfirm = false; }}
+    >
+      {#snippet children()}
+        <p class="text-sm text-muted-foreground mb-4">
+          This will mark the order as cancelled. Any items not yet received will remain unallocated.
+          This action cannot be undone.
+        </p>
+      {/snippet}
+    </Dialog>
 
     {#if overReceiveConfirm}
       {@const confirm = overReceiveConfirm}

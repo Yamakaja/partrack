@@ -12,13 +12,15 @@
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { CheckCircle, Loader2, Send, XCircle } from 'lucide-svelte';
-  import type { BuildStatus } from '$lib/types/orders.js';
+  import type { BuildStatus, BuildConsumedItem, BuildPartAllocation } from '$lib/types/orders.js';
 
   let { teamId, buildId }: { teamId: string; buildId: string } = $props();
 
@@ -170,7 +172,84 @@
   let hasShortCheckoutItems = $derived(
     checkoutItems.some(pi => !pi.sufficient)
   );
+
+  // DataTable sources for parts sections
+  const consumedColumns: ColumnSpec<BuildConsumedItem>[] = [
+    { key: 'part_mpn', header: 'Part MPN', type: 'text', sortable: true },
+    { key: 'quantity_deducted', header: 'Qty Deducted', type: 'numeric', align: 'right', sortable: true },
+  ];
+  const consumedSource = new LocalDataSource<BuildConsumedItem>(
+    () => buildQuery.data?.items ?? [],
+    consumedColumns,
+  );
+
+  const allocColumns: ColumnSpec<BuildPartAllocation>[] = [
+    { key: 'part_mpn', header: 'Part MPN', type: 'text', sortable: true },
+    { key: 'quantity_needed', header: 'Needed', type: 'numeric', align: 'right', sortable: true },
+    { key: 'quantity_reserved', header: 'Reserved', type: 'numeric', align: 'right', sortable: true },
+    { key: 'quantity_received', header: 'Received', type: 'numeric', align: 'right', sortable: true },
+    { key: '_status', header: 'Status', type: 'custom' },
+  ];
+  const allocSource = new LocalDataSource<BuildPartAllocation>(
+    () => buildQuery.data?.allocations ?? [],
+    allocColumns,
+  );
+
+  const previewColumns: ColumnSpec<BuildPreviewItem>[] = [
+    { key: 'resolved_part_mpn', header: 'Part MPN', type: 'text', sortable: true },
+    { key: 'reference_designators', header: 'Ref Des', type: 'text' },
+    { key: 'quantity_per_board', header: 'Qty/Board', type: 'numeric', align: 'right', sortable: true },
+    { key: 'total_quantity', header: 'Total Needed', type: 'numeric', align: 'right', sortable: true },
+    { key: 'quantity_on_hand', header: 'On Hand', type: 'numeric', align: 'right', sortable: true },
+    { key: 'sufficient', header: 'Stock', type: 'custom' },
+  ];
+  const previewSource = new LocalDataSource<BuildPreviewItem>(
+    () => previewQuery.data?.items ?? [],
+    previewColumns,
+  );
 </script>
+
+{#snippet renderMpn(value: unknown, row: BuildConsumedItem | BuildPartAllocation)}
+  {#if value && row.part_id}
+    <a
+      href="/teams/{teamId}/parts/{row.part_id}"
+      onclick={(e) => { e.stopPropagation(); navigate(`/teams/${teamId}/parts/${row.part_id}`); e.preventDefault(); }}
+      class="font-mono font-medium text-xs hover:underline"
+    >{value}</a>
+  {:else}
+    <span class="font-mono font-medium text-xs text-muted-foreground">—</span>
+  {/if}
+{/snippet}
+
+{#snippet renderPreviewMpn(value: unknown, row: BuildPreviewItem)}
+  {#if value && row.resolved_part_id}
+    <a
+      href="/teams/{teamId}/parts/{row.resolved_part_id}"
+      onclick={(e) => { e.stopPropagation(); navigate(`/teams/${teamId}/parts/${row.resolved_part_id}`); e.preventDefault(); }}
+      class="font-mono font-medium text-xs hover:underline"
+    >{value}</a>
+  {:else}
+    <span class="font-mono font-medium text-xs text-muted-foreground">—</span>
+  {/if}
+{/snippet}
+
+{#snippet renderAllocStatus(_value: unknown, row: BuildPartAllocation)}
+  {@const covered = row.quantity_reserved + row.quantity_received >= row.quantity_needed}
+  {@const partial = !covered && (row.quantity_reserved + row.quantity_received) > 0}
+  {#if covered}
+    <Badge variant="success">Covered</Badge>
+  {:else if partial}
+    <Badge variant="warning">Partial</Badge>
+  {:else}
+    <Badge variant="destructive">Missing</Badge>
+  {/if}
+{/snippet}
+
+{#snippet renderSufficient(value: unknown, _row: unknown)}
+  <Badge variant={value ? 'success' : 'destructive'}>
+    {value ? 'In Stock' : 'Short'}
+  </Badge>
+{/snippet}
 
 <div class="flex flex-col h-full">
   {#if buildQuery.isPending}
@@ -289,67 +368,21 @@
 
         {#if build.status === 'assembled'}
           <!-- Deductions for assembled builds -->
-          {#if build.items && build.items.length > 0}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Part MPN</TableHead>
-                  <TableHead>Ref Designators</TableHead>
-                  <TableHead class="text-right">Qty Deducted</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each build.items as item (item.bom_line_item_id)}
-                  <TableRow>
-                    <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
-                    <TableCell class="text-muted-foreground text-sm">{item.reference_designators}</TableCell>
-                    <TableCell class="text-right tabular-nums">{item.quantity_deducted}</TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
-          {:else}
-            <p class="text-sm text-muted-foreground">No consumed parts recorded.</p>
-          {/if}
+          <DataTable
+            source={consumedSource}
+            getRowKey={(row) => row.inventory_entry_id}
+            renderers={{ part_mpn: renderMpn }}
+            emptyMessage="No consumed parts recorded."
+          />
 
         {:else if build.status === 'ordered' || build.status === 'ready'}
           <!-- Allocation table for ordered/ready builds -->
-          {#if build.allocations && build.allocations.length > 0}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Part MPN</TableHead>
-                  <TableHead class="text-right">Needed</TableHead>
-                  <TableHead class="text-right">Reserved</TableHead>
-                  <TableHead class="text-right">Received</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each build.allocations as alloc (alloc.part_id)}
-                  {@const covered = alloc.quantity_reserved + alloc.quantity_received >= alloc.quantity_needed}
-                  {@const partial = !covered && (alloc.quantity_reserved + alloc.quantity_received) > 0}
-                  <TableRow>
-                    <TableCell class="font-mono font-medium text-xs">{alloc.part_mpn ?? '—'}</TableCell>
-                    <TableCell class="text-right tabular-nums">{alloc.quantity_needed}</TableCell>
-                    <TableCell class="text-right tabular-nums">{alloc.quantity_reserved}</TableCell>
-                    <TableCell class="text-right tabular-nums">{alloc.quantity_received}</TableCell>
-                    <TableCell>
-                      {#if covered}
-                        <Badge variant="success">Covered</Badge>
-                      {:else if partial}
-                        <Badge variant="warning">Partial</Badge>
-                      {:else}
-                        <Badge variant="destructive">Missing</Badge>
-                      {/if}
-                    </TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
-          {:else}
-            <p class="text-sm text-muted-foreground">No allocation data available.</p>
-          {/if}
+          <DataTable
+            source={allocSource}
+            getRowKey={(row) => row.part_id}
+            renderers={{ part_mpn: renderMpn, _status: renderAllocStatus }}
+            emptyMessage="No allocation data available."
+          />
 
         {:else}
           <!-- Preview table for draft/pending builds -->
@@ -360,34 +393,12 @@
           {:else if previewQuery.isError}
             <div class="text-sm text-destructive">Failed to load parts preview.</div>
           {:else if previewQuery.data}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Part MPN</TableHead>
-                  <TableHead>Ref Des</TableHead>
-                  <TableHead class="text-right">Qty/Board</TableHead>
-                  <TableHead class="text-right">Total Needed</TableHead>
-                  <TableHead class="text-right">On Hand</TableHead>
-                  <TableHead>Stock</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each previewQuery.data.items as pi (pi.bom_line_item_id)}
-                  <TableRow>
-                    <TableCell class="font-mono font-medium text-xs">{pi.resolved_part_mpn ?? '—'}</TableCell>
-                    <TableCell class="text-xs text-muted-foreground max-w-[160px] truncate">{pi.reference_designators}</TableCell>
-                    <TableCell class="text-right tabular-nums">{pi.quantity_per_board}</TableCell>
-                    <TableCell class="text-right tabular-nums">{pi.total_quantity}</TableCell>
-                    <TableCell class="text-right tabular-nums">{pi.quantity_on_hand}</TableCell>
-                    <TableCell>
-                      <Badge variant={pi.sufficient ? 'success' : 'destructive'}>
-                        {pi.sufficient ? 'In Stock' : 'Short'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
+            <DataTable
+              source={previewSource}
+              getRowKey={(row) => row.bom_line_item_id}
+              renderers={{ resolved_part_mpn: renderPreviewMpn, sufficient: renderSufficient }}
+              emptyMessage="No parts data."
+            />
             {#if build.status === 'pending'}
               <p class="text-sm text-muted-foreground mt-1">
                 This build is pending fulfilment. Shortfalls will be covered via the shopping cart.

@@ -60,7 +60,7 @@
       (actions ? 1 : 0),
   );
 
-  const cellPadding = $derived(compact ? 'py-1.5 px-4' : 'py-3 px-4');
+  const cellPadding = $derived(compact ? 'py-2 px-4' : 'py-4 px-4');
 
   function defaultCellValue(col: ColumnSpec<T>, row: T): string {
     const val = getNestedValue(row, col.key);

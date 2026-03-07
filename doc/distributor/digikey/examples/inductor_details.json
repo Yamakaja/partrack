@@ -1,0 +1,338 @@
+{
+  "SearchLocaleUsed": {
+    "Site": "DE",
+    "Language": "en",
+    "Currency": "EUR"
+  },
+  "Product": {
+    "Description": {
+      "ProductDescription": "FIXED IND 2.2UH 4.76A 12.6 MOHM",
+      "DetailedDescription": "2.2 µH Shielded Drum Core, Wirewound Inductor 4.76 A 12.6mOhm Nonstandard"
+    },
+    "Manufacturer": {
+      "Id": 283,
+      "Name": "Eaton - Electronics Division"
+    },
+    "ManufacturerProductNumber": "DR74-2R2-R",
+    "UnitPrice": 0.48,
+    "ProductUrl": "https://www.digikey.de/en/products/detail/eaton-electronics-division/DR74-2R2-R/667219",
+    "DatasheetUrl": "https://www.eaton.com/content/dam/eaton/products/electronic-components/resources/data-sheet/eaton-dr-high-power-density-high-efficiency-shielded-drum-core-power-inductors-data-sheet.pdf",
+    "PhotoUrl": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/567/DR74-1R5-R.JPG",
+    "ProductVariations": [
+      {
+        "DigiKeyProductNumber": "513-1140-2-ND",
+        "PackageType": {
+          "Id": 1,
+          "Name": "Tape & Reel (TR)"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1100,
+            "UnitPrice": 0.27794,
+            "TotalPrice": 305.73400
+          },
+          {
+            "BreakQuantity": 2200,
+            "UnitPrice": 0.26209,
+            "TotalPrice": 576.59800
+          },
+          {
+            "BreakQuantity": 3300,
+            "UnitPrice": 0.25324,
+            "TotalPrice": 835.69200
+          },
+          {
+            "BreakQuantity": 5500,
+            "UnitPrice": 0.24253,
+            "TotalPrice": 1333.91500
+          },
+          {
+            "BreakQuantity": 7700,
+            "UnitPrice": 0.23574,
+            "TotalPrice": 1815.19800
+          },
+          {
+            "BreakQuantity": 11000,
+            "UnitPrice": 0.22874,
+            "TotalPrice": 2516.14000
+          },
+          {
+            "BreakQuantity": 27500,
+            "UnitPrice": 0.21175,
+            "TotalPrice": 5823.12500
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": true,
+        "Supplier": {
+          "Id": 283,
+          "Name": "Eaton - Electronics Division"
+        },
+        "QuantityAvailableforPackageType": 38500,
+        "MaxQuantityForDistribution": 999999999,
+        "MinimumOrderQuantity": 1100,
+        "StandardPackage": 1100,
+        "DigiReelFee": 0.0
+      },
+      {
+        "DigiKeyProductNumber": "513-1140-1-ND",
+        "PackageType": {
+          "Id": 2,
+          "Name": "Cut Tape (CT)"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1,
+            "UnitPrice": 0.48,
+            "TotalPrice": 0.48
+          },
+          {
+            "BreakQuantity": 10,
+            "UnitPrice": 0.394,
+            "TotalPrice": 3.940
+          },
+          {
+            "BreakQuantity": 100,
+            "UnitPrice": 0.3245,
+            "TotalPrice": 32.4500
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": true,
+        "Supplier": {
+          "Id": 283,
+          "Name": "Eaton - Electronics Division"
+        },
+        "QuantityAvailableforPackageType": 38617,
+        "MaxQuantityForDistribution": 0,
+        "MinimumOrderQuantity": 1,
+        "StandardPackage": 0,
+        "DigiReelFee": 0.0
+      },
+      {
+        "DigiKeyProductNumber": "513-1140-6-ND",
+        "PackageType": {
+          "Id": 243,
+          "Name": "Digi-Reel®"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1,
+            "UnitPrice": 0.48,
+            "TotalPrice": 0.48
+          },
+          {
+            "BreakQuantity": 10,
+            "UnitPrice": 0.394,
+            "TotalPrice": 3.940
+          },
+          {
+            "BreakQuantity": 100,
+            "UnitPrice": 0.3245,
+            "TotalPrice": 32.4500
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": true,
+        "Supplier": {
+          "Id": 283,
+          "Name": "Eaton - Electronics Division"
+        },
+        "QuantityAvailableforPackageType": 38617,
+        "MaxQuantityForDistribution": 0,
+        "MinimumOrderQuantity": 1,
+        "StandardPackage": 0,
+        "DigiReelFee": 5.5
+      }
+    ],
+    "QuantityAvailable": 38617,
+    "ProductStatus": {
+      "Id": 0,
+      "Status": "Active"
+    },
+    "BackOrderNotAllowed": false,
+    "NormallyStocking": true,
+    "Discontinued": false,
+    "EndOfLife": false,
+    "Ncnr": false,
+    "PrimaryVideoUrl": null,
+    "Parameters": [
+      {
+        "ParameterId": 183,
+        "ParameterText": "Type",
+        "ParameterType": "String",
+        "ValueId": "694884",
+        "ValueText": "Drum Core, Wirewound"
+      },
+      {
+        "ParameterId": 1221,
+        "ParameterText": "Material - Core",
+        "ParameterType": "String",
+        "ValueId": "346647",
+        "ValueText": "Ferrite"
+      },
+      {
+        "ParameterId": 2087,
+        "ParameterText": "Inductance",
+        "ParameterType": "UnitOfMeasure",
+        "ValueId": "2.2 µH",
+        "ValueText": "2.2 µH"
+      },
+      {
+        "ParameterId": 3,
+        "ParameterText": "Tolerance",
+        "ParameterType": "String",
+        "ValueId": "1900",
+        "ValueText": "±20%"
+      },
+      {
+        "ParameterId": 2088,
+        "ParameterText": "Current Rating (Amps)",
+        "ParameterType": "UnitOfMeasure",
+        "ValueId": "4.76 A",
+        "ValueText": "4.76 A"
+      },
+      {
+        "ParameterId": 1219,
+        "ParameterText": "Current - Saturation (Isat)",
+        "ParameterType": "String",
+        "ValueId": "268510",
+        "ValueText": "7.06A"
+      },
+      {
+        "ParameterId": 80,
+        "ParameterText": "Shielding",
+        "ParameterType": "String",
+        "ValueId": "402031",
+        "ValueText": "Shielded"
+      },
+      {
+        "ParameterId": 314,
+        "ParameterText": "DC Resistance (DCR)",
+        "ParameterType": "String",
+        "ValueId": "82450",
+        "ValueText": "12.6mOhm"
+      },
+      {
+        "ParameterId": 705,
+        "ParameterText": "Q @ Freq",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 706,
+        "ParameterText": "Frequency - Self Resonant",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 707,
+        "ParameterText": "Ratings",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 252,
+        "ParameterText": "Operating Temperature",
+        "ParameterType": "String",
+        "ValueId": "212478",
+        "ValueText": "-40°C ~ 125°C"
+      },
+      {
+        "ParameterId": 1222,
+        "ParameterText": "Inductance Frequency - Test",
+        "ParameterType": "UnitOfMeasure",
+        "ValueId": "100 kHz",
+        "ValueText": "100 kHz"
+      },
+      {
+        "ParameterId": 69,
+        "ParameterText": "Mounting Type",
+        "ParameterType": "String",
+        "ValueId": "409393",
+        "ValueText": "Surface Mount"
+      },
+      {
+        "ParameterId": 16,
+        "ParameterText": "Package / Case",
+        "ParameterType": "String",
+        "ValueId": "380434",
+        "ValueText": "Nonstandard"
+      },
+      {
+        "ParameterId": 1291,
+        "ParameterText": "Supplier Device Package",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 46,
+        "ParameterText": "Size / Dimension",
+        "ParameterType": "String",
+        "ValueId": "17864",
+        "ValueText": "0.299\" L x 0.299\" W (7.60mm x 7.60mm)"
+      },
+      {
+        "ParameterId": 1500,
+        "ParameterText": "Height - Seated (Max)",
+        "ParameterType": "String",
+        "ValueId": "12820",
+        "ValueText": "0.171\" (4.35mm)"
+      }
+    ],
+    "BaseProductNumber": null,
+    "Category": {
+      "CategoryId": 4,
+      "ParentId": 0,
+      "Name": "Inductors, Coils, Chokes",
+      "ProductCount": 0,
+      "NewProductCount": 0,
+      "ImageUrl": "https://www.digikey.de//mm.digikey.com/Volume0/opasdata/d220001/derivates/3/002/465/830/760308104119_tmb.jpg",
+      "SeoDescription": "Inductors, coils, and chokes are various names used to refer to products that store energy in the form of a magnetic field. The vast majority of the products found in this category are simple fixed-value devices, though adjustable types, products for wireless power transmission, and magnetically-coupled inductor arrays are also included. Note that the coupled-inductor devices found within this product family are characterized by having multiple identical windings sharing a common magnetic core; similar products with non-identical windings are more commonly described as transformers, and are categorized as such.",
+      "ChildCategories": [
+        {
+          "CategoryId": 71,
+          "ParentId": 4,
+          "Name": "Fixed Inductors",
+          "ProductCount": 0,
+          "NewProductCount": 0,
+          "ImageUrl": "https://www.digikey.de//mm.digikey.com/Volume0/opasdata/d220001/derivates/3/002/690/369/MFG_WE-HCF%202013%20Series_tmb.jpg",
+          "SeoDescription": "An inductor, also known as a coil, choke, or reactor, is a passive two-terminal electrical component that stores energy in a magnetic field when electric current flows through it. When the current changes, the magnetic field induces a voltage in the conductor. The induced voltage has a polarity which opposes the change in current that created it. The unit of inductance is the Henry (H). Mounting options include surface, through-hole, and chassis.",
+          "ChildCategories": []
+        }
+      ]
+    },
+    "DateLastBuyChance": null,
+    "ManufacturerLeadWeeks": "21",
+    "ManufacturerPublicQuantity": 0,
+    "Series": {
+      "Id": 2606,
+      "Name": "DR"
+    },
+    "ShippingInfo": null,
+    "Classifications": {
+      "ReachStatus": "REACH Unaffected",
+      "RohsStatus": "ROHS3 Compliant",
+      "MoistureSensitivityLevel": "1  (Unlimited)",
+      "ExportControlClassNumber": "EAR99",
+      "HtsusCode": "8504.50.4000"
+    },
+    "OtherNames": [
+      "513-1140-6",
+      "DR742R2R",
+      "DR74-2R2",
+      "513-1140-1",
+      "513-1140-2",
+      "DR74-2R2-ND"
+    ]
+  },
+  "AccountIdUsed": 0,
+  "CustomerIdUsed": 0
+}

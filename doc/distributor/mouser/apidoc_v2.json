@@ -1,0 +1,657 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "version": "V2",
+    "title": "Mouser APIs",
+    "description": "With Mouser's APIs, you can get quick and reliable access to product data as well as cart and ordering capabilities.",
+    "x-swagger-net-version": "8.5.12.001"
+  },
+  "host": "api.mouser.com",
+  "schemes": [
+    "https"
+  ],
+  "paths": {
+    "/api/v2/search/keywordandmanufacturer": {
+      "post": {
+        "tags": [
+          "SearchApi"
+        ],
+        "summary": "Search parts by keyword and specific manufacturer. Return a maximum of 50 parts. Please review the SearchByKeywordMfrNameRequest item in the Models section below to view the detailed description of request parameters.",
+        "operationId": "SearchApi_LwSearchByKeywordAndManufacturer",
+        "consumes": [
+          "application/json",
+          "text/json",
+          "application/xml",
+          "text/xml",
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json",
+          "text/json",
+          "application/xml",
+          "text/xml"
+        ],
+        "parameters": [
+          {
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchByKeywordMfrNameRequestRoot"
+            }
+          },
+          {
+            "name": "apiKey",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/SearchResponseRoot"
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/search/partnumberandmanufacturer": {
+      "post": {
+        "tags": [
+          "SearchApi"
+        ],
+        "summary": "Search parts by part number and specific manufacturer. Return a maximum of 50 parts. Please review the SearchByPartMfrNameRequest item in the Models section below to view the detailed description of request parameters.",
+        "operationId": "SearchApi_LwSearchByPartNumberAndManufacturer",
+        "consumes": [
+          "application/json",
+          "text/json",
+          "application/xml",
+          "text/xml",
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json",
+          "text/json",
+          "application/xml",
+          "text/xml"
+        ],
+        "parameters": [
+          {
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchByPartMfrNameRequestRoot"
+            }
+          },
+          {
+            "name": "apiKey",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/SearchResponseRoot"
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/search/manufacturerlist": {
+      "get": {
+        "tags": [
+          "SearchApi"
+        ],
+        "summary": "Get all Manufacturer List.  Return Manufacturer Name only.",
+        "operationId": "SearchApi_GetLwManufacturerList",
+        "consumes": [],
+        "produces": [
+          "application/json",
+          "text/json",
+          "application/xml",
+          "text/xml"
+        ],
+        "parameters": [
+          {
+            "name": "apiKey",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/MouserManufacturersNameRoot"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "SearchByKeywordMfrNameRequestRoot": {
+      "properties": {
+        "SearchByKeywordMfrNameRequest": {
+          "$ref": "#/definitions/SearchByKeywordMfrNameRequest"
+        }
+      },
+      "xml": {
+        "name": "SearchByKeywordMfrNameRequestRoot"
+      },
+      "type": "object"
+    },
+    "SearchByKeywordMfrNameRequest": {
+      "description": "Search parts by keyword and specific manufacturer. Return a maximum of 50 parts.",
+      "required": [
+        "keyword"
+      ],
+      "properties": {
+        "manufacturerName": {
+          "description": "Used for filtering by a specific manufacturer. Please get the manufacturerName from the GetManufacturerList method.",
+          "type": "string"
+        },
+        "keyword": {
+          "description": "Used for keyword part search.",
+          "type": "string"
+        },
+        "records": {
+          "description": "Used to specify how many records the method should return.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "pageNumber": {
+          "description": "Indicates which page of the total recordset the method should return. The page number is based off of the number of records specified in the records parameter. For the pageNumber, the number of records specified will be returned up to the end of the recordset. This is useful for paging through the complete recordset of parts matching keyword.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "searchOptions": {
+          "description": "Optional.  If not provided, the default is None.  Refers to options supported by the search engine.  Only one value at a time is supported. Available options:  None | Rohs | InStock | RohsAndInStock - can use string representations or integer IDs: 1[None] | 2[Rohs] | 4[InStock] | 8[RohsAndInStock].",
+          "type": "string"
+        },
+        "searchWithYourSignUpLanguage": {
+          "description": "Optional. If not provided, the default is false.  Used when searching for keywords in the language specified when you signed up for Search API. Can use string representation: true.",
+          "type": "string"
+        },
+        "mouserPaysCustomsAndDuties": {
+          "description": "Optional. If true, prices reflect Mouser paying applicable Import Duty and Customs fees on customer's behalf. Default is false.",
+          "example": "false",
+          "type": "boolean"
+        }
+      },
+      "xml": {
+        "name": "SearchByKeywordMfrNameRequest"
+      },
+      "type": "object"
+    },
+    "SearchResponseRoot": {
+      "properties": {
+        "Errors": {
+          "items": {
+            "$ref": "#/definitions/ErrorEntity"
+          },
+          "xml": {
+            "name": "ErrorEntity",
+            "wrapped": true
+          },
+          "type": "array"
+        },
+        "SearchResults": {
+          "$ref": "#/definitions/SearchResponse"
+        }
+      },
+      "xml": {
+        "name": "SearchResponseRoot"
+      },
+      "type": "object"
+    },
+    "ErrorEntity": {
+      "properties": {
+        "Id": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "Code": {
+          "type": "string"
+        },
+        "Message": {
+          "type": "string"
+        },
+        "ResourceKey": {
+          "type": "string"
+        },
+        "ResourceFormatString": {
+          "type": "string"
+        },
+        "ResourceFormatString2": {
+          "type": "string"
+        },
+        "PropertyName": {
+          "type": "string"
+        }
+      },
+      "xml": {
+        "name": "ErrorEntity"
+      },
+      "type": "object"
+    },
+    "SearchResponse": {
+      "properties": {
+        "NumberOfResult": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "Parts": {
+          "items": {
+            "$ref": "#/definitions/MouserPart"
+          },
+          "xml": {
+            "name": "MouserPart",
+            "wrapped": true
+          },
+          "type": "array"
+        }
+      },
+      "xml": {
+        "name": "SearchResponse"
+      },
+      "type": "object"
+    },
+    "MouserPart": {
+      "properties": {
+        "Availability": {
+          "type": "string"
+        },
+        "DataSheetUrl": {
+          "type": "string"
+        },
+        "Description": {
+          "type": "string"
+        },
+        "FactoryStock": {
+          "type": "string"
+        },
+        "ImagePath": {
+          "type": "string"
+        },
+        "Category": {
+          "type": "string"
+        },
+        "LeadTime": {
+          "type": "string"
+        },
+        "LifecycleStatus": {
+          "type": "string"
+        },
+        "Manufacturer": {
+          "type": "string"
+        },
+        "ManufacturerPartNumber": {
+          "type": "string"
+        },
+        "Min": {
+          "type": "string"
+        },
+        "Mult": {
+          "type": "string"
+        },
+        "MouserPartNumber": {
+          "type": "string"
+        },
+        "ProductAttributes": {
+          "items": {
+            "$ref": "#/definitions/ProductAttribute"
+          },
+          "xml": {
+            "name": "ProductAttribute",
+            "wrapped": true
+          },
+          "type": "array"
+        },
+        "PriceBreaks": {
+          "items": {
+            "$ref": "#/definitions/Pricebreak"
+          },
+          "xml": {
+            "name": "Pricebreak",
+            "wrapped": true
+          },
+          "type": "array"
+        },
+        "AlternatePackagings": {
+          "items": {
+            "$ref": "#/definitions/AlternatePackaging"
+          },
+          "xml": {
+            "name": "AlternatePackaging",
+            "wrapped": true
+          },
+          "type": "array"
+        },
+        "ProductDetailUrl": {
+          "type": "string"
+        },
+        "Reeling": {
+          "type": "boolean"
+        },
+        "ROHSStatus": {
+          "type": "string"
+        },
+        "REACH-SVHC": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "SuggestedReplacement": {
+          "type": "string"
+        },
+        "MultiSimBlue": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "UnitWeightKg": {
+          "$ref": "#/definitions/UnitWeightKg"
+        },
+        "StandardCost": {
+          "$ref": "#/definitions/StandardCost"
+        },
+        "IsDiscontinued": {
+          "type": "string"
+        },
+        "RTM": {
+          "type": "string"
+        },
+        "MouserProductCategory": {
+          "type": "string"
+        },
+        "IPCCode": {
+          "type": "string"
+        },
+        "SField": {
+          "type": "string"
+        },
+        "VNum": {
+          "type": "string"
+        },
+        "ActualMfrName": {
+          "type": "string"
+        },
+        "AvailableOnOrder": {
+          "type": "string"
+        },
+        "AvailabilityInStock": {
+          "type": "string"
+        },
+        "AvailabilityOnOrder": {
+          "items": {
+            "$ref": "#/definitions/AvailabilityOnOrderObject"
+          },
+          "readOnly": true,
+          "xml": {
+            "name": "AvailabilityOnOrderObject",
+            "wrapped": true
+          },
+          "type": "array"
+        },
+        "InfoMessages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "SalesMaximumOrderQty": {
+          "type": "string"
+        },
+        "SurchargeMessages": {
+          "items": {
+            "$ref": "#/definitions/SurchargeMessages"
+          },
+          "xml": {
+            "name": "SurchargeMessages",
+            "wrapped": true
+          },
+          "type": "array"
+        },
+        "RestrictionMessage": {
+          "type": "string"
+        },
+        "PID": {
+          "type": "string"
+        },
+        "ProductCompliance": {
+          "items": {
+            "$ref": "#/definitions/ProductCompliance"
+          },
+          "xml": {
+            "name": "ProductCompliance",
+            "wrapped": true
+          },
+          "type": "array"
+        }
+      },
+      "xml": {
+        "name": "MouserPart"
+      },
+      "type": "object"
+    },
+    "ProductAttribute": {
+      "properties": {
+        "AttributeName": {
+          "type": "string"
+        },
+        "AttributeValue": {
+          "type": "string"
+        },
+        "AttributeCost": {
+          "type": "string"
+        }
+      },
+      "xml": {
+        "name": "ProductAttribute"
+      },
+      "type": "object"
+    },
+    "Pricebreak": {
+      "properties": {
+        "Quantity": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "Price": {
+          "type": "string"
+        },
+        "Currency": {
+          "type": "string"
+        }
+      },
+      "xml": {
+        "name": "Pricebreak"
+      },
+      "type": "object"
+    },
+    "AlternatePackaging": {
+      "properties": {
+        "APMfrPN": {
+          "type": "string"
+        }
+      },
+      "xml": {
+        "name": "AlternatePackaging"
+      },
+      "type": "object"
+    },
+    "UnitWeightKg": {
+      "properties": {
+        "UnitWeight": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "xml": {
+        "name": "UnitWeightKg"
+      },
+      "type": "object"
+    },
+    "StandardCost": {
+      "properties": {
+        "Standardcost": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "xml": {
+        "name": "StandardCost"
+      },
+      "type": "object"
+    },
+    "AvailabilityOnOrderObject": {
+      "properties": {
+        "Quantity": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "Date": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "xml": {
+        "name": "AvailabilityOnOrderObject"
+      },
+      "type": "object"
+    },
+    "SurchargeMessages": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "xml": {
+        "name": "SurchargeMessages"
+      },
+      "type": "object"
+    },
+    "ProductCompliance": {
+      "properties": {
+        "ComplianceName": {
+          "type": "string"
+        },
+        "ComplianceValue": {
+          "type": "string"
+        }
+      },
+      "xml": {
+        "name": "ProductCompliance"
+      },
+      "type": "object"
+    },
+    "SearchByPartMfrNameRequestRoot": {
+      "properties": {
+        "SearchByPartMfrNameRequest": {
+          "$ref": "#/definitions/SearchByPartMfrNameRequest"
+        }
+      },
+      "xml": {
+        "name": "SearchByPartMfrNameRequestRoot"
+      },
+      "type": "object"
+    },
+    "SearchByPartMfrNameRequest": {
+      "description": "Search parts by part number and specific manufacturer. Return a maximum of 50 parts.",
+      "properties": {
+        "manufacturerName": {
+          "description": "Used for filtering by a specific manufacturer. Please get the manufacturerName from the GetManufacturerList method.",
+          "type": "string"
+        },
+        "mouserPartNumber": {
+          "description": "Used to search parts by the specific Mouser part number with a maximum input of 10 part numbers, separated by a pipe symbol for the search. Each part number must be a minimum of 3 characters and a maximum of 40 characters. For example: 494-JANTX2N2222A|610-2N2222-TL|637-2N2222A",
+          "type": "string"
+        },
+        "partSearchOptions": {
+          "description": "Optional.  If not provided, the default is None.  Refers to options supported by the search engine. Only one value at a time is supported. \r\nThe following values are valid: None | Exact - can use string representations or integer IDs: 1[None] | 2[Exact]",
+          "type": "string"
+        },
+        "mouserPaysCustomsAndDuties": {
+          "description": "Optional. If true, prices reflect Mouser paying applicable Import Duty and Customs fees on customer's behalf. Default is false.",
+          "example": "false",
+          "type": "boolean"
+        }
+      },
+      "xml": {
+        "name": "SearchByPartMfrNameRequest"
+      },
+      "type": "object"
+    },
+    "MouserManufacturersNameRoot": {
+      "properties": {
+        "MouserManufacturerList": {
+          "$ref": "#/definitions/MouserManufacturerNameList"
+        },
+        "Errors": {
+          "items": {
+            "$ref": "#/definitions/ErrorEntity"
+          },
+          "xml": {
+            "name": "ErrorEntity",
+            "wrapped": true
+          },
+          "type": "array"
+        }
+      },
+      "xml": {
+        "name": "MouserManufacturersNameRoot"
+      },
+      "type": "object"
+    },
+    "MouserManufacturerNameList": {
+      "properties": {
+        "Count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "ManufacturerList": {
+          "items": {
+            "$ref": "#/definitions/MouserManufacturerName"
+          },
+          "xml": {
+            "name": "MouserManufacturerName",
+            "wrapped": true
+          },
+          "type": "array"
+        }
+      },
+      "xml": {
+        "name": "MouserManufacturerNameList"
+      },
+      "type": "object"
+    },
+    "MouserManufacturerName": {
+      "properties": {
+        "ManufacturerName": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "xml": {
+        "name": "MouserManufacturerName"
+      },
+      "type": "object"
+    }
+  },
+  "tags": [
+    {
+      "name": "SearchApi"
+    }
+  ]
+}
