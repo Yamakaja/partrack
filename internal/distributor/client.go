@@ -77,19 +77,20 @@ type SearchResult struct {
 
 // EnrichmentResult is the combined metadata and listings returned by EnrichPart.
 type EnrichmentResult struct {
-	MPN              string // manufacturer part number; empty to leave unchanged
-	Manufacturer     string
-	Description      string          // long/detailed description
-	ShortDescription string          // short/product description
-	Category         string
-	Package          string
-	DatasheetURL     string
-	ProductURL       string   // distributor product page URL
-	ImageURL         string   // product photo URL
-	Aliases          []string // alternative part numbers / other names
-	LifecycleStatus  LifecycleStatus // "" (LifecycleStatusUnknown) means leave the existing DB value unchanged
-	Parameters       []Parameter
-	Listings         []Listing
+	MPN                    string // manufacturer part number; empty to leave unchanged
+	Manufacturer           string
+	Description            string          // long/detailed description
+	ShortDescription       string          // short/product description
+	DistributorCategoryID  string          // distributor's own category identifier
+	DistributorCategoryName string         // distributor's category display name
+	Package                string
+	DatasheetURL           string
+	ProductURL             string   // distributor product page URL
+	ImageURL               string   // product photo URL
+	Aliases                []string // alternative part numbers / other names
+	LifecycleStatus        LifecycleStatus // "" (LifecycleStatusUnknown) means leave the existing DB value unchanged
+	Parameters             []Parameter
+	Listings               []Listing
 }
 
 // CredentialField describes one field in a distributor's credential form.

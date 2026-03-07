@@ -631,7 +631,8 @@ func ApplyEnrichmentResult(
 			Mpn:             mpn,
 			Manufacturer:    manufacturer,
 			Description:     strOrNil(result.Description),
-			Category:        strOrNil(result.Category),
+			// category_id resolved during enrichment; not set at part creation time here
+
 			Package:         strOrNil(result.Package),
 			DatasheetUrl:    strOrNil(result.DatasheetURL),
 			LifecycleStatus: lifecycleStatus,
@@ -821,6 +822,26 @@ func persistEnrichmentResult(
 		}
 	}
 
+	// Resolve distributor category → partrack category mapping.
+	// Always upsert a mapping row (category_id may be NULL if unmapped).
+	var resolvedCategoryID *int32
+	if result.DistributorCategoryID != "" && result.DistributorCategoryID != "0" {
+		mapping, err := qtx.UpsertDistributorCategoryMapping(ctx, dbgen.UpsertDistributorCategoryMappingParams{
+			DistributorID:          distributorID,
+			DistributorCategoryID:  result.DistributorCategoryID,
+			DistributorCategoryName: result.DistributorCategoryName,
+			// Keep existing category_id (ON CONFLICT preserves it if already mapped by an admin).
+			// Pass NULL so the COALESCE in UpsertDistributorCategoryMapping keeps the existing value.
+			CategoryID: nil,
+		})
+		if err == nil && mapping.CategoryID != nil {
+			resolvedCategoryID = mapping.CategoryID
+		}
+	}
+
+	distCategoryID := strOrNil(result.DistributorCategoryID)
+	distCategoryName := strOrNil(result.DistributorCategoryName)
+
 	for _, l := range result.Listings {
 		unitPrice, err := parseNumeric(l.UnitPrice)
 		if err != nil {
@@ -832,15 +853,17 @@ func persistEnrichmentResult(
 		}
 		priceBreaksJSON, _ := json.Marshal(l.PriceBreaks)
 		if _, err := qtx.UpsertListing(ctx, dbgen.UpsertListingParams{
-			PartID:         partID,
-			DistributorID:  distributorID,
-			Sku:            l.SKU,
-			PackagingType:  l.PackagingType,
-			UnitPrice:      unitPrice,
-			StockAvailable: l.StockAvailable,
-			Moq:            l.Moq,
-			FixedOrderCost: fixedCost,
-			PriceBreaks:    priceBreaksJSON,
+			PartID:                  partID,
+			DistributorID:           distributorID,
+			Sku:                     l.SKU,
+			PackagingType:           l.PackagingType,
+			UnitPrice:               unitPrice,
+			StockAvailable:          l.StockAvailable,
+			Moq:                     l.Moq,
+			FixedOrderCost:          fixedCost,
+			PriceBreaks:             priceBreaksJSON,
+			DistributorCategoryID:   distCategoryID,
+			DistributorCategoryName: distCategoryName,
 		}); err != nil {
 			return fmt.Errorf("upsert listing %q: %w", l.SKU, err)
 		}
@@ -863,6 +886,7 @@ func persistEnrichmentResult(
 		ShortDescription:   strOrNil(result.ShortDescription),
 		ProductUrl:         strOrNil(result.ProductURL),
 		ImageUrl:           strOrNil(result.ImageURL),
+		NewCategoryID:      resolvedCategoryID,
 	}); err != nil {
 		return fmt.Errorf("set enriched: %w", err)
 	}

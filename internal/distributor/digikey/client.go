@@ -280,7 +280,7 @@ type product struct {
 	Manufacturer           nameObj            `json:"Manufacturer"`
 	ManufacturerPartNumber string             `json:"ManufacturerProductNumber"`
 	Description            descriptionObj     `json:"Description"`
-	Category               nameObj            `json:"Category"`
+	Category               categoryObj        `json:"Category"`
 	DatasheetUrl           string             `json:"DatasheetUrl"`
 	ProductUrl             string             `json:"ProductUrl"`
 	PhotoUrl               string             `json:"PhotoUrl"`
@@ -292,6 +292,11 @@ type product struct {
 
 type nameObj struct {
 	Name string `json:"Name"`
+}
+
+type categoryObj struct {
+	CategoryId int32  `json:"CategoryId"`
+	Name       string `json:"Name"`
 }
 
 type descriptionObj struct {
@@ -389,17 +394,18 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 		description = p.Description.ProductDescription
 	}
 	result := &distributor.EnrichmentResult{
-		MPN:              p.ManufacturerPartNumber,
-		Manufacturer:     p.Manufacturer.Name,
-		Description:      description,
-		ShortDescription: p.Description.ProductDescription,
-		Category:         p.Category.Name,
-		DatasheetURL:     p.DatasheetUrl,
-		ProductURL:       p.ProductUrl,
-		ImageURL:         p.PhotoUrl,
-		Aliases:          p.OtherNames,
-		Package:          extractPackage(p.Parameters),
-		LifecycleStatus:  mapProductStatus(p.ProductStatus.Status),
+		MPN:                     p.ManufacturerPartNumber,
+		Manufacturer:            p.Manufacturer.Name,
+		Description:             description,
+		ShortDescription:        p.Description.ProductDescription,
+		DistributorCategoryID:   strconv.Itoa(int(p.Category.CategoryId)),
+		DistributorCategoryName: p.Category.Name,
+		DatasheetURL:            p.DatasheetUrl,
+		ProductURL:              p.ProductUrl,
+		ImageURL:                p.PhotoUrl,
+		Aliases:                 p.OtherNames,
+		Package:                 extractPackage(p.Parameters),
+		LifecycleStatus:         mapProductStatus(p.ProductStatus.Status),
 	}
 
 	for _, param := range p.Parameters {
@@ -564,7 +570,7 @@ func (c *Client) SearchParts(ctx context.Context, q distributor.SearchQuery, raw
 			MPN:          p.ManufacturerPartNumber,
 			Manufacturer: p.Manufacturer.Name,
 			Description:  p.Description.ProductDescription,
-			Category:     p.Category.Name,
+			Category:     p.Category.Name, // display name for search results
 			Package:      extractPackage(p.Parameters),
 		}
 		if sp.Description == "" {

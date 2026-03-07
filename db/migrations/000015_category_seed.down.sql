@@ -1,0 +1,2 @@
+TRUNCATE distributor_category_mappings;
+TRUNCATE categories CASCADE;

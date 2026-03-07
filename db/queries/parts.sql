@@ -1,8 +1,8 @@
 -- Parts catalog, parameters, and distributor listing queries.
 
 -- name: ListParts :many
-SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
-       lifecycle_status, created_at
+SELECT id, scope, team_id, mpn, manufacturer, description, category, category_id, category_source,
+       package, lifecycle_status, created_at
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
   AND (sqlc.narg('q')::text IS NULL
@@ -10,7 +10,7 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
        OR description ILIKE '%' || sqlc.narg('q') || '%'
        OR manufacturer ILIKE '%' || sqlc.narg('q') || '%')
   AND (sqlc.narg('mpn_exact')::text IS NULL OR mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category')::text IS NULL OR category = sqlc.narg('category'))
+  AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('package')::text IS NULL OR package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -26,7 +26,7 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
        OR description ILIKE '%' || sqlc.narg('q') || '%'
        OR manufacturer ILIKE '%' || sqlc.narg('q') || '%')
   AND (sqlc.narg('mpn_exact')::text IS NULL OR mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category')::text IS NULL OR category = sqlc.narg('category'))
+  AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('package')::text IS NULL OR package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -37,13 +37,15 @@ WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
 -- All inventory fields are NULL for parts that are not tracked by the team.
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
-    p.category, p.package, p.lifecycle_status, p.created_at,
+    p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.created_at,
+    c.display_name   AS category_name,
     ie.id            AS inventory_entry_id,
     ie.quantity_on_hand,
     ie.minimum_stock_quantity,
     ie.reorder_quantity,
     sl.label         AS storage_location_label
 FROM parts p
+LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
@@ -54,7 +56,7 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
        OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%'
        OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || sqlc.narg('q') || '%'))
   AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category')::text IS NULL OR p.category = sqlc.narg('category'))
+  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -80,7 +82,7 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
        OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%'
        OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || sqlc.narg('q') || '%'))
   AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
-  AND (sqlc.narg('category')::text IS NULL OR p.category = sqlc.narg('category'))
+  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
   AND (sqlc.narg('lifecycle_status')::part_lifecycle_status IS NULL
        OR p.lifecycle_status = sqlc.narg('lifecycle_status'))
@@ -94,18 +96,17 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   );
 
 -- name: GetPart :one
-SELECT id, scope, team_id, mpn, manufacturer, description, category, package,
-       datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
-       preferred_parameter_source_id, created_at, short_description, product_url, image_url
-FROM parts WHERE id = $1;
+SELECT * FROM parts WHERE id = $1;
 
 -- name: GetPartWithInventory :one
--- Like GetPart but LEFT JOINs the team's inventory entry and storage location.
+-- Like GetPart but LEFT JOINs the team's inventory entry, storage location, and category.
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,
-    p.category, p.package, p.datasheet_url, p.lifecycle_status,
+    p.category, p.category_id, p.category_source, p.package, p.datasheet_url, p.lifecycle_status,
     p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at,
     p.short_description, p.product_url, p.image_url,
+    c.display_name         AS category_name,
+    c.parent_id            AS category_parent_id,
     ie.id                  AS inventory_entry_id,
     ie.quantity_on_hand,
     ie.minimum_stock_quantity,
@@ -114,31 +115,34 @@ SELECT
     ie.storage_location_id,
     sl.label               AS storage_location_label
 FROM parts p
+LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
 WHERE p.id = sqlc.arg('id');
 
 -- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
-                   datasheet_url, lifecycle_status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, scope, team_id, mpn, manufacturer, description, category, package,
-          datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
-          preferred_parameter_source_id, created_at, short_description, product_url, image_url;
+                   datasheet_url, lifecycle_status, category_id, category_source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, sqlc.narg('category_id'),
+        CASE WHEN sqlc.narg('category_id')::int IS NOT NULL THEN 'user' ELSE 'auto' END)
+RETURNING *;
 
 -- name: UpdatePart :one
 UPDATE parts
 SET description                   = COALESCE(sqlc.narg('description'), description),
     category                      = COALESCE(sqlc.narg('category'), category),
+    category_id                   = COALESCE(sqlc.narg('category_id'), category_id),
+    category_source               = CASE
+                                        WHEN sqlc.narg('category_id')::int IS NOT NULL THEN 'user'
+                                        ELSE category_source
+                                    END,
     package                       = COALESCE(sqlc.narg('package'), package),
     datasheet_url                 = COALESCE(sqlc.narg('datasheet_url'), datasheet_url),
     lifecycle_status              = COALESCE(sqlc.narg('lifecycle_status'), lifecycle_status),
     preferred_parameter_source_id = COALESCE(sqlc.narg('preferred_parameter_source_id'),
                                              preferred_parameter_source_id)
 WHERE id = sqlc.arg('id')
-RETURNING id, scope, team_id, mpn, manufacturer, description, category, package,
-          datasheet_url, lifecycle_status, enrichment_source_id, enriched_at,
-          preferred_parameter_source_id, created_at, short_description, product_url, image_url;
+RETURNING *;
 
 -- name: ListParameters :many
 SELECT
@@ -179,23 +183,30 @@ ORDER BY d.name, dl.packaging_type;
 SELECT id, part_id, distributor_id, sku FROM distributor_listings WHERE id = $1;
 
 -- name: UpsertListing :one
--- Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq/price_breaks.
+-- Inserts or updates a distributor listing. On SKU conflict, updates price/stock/moq/price_breaks
+-- and distributor category info.
 INSERT INTO distributor_listings (part_id, distributor_id, sku, packaging_type,
                                   unit_price, stock_available, moq, fixed_order_cost,
-                                  price_breaks, last_refreshed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                                  price_breaks, distributor_category_id, distributor_category_name,
+                                  last_refreshed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, sqlc.narg('distributor_category_id'),
+        sqlc.narg('distributor_category_name'), NOW())
 ON CONFLICT (distributor_id, sku) DO UPDATE
-SET unit_price        = EXCLUDED.unit_price,
-    stock_available   = EXCLUDED.stock_available,
-    moq               = EXCLUDED.moq,
-    fixed_order_cost  = EXCLUDED.fixed_order_cost,
-    price_breaks      = EXCLUDED.price_breaks,
-    last_refreshed_at = NOW()
+SET unit_price                = EXCLUDED.unit_price,
+    stock_available           = EXCLUDED.stock_available,
+    moq                       = EXCLUDED.moq,
+    fixed_order_cost          = EXCLUDED.fixed_order_cost,
+    price_breaks              = EXCLUDED.price_breaks,
+    distributor_category_id   = COALESCE(EXCLUDED.distributor_category_id, distributor_listings.distributor_category_id),
+    distributor_category_name = COALESCE(EXCLUDED.distributor_category_name, distributor_listings.distributor_category_name),
+    last_refreshed_at         = NOW()
 RETURNING id;
 
 -- name: SetPartEnriched :exec
 -- Records which distributor last enriched this part, when, and updates all enrichable
 -- fields. NULL keeps existing values (COALESCE pattern).
+-- category_id is only updated when the part's category_source is 'auto' and a non-NULL
+-- new_category_id is provided; user-assigned categories are never overwritten by enrichment.
 UPDATE parts
 SET enrichment_source_id = $2,
     enriched_at          = NOW(),
@@ -205,7 +216,12 @@ SET enrichment_source_id = $2,
     datasheet_url        = COALESCE(sqlc.narg('datasheet_url'), datasheet_url),
     short_description    = COALESCE(sqlc.narg('short_description'), short_description),
     product_url          = COALESCE(sqlc.narg('product_url'), product_url),
-    image_url            = COALESCE(sqlc.narg('image_url'), image_url)
+    image_url            = COALESCE(sqlc.narg('image_url'), image_url),
+    category_id          = CASE
+                               WHEN category_source = 'auto' AND sqlc.narg('new_category_id')::int IS NOT NULL
+                               THEN sqlc.narg('new_category_id')::int
+                               ELSE category_id
+                           END
 WHERE id = $1;
 
 -- name: UpdateListingData :exec

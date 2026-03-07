@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { getPart, updatePart } from '$lib/api/parts.js';
+  import { listCategories } from '$lib/api/categories.js';
   import type { LifecycleStatus } from '$lib/types/parts.js';
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
   import { listStorageLocations } from '$lib/api/storage.js';
@@ -43,7 +44,7 @@
   // Edit part dialog
   let editPartOpen = $state(false);
   let editDescription = $state('');
-  let editCategory = $state('');
+  let editCategoryId = $state<number | null>(null);
   let editPackage = $state('');
   let editDatasheetUrl = $state('');
   let editLifecycleStatus = $state<LifecycleStatus | undefined>(undefined);
@@ -57,6 +58,12 @@
   let storageQuery = createQuery(() => ({
     queryKey: ['storage', teamId],
     queryFn: () => listStorageLocations(teamId),
+  }));
+
+  let categoriesQuery = createQuery(() => ({
+    queryKey: ['categories'],
+    queryFn: listCategories,
+    staleTime: Infinity,
   }));
 
   let tracked = $derived(partQuery.data?.inventory_entry_id != null);
@@ -95,7 +102,7 @@
     const part = partQuery.data;
     if (!part) return;
     editDescription = part.description ?? '';
-    editCategory = part.category ?? '';
+    editCategoryId = part.category_id ?? null;
     editPackage = part.package ?? '';
     editDatasheetUrl = part.datasheet_url ?? '';
     editLifecycleStatus = part.lifecycle_status ?? 'active';
@@ -108,7 +115,7 @@
     try {
       await updatePart(partId, {
         description: editDescription || undefined,
-        category: editCategory || undefined,
+        category_id: editCategoryId ?? undefined,
         package: editPackage || undefined,
         datasheet_url: editDatasheetUrl || undefined,
         lifecycle_status: editLifecycleStatus || undefined,
@@ -212,7 +219,7 @@
           <!-- Part metadata -->
           <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div><span class="text-muted-foreground">Manufacturer:</span> <span class="font-medium">{part.manufacturer ?? '—'}</span></div>
-            <div><span class="text-muted-foreground">Category:</span> <span class="font-medium">{part.category ?? '—'}</span></div>
+            <div><span class="text-muted-foreground">Category:</span> <span class="font-medium">{part.category_name ?? '—'}</span></div>
             <div><span class="text-muted-foreground">Package:</span> <span class="font-medium">{part.package ?? '—'}</span></div>
             {#if part.datasheet_url}
               <div><span class="text-muted-foreground">Datasheet:</span> <a href={part.datasheet_url} target="_blank" class="text-primary hover:underline">Link</a></div>
@@ -361,7 +368,17 @@
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1">
             <Label for="ep-category">Category</Label>
-            <Input id="ep-category" bind:value={editCategory} placeholder="e.g. Resistor" />
+            <select
+              id="ep-category"
+              class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={editCategoryId ?? ''}
+              onchange={(e) => { const v = (e.target as HTMLSelectElement).value; editCategoryId = v ? Number(v) : null; }}
+            >
+              <option value="">— None —</option>
+              {#each categoriesQuery.data ?? [] as cat}
+                <option value={cat.id}>{cat.display_name}</option>
+              {/each}
+            </select>
           </div>
           <div class="space-y-1">
             <Label for="ep-package">Package</Label>

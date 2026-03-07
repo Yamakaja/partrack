@@ -17,6 +17,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/auth/reset-password", h.GetResetPasswordInfo)
 		r.Post("/auth/reset-password", h.CompletePasswordReset)
 
+		// Categories (public — no auth required)
+		r.Get("/categories", h.ListCategories)
+
 		// ── Authenticated-only routes ────────────────────────────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)

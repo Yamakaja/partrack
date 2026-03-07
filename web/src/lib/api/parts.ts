@@ -7,6 +7,7 @@ export interface ListPartsParams {
   q?: string;
   mpn?: string;
   category?: string;
+  category_id?: number;
   package?: string;
   lifecycle_status?: string;
   scope?: string;

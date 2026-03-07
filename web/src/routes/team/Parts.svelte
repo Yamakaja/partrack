@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
   import { listParts, createPart, addListing } from '$lib/api/parts.js';
+  import { listCategories } from '$lib/api/categories.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
   import type { PartSummary } from '$lib/types/parts.js';
@@ -86,11 +87,17 @@
 
   // --- DataTable setup ---
 
+  const categoriesQuery = createQuery(() => ({
+    queryKey: ['categories'],
+    queryFn: listCategories,
+    staleTime: Infinity,
+  }));
+
   const columns: ColumnSpec<PartSummary>[] = [
     { key: 'mpn',              header: 'MPN',          type: 'text',    sortable: false },
     { key: 'manufacturer',     header: 'Manufacturer', type: 'text',    sortable: false },
     { key: 'description',      header: 'Description',  type: 'text',    sortable: false },
-    { key: 'category',         header: 'Category',     type: 'text',    sortable: false },
+    { key: 'category_name',    header: 'Category',     type: 'text',    sortable: false },
     { key: 'lifecycle_status', header: 'Status',       type: 'enum',    sortable: false,
       filterable: true,
       filterValues: ['active', 'nrnd', 'obsolete', 'deprecated', 'no_longer_available'],
@@ -115,11 +122,13 @@
     async (params) => {
       const stockStatus = [...(params.filters.get('stock_status') ?? [])][0] ?? undefined;
       const lifecycleStatus = [...(params.filters.get('lifecycle_status') ?? [])][0] ?? undefined;
+      const categoryIdStr = [...(params.filters.get('category_id') ?? [])][0] ?? undefined;
       return listParts({
         team_id: teamId,
         q: (params.extra.q as string) || undefined,
         stock_status: stockStatus,
         lifecycle_status: lifecycleStatus,
+        category_id: categoryIdStr ? Number(categoryIdStr) : undefined,
         limit: params.pageSize,
         offset: (params.page - 1) * params.pageSize,
       });

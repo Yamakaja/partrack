@@ -440,11 +440,28 @@ type CartLineItem struct {
 	SourceBomLineItemID pgtype.UUID    `json:"source_bom_line_item_id"`
 }
 
+type Category struct {
+	ID            int32  `json:"id"`
+	Slug          string `json:"slug"`
+	DisplayName   string `json:"display_name"`
+	ParentID      *int32 `json:"parent_id"`
+	SortOrder     int32  `json:"sort_order"`
+	PrimaryParams []byte `json:"primary_params"`
+}
+
 type Distributor struct {
 	ID      pgtype.UUID `json:"id"`
 	Name    string      `json:"name"`
 	Website *string     `json:"website"`
 	ApiType *string     `json:"api_type"`
+}
+
+type DistributorCategoryMapping struct {
+	ID                      pgtype.UUID `json:"id"`
+	DistributorID           pgtype.UUID `json:"distributor_id"`
+	DistributorCategoryID   string      `json:"distributor_category_id"`
+	DistributorCategoryName string      `json:"distributor_category_name"`
+	CategoryID              *int32      `json:"category_id"`
 }
 
 type DistributorConfig struct {
@@ -458,17 +475,19 @@ type DistributorConfig struct {
 }
 
 type DistributorListing struct {
-	ID              pgtype.UUID        `json:"id"`
-	PartID          pgtype.UUID        `json:"part_id"`
-	DistributorID   pgtype.UUID        `json:"distributor_id"`
-	Sku             string             `json:"sku"`
-	PackagingType   string             `json:"packaging_type"`
-	UnitPrice       pgtype.Numeric     `json:"unit_price"`
-	StockAvailable  *int32             `json:"stock_available"`
-	Moq             int32              `json:"moq"`
-	FixedOrderCost  pgtype.Numeric     `json:"fixed_order_cost"`
-	LastRefreshedAt pgtype.Timestamptz `json:"last_refreshed_at"`
-	PriceBreaks     []byte             `json:"price_breaks"`
+	ID                      pgtype.UUID        `json:"id"`
+	PartID                  pgtype.UUID        `json:"part_id"`
+	DistributorID           pgtype.UUID        `json:"distributor_id"`
+	Sku                     string             `json:"sku"`
+	PackagingType           string             `json:"packaging_type"`
+	UnitPrice               pgtype.Numeric     `json:"unit_price"`
+	StockAvailable          *int32             `json:"stock_available"`
+	Moq                     int32              `json:"moq"`
+	FixedOrderCost          pgtype.Numeric     `json:"fixed_order_cost"`
+	LastRefreshedAt         pgtype.Timestamptz `json:"last_refreshed_at"`
+	PriceBreaks             []byte             `json:"price_breaks"`
+	DistributorCategoryID   *string            `json:"distributor_category_id"`
+	DistributorCategoryName *string            `json:"distributor_category_name"`
 }
 
 type GeneralCheckout struct {
@@ -548,6 +567,8 @@ type Part struct {
 	ShortDescription           *string             `json:"short_description"`
 	ProductUrl                 *string             `json:"product_url"`
 	ImageUrl                   *string             `json:"image_url"`
+	CategoryID                 *int32              `json:"category_id"`
+	CategorySource             string              `json:"category_source"`
 }
 
 type PartAlias struct {

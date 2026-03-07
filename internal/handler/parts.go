@@ -88,6 +88,9 @@ type partFullResponse struct {
 	Description                *string `json:"description"`
 	ShortDescription           *string `json:"short_description"`
 	Category                   *string `json:"category"`
+	CategoryID                 *int32  `json:"category_id"`
+	CategoryName               *string `json:"category_name"`
+	CategorySource             string  `json:"category_source"`
 	Package                    *string `json:"package"`
 	DatasheetURL               *string `json:"datasheet_url"`
 	ProductURL                 *string `json:"product_url"`
@@ -108,6 +111,8 @@ func toPartFullResponse(p dbgen.Part) partFullResponse {
 		Description:      p.Description,
 		ShortDescription: p.ShortDescription,
 		Category:         p.Category,
+		CategoryID:       p.CategoryID,
+		CategorySource:   p.CategorySource,
 		Package:          p.Package,
 		DatasheetURL:     p.DatasheetUrl,
 		ProductURL:       p.ProductUrl,
@@ -160,9 +165,12 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		params.MpnExact = &v
 		countParams.MpnExact = &v
 	}
-	if v := q.Get("category"); v != "" {
-		params.Category = &v
-		countParams.Category = &v
+	if v := q.Get("category_id"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			n32 := int32(n)
+			params.CategoryID = &n32
+			countParams.CategoryID = &n32
+		}
 	}
 	if v := q.Get("package"); v != "" {
 		params.Package = &v
@@ -202,6 +210,9 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		Description          *string `json:"description"`
 		ShortDescription     *string `json:"short_description"`
 		Category             *string `json:"category"`
+		CategoryID           *int32  `json:"category_id"`
+		CategoryName         *string `json:"category_name"`
+		CategorySource       string  `json:"category_source"`
 		Package              *string `json:"package"`
 		LifecycleStatus      string  `json:"lifecycle_status"`
 		InventoryEntryID     *string `json:"inventory_entry_id"`
@@ -220,6 +231,9 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			Description:          p.Description,
 			ShortDescription:     p.ShortDescription,
 			Category:             p.Category,
+			CategoryID:           p.CategoryID,
+			CategoryName:         p.CategoryName,
+			CategorySource:       p.CategorySource,
 			Package:              p.Package,
 			LifecycleStatus:      string(p.LifecycleStatus),
 			QuantityOnHand:       p.QuantityOnHand,
@@ -247,6 +261,7 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 		Manufacturer    *string `json:"manufacturer"`
 		Description     *string `json:"description"`
 		Category        *string `json:"category"`
+		CategoryID      *int32  `json:"category_id"`
 		Package         *string `json:"package"`
 		DatasheetURL    *string `json:"datasheet_url"`
 		LifecycleStatus string  `json:"lifecycle_status"`
@@ -329,6 +344,7 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 		Manufacturer:    req.Manufacturer,
 		Description:     req.Description,
 		Category:        req.Category,
+		CategoryID:      req.CategoryID,
 		Package:         req.Package,
 		DatasheetUrl:    req.DatasheetURL,
 		LifecycleStatus: lifecycleStatus,
@@ -363,6 +379,8 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		preferredListingID   *string
 		storageLocationID    *string
 		storageLocationLabel *string
+		categoryName         *string
+		categoryParentID     *int32
 	)
 
 	teamIDStr := r.URL.Query().Get("team_id")
@@ -389,13 +407,16 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 			ID: row.ID, Scope: row.Scope, TeamID: row.TeamID,
 			Mpn: row.Mpn, Manufacturer: row.Manufacturer, Description: row.Description,
 			ShortDescription: row.ShortDescription,
-			Category: row.Category, Package: row.Package, DatasheetUrl: row.DatasheetUrl,
+			Category: row.Category, CategoryID: row.CategoryID, CategorySource: row.CategorySource,
+			Package: row.Package, DatasheetUrl: row.DatasheetUrl,
 			ProductUrl: row.ProductUrl, ImageUrl: row.ImageUrl,
 			LifecycleStatus: row.LifecycleStatus,
 			EnrichmentSourceID: row.EnrichmentSourceID, EnrichedAt: row.EnrichedAt,
 			PreferredParameterSourceID: row.PreferredParameterSourceID,
 			CreatedAt: row.CreatedAt,
 		}
+		categoryName = row.CategoryName
+		categoryParentID = row.CategoryParentID
 		if row.InventoryEntryID.Valid {
 			s := row.InventoryEntryID.String()
 			inventoryEntryID = &s
@@ -516,6 +537,7 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	base := toPartFullResponse(partBase)
+	base.CategoryName = categoryName
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":                            base.ID,
 		"scope":                         base.Scope,
@@ -525,6 +547,10 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		"description":                   base.Description,
 		"short_description":             base.ShortDescription,
 		"category":                      base.Category,
+		"category_id":                   base.CategoryID,
+		"category_name":                 base.CategoryName,
+		"category_source":               base.CategorySource,
+		"category_parent_id":            categoryParentID,
 		"package":                       base.Package,
 		"datasheet_url":                 base.DatasheetURL,
 		"product_url":                   base.ProductURL,
@@ -591,6 +617,7 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description                *string `json:"description"`
 		Category                   *string `json:"category"`
+		CategoryID                 *int32  `json:"category_id"`
 		Package                    *string `json:"package"`
 		DatasheetURL               *string `json:"datasheet_url"`
 		LifecycleStatus            *string `json:"lifecycle_status"`
@@ -604,6 +631,7 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 	params := dbgen.UpdatePartParams{ID: partID}
 	params.Description = req.Description
 	params.Category = req.Category
+	params.CategoryID = req.CategoryID
 	params.Package = req.Package
 	params.DatasheetUrl = req.DatasheetURL
 	if req.LifecycleStatus != nil {

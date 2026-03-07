@@ -9,7 +9,13 @@ export interface Part {
   manufacturer: string | null;
   description: string | null;
   short_description: string | null;
+  /** @deprecated use category_id + category_name instead */
   category: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  category_source: string;
+  /** parent category id, present on GET /parts/:id when team_id is provided */
+  category_parent_id: number | null;
   package: string | null;
   datasheet_url: string | null;
   product_url: string | null;
@@ -44,7 +50,11 @@ export interface PartSummary {
   manufacturer: string | null;
   description: string | null;
   short_description: string | null;
+  /** @deprecated use category_id + category_name instead */
   category: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  category_source: string;
   package: string | null;
   lifecycle_status: LifecycleStatus | null;
   created_at: string;
