@@ -5,6 +5,10 @@ export function getCart(teamId: string) {
   return request<Cart>('GET', `/api/v1/teams/${teamId}/cart`);
 }
 
+export function getCartCount(teamId: string) {
+  return request<{ count: number }>('GET', `/api/v1/teams/${teamId}/cart/count`);
+}
+
 export function addCartItem(teamId: string, body: { part_id: string; quantity: number; listing_id?: string }) {
   return request<CartItem>('POST', `/api/v1/teams/${teamId}/cart/items`, body);
 }

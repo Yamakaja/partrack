@@ -91,6 +91,91 @@
       </div>
     </section>
 
+    <!-- Build Pipeline -->
+    <section class="space-y-2">
+      <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Build Pipeline</h3>
+
+      {#if dashQuery.isPending}
+        <div class="rounded-lg border border-border bg-card p-4">
+          <div class="flex gap-3">
+            {#each [0, 1, 2, 3] as _}
+              <div class="flex-1 space-y-2">
+                <Skeleton class="h-5 w-20 rounded" />
+                <Skeleton class="h-12 rounded" />
+                <Skeleton class="h-12 rounded" />
+              </div>
+            {/each}
+          </div>
+        </div>
+      {:else if dashQuery.data}
+        {@const pipeline = dashQuery.data.build_pipeline}
+        {@const totalActive = pipeline.counts.draft + pipeline.counts.pending + pipeline.counts.ordered + pipeline.counts.ready}
+        {@const stages = [
+          { key: 'draft',   label: 'Draft' },
+          { key: 'pending', label: 'Pending' },
+          { key: 'ordered', label: 'Ordered' },
+          { key: 'ready',   label: 'Ready' },
+        ] as const}
+
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          {#if totalActive === 0}
+            <div class="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+              <Hammer size={28} />
+              <p class="text-sm">No active builds.</p>
+              <a href={`/teams/${teamId}/projects`} use:linkAction
+                class="text-xs text-primary hover:underline no-underline">Start from a project →</a>
+            </div>
+          {:else}
+            <div class="flex gap-1 items-start">
+              {#each stages as stage, i}
+                {#if i > 0}
+                  <div class="text-muted-foreground/40 text-lg leading-none mt-6 shrink-0">›</div>
+                {/if}
+                <div class="flex-1 min-w-0 space-y-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{stage.label}</span>
+                    {#if pipeline.counts[stage.key] > 0}
+                      <span class="text-xs tabular-nums rounded-full px-1.5 py-0.5 leading-none
+                        {stage.key === 'ready' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-muted text-muted-foreground'}">
+                        {pipeline.counts[stage.key]}
+                      </span>
+                    {/if}
+                  </div>
+                  <div class="space-y-1 max-h-48 overflow-y-auto">
+                    {#if pipeline.stages[stage.key].length === 0}
+                      <p class="text-xs text-muted-foreground/50 px-2 py-2 italic">—</p>
+                    {:else}
+                      {#each pipeline.stages[stage.key] as build (build.id)}
+                        <a href={`/teams/${teamId}/builds/${build.id}`} use:linkAction
+                          class="block px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline min-w-0">
+                          <div class="flex items-baseline justify-between gap-1 min-w-0">
+                            <p class="text-xs font-medium truncate">{build.project_name} <span class="text-muted-foreground font-mono font-normal">{build.revision_label}</span></p>
+                            <span class="text-xs text-muted-foreground shrink-0 tabular-nums">×{build.quantity}</span>
+                          </div>
+                          <p class="text-xs text-muted-foreground/70 truncate">{formatRelative(build.created_at)}{build.created_by_name ? ` · ${build.created_by_name}` : ''}</p>
+                        </a>
+                      {/each}
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+
+            <!-- Summary line -->
+            <p class="text-xs text-muted-foreground border-t border-border pt-2">
+              {pipeline.counts.draft} draft · {pipeline.counts.pending} pending · {pipeline.counts.ordered} ordered ·
+              {#if pipeline.counts.ready > 0}
+                <span class="text-green-600 dark:text-green-400 font-medium">{pipeline.counts.ready} ready to assemble</span>
+              {:else}
+                0 ready
+              {/if}
+              <a href={`/teams/${teamId}/builds`} use:linkAction class="ml-2 hover:text-foreground transition-colors no-underline">View all →</a>
+            </p>
+          {/if}
+        </div>
+      {/if}
+    </section>
+
     <!-- Middle grid: Recent Projects + Inventory Alerts -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 

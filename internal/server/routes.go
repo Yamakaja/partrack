@@ -189,6 +189,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Use(mw.RequireTeamRole("purchaser"))
 
 					// Cart
+					r.Get("/cart/count", h.GetCartCount)
 					r.Get("/cart", h.GetCart)
 					r.Delete("/cart", h.ClearCart)
 					r.Post("/cart/items", h.AddCartItem)

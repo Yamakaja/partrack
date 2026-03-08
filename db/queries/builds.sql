@@ -207,3 +207,17 @@ ORDER BY sa.id;
 INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, build_id)
 VALUES ($1, $2, $3, $4, $5)
 RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, build_id;
+
+-- name: GetBuildPipeline :many
+SELECT b.id, b.status, b.quantity,
+       b.created_at, b.notes,
+       pr.name AS project_name,
+       br.label AS revision_label,
+       u.display_name AS created_by_name
+FROM builds b
+JOIN projects pr ON pr.id = b.project_id
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+LEFT JOIN users u ON u.id = b.created_by
+WHERE b.team_id = $1
+  AND b.status NOT IN ('assembled', 'cancelled')
+ORDER BY b.created_at DESC;

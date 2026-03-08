@@ -63,6 +63,11 @@ DELETE FROM cart_line_items
 WHERE cart_line_items.id = $1
   AND shopping_cart_id = (SELECT sc.id FROM shopping_carts sc WHERE sc.team_id = $2);
 
+-- name: CountCartItems :one
+SELECT COUNT(*) FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+WHERE sc.team_id = $1;
+
 -- name: CountCartItemsWithoutListing :one
 SELECT COUNT(*) FROM cart_line_items cli
 JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id

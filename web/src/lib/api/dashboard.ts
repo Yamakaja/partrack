@@ -42,12 +42,27 @@ export interface DashboardActivityItem {
   summary: string;
 }
 
+export interface DashboardBuildEntry {
+  id: string;
+  project_name: string;
+  revision_label: string;
+  quantity: number;
+  created_at: string;
+  created_by_name: string | null;
+}
+
+export interface DashboardBuildPipeline {
+  stages: { draft: DashboardBuildEntry[]; pending: DashboardBuildEntry[]; ordered: DashboardBuildEntry[]; ready: DashboardBuildEntry[] };
+  counts: { draft: number; pending: number; ordered: number; ready: number };
+}
+
 export interface Dashboard {
   stats: DashboardStats;
   recent_projects: DashboardRecentProject[];
   inventory_alerts: DashboardInventoryAlert[];
   outstanding_orders: DashboardOrder[];
   recent_activity: DashboardActivityItem[];
+  build_pipeline: DashboardBuildPipeline;
 }
 
 export function getDashboard(teamId: string) {

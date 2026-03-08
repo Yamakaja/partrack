@@ -200,6 +200,23 @@ func (h *Handler) recomputeBomShortfalls(
 	return addedCount, nil
 }
 
+// GetCartCount handles GET /api/v1/teams/{teamId}/cart/count
+func (h *Handler) GetCartCount(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+
+	count, err := h.Queries.CountCartItems(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int64{"count": count})
+}
+
 // GetCart handles GET /api/v1/teams/{teamId}/cart
 func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID

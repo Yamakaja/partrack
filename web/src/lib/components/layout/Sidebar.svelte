@@ -11,6 +11,8 @@
   import TeamSwitcher from './TeamSwitcher.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
+  import { createQuery } from '@tanstack/svelte-query';
+  import { getCartCount } from '$lib/api/cart.js';
 
   function handleKeydown(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -41,6 +43,19 @@
     if (!activeTeam) return '#';
     return sub ? `/teams/${activeTeam.teamId}/${sub}` : `/teams/${activeTeam.teamId}`;
   }
+
+  const isPurchaser = $derived(
+    activeTeam?.role === 'purchaser' || activeTeam?.role === 'admin'
+  );
+
+  const cartCountQuery = createQuery(() => ({
+    queryKey: ['cart', activeTeam?.teamId, 'count'],
+    queryFn: () => getCartCount(activeTeam!.teamId),
+    enabled: !!activeTeam && isPurchaser,
+    staleTime: 30_000,
+  }));
+
+  const cartCount = $derived(cartCountQuery.data?.count ?? 0);
 </script>
 
 <aside class="flex h-full w-60 shrink-0 flex-col border-r border-border bg-card">
@@ -92,6 +107,9 @@
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
           {isActive(teamPath('cart')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Cart
+        {#if isPurchaser && cartCount > 0}
+          <span class="ml-auto text-xs font-medium tabular-nums bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 leading-none">{cartCount}</span>
+        {/if}
       </a>
       <a href={teamPath('orders')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors

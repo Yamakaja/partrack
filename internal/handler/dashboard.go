@@ -50,12 +50,27 @@ type dashboardActivityItem struct {
 	Summary   string `json:"summary"`
 }
 
+type dashboardBuildEntry struct {
+	ID            string  `json:"id"`
+	ProjectName   string  `json:"project_name"`
+	RevisionLabel string  `json:"revision_label"`
+	Quantity      int32   `json:"quantity"`
+	CreatedAt     string  `json:"created_at"`
+	CreatedByName *string `json:"created_by_name"`
+}
+
+type dashboardBuildPipeline struct {
+	Stages map[string][]dashboardBuildEntry `json:"stages"`
+	Counts map[string]int                   `json:"counts"`
+}
+
 type dashboardResponse struct {
 	Stats             dashboardStats          `json:"stats"`
 	RecentProjects    []dashboardRecentProject `json:"recent_projects"`
 	InventoryAlerts   []dashboardInventoryAlert `json:"inventory_alerts"`
 	OutstandingOrders []dashboardOrder          `json:"outstanding_orders"`
 	RecentActivity    []dashboardActivityItem   `json:"recent_activity"`
+	BuildPipeline     dashboardBuildPipeline    `json:"build_pipeline"`
 }
 
 // GetDashboard handles GET /api/v1/teams/{teamId}/dashboard
@@ -94,6 +109,12 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activityRows, err := h.Queries.GetDashboardRecentActivity(ctx, teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	pipelineRows, err := h.Queries.GetBuildPipeline(ctx, teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -140,6 +161,28 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Assemble build pipeline.
+	pipelineStages := map[string][]dashboardBuildEntry{
+		"draft": {}, "pending": {}, "ordered": {}, "ready": {},
+	}
+	for _, row := range pipelineRows {
+		entry := dashboardBuildEntry{
+			ID:            row.ID.String(),
+			ProjectName:   row.ProjectName,
+			RevisionLabel: row.RevisionLabel,
+			Quantity:      row.Quantity,
+			CreatedAt:     row.CreatedAt.Time.UTC().Format(time.RFC3339),
+			CreatedByName: row.CreatedByName,
+		}
+		if _, ok := pipelineStages[row.Status]; ok {
+			pipelineStages[row.Status] = append(pipelineStages[row.Status], entry)
+		}
+	}
+	pipelineCounts := make(map[string]int, len(pipelineStages))
+	for stage, entries := range pipelineStages {
+		pipelineCounts[stage] = len(entries)
+	}
+
 	// Assemble recent activity.
 	activity := make([]dashboardActivityItem, 0, len(activityRows))
 	for _, a := range activityRows {
@@ -169,5 +212,9 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		InventoryAlerts:   alerts,
 		OutstandingOrders: orders,
 		RecentActivity:    activity,
+		BuildPipeline: dashboardBuildPipeline{
+			Stages: pipelineStages,
+			Counts: pipelineCounts,
+		},
 	})
 }

@@ -497,6 +497,61 @@ func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UU
 	return items, nil
 }
 
+const getBuildPipeline = `-- name: GetBuildPipeline :many
+SELECT b.id, b.status, b.quantity,
+       b.created_at, b.notes,
+       pr.name AS project_name,
+       br.label AS revision_label,
+       u.display_name AS created_by_name
+FROM builds b
+JOIN projects pr ON pr.id = b.project_id
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+LEFT JOIN users u ON u.id = b.created_by
+WHERE b.team_id = $1
+  AND b.status NOT IN ('assembled', 'cancelled')
+ORDER BY b.created_at DESC
+`
+
+type GetBuildPipelineRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	Status        string             `json:"status"`
+	Quantity      int32              `json:"quantity"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	Notes         *string            `json:"notes"`
+	ProjectName   string             `json:"project_name"`
+	RevisionLabel string             `json:"revision_label"`
+	CreatedByName *string            `json:"created_by_name"`
+}
+
+func (q *Queries) GetBuildPipeline(ctx context.Context, teamID pgtype.UUID) ([]GetBuildPipelineRow, error) {
+	rows, err := q.db.Query(ctx, getBuildPipeline, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetBuildPipelineRow
+	for rows.Next() {
+		var i GetBuildPipelineRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Quantity,
+			&i.CreatedAt,
+			&i.Notes,
+			&i.ProjectName,
+			&i.RevisionLabel,
+			&i.CreatedByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getLinkedBuildAllocationsForOrderPart = `-- name: GetLinkedBuildAllocationsForOrderPart :many
 SELECT bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received
 FROM build_part_allocations bpa

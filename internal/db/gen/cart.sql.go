@@ -31,6 +31,19 @@ func (q *Queries) ClearCart(ctx context.Context, teamID pgtype.UUID) error {
 	return err
 }
 
+const countCartItems = `-- name: CountCartItems :one
+SELECT COUNT(*) FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+WHERE sc.team_id = $1
+`
+
+func (q *Queries) CountCartItems(ctx context.Context, teamID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countCartItems, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countCartItemsWithoutListing = `-- name: CountCartItemsWithoutListing :one
 SELECT COUNT(*) FROM cart_line_items cli
 JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
