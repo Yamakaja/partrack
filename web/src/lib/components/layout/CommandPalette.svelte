@@ -1,8 +1,9 @@
 <script lang="ts">
   import { Dialog } from 'bits-ui';
-  import { Cpu, FileText, ShoppingCart, Wrench, Package, Clock, Search } from 'lucide-svelte';
+  import { Cpu, FileText, ShoppingCart, Wrench, Package, Clock, Search, LayoutDashboard, Receipt, ClipboardList, Users, Settings, Shield, SlidersHorizontal, UserRound } from 'lucide-svelte';
   import { navigate } from '$lib/router/index.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
+  import { authStore } from '$lib/stores/auth.svelte.js';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
   import { globalSearch, type SearchResults } from '$lib/api/search.js';
 
@@ -19,7 +20,7 @@
   // ── Recent items (localStorage) ──────────────────────────────────────────
 
   interface RecentItem {
-    type: 'part' | 'project' | 'order' | 'build' | 'storage';
+    type: 'part' | 'project' | 'order' | 'build' | 'storage' | 'page';
     id: string;
     primary: string;
     secondary: string;
@@ -51,19 +52,58 @@
   // ── Flat result list for keyboard navigation ──────────────────────────────
 
   interface ResultItem {
-    type: 'part' | 'project' | 'order' | 'build' | 'storage';
+    type: 'part' | 'project' | 'order' | 'build' | 'storage' | 'page';
     id: string;
     primary: string;
     secondary: string;
     badge?: string;
     url: string;
+    icon?: any;
   }
+
+  // ── Static page items ─────────────────────────────────────────────────────
+
+  let pageItems = $derived.by((): ResultItem[] => {
+    if (!teamId) return [];
+    const items: ResultItem[] = [
+      { type: 'page', id: 'dashboard',  primary: 'Dashboard',    secondary: 'Team overview and activity',       url: `/teams/${teamId}`,                        icon: LayoutDashboard },
+      { type: 'page', id: 'parts',      primary: 'Parts',         secondary: 'Parts catalog and inventory',      url: `/teams/${teamId}/parts`,                  icon: Cpu },
+      { type: 'page', id: 'storage',    primary: 'Storage',       secondary: 'Storage locations',                url: `/teams/${teamId}/storage`,                icon: Package },
+      { type: 'page', id: 'projects',   primary: 'Projects',      secondary: 'PCB projects and BOMs',            url: `/teams/${teamId}/projects`,               icon: FileText },
+      { type: 'page', id: 'cart',       primary: 'Cart',          secondary: 'Procurement staging cart',         url: `/teams/${teamId}/cart`,                   icon: ShoppingCart },
+      { type: 'page', id: 'orders',     primary: 'Orders',        secondary: 'Purchase orders by distributor',   url: `/teams/${teamId}/orders`,                 icon: Receipt },
+      { type: 'page', id: 'builds',     primary: 'Builds',        secondary: 'PCB assembly build records',       url: `/teams/${teamId}/builds`,                 icon: Wrench },
+      { type: 'page', id: 'checkouts',  primary: 'Checkouts',     secondary: 'Ad-hoc parts withdrawals',         url: `/teams/${teamId}/checkouts`,              icon: ClipboardList },
+    ];
+    const role = activeTeamStore.current?.role;
+    if (role === 'admin') {
+      items.push(
+        { type: 'page', id: 'settings-members',      primary: 'Members',      secondary: 'Team members and roles',         url: `/teams/${teamId}/settings/members`,      icon: Users },
+        { type: 'page', id: 'settings-distributors', primary: 'Distributors', secondary: 'Distributor API configuration',  url: `/teams/${teamId}/settings/distributors`, icon: Settings },
+      );
+    }
+    if (authStore.user?.is_admin) {
+      items.push(
+        { type: 'page', id: 'admin-users',       primary: 'Admin: Users',       secondary: 'Instance user management',    url: '/admin/users',       icon: Shield },
+        { type: 'page', id: 'admin-parameters',  primary: 'Admin: Parameters',  secondary: 'Global parameter definitions', url: '/admin/parameters',  icon: SlidersHorizontal },
+      );
+    }
+    items.push({ type: 'page', id: 'profile', primary: 'Account', secondary: 'Profile and account settings', url: '/settings/profile', icon: UserRound });
+    return items;
+  });
 
   let flatItems = $derived.by(() => {
     if (!query.trim() && !results) {
-      return loadRecent().slice(0, 5).map(r => ({ ...r, badge: undefined }));
+      const recent = loadRecent().slice(0, 5).map(r => ({ ...r, badge: undefined }));
+      return [...recent, ...pageItems];
     }
-    if (!results) return [] as ResultItem[];
+    if (!results) {
+      // query too short for API — filter pages by name/description
+      const q = query.trim().toLowerCase();
+      return q.length > 0
+        ? pageItems.filter(p => p.primary.toLowerCase().includes(q) || p.secondary.toLowerCase().includes(q))
+        : [] as ResultItem[];
+    }
     const items: ResultItem[] = [];
 
     for (const p of results.parts) {
@@ -116,6 +156,13 @@
         url: `/teams/${teamId}/storage`,
       });
     }
+    // Add matching pages alongside API results
+    const q = query.trim().toLowerCase();
+    for (const p of pageItems) {
+      if (p.primary.toLowerCase().includes(q) || p.secondary.toLowerCase().includes(q)) {
+        items.push(p);
+      }
+    }
     return items;
   });
 
@@ -130,15 +177,25 @@
   let sections = $derived.by((): Section[] => {
     if (!query.trim() && !results) {
       const recent = loadRecent().slice(0, 5).map(r => ({ ...r, badge: undefined }));
-      return recent.length > 0 ? [{ label: 'Recent', items: recent, startIndex: 0 }] : [];
+      const recentSection: Section[] = recent.length > 0 ? [{ label: 'Recent', items: recent, startIndex: 0 }] : [];
+      const pages = pageItems;
+      return [
+        ...recentSection,
+        { label: 'Pages', items: pages, startIndex: recent.length },
+      ];
     }
-    if (!results) return [];
+    if (!results) {
+      // filtered pages only
+      const pages = flatItems.filter(i => i.type === 'page');
+      return pages.length > 0 ? [{ label: 'Pages', items: pages, startIndex: 0 }] : [];
+    }
     const groups: { label: string; type: ResultItem['type'] }[] = [
       { label: 'Parts', type: 'part' },
       { label: 'Projects', type: 'project' },
       { label: 'Orders', type: 'order' },
       { label: 'Builds', type: 'build' },
       { label: 'Storage', type: 'storage' },
+      { label: 'Pages', type: 'page' },
     ];
     let idx = 0;
     return groups
@@ -197,7 +254,9 @@
   // ── Actions ───────────────────────────────────────────────────────────────
 
   function go(item: ResultItem) {
-    saveRecent({ type: item.type, id: item.id, primary: item.primary, secondary: item.secondary, url: item.url });
+    if (item.type !== 'page') {
+      saveRecent({ type: item.type, id: item.id, primary: item.primary, secondary: item.secondary, url: item.url });
+    }
     paletteStore.open = false;
     navigate(item.url);
   }
@@ -223,6 +282,7 @@
     order: ShoppingCart,
     build: Wrench,
     storage: Package,
+    page: LayoutDashboard,
   };
 </script>
 
@@ -258,7 +318,7 @@
           <div class="px-4 py-8 text-center text-sm text-muted-foreground">No results for "{query}"</div>
         {:else if sections.length === 0 && query.trim().length === 0}
           <div class="px-4 py-8 text-center text-sm text-muted-foreground">
-            Start typing to search, or use arrow keys to navigate recent items.
+            Start typing to search across parts, projects, and orders.
           </div>
         {:else}
           {#each sections as section}
@@ -271,7 +331,7 @@
               </div>
               {#each section.items as item, i}
                 {@const globalIdx = section.startIndex + i}
-                {@const Icon = icons[item.type]}
+                {@const Icon = item.icon ?? icons[item.type]}
                 <button
                   type="button"
                   class="w-full flex items-center gap-3 px-4 py-2 text-left transition-colors
