@@ -134,6 +134,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// 16. SSE
 					r.Get("/events", h.StreamEvents)
+
+					// 17. Global search
+					r.Get("/search", h.GlobalSearch)
 				})
 
 				// Member+

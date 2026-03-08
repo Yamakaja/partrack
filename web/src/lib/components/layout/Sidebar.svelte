@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte';
   import { currentRoute, linkAction } from '$lib/router/index.svelte.js';
   import { authStore, clearAuth } from '$lib/stores/auth.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
@@ -8,6 +9,23 @@
   import { toggleMode, mode } from 'mode-watcher';
   import { Sun, Moon } from 'lucide-svelte';
   import TeamSwitcher from './TeamSwitcher.svelte';
+  import CommandPalette from './CommandPalette.svelte';
+  import { paletteStore } from '$lib/stores/palette.svelte.js';
+
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      paletteStore.open = true;
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeydown);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('keydown', handleKeydown);
+  });
 
   async function handleLogout() {
     await logout().catch(() => {});
@@ -149,3 +167,5 @@
     </button>
   </div>
 </aside>
+
+<CommandPalette />
