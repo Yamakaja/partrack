@@ -42,8 +42,15 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 	m := map[string]any{
 		"id":                      i.ID.String(),
 		"part_id":                 i.PartID.String(),
-		"part_mpn":                i.PartMpn,
-		"quantity":                i.Quantity,
+		"part_mpn":               i.PartMpn,
+		"part_description":       i.PartDescription,
+		"part_short_description": i.PartShortDescription,
+		"part_manufacturer":      i.PartManufacturer,
+		"part_category":          i.PartCategory,
+		"part_package":           i.PartPackage,
+		"part_product_url":       i.PartProductUrl,
+		"part_datasheet_url":     i.PartDatasheetUrl,
+		"quantity":               i.Quantity,
 		"source":                  string(i.Source),
 		"source_bom_line_item_id": uuidPtrString(i.SourceBomLineItemID),
 	}

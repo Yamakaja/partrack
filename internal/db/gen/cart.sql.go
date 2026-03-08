@@ -121,6 +121,13 @@ SELECT
     cli.id,
     cli.part_id,
     p.mpn AS part_mpn,
+    p.description AS part_description,
+    p.short_description AS part_short_description,
+    p.manufacturer AS part_manufacturer,
+    p.category AS part_category,
+    p.package AS part_package,
+    p.product_url AS part_product_url,
+    p.datasheet_url AS part_datasheet_url,
     cli.quantity,
     cli.listing_id,
     dl.sku AS listing_sku,
@@ -148,6 +155,13 @@ type GetCartItemsRow struct {
 	ID                     pgtype.UUID        `json:"id"`
 	PartID                 pgtype.UUID        `json:"part_id"`
 	PartMpn                *string            `json:"part_mpn"`
+	PartDescription        *string            `json:"part_description"`
+	PartShortDescription   *string            `json:"part_short_description"`
+	PartManufacturer       *string            `json:"part_manufacturer"`
+	PartCategory           *string            `json:"part_category"`
+	PartPackage            *string            `json:"part_package"`
+	PartProductUrl         *string            `json:"part_product_url"`
+	PartDatasheetUrl       *string            `json:"part_datasheet_url"`
 	Quantity               int32              `json:"quantity"`
 	ListingID              pgtype.UUID        `json:"listing_id"`
 	ListingSku             *string            `json:"listing_sku"`
@@ -177,6 +191,13 @@ func (q *Queries) GetCartItems(ctx context.Context, teamID pgtype.UUID) ([]GetCa
 			&i.ID,
 			&i.PartID,
 			&i.PartMpn,
+			&i.PartDescription,
+			&i.PartShortDescription,
+			&i.PartManufacturer,
+			&i.PartCategory,
+			&i.PartPackage,
+			&i.PartProductUrl,
+			&i.PartDatasheetUrl,
 			&i.Quantity,
 			&i.ListingID,
 			&i.ListingSku,

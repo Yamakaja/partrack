@@ -28,8 +28,43 @@
   <TableCell colspan={8} class="py-3 px-4">
     <div class="flex divide-x divide-border">
 
-      <!-- Listing Details -->
+      <!-- Part Details -->
       <div class="space-y-2 shrink-0 pr-8">
+        <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Part Details</p>
+        <dl class="text-xs grid grid-cols-[5.5rem_auto] gap-x-4 gap-y-1">
+          {#if item.part_mpn}
+            <dt class="text-muted-foreground">MPN</dt>
+            <dd class="font-mono">{item.part_mpn}</dd>
+          {/if}
+          {#if item.part_manufacturer}
+            <dt class="text-muted-foreground">Manufacturer</dt>
+            <dd class="font-medium">{item.part_manufacturer}</dd>
+          {/if}
+          {#if item.part_package}
+            <dt class="text-muted-foreground">Package</dt>
+            <dd class="font-mono">{item.part_package}</dd>
+          {/if}
+          {#if item.part_category}
+            <dt class="text-muted-foreground">Category</dt>
+            <dd>{item.part_category}</dd>
+          {/if}
+          {#if item.part_short_description ?? item.part_description}
+            <dt class="text-muted-foreground">Description</dt>
+            <dd class="max-w-[16rem] leading-snug">{item.part_short_description ?? item.part_description}</dd>
+          {/if}
+          {#if item.part_product_url}
+            <dt class="text-muted-foreground">Product page</dt>
+            <dd><a href={item.part_product_url} target="_blank" rel="noopener noreferrer" class="text-primary underline underline-offset-2">View ↗</a></dd>
+          {/if}
+          {#if item.part_datasheet_url}
+            <dt class="text-muted-foreground">Datasheet</dt>
+            <dd><a href={item.part_datasheet_url} target="_blank" rel="noopener noreferrer" class="text-primary underline underline-offset-2">PDF ↗</a></dd>
+          {/if}
+        </dl>
+      </div>
+
+      <!-- Listing Details -->
+      <div class="space-y-2 shrink-0 px-8">
         <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Listing Details</p>
         <dl class="text-xs grid grid-cols-[5.5rem_auto] gap-x-4 gap-y-1">
           <dt class="text-muted-foreground">Distributor</dt>

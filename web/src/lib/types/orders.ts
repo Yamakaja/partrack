@@ -44,6 +44,12 @@ export interface CartItem {
   part_id: string;
   part_mpn: string | null;
   part_description: string | null;
+  part_short_description: string | null;
+  part_manufacturer: string | null;
+  part_category: string | null;
+  part_package: string | null;
+  part_product_url: string | null;
+  part_datasheet_url: string | null;
   quantity: number;
   listing: CartListing | null;
   source: CartItemSource;
