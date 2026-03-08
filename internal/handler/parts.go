@@ -849,33 +849,46 @@ func (h *Handler) ListParameters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type paramBase struct {
+		ID                   string   `json:"id"`
+		Name                 string   `json:"name"`
+		Value                string   `json:"value"`
+		Unit                 *string  `json:"unit"`
+		ParameterID          *int32   `json:"parameter_id"`
+		ParameterSlug        *string  `json:"parameter_slug"`
+		ParameterDisplayName *string  `json:"parameter_display_name"`
+		ParameterUnitSymbol  *string  `json:"parameter_unit_symbol"`
+		NumericValue         *float64 `json:"numeric_value"`
+		NumericValueMax      *float64 `json:"numeric_value_max"`
+	}
 	type userParam struct {
-		ID    string  `json:"id"`
-		Name  string  `json:"name"`
-		Value string  `json:"value"`
-		Unit  *string `json:"unit"`
+		paramBase
 	}
 	type distParam struct {
-		ID                    string  `json:"id"`
-		Name                  string  `json:"name"`
-		Value                 string  `json:"value"`
-		Unit                  *string `json:"unit"`
+		paramBase
 		SourceDistributorID   string  `json:"source_distributor_id"`
 		SourceDistributorName *string `json:"source_distributor_name"`
 	}
 	userParams := []userParam{}
 	distParams := []distParam{}
 	for _, p := range params {
+		base := paramBase{
+			ID:                   p.ID.String(),
+			Name:                 p.Name,
+			Value:                p.Value,
+			Unit:                 p.Unit,
+			ParameterID:          p.ParameterID,
+			ParameterSlug:        p.ParameterSlug,
+			ParameterDisplayName: p.ParameterDisplayName,
+			ParameterUnitSymbol:  p.ParameterUnitSymbol,
+			NumericValue:         p.NumericValue,
+			NumericValueMax:      p.NumericValueMax,
+		}
 		if p.SourceType == dbgen.ParameterSourceTypeUser {
-			userParams = append(userParams, userParam{
-				ID: p.ID.String(), Name: p.Name, Value: p.Value, Unit: p.Unit,
-			})
+			userParams = append(userParams, userParam{base})
 		} else {
 			distParams = append(distParams, distParam{
-				ID:                    p.ID.String(),
-				Name:                  p.Name,
-				Value:                 p.Value,
-				Unit:                  p.Unit,
+				paramBase:             base,
 				SourceDistributorID:   p.SourceDistributorID.String(),
 				SourceDistributorName: p.SourceDistributorName,
 			})

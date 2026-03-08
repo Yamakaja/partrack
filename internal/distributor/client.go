@@ -13,19 +13,19 @@ import (
 type LifecycleStatus string
 
 const (
-	LifecycleStatusUnknown          LifecycleStatus = ""
-	LifecycleStatusActive           LifecycleStatus = "active"
-	LifecycleStatusNRND             LifecycleStatus = "nrnd"
-	LifecycleStatusObsolete         LifecycleStatus = "obsolete"
-	LifecycleStatusDeprecated       LifecycleStatus = "deprecated"
+	LifecycleStatusUnknown           LifecycleStatus = ""
+	LifecycleStatusActive            LifecycleStatus = "active"
+	LifecycleStatusNRND              LifecycleStatus = "nrnd"
+	LifecycleStatusObsolete          LifecycleStatus = "obsolete"
+	LifecycleStatusDeprecated        LifecycleStatus = "deprecated"
 	LifecycleStatusNoLongerAvailable LifecycleStatus = "no_longer_available"
 )
 
 // Parameter is a name/value/unit triple returned by distributor enrichment.
 type Parameter struct {
-	Name  string
-	Value string
-	Unit  string // empty when unitless
+	DistributorParamID string // distributor's own stable parameter ID (e.g. DigiKey's integer ID as string); empty if unavailable
+	Name               string
+	Value              string
 }
 
 // PriceBreak is a single quantity-price point from a distributor's price schedule.
@@ -38,8 +38,8 @@ type PriceBreak struct {
 type Listing struct {
 	SKU            string
 	PackagingType  string
-	UnitPrice      string       // decimal string e.g. "0.5000"; convenience shorthand for PriceBreaks[0].UnitPrice; empty = unknown
-	StockAvailable *int32       // nil = not yet known; 0 = out of stock
+	UnitPrice      string // decimal string e.g. "0.5000"; convenience shorthand for PriceBreaks[0].UnitPrice; empty = unknown
+	StockAvailable *int32 // nil = not yet known; 0 = out of stock
 	Moq            int32
 	FixedOrderCost string       // decimal string, default "0.0000"
 	PriceBreaks    []PriceBreak // sorted ascending by BreakQty; may be empty
@@ -97,14 +97,14 @@ type EnrichmentResult struct {
 	// stable Key values; the worker uses them as-is for distributor_category_mappings
 	// lookups. May be nil when no category information is available.
 	DistributorCategoryChain []DistributorCategory
-	Package                string
-	DatasheetURL           string
-	ProductURL             string   // distributor product page URL
-	ImageURL               string   // product photo URL
-	Aliases                []string // alternative part numbers / other names
-	LifecycleStatus        LifecycleStatus // "" (LifecycleStatusUnknown) means leave the existing DB value unchanged
-	Parameters             []Parameter
-	Listings               []Listing
+	Package                  string
+	DatasheetURL             string
+	ProductURL               string          // distributor product page URL
+	ImageURL                 string          // product photo URL
+	Aliases                  []string        // alternative part numbers / other names
+	LifecycleStatus          LifecycleStatus // "" (LifecycleStatusUnknown) means leave the existing DB value unchanged
+	Parameters               []Parameter
+	Listings                 []Listing
 }
 
 // CredentialField describes one field in a distributor's credential form.

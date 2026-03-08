@@ -129,6 +129,44 @@
     if (siblings.length <= 1) return listing.distributor_name;
     return `${listing.distributor_name} (${listing.packaging_type ?? listing.sku})`;
   }
+
+  /** Format a numeric value with SI prefix and optional unit symbol.
+   *  e.g. formatSI(10000, 'Ω') → '10 kΩ', formatSI(100e-9, 'F') → '100 nF' */
+  function formatSI(value: number, unitSymbol: string | null): string {
+    const prefixes: [number, string][] = [
+      [1e12, 'T'], [1e9, 'G'], [1e6, 'M'], [1e3, 'k'],
+      [1, ''],
+      [1e-3, 'm'], [1e-6, 'µ'], [1e-9, 'n'], [1e-12, 'p'],
+    ];
+    const abs = Math.abs(value);
+    for (const [factor, prefix] of prefixes) {
+      if (abs >= factor || factor === 1e-12) {
+        const scaled = value / factor;
+        // Round to at most 4 significant figures
+        const formatted = parseFloat(scaled.toPrecision(4)).toString();
+        return `${formatted} ${prefix}${unitSymbol ?? ''}`.trim();
+      }
+    }
+    return `${value} ${unitSymbol ?? ''}`.trim();
+  }
+
+  /** Display label for a parameter name: use canonical name when available. */
+  function paramLabel(param: Parameter): string {
+    return param.parameter_display_name ?? param.name;
+  }
+
+  /** Display value: show formatted numeric alongside original text. */
+  function paramValueDisplay(param: Parameter): { primary: string; secondary: string | null } {
+    if (param.numeric_value != null) {
+      const formatted = formatSI(param.numeric_value, param.parameter_unit_symbol ?? param.unit);
+      const hasSeparateRange = param.numeric_value_max != null;
+      const secondary = hasSeparateRange
+        ? `${formatted} ~ ${formatSI(param.numeric_value_max!, param.parameter_unit_symbol ?? param.unit)}`
+        : formatted;
+      return { primary: param.value, secondary };
+    }
+    return { primary: param.value, secondary: null };
+  }
 </script>
 
 <Tabs value="combined">
@@ -178,9 +216,20 @@
               </TableCell>
             </TableRow>
           {:else}
+            {@const vd = paramValueDisplay(param)}
             <TableRow>
-              <TableCell class="font-mono text-xs">{param.name}</TableCell>
-              <TableCell>{param.value}</TableCell>
+              <TableCell>
+                <span class="font-medium text-sm">{paramLabel(param)}</span>
+                {#if param.parameter_display_name && param.parameter_display_name !== param.name}
+                  <br /><span class="font-mono text-xs text-muted-foreground">{param.name}</span>
+                {/if}
+              </TableCell>
+              <TableCell>
+                <span>{vd.primary}</span>
+                {#if vd.secondary}
+                  <br /><span class="text-xs text-muted-foreground font-mono">{vd.secondary}</span>
+                {/if}
+              </TableCell>
               <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
               <TableCell class="text-muted-foreground text-xs">{param.displaySource}</TableCell>
               <TableCell>
@@ -335,9 +384,20 @@
         </TableHeader>
         <TableBody>
           {#each distParams as param (param.id)}
+            {@const vd = paramValueDisplay(param)}
             <TableRow>
-              <TableCell class="font-mono text-xs">{param.name}</TableCell>
-              <TableCell>{param.value}</TableCell>
+              <TableCell>
+                <span class="font-medium text-sm">{paramLabel(param)}</span>
+                {#if param.parameter_display_name && param.parameter_display_name !== param.name}
+                  <br /><span class="font-mono text-xs text-muted-foreground">{param.name}</span>
+                {/if}
+              </TableCell>
+              <TableCell>
+                <span>{vd.primary}</span>
+                {#if vd.secondary}
+                  <br /><span class="text-xs text-muted-foreground font-mono">{vd.secondary}</span>
+                {/if}
+              </TableCell>
               <TableCell class="text-muted-foreground">{param.unit ?? ''}</TableCell>
             </TableRow>
           {:else}

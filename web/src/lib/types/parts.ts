@@ -68,13 +68,41 @@ export interface PartSummary {
 
 export interface Parameter {
   id: string;
-  part_id: string;
+  part_id?: string;
   name: string;
   value: string;
   unit: string | null;
   source_type: 'user' | 'distributor';
-  source_distributor_id: string | null;
-  source_distributor_name: string | null;
+  source_distributor_id?: string | null;
+  source_distributor_name?: string | null;
+  // Populated when a partrack parameter mapping exists
+  parameter_id: number | null;
+  parameter_slug: string | null;
+  parameter_display_name: string | null;
+  parameter_unit_symbol: string | null;
+  numeric_value: number | null;
+  numeric_value_max: number | null;
+}
+
+export interface ParameterDefinition {
+  id: number;
+  slug: string;
+  display_name: string;
+  unit: string | null;
+  unit_symbol: string | null;
+  value_type: 'numeric' | 'range' | 'text' | 'enum';
+}
+
+export interface DistributorParamMapping {
+  id: string;
+  distributor_id: string;
+  distributor_name: string;
+  distributor_param_id: string;
+  distributor_param_name: string;
+  parameter_id: number | null;
+  ignored: boolean;
+  part_count: number;
+  sample_values: string[];
 }
 
 export interface Listing {

@@ -118,8 +118,13 @@
       <div class="pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Administration</div>
       <a href="/admin/users" use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive('/admin') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
+          {isActive('/admin/users') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Users
+      </a>
+      <a href="/admin/parameters" use:linkAction
+        class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
+          {isActive('/admin/parameters') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
+        Parameters
       </a>
     </div>
   {/if}

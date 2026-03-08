@@ -490,6 +490,15 @@ type DistributorListing struct {
 	DistributorCategoryName *string            `json:"distributor_category_name"`
 }
 
+type DistributorParameterMapping struct {
+	ID                   pgtype.UUID `json:"id"`
+	DistributorID        pgtype.UUID `json:"distributor_id"`
+	DistributorParamID   string      `json:"distributor_param_id"`
+	DistributorParamName string      `json:"distributor_param_name"`
+	ParameterID          *int32      `json:"parameter_id"`
+	Ignored              bool        `json:"ignored"`
+}
+
 type GeneralCheckout struct {
 	ID          pgtype.UUID        `json:"id"`
 	TeamID      pgtype.UUID        `json:"team_id"`
@@ -550,6 +559,15 @@ type OrderLineItem struct {
 	FixedOrderCostSnapshot pgtype.Numeric `json:"fixed_order_cost_snapshot"`
 }
 
+type ParameterDefinition struct {
+	ID          int32   `json:"id"`
+	Slug        string  `json:"slug"`
+	DisplayName string  `json:"display_name"`
+	Unit        *string `json:"unit"`
+	UnitSymbol  *string `json:"unit_symbol"`
+	ValueType   string  `json:"value_type"`
+}
+
 type Part struct {
 	ID                         pgtype.UUID         `json:"id"`
 	Scope                      PartScope           `json:"scope"`
@@ -586,6 +604,9 @@ type PartParameter struct {
 	Unit                *string             `json:"unit"`
 	SourceType          ParameterSourceType `json:"source_type"`
 	SourceDistributorID pgtype.UUID         `json:"source_distributor_id"`
+	ParameterID         *int32              `json:"parameter_id"`
+	NumericValue        *float64            `json:"numeric_value"`
+	NumericValueMax     *float64            `json:"numeric_value_max"`
 }
 
 type PasswordResetToken struct {

@@ -176,9 +176,14 @@ RETURNING *;
 SELECT
     pp.id, pp.part_id, pp.name, pp.value, pp.unit,
     pp.source_type, pp.source_distributor_id,
-    d.name AS source_distributor_name
+    pp.parameter_id, pp.numeric_value, pp.numeric_value_max,
+    d.name AS source_distributor_name,
+    pd.slug AS parameter_slug,
+    pd.display_name AS parameter_display_name,
+    pd.unit_symbol AS parameter_unit_symbol
 FROM part_parameters pp
 LEFT JOIN distributors d ON d.id = pp.source_distributor_id
+LEFT JOIN parameter_definitions pd ON pd.id = pp.parameter_id
 WHERE pp.part_id = $1
 ORDER BY pp.source_type, pp.name;
 
@@ -283,8 +288,8 @@ DELETE FROM part_parameters
 WHERE part_id = $1 AND source_type = 'distributor' AND source_distributor_id = $2;
 
 -- name: InsertDistributorParameter :one
-INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
-VALUES ($1, $2, $3, $4, 'distributor', $5)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max)
+VALUES ($1, $2, $3, $4, 'distributor', $5, $6, $7, $8)
 RETURNING id;
 
 -- name: GetPartByMPN :one

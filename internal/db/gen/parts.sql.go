@@ -495,8 +495,8 @@ func (q *Queries) GetPartsForReenrichment(ctx context.Context, teamID pgtype.UUI
 }
 
 const insertDistributorParameter = `-- name: InsertDistributorParameter :one
-INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id)
-VALUES ($1, $2, $3, $4, 'distributor', $5)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max)
+VALUES ($1, $2, $3, $4, 'distributor', $5, $6, $7, $8)
 RETURNING id
 `
 
@@ -506,6 +506,9 @@ type InsertDistributorParameterParams struct {
 	Value               string      `json:"value"`
 	Unit                *string     `json:"unit"`
 	SourceDistributorID pgtype.UUID `json:"source_distributor_id"`
+	ParameterID         *int32      `json:"parameter_id"`
+	NumericValue        *float64    `json:"numeric_value"`
+	NumericValueMax     *float64    `json:"numeric_value_max"`
 }
 
 func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDistributorParameterParams) (pgtype.UUID, error) {
@@ -515,6 +518,9 @@ func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDist
 		arg.Value,
 		arg.Unit,
 		arg.SourceDistributorID,
+		arg.ParameterID,
+		arg.NumericValue,
+		arg.NumericValueMax,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -584,9 +590,14 @@ const listParameters = `-- name: ListParameters :many
 SELECT
     pp.id, pp.part_id, pp.name, pp.value, pp.unit,
     pp.source_type, pp.source_distributor_id,
-    d.name AS source_distributor_name
+    pp.parameter_id, pp.numeric_value, pp.numeric_value_max,
+    d.name AS source_distributor_name,
+    pd.slug AS parameter_slug,
+    pd.display_name AS parameter_display_name,
+    pd.unit_symbol AS parameter_unit_symbol
 FROM part_parameters pp
 LEFT JOIN distributors d ON d.id = pp.source_distributor_id
+LEFT JOIN parameter_definitions pd ON pd.id = pp.parameter_id
 WHERE pp.part_id = $1
 ORDER BY pp.source_type, pp.name
 `
@@ -599,7 +610,13 @@ type ListParametersRow struct {
 	Unit                  *string             `json:"unit"`
 	SourceType            ParameterSourceType `json:"source_type"`
 	SourceDistributorID   pgtype.UUID         `json:"source_distributor_id"`
+	ParameterID           *int32              `json:"parameter_id"`
+	NumericValue          *float64            `json:"numeric_value"`
+	NumericValueMax       *float64            `json:"numeric_value_max"`
 	SourceDistributorName *string             `json:"source_distributor_name"`
+	ParameterSlug         *string             `json:"parameter_slug"`
+	ParameterDisplayName  *string             `json:"parameter_display_name"`
+	ParameterUnitSymbol   *string             `json:"parameter_unit_symbol"`
 }
 
 func (q *Queries) ListParameters(ctx context.Context, partID pgtype.UUID) ([]ListParametersRow, error) {
@@ -619,7 +636,13 @@ func (q *Queries) ListParameters(ctx context.Context, partID pgtype.UUID) ([]Lis
 			&i.Unit,
 			&i.SourceType,
 			&i.SourceDistributorID,
+			&i.ParameterID,
+			&i.NumericValue,
+			&i.NumericValueMax,
 			&i.SourceDistributorName,
+			&i.ParameterSlug,
+			&i.ParameterDisplayName,
+			&i.ParameterUnitSymbol,
 		); err != nil {
 			return nil, err
 		}
@@ -1213,15 +1236,25 @@ type UpsertUserParameterParams struct {
 	Unit   *string     `json:"unit"`
 }
 
+type UpsertUserParameterRow struct {
+	ID                  pgtype.UUID         `json:"id"`
+	PartID              pgtype.UUID         `json:"part_id"`
+	Name                string              `json:"name"`
+	Value               string              `json:"value"`
+	Unit                *string             `json:"unit"`
+	SourceType          ParameterSourceType `json:"source_type"`
+	SourceDistributorID pgtype.UUID         `json:"source_distributor_id"`
+}
+
 // Replaces any existing user-specified parameter with the same name, then inserts.
-func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParameterParams) (PartParameter, error) {
+func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParameterParams) (UpsertUserParameterRow, error) {
 	row := q.db.QueryRow(ctx, upsertUserParameter,
 		arg.PartID,
 		arg.Name,
 		arg.Value,
 		arg.Unit,
 	)
-	var i PartParameter
+	var i UpsertUserParameterRow
 	err := row.Scan(
 		&i.ID,
 		&i.PartID,

@@ -1,4 +1,5 @@
-import { request } from './client.js';
+import { request, qs } from './client.js';
+import type { ParameterDefinition, DistributorParamMapping } from '$lib/types/parts.js';
 
 export interface AdminUser {
   id: string;
@@ -52,4 +53,41 @@ export function completePasswordReset(token: string, password: string) {
     '/api/v1/auth/reset-password',
     { token, password },
   );
+}
+
+// ── Parameter registry ────────────────────────────────────────────────────────
+
+export function listParameterDefinitions() {
+  return request<ParameterDefinition[]>('GET', '/api/v1/admin/parameter-definitions');
+}
+
+export function createParameterDefinition(body: {
+  slug: string;
+  display_name: string;
+  unit?: string | null;
+  unit_symbol?: string | null;
+  value_type: ParameterDefinition['value_type'];
+}) {
+  return request<ParameterDefinition>('POST', '/api/v1/admin/parameter-definitions', body);
+}
+
+export function updateParameterDefinition(
+  id: number,
+  body: Partial<Pick<ParameterDefinition, 'slug' | 'display_name' | 'unit' | 'unit_symbol' | 'value_type'>>,
+) {
+  return request<ParameterDefinition>('PATCH', `/api/v1/admin/parameter-definitions/${id}`, body);
+}
+
+export function listDistributorParamMappings(params: { distributor_id?: string; unmapped?: boolean } = {}) {
+  return request<DistributorParamMapping[]>(
+    'GET',
+    `/api/v1/admin/distributor-parameter-mappings?${qs(params)}`,
+  );
+}
+
+export function updateDistributorParamMapping(
+  id: string,
+  body: { parameter_id?: number | null; ignored?: boolean },
+) {
+  return request<void>('PATCH', `/api/v1/admin/distributor-parameter-mappings/${id}`, body);
 }

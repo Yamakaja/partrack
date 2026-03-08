@@ -17,8 +17,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/auth/reset-password", h.GetResetPasswordInfo)
 		r.Post("/auth/reset-password", h.CompletePasswordReset)
 
-		// Categories (public — no auth required)
+		// Categories and parameter definitions (public — no auth required)
 		r.Get("/categories", h.ListCategories)
+		r.Get("/parameter-definitions", h.ListParameterDefinitions)
 
 		// ── Authenticated-only routes ────────────────────────────────────────
 		r.Group(func(r chi.Router) {
@@ -36,6 +37,13 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				r.Patch("/admin/users/{userId}", h.UpdateUser)
 				r.Post("/admin/users/{userId}/set-password", h.SetPassword)
 				r.Post("/admin/users/{userId}/password-reset-link", h.GeneratePasswordResetLink)
+
+				// Parameter registry management
+				r.Get("/admin/parameter-definitions", h.AdminListParameterDefinitions)
+				r.Post("/admin/parameter-definitions", h.AdminCreateParameterDefinition)
+				r.Patch("/admin/parameter-definitions/{id}", h.AdminUpdateParameterDefinition)
+				r.Get("/admin/distributor-parameter-mappings", h.AdminListDistributorParamMappings)
+				r.Patch("/admin/distributor-parameter-mappings/{id}", h.AdminUpdateDistributorParamMapping)
 			})
 
 			// User search

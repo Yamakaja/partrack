@@ -36,6 +36,7 @@
   import Sessions from './routes/settings/Sessions.svelte';
   import Tokens from './routes/settings/Tokens.svelte';
   import AdminUsers from './routes/admin/Users.svelte';
+  import AdminParameters from './routes/admin/Parameters.svelte';
   import ResetPassword from './routes/admin/ResetPassword.svelte';
 
   const queryClient = new QueryClient({
@@ -50,6 +51,7 @@
   const ROUTES = [
     { pattern: '/login',                                                                  component: Login },
     { pattern: '/reset-password',                                                         component: ResetPassword },
+    { pattern: '/admin/parameters',                                                       component: AdminParameters },
     { pattern: '/admin/users',                                                            component: AdminUsers },
     { pattern: '/admin',                                                                  component: AdminUsers },
     { pattern: '/settings/profile',                                                       component: Profile },

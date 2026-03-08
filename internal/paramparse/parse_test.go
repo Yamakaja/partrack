@@ -1,0 +1,127 @@
+package paramparse
+
+import (
+	"math"
+	"testing"
+)
+
+func approx(a, b float64) bool {
+	if b == 0 {
+		return math.Abs(a) < 1e-15
+	}
+	return math.Abs(a-b)/math.Abs(b) < 1e-9
+}
+
+func pf(v float64) *float64 { return &v }
+
+func TestParse(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		valueType string
+		wantVal   *float64
+		wantMax   *float64
+	}{
+		// Text / enum types — always nil
+		{"text type", "0402", "text", nil, nil},
+		{"enum type", "SMD", "enum", nil, nil},
+
+		// Unparseable / non-numeric
+		{"empty", "", "numeric", nil, nil},
+		{"dash", "-", "numeric", nil, nil},
+		{"na", "N/A", "numeric", nil, nil},
+		// Package codes use value_type="text" per spec; parser returns nil for text.
+		{"package code", "0402", "text", nil, nil},
+
+		// Simple numeric values
+		{"integer", "100", "numeric", pf(100), nil},
+		{"decimal", "3.3", "numeric", pf(3.3), nil},
+		{"negative", "-40", "numeric", pf(-40), nil},
+
+		// SI prefix values
+		{"kilo ohm", "10 kOhm", "numeric", pf(10000), nil},
+		{"kilo ohms", "10 kOhms", "numeric", pf(10000), nil},
+		{"nano farad", "100 nF", "numeric", pf(100e-9), nil},
+		{"micro farad", "10 µF", "numeric", pf(10e-6), nil},
+		{"micro farad u", "10 uF", "numeric", pf(10e-6), nil},
+		{"giga hz", "2.4 GHz", "numeric", pf(2.4e9), nil},
+		{"milli watt", "0.1W", "numeric", pf(0.1), nil},
+		{"milli ohm", "100mOhm", "numeric", pf(0.1), nil},
+		{"mega ohm", "1 MOhm", "numeric", pf(1e6), nil},
+		{"pico farad", "22 pF", "numeric", pf(22e-12), nil},
+		{"kilo plain K", "10K", "numeric", pf(10000), nil},
+		{"milimeters", "10mm", "numeric", pf(10e-3), nil},
+
+		// Tolerance
+		{"tolerance 1pct", "±1%", "numeric", pf(1.0), nil},
+		{"tolerance 5pct", "±5%", "numeric", pf(5.0), nil},
+		{"tolerance space", "± 0.5 %", "numeric", pf(0.5), nil},
+		{"tolerance 30ppm", "±30ppm", "numeric", pf(30e-4), nil},
+		{"tolerance 100ppm", "100 ppm", "numeric", pf(100e-4), nil},
+		{"tolerance 500ppb", "±500ppb", "numeric", pf(500e-7), nil},
+		{"tolerance 1000ppb", "1000 ppb", "numeric", pf(1000e-7), nil},
+
+		// Ranges (value_type = range)
+		{"temp range", "-40°C ~ 85°C", "range", pf(-40), pf(85)},
+		{"temp range2", "-55°C ~ 125°C", "range", pf(-55), pf(125)},
+		{"resistance range", "10 kOhm ~ 100 kOhm", "range", pf(10000), pf(100000)},
+
+		// Voltage
+		{"volts", "3.3V", "numeric", pf(3.3), nil},
+		{"kilovolt", "1 kV", "numeric", pf(1000), nil},
+
+		// Current
+		{"amps", "1.5 A", "numeric", pf(1.5), nil},
+		{"milliamps", "500 mA", "numeric", pf(0.5), nil},
+		{"microamps_extras", "800µA (x2 Channels)", "numeric", pf(800e-6), nil},
+
+		// Unicode normalisation
+		{"omega char", "10 Ω", "numeric", pf(10), nil},
+		{"micro sign", "100 \u00b5F", "numeric", pf(100e-6), nil},
+
+		// Storage sizes (stored in bits)
+		{"kbit", "1 kbit", "numeric", pf(1e3), nil},
+		{"9 Mbit", "9 Mbit", "numeric", pf(9e6), nil},
+		{"KB", "1 KB", "numeric", pf(1e3 * 8), nil},
+		{"KiB", "1 KiB", "numeric", pf(1024 * 8), nil},
+		{"GiB", "1 GiB", "numeric", pf(1024 * 1024 * 1024 * 8), nil},
+		{"MB", "1 MB", "numeric", pf(1e6 * 8), nil},
+		{"Gbit", "4 Gbit", "numeric", pf(4e9), nil},
+		{"TiB", "1 TiB", "numeric", pf(float64(int64(1) << 40) * 8), nil},
+
+		// Dual-unit inch+mm preprocessing
+		{"inch mm 0.015", `0.015" (0.37mm)`, "numeric", pf(0.37e-3), nil},
+		{"inch mm 0.016", `0.016" (0.40mm)`, "numeric", pf(0.40e-3), nil},
+		{"inch mm 0.039", `0.039" (1.00mm)`, "numeric", pf(1.00e-3), nil},
+		{"inch mm 0.047", `0.047" (1.20mm)`, "numeric", pf(1.20e-3), nil},
+		{"inch mm 0.171", `0.171" (4.35mm)`, "numeric", pf(4.35e-3), nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Parse(tt.text, tt.valueType)
+			if tt.wantVal == nil {
+				if got.Value != nil {
+					t.Errorf("Value: got %v, want nil", *got.Value)
+				}
+			} else {
+				if got.Value == nil {
+					t.Errorf("Value: got nil, want %v", *tt.wantVal)
+				} else if !approx(*got.Value, *tt.wantVal) {
+					t.Errorf("Value: got %v, want %v", *got.Value, *tt.wantVal)
+				}
+			}
+			if tt.wantMax == nil {
+				if got.ValueMax != nil {
+					t.Errorf("ValueMax: got %v, want nil", *got.ValueMax)
+				}
+			} else {
+				if got.ValueMax == nil {
+					t.Errorf("ValueMax: got nil, want %v", *tt.wantMax)
+				} else if !approx(*got.ValueMax, *tt.wantMax) {
+					t.Errorf("ValueMax: got %v, want %v", *got.ValueMax, *tt.wantMax)
+				}
+			}
+		})
+	}
+}

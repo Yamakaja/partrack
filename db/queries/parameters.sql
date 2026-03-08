@@ -1,0 +1,90 @@
+-- Parameter registry and distributor mapping queries.
+
+-- name: ListParameterDefinitions :many
+SELECT * FROM parameter_definitions ORDER BY display_name;
+
+-- name: GetParameterDefinition :one
+SELECT * FROM parameter_definitions WHERE id = $1;
+
+-- name: GetParameterBySlug :one
+SELECT * FROM parameter_definitions WHERE slug = $1;
+
+-- name: CreateParameterDefinition :one
+INSERT INTO parameter_definitions (slug, display_name, unit, unit_symbol, value_type)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
+
+-- name: UpdateParameterDefinition :one
+UPDATE parameter_definitions
+SET slug         = $2,
+    display_name = $3,
+    unit         = $4,
+    unit_symbol  = $5,
+    value_type   = $6
+WHERE id = $1
+RETURNING *;
+
+-- name: GetMappedParameter :one
+-- Returns the partrack parameter definition for a given distributor parameter ID.
+-- Returns no rows if the mapping does not exist or has not been linked (parameter_id IS NULL).
+SELECT pd.*
+FROM distributor_parameter_mappings dpm
+JOIN parameter_definitions pd ON pd.id = dpm.parameter_id
+WHERE dpm.distributor_id = $1
+  AND dpm.distributor_param_id = $2
+  AND dpm.parameter_id IS NOT NULL;
+
+-- name: UpsertDistributorParamMapping :one
+-- Inserts a new mapping row or updates the distributor_param_name if it already exists.
+-- Used during enrichment to register newly-seen distributor parameters for admin review.
+INSERT INTO distributor_parameter_mappings (distributor_id, distributor_param_id, distributor_param_name)
+VALUES ($1, $2, $3)
+ON CONFLICT (distributor_id, distributor_param_id)
+DO UPDATE SET distributor_param_name = EXCLUDED.distributor_param_name
+RETURNING *;
+
+-- name: ListDistributorParamMappings :many
+-- Lists all mappings for a distributor. Pass NULL to list all distributors.
+-- When unmapped_only = true, only rows with parameter_id IS NULL (and not ignored) are returned.
+-- sample_values contains up to 5 distinct raw values seen for this parameter across all parts.
+SELECT
+    dpm.id, dpm.distributor_id, dpm.distributor_param_id, dpm.distributor_param_name, dpm.parameter_id, dpm.ignored,
+    dist.name AS distributor_name,
+    COUNT(pp.id) AS part_count,
+    (
+        SELECT array_agg(v ORDER BY v)
+        FROM (
+            SELECT DISTINCT pp2.value AS v
+            FROM part_parameters pp2
+            WHERE pp2.source_distributor_id = dpm.distributor_id
+              AND pp2.name = dpm.distributor_param_name
+            LIMIT 5
+        ) sub
+    ) AS sample_values
+FROM distributor_parameter_mappings dpm
+JOIN distributors dist ON dist.id = dpm.distributor_id
+LEFT JOIN part_parameters pp
+    ON pp.source_distributor_id = dpm.distributor_id
+    AND pp.name = dpm.distributor_param_name
+WHERE (sqlc.narg('distributor_id')::uuid IS NULL OR dpm.distributor_id = sqlc.narg('distributor_id'))
+  AND (NOT sqlc.arg('unmapped_only') OR (dpm.parameter_id IS NULL AND dpm.ignored = FALSE))
+GROUP BY dpm.id, dist.name
+ORDER BY part_count DESC, dpm.distributor_param_name;
+
+-- name: SetMappingParameterID :exec
+UPDATE distributor_parameter_mappings SET parameter_id = $2 WHERE id = $1;
+
+-- name: SetMappingIgnored :exec
+UPDATE distributor_parameter_mappings SET ignored = $2 WHERE id = $1;
+
+-- name: FindPartsByParameterRange :many
+-- Returns distinct parts where a specific parameter falls within a numeric range.
+-- Used by advanced part search (3.1). Both bounds are inclusive.
+SELECT DISTINCT p.*
+FROM parts p
+JOIN part_parameters pp ON pp.part_id = p.id
+WHERE pp.parameter_id = $1
+  AND pp.numeric_value >= $2
+  AND pp.numeric_value <= $3
+  AND (p.scope = 'global' OR p.team_id = $4)
+ORDER BY pp.numeric_value;

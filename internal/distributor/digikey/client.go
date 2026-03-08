@@ -333,6 +333,7 @@ type statusObj struct {
 }
 
 type parameterValue struct {
+	ParameterId   int32  `json:"ParameterId"`
 	ParameterText string `json:"ParameterText"`
 	ParameterType string `json:"ParameterType"` // String|Integer|Double|UnitOfMeasure|...
 	ValueText     string `json:"ValueText"`
@@ -438,18 +439,9 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 			continue
 		}
 		p2 := distributor.Parameter{
-			Name:  param.ParameterText,
-			Value: param.ValueText,
-		}
-		// For UnitOfMeasure, split "1.5 A" into value="1.5" unit="A".
-		if param.ParameterType == "UnitOfMeasure" {
-			if idx := strings.LastIndex(param.ValueText, " "); idx >= 0 {
-				right := param.ValueText[idx+1:]
-				if !isNumeric(right) {
-					p2.Value = param.ValueText[:idx]
-					p2.Unit = right
-				}
-			}
+			DistributorParamID: strconv.Itoa(int(param.ParameterId)),
+			Name:               param.ParameterText,
+			Value:              param.ValueText,
 		}
 		result.Parameters = append(result.Parameters, p2)
 	}

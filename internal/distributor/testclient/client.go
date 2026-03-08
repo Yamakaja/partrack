@@ -52,9 +52,9 @@ func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*
 		DatasheetURL:    "",
 		LifecycleStatus: distributor.LifecycleStatusActive,
 		Parameters: []distributor.Parameter{
-			{Name: "output_current_max", Value: "1.5", Unit: "A"},
-			{Name: "output_voltage_min", Value: "1.25", Unit: "V"},
-			{Name: "output_voltage_max", Value: "37", Unit: "V"},
+			{Name: "output_current_max", Value: "1.5 A"},
+			{Name: "output_voltage_min", Value: "1.25 V"},
+			{Name: "output_voltage_max", Value: "37 V"},
 		},
 		Listings: []distributor.Listing{
 			{

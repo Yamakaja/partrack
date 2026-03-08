@@ -14,6 +14,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/paramparse"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -636,11 +637,11 @@ func ApplyEnrichmentResult(
 			lifecycleStatus = dbgen.PartLifecycleStatus(result.LifecycleStatus)
 		}
 		part, err := queries.CreatePart(ctx, dbgen.CreatePartParams{
-			Scope:           dbgen.PartScopeGlobal,
-			TeamID:          pgtype.UUID{}, // NULL for global parts
-			Mpn:             mpn,
-			Manufacturer:    manufacturer,
-			Description:     strOrNil(result.Description),
+			Scope:        dbgen.PartScopeGlobal,
+			TeamID:       pgtype.UUID{}, // NULL for global parts
+			Mpn:          mpn,
+			Manufacturer: manufacturer,
+			Description:  strOrNil(result.Description),
 			// category_id resolved during enrichment; not set at part creation time here
 
 			Package:         strOrNil(result.Package),
@@ -851,6 +852,13 @@ func isEnrichmentAuthoritative(
 	return true
 }
 
+func stringValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // persistEnrichmentResult writes the distributor-sourced data from result into the
 // database within the provided transaction. It always upserts listings. When
 // refreshParameters is true it replaces all distributor-sourced parameters; when false
@@ -868,20 +876,62 @@ func persistEnrichmentResult(
 	refreshParameters bool,
 	updateMetadata bool,
 ) error {
-	if refreshParameters {
+	if refreshParameters || true {
 		if err := qtx.DeleteDistributorParameters(ctx, dbgen.DeleteDistributorParametersParams{
 			PartID:              partID,
 			SourceDistributorID: distributorID,
 		}); err != nil {
 			return fmt.Errorf("delete distributor parameters: %w", err)
 		}
+
+		// Load all parameter definitions once to use as a cache for value_type lookups.
+		paramDefs, err := qtx.ListParameterDefinitions(ctx)
+		if err != nil {
+			return fmt.Errorf("load parameter definitions: %w", err)
+		}
+
+		paramDefValueType := make(map[int32]string, len(paramDefs))
+		for _, d := range paramDefs {
+			paramDefValueType[int32(d.ID)] = d.ValueType
+		}
+
 		for _, p := range result.Parameters {
+			var paramID *int32
+			var numericValue, numericValueMax *float64
+
+			if p.DistributorParamID != "" {
+				// Upsert the mapping row so newly-seen params appear in the admin UI
+				// as unmapped. If a mapping already exists with a parameter_id, use it.
+				if _, err := qtx.UpsertDistributorParamMapping(ctx, dbgen.UpsertDistributorParamMappingParams{
+					DistributorID:        distributorID,
+					DistributorParamID:   p.DistributorParamID,
+					DistributorParamName: p.Name,
+				}); err != nil {
+					return fmt.Errorf("upsert param mapping %q: %w", p.Name, err)
+				}
+				// Look up the resolved partrack parameter (may return no rows if unmapped).
+				if mapped, err := qtx.GetMappedParameter(ctx, dbgen.GetMappedParameterParams{
+					DistributorID:      distributorID,
+					DistributorParamID: p.DistributorParamID,
+				}); err == nil {
+					id := int32(mapped.ID)
+					paramID = &id
+					// Parse numeric value using the parameter's value_type.
+					valueType := paramDefValueType[id]
+					pr := paramparse.Parse(p.Value, valueType)
+					numericValue = pr.Value
+					numericValueMax = pr.ValueMax
+				}
+			}
+
 			if _, err := qtx.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
 				PartID:              partID,
 				Name:                p.Name,
 				Value:               p.Value,
-				Unit:                strOrNil(p.Unit),
 				SourceDistributorID: distributorID,
+				ParameterID:         paramID,
+				NumericValue:        numericValue,
+				NumericValueMax:     numericValueMax,
 			}); err != nil {
 				return fmt.Errorf("insert parameter %q: %w", p.Name, err)
 			}
