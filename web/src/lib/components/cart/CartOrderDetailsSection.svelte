@@ -57,10 +57,18 @@
   async function commitQtyUpdate(item: CartItem) {
     const raw = qtyEdits[item.id];
     if (raw === undefined) return;
-    const qty = parseInt(raw, 10);
+    let effectiveQty = parseInt(raw, 10);
     const companionQty = item.source !== 'manual' ? (companionQtyByPartId.get(item.part_id) ?? 0) : 0;
     const combined = item.quantity + companionQty;
-    if (isNaN(qty) || qty < 1 || qty === combined) {
+    if (isNaN(effectiveQty)) {
+      const next = { ...qtyEdits };
+      delete next[item.id];
+      qtyEdits = next;
+      return;
+    }
+    const minQty = item.source !== 'manual' ? item.quantity : 1;
+    if (effectiveQty < minQty) effectiveQty = minQty;
+    if (effectiveQty === combined) {
       const next = { ...qtyEdits };
       delete next[item.id];
       qtyEdits = next;
@@ -68,7 +76,7 @@
     }
     updatingItems = new Set([...updatingItems, item.id]);
     try {
-      await updateCartItem(teamId, item.id, { quantity: qty });
+      await updateCartItem(teamId, item.id, { quantity: effectiveQty });
       qc.invalidateQueries({ queryKey: ['cart', teamId] });
       const next = { ...qtyEdits };
       delete next[item.id];

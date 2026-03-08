@@ -209,14 +209,6 @@
         <CartPendingBuildsTable {teamId} {pendingBuilds} {buildOrderCosts} />
       </section>
 
-      <!-- Section 2: Manual Requests (only when present) -->
-      {#if manualItems.length > 0}
-        <section class="space-y-2">
-          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Manual Requests</h3>
-          <CartManualRequestsTable {teamId} items={manualItems} />
-        </section>
-      {/if}
-
       <!-- Section 3: Order Summary + Details -->
       {#if (cartQuery.data?.items?.length ?? 0) === 0}
         <section class="space-y-2">
