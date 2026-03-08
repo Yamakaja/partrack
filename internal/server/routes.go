@@ -21,6 +21,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/categories", h.ListCategories)
 		r.Get("/parameter-definitions", h.ListParameterDefinitions)
 
+
 		// ── Authenticated-only routes ────────────────────────────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)
@@ -45,6 +46,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				r.Get("/admin/distributor-parameter-mappings", h.AdminListDistributorParamMappings)
 				r.Patch("/admin/distributor-parameter-mappings/{id}", h.AdminUpdateDistributorParamMapping)
 			})
+
+			// Category parameters (authenticated)
+			r.Get("/categories/{categoryId}/parameters", h.GetCategoryParameters)
 
 			// User search
 			r.Get("/users/search", h.SearchUsers)
@@ -157,7 +161,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Delete("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}", h.RemoveSubstitute)
 
 					// Parts (team-scoped mutations)
-					r.Post("/parts/enrich-all", h.ReEnrichAll)
+					r.Post("/parts/import", h.ImportPart)
+				r.Post("/parts/enrich-all", h.ReEnrichAll)
 					r.Post("/parts/{partId}/enrich", h.EnrichPart)
 					r.Post("/parts/{partId}/listings", h.AddListing)
 					r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)

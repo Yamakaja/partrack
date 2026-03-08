@@ -84,6 +84,8 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
       OR ('out_of_stock' = ANY(string_to_array($8, ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR ('not_tracked'  = ANY(string_to_array($8, ',')) AND ie.id IS NULL)
   )
+  AND ($9::text IS NULL
+       OR p.id = ANY(string_to_array($9, ',')::uuid[]))
 `
 
 type CountPartsWithInventoryParams struct {
@@ -95,6 +97,7 @@ type CountPartsWithInventoryParams struct {
 	LifecycleStatus *string       `json:"lifecycle_status"`
 	FilterScope     NullPartScope `json:"filter_scope"`
 	StockStatus     *string       `json:"stock_status"`
+	PartIDFilter    *string       `json:"part_id_filter"`
 }
 
 func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWithInventoryParams) (int64, error) {
@@ -107,6 +110,7 @@ func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWit
 		arg.LifecycleStatus,
 		arg.FilterScope,
 		arg.StockStatus,
+		arg.PartIDFilter,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -929,8 +933,10 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
       OR ('out_of_stock' = ANY(string_to_array($8, ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR ('not_tracked'  = ANY(string_to_array($8, ',')) AND ie.id IS NULL)
   )
+  AND ($9::text IS NULL
+       OR p.id = ANY(string_to_array($9, ',')::uuid[]))
 ORDER BY p.mpn NULLS LAST, p.id
-LIMIT $10 OFFSET $9
+LIMIT $11 OFFSET $10
 `
 
 type ListPartsWithInventoryParams struct {
@@ -942,6 +948,7 @@ type ListPartsWithInventoryParams struct {
 	LifecycleStatus *string       `json:"lifecycle_status"`
 	FilterScope     NullPartScope `json:"filter_scope"`
 	StockStatus     *string       `json:"stock_status"`
+	PartIDFilter    *string       `json:"part_id_filter"`
 	Offset          int32         `json:"offset"`
 	Limit           int32         `json:"limit"`
 }
@@ -980,6 +987,7 @@ func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithI
 		arg.LifecycleStatus,
 		arg.FilterScope,
 		arg.StockStatus,
+		arg.PartIDFilter,
 		arg.Offset,
 		arg.Limit,
 	)

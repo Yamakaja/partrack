@@ -274,15 +274,6 @@
 
         {#snippet revActions(rev: RevisionRow)}
           <div class="flex items-center gap-1">
-            {#if !rev.is_active}
-              <Button
-                variant="ghost"
-                size="sm"
-                onclick={(e: MouseEvent) => handleSetActive(e, rev.id)}
-              >
-                Set Active
-              </Button>
-            {/if}
             <StockCheckDialog {teamId} {projectId} revId={rev.id}>
               {#snippet trigger(open)}
                 <Button
@@ -294,6 +285,15 @@
                 </Button>
               {/snippet}
             </StockCheckDialog>
+            {#if !rev.is_active}
+              <Button
+                variant="ghost"
+                size="sm"
+                onclick={(e: MouseEvent) => handleSetActive(e, rev.id)}
+              >
+                Set Active
+              </Button>
+            {/if}
           </div>
         {/snippet}
 

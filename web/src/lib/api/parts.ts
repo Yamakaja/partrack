@@ -1,6 +1,13 @@
 import { request, qs } from './client.js';
-import type { Part, PartSummary, Parameter, Listing } from '$lib/types/parts.js';
+import type { Part, PartSummary, Parameter, Listing, CategoryParameter } from '$lib/types/parts.js';
 import type { PaginatedResponse } from '$lib/types/common.js';
+
+export interface ParamFilter {
+  type: 'numeric' | 'enum';
+  min?: number;
+  max?: number;
+  values?: string[];
+}
 
 export interface ListPartsParams {
   team_id?: string;
@@ -12,12 +19,29 @@ export interface ListPartsParams {
   lifecycle_status?: string[];
   scope?: string;
   stock_status?: string[];
+  param_filters?: Record<number, ParamFilter>;
   limit?: number;
   offset?: number;
 }
 
-export function listParts(params: ListPartsParams = {}) {
-  return request<PaginatedResponse<PartSummary>>('GET', `/api/v1/parts?${qs(params)}`);
+export function listParts({ param_filters, ...rest }: ListPartsParams = {}) {
+  const p = new URLSearchParams(qs(rest));
+  if (param_filters) {
+    for (const [id, f] of Object.entries(param_filters)) {
+      if (f.type === 'numeric') {
+        if (f.min !== undefined) p.set(`param_${id}_min`, String(f.min));
+        if (f.max !== undefined) p.set(`param_${id}_max`, String(f.max));
+      } else if (f.type === 'enum' && f.values?.length) {
+        for (const v of f.values) p.append(`param_${id}_values`, v);
+      }
+    }
+  }
+  return request<PaginatedResponse<PartSummary>>('GET', `/api/v1/parts?${p.toString()}`);
+}
+
+export function getCategoryParameters(categoryId: number, teamId?: string) {
+  const q = teamId ? `?team_id=${teamId}` : '';
+  return request<CategoryParameter[]>('GET', `/api/v1/categories/${categoryId}/parameters${q}`);
 }
 
 export function getPart(partId: string, teamId?: string) {
@@ -35,6 +59,10 @@ export function updatePart(partId: string, body: Partial<Part>) {
 
 export function enrichPart(partId: string, teamId: string, body: { sku: string; distributor_id: string }) {
   return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/enrich`, body);
+}
+
+export function importPart(teamId: string, body: { sku: string; distributor_id: string }) {
+  return request<{ part_id: string }>('POST', `/api/v1/teams/${teamId}/parts/import`, body);
 }
 
 export function addListing(partId: string, teamId: string, body: { sku: string; distributor_id: string }) {

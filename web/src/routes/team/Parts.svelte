@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { createPart, addListing, reenrichAllParts } from '$lib/api/parts.js';
+  import { createPart, importPart, reenrichAllParts } from '$lib/api/parts.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
   import type { PartSummary } from '$lib/types/parts.js';
@@ -41,7 +41,6 @@
   let importResults = $state<DistributorSearchProduct[]>([]);
   let importSearching = $state(false);
   let importSelected = $state<DistributorSearchProduct | null>(null);
-  let importScope = $state<'global' | 'team'>('team');
   let importing = $state(false);
 
   const initialStockStatus = consumePartsStockStatus();
@@ -63,7 +62,7 @@
 
   function resetDialog() {
     newMpn = ''; newManufacturer = ''; newDescription = ''; newScope = 'team';
-    importKeywords = ''; importResults = []; importSelected = null; importDistributorId = ''; importScope = 'team';
+    importKeywords = ''; importResults = []; importSelected = null; importDistributorId = '';
     duplicateFound = null;
   }
 
@@ -131,39 +130,14 @@
     if (!importSelected) return;
     importing = true;
     try {
-      let partId: string;
-      let isExisting = false;
-      try {
-        const part = await createPart({
-          scope: importScope,
-          team_id: importScope === 'team' ? teamId : undefined,
-          mpn: importSelected.mpn || undefined,
-          manufacturer: importSelected.manufacturer || undefined,
-          description: importSelected.description || undefined,
-          category: importSelected.category || undefined,
-          package: importSelected.package || undefined,
-        });
-        partId = part.id;
-      } catch (err: any) {
-        if (err instanceof ApiError && err.code === 'PART_EXISTS') {
-          partId = (err.data as any).existing_part.id;
-          isExisting = true;
-        } else {
-          throw err;
-        }
-      }
-      await addListing(partId, teamId, {
+      const res = await importPart(teamId, {
         sku: importSelected.primary_sku,
         distributor_id: importDistributorId,
       });
       createOpen = false;
       resetDialog();
-      if (isExisting) {
-        pushToast('success', 'Part already exists', 'Listing data will be refreshed shortly.');
-      } else {
-        pushToast('success', 'Part imported', 'Parameters will populate shortly.');
-      }
-      navigate(`/teams/${teamId}/parts/${partId}`);
+      pushToast('success', 'Part imported', 'Parameters will populate shortly.');
+      navigate(`/teams/${teamId}/parts/${res.part_id}`);
     } catch (err: any) {
       pushToast('error', 'Failed to import part', err.message);
     } finally {
@@ -279,13 +253,6 @@
 
       {:else}
         <form onsubmit={handleImport} class="space-y-3">
-          <div class="space-y-1">
-            <Label>Scope</Label>
-            <Select bind:value={importScope}>
-              <option value="team">Team-scoped</option>
-              <option value="global">Global</option>
-            </Select>
-          </div>
           <div class="space-y-1">
             <Label>Distributor</Label>
             <Select bind:value={importDistributorId} onchange={() => { importKeywords = ''; importResults = []; importSelected = null; }}>

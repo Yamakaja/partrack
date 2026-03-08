@@ -7,6 +7,7 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus, Trash2, Pencil, Check, X } from 'lucide-svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import { formatSI } from '$lib/utils/si.js';
 
   let {
     partId,
@@ -130,27 +131,7 @@
     return `${listing.distributor_name} (${listing.packaging_type ?? listing.sku})`;
   }
 
-  /** Format a numeric value with SI prefix and optional unit symbol.
-   *  e.g. formatSI(10000, 'Ω') → '10 kΩ', formatSI(100e-9, 'F') → '100 nF' */
-  function formatSI(value: number, unitSymbol: string | null): string {
-    const prefixes: [number, string][] = [
-      [1e12, 'T'], [1e9, 'G'], [1e6, 'M'], [1e3, 'k'],
-      [1, ''],
-      [1e-3, 'm'], [1e-6, 'µ'], [1e-9, 'n'], [1e-12, 'p'],
-    ];
-    const abs = Math.abs(value);
-    for (const [factor, prefix] of prefixes) {
-      if (abs >= factor || factor === 1e-12) {
-        const scaled = value / factor;
-        // Round to at most 4 significant figures
-        const formatted = parseFloat(scaled.toPrecision(4)).toString();
-        return `${formatted} ${prefix}${unitSymbol ?? ''}`.trim();
-      }
-    }
-    return `${value} ${unitSymbol ?? ''}`.trim();
-  }
-
-  /** Display label for a parameter name: use canonical name when available. */
+/** Display label for a parameter name: use canonical name when available. */
   function paramLabel(param: Parameter): string {
     return param.parameter_display_name ?? param.name;
   }

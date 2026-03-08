@@ -91,6 +91,8 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
       OR ('out_of_stock' = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR ('not_tracked'  = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NULL)
   )
+  AND (sqlc.narg('part_id_filter')::text IS NULL
+       OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]))
 ORDER BY p.mpn NULLS LAST, p.id
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -121,7 +123,9 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
       OR ('low_stock'    = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
       OR ('out_of_stock' = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
       OR ('not_tracked'  = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NULL)
-  );
+  )
+  AND (sqlc.narg('part_id_filter')::text IS NULL
+       OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]));
 
 -- name: GetPart :one
 SELECT * FROM parts WHERE id = $1;

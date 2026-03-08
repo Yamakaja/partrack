@@ -88,3 +88,56 @@ WHERE pp.parameter_id = $1
   AND pp.numeric_value <= $3
   AND (p.scope = 'global' OR p.team_id = $4)
 ORDER BY pp.numeric_value;
+
+-- name: FindPartIDsByParameterRange :many
+-- Returns distinct part IDs where a specific parameter falls within a numeric range.
+-- Used to pre-filter parts for parameter-based search. Both bounds are inclusive.
+SELECT DISTINCT pp.part_id
+FROM part_parameters pp
+JOIN parts p ON p.id = pp.part_id
+WHERE pp.parameter_id = $1
+  AND pp.numeric_value >= $2
+  AND pp.numeric_value <= $3
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $4));
+
+-- name: FindPartIDsByParameterValues :many
+-- Returns distinct part IDs where a specific parameter matches any of the given values.
+-- Used to pre-filter parts for enum/text parameter-based search.
+SELECT DISTINCT pp.part_id
+FROM part_parameters pp
+JOIN parts p ON p.id = pp.part_id
+WHERE pp.parameter_id = $1
+  AND pp.value = ANY($2::text[])
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $3));
+
+-- name: GetCategoryParameters :many
+-- Returns parameter definitions present for parts in a category (and all descendant categories),
+-- including numeric value ranges and distinct enum/text values found across those parts.
+-- Range-type parameters are excluded. Optional team_id scopes to global + team-owned parts.
+WITH RECURSIVE cat_tree AS (
+    SELECT cat.id FROM categories cat WHERE cat.id = $1
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
+SELECT
+    pd.id,
+    pd.slug,
+    pd.display_name,
+    pd.unit,
+    pd.unit_symbol,
+    pd.value_type,
+    MIN(CASE WHEN pd.value_type = 'numeric' THEN pp.numeric_value END) AS min_numeric,
+    MAX(CASE WHEN pd.value_type = 'numeric' THEN pp.numeric_value END) AS max_numeric,
+    array_remove(
+        array_agg(DISTINCT CASE WHEN pd.value_type IN ('enum', 'text') AND pp.value IS NOT NULL THEN pp.value END),
+        NULL
+    ) AS enum_values
+FROM part_parameters pp
+JOIN parts p ON p.id = pp.part_id
+JOIN parameter_definitions pd ON pd.id = pp.parameter_id
+WHERE p.category_id IN (SELECT ct2.id FROM cat_tree ct2)
+  AND pp.parameter_id IS NOT NULL
+  AND pd.value_type != 'range'
+  AND (sqlc.narg('team_id')::uuid IS NULL OR p.scope = 'global' OR p.team_id = sqlc.narg('team_id'))
+GROUP BY pd.id, pd.slug, pd.display_name, pd.unit, pd.unit_symbol, pd.value_type
+ORDER BY pd.display_name;

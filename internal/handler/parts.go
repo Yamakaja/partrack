@@ -190,6 +190,119 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		countParams.StockStatus = &v
 	}
 
+	// Parameter filters: param_{id}_min, param_{id}_max (numeric) and param_{id}_values (enum/text)
+	type paramFilter struct {
+		isNumeric bool
+		min, max  float64
+		values    []string
+	}
+	paramFilters := map[int32]*paramFilter{}
+	for key, vals := range q {
+		if len(vals) == 0 || !strings.HasPrefix(key, "param_") {
+			continue
+		}
+		rest := key[len("param_"):]
+		var paramID int32
+		var suffix string
+		if idx := strings.LastIndex(rest, "_"); idx > 0 {
+			n, err := strconv.Atoi(rest[:idx])
+			if err != nil {
+				continue
+			}
+			paramID = int32(n)
+			suffix = rest[idx+1:]
+		} else {
+			continue
+		}
+		f := paramFilters[paramID]
+		if f == nil {
+			f = &paramFilter{}
+			paramFilters[paramID] = f
+		}
+		switch suffix {
+		case "min":
+			if v, err := strconv.ParseFloat(vals[0], 64); err == nil {
+				f.isNumeric = true
+				f.min = v
+			}
+		case "max":
+			if v, err := strconv.ParseFloat(vals[0], 64); err == nil {
+				f.isNumeric = true
+				f.max = v
+			}
+		case "values":
+			f.values = vals // repeated query params: param_{id}_values=A&param_{id}_values=B
+		}
+	}
+
+	if len(paramFilters) > 0 {
+		teamID := params.TeamID
+		// Collect matching part ID sets for each filter (AND semantics across filters)
+		var idSets []map[string]struct{}
+		for paramID, f := range paramFilters {
+			var uuids []pgtype.UUID
+			var queryErr error
+			if f.isNumeric {
+				pid := paramID
+				uuids, queryErr = h.Queries.FindPartIDsByParameterRange(r.Context(), dbgen.FindPartIDsByParameterRangeParams{
+					ParameterID:    &pid,
+					NumericValue:   &f.min,
+					NumericValue_2: &f.max,
+					TeamID:         teamID,
+				})
+			} else if len(f.values) > 0 {
+				pid := paramID
+				uuids, queryErr = h.Queries.FindPartIDsByParameterValues(r.Context(), dbgen.FindPartIDsByParameterValuesParams{
+					ParameterID: &pid,
+					Column2:     f.values,
+					TeamID:      teamID,
+				})
+			}
+			if queryErr != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			set := make(map[string]struct{}, len(uuids))
+			for _, u := range uuids {
+				set[u.String()] = struct{}{}
+			}
+			idSets = append(idSets, set)
+		}
+
+		// Intersect all sets
+		var intersection map[string]struct{}
+		for i, set := range idSets {
+			if i == 0 {
+				intersection = set
+				continue
+			}
+			merged := make(map[string]struct{})
+			for id := range set {
+				if _, ok := intersection[id]; ok {
+					merged[id] = struct{}{}
+				}
+			}
+			intersection = merged
+		}
+
+		if len(intersection) == 0 {
+			// No parts match the parameter filters; return empty result immediately
+			writeJSON(w, http.StatusOK, map[string]any{
+				"total": int64(0), "limit": limit, "offset": offset, "items": []any{},
+			})
+			return
+		}
+
+		// Build comma-joined UUID string for the SQL filter
+		ids := make([]string, 0, len(intersection))
+		for id := range intersection {
+			ids = append(ids, id)
+		}
+		joined := strings.Join(ids, ",")
+		params.PartIDFilter = &joined
+		countParams.PartIDFilter = &joined
+	}
+
 	total, err := h.Queries.CountPartsWithInventory(r.Context(), countParams)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -275,6 +388,11 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 	case "global":
 		if req.TeamID != nil {
 			writeError(w, http.StatusBadRequest, "team_id must not be set for global parts", "BAD_REQUEST")
+			return
+		}
+		user := middleware.UserFromContext(r.Context())
+		if !user.IsAdmin {
+			writeError(w, http.StatusForbidden, "creating global parts requires admin", "FORBIDDEN")
 			return
 		}
 	case "team":
@@ -776,6 +894,87 @@ func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 	jobID := h.enqueueEnrich(teamIDStr, partID.String(), req.SKU, req.DistributorID, user.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// ImportPart handles POST /api/v1/teams/{teamId}/parts/import
+// Atomically imports a part from a distributor SKU: finds or creates a global-scoped part,
+// upserts all listings and parameters, and ensures a team inventory entry exists.
+// The distributor API call is made synchronously; no job is queued.
+// Body: {sku, distributor_id} (both required). Returns 200 {part_id}.
+func (h *Handler) ImportPart(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+
+	var req struct {
+		SKU           string `json:"sku"`
+		DistributorID string `json:"distributor_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SKU == "" || req.DistributorID == "" {
+		writeError(w, http.StatusBadRequest, "sku and distributor_id are required", "BAD_REQUEST")
+		return
+	}
+
+	configs, err := h.Queries.ListEnabledDistributorConfigsForTeam(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	var cfg *dbgen.ListEnabledDistributorConfigsForTeamRow
+	for i := range configs {
+		if configs[i].DistributorID.String() == req.DistributorID {
+			cfg = &configs[i]
+			break
+		}
+	}
+	if cfg == nil {
+		writeError(w, http.StatusBadRequest, "distributor not configured or not enabled for this team", "BAD_REQUEST")
+		return
+	}
+	if cfg.ApiType == nil {
+		writeError(w, http.StatusBadRequest, "distributor has no API integration", "BAD_REQUEST")
+		return
+	}
+	client := h.Distributors.Lookup(*cfg.ApiType)
+	if client == nil {
+		writeError(w, http.StatusInternalServerError, "no client registered for this distributor", "INTERNAL_ERROR")
+		return
+	}
+
+	result, err := client.EnrichPart(r.Context(), req.SKU, json.RawMessage(cfg.ApiCredentials))
+	if err != nil {
+		slog.Error("ImportPart: distributor API error", "sku", req.SKU, "err", err)
+		writeError(w, http.StatusBadGateway, "distributor API error: "+err.Error(), "DISTRIBUTOR_ERROR")
+		return
+	}
+	if result == nil {
+		writeError(w, http.StatusNotFound, "part not found at distributor", "NOT_FOUND")
+		return
+	}
+
+	partID, err := worker.ApplyEnrichmentResult(r.Context(), h.DB, h.Queries, teamID, cfg.DistributorID, result, nil, nil)
+	if err != nil {
+		slog.Error("ImportPart: apply enrichment failed", "sku", req.SKU, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to import part: "+err.Error(), "INTERNAL_ERROR")
+		return
+	}
+
+	// Ensure the team has an inventory entry for this part.
+	_, err = h.Queries.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
+		TeamID: teamID,
+		PartID: partID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, _ = h.Queries.CreateInventoryEntry(r.Context(), dbgen.CreateInventoryEntryParams{
+			TeamID: teamID,
+			PartID: partID,
+		})
+	}
+
+	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
+	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
 }
 
 // DeleteListing handles DELETE /api/v1/teams/{teamId}/parts/{partId}/listings/{listingId}

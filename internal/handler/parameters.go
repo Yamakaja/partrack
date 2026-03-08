@@ -10,6 +10,68 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// GetCategoryParameters handles GET /api/v1/categories/{categoryId}/parameters
+// Returns the parameter definitions present in a category (and its descendants),
+// with value ranges for numeric params and distinct values for enum/text params.
+// Optional ?team_id=... includes team-scoped parts in addition to global parts.
+func (h *Handler) GetCategoryParameters(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(chi.URLParam(r, "categoryId"))
+	if err != nil || n <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid category ID", "BAD_REQUEST")
+		return
+	}
+
+	arg := dbgen.GetCategoryParametersParams{ID: int32(n)}
+	if v := r.URL.Query().Get("team_id"); v != "" {
+		if err := arg.TeamID.Scan(v); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+			return
+		}
+	}
+
+	rows, err := h.Queries.GetCategoryParameters(r.Context(), arg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type catParam struct {
+		ID          int32    `json:"id"`
+		Slug        string   `json:"slug"`
+		DisplayName string   `json:"display_name"`
+		Unit        *string  `json:"unit"`
+		UnitSymbol  *string  `json:"unit_symbol"`
+		ValueType   string   `json:"value_type"`
+		MinNumeric  *float64 `json:"min_numeric"`
+		MaxNumeric  *float64 `json:"max_numeric"`
+		EnumValues  []string `json:"enum_values"`
+	}
+
+	out := make([]catParam, 0, len(rows))
+	for _, row := range rows {
+		p := catParam{
+			ID:          row.ID,
+			Slug:        row.Slug,
+			DisplayName: row.DisplayName,
+			Unit:        row.Unit,
+			UnitSymbol:  row.UnitSymbol,
+			ValueType:   row.ValueType,
+		}
+		if f, ok := row.MinNumeric.(float64); ok {
+			p.MinNumeric = &f
+		}
+		if f, ok := row.MaxNumeric.(float64); ok {
+			p.MaxNumeric = &f
+		}
+		p.EnumValues = toStringSlice(row.EnumValues)
+		if p.EnumValues == nil {
+			p.EnumValues = []string{}
+		}
+		out = append(out, p)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // toStringSlice converts a pgx-scanned array interface{} value to []string.
 // pgx v5 returns text[] as pgtype.Array[string] when scanned into interface{}.
 func toStringSlice(v any) []string {

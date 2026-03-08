@@ -147,3 +147,15 @@ export interface DistributorConfig {
   has_credentials: boolean;
   api_credentials?: Record<string, unknown> | null;
 }
+
+export interface CategoryParameter {
+  id: number;
+  slug: string;
+  display_name: string;
+  unit: string | null;
+  unit_symbol: string | null;
+  value_type: 'numeric' | 'text' | 'enum';
+  min_numeric: number | null;
+  max_numeric: number | null;
+  enum_values: string[];
+}

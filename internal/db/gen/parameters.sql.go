@@ -45,6 +45,87 @@ func (q *Queries) CreateParameterDefinition(ctx context.Context, arg CreateParam
 	return i, err
 }
 
+const findPartIDsByParameterRange = `-- name: FindPartIDsByParameterRange :many
+SELECT DISTINCT pp.part_id
+FROM part_parameters pp
+JOIN parts p ON p.id = pp.part_id
+WHERE pp.parameter_id = $1
+  AND pp.numeric_value >= $2
+  AND pp.numeric_value <= $3
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $4))
+`
+
+type FindPartIDsByParameterRangeParams struct {
+	ParameterID    *int32      `json:"parameter_id"`
+	NumericValue   *float64    `json:"numeric_value"`
+	NumericValue_2 *float64    `json:"numeric_value_2"`
+	TeamID         pgtype.UUID `json:"team_id"`
+}
+
+// Returns distinct part IDs where a specific parameter falls within a numeric range.
+// Used to pre-filter parts for parameter-based search. Both bounds are inclusive.
+func (q *Queries) FindPartIDsByParameterRange(ctx context.Context, arg FindPartIDsByParameterRangeParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, findPartIDsByParameterRange,
+		arg.ParameterID,
+		arg.NumericValue,
+		arg.NumericValue_2,
+		arg.TeamID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var part_id pgtype.UUID
+		if err := rows.Scan(&part_id); err != nil {
+			return nil, err
+		}
+		items = append(items, part_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findPartIDsByParameterValues = `-- name: FindPartIDsByParameterValues :many
+SELECT DISTINCT pp.part_id
+FROM part_parameters pp
+JOIN parts p ON p.id = pp.part_id
+WHERE pp.parameter_id = $1
+  AND pp.value = ANY($2::text[])
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $3))
+`
+
+type FindPartIDsByParameterValuesParams struct {
+	ParameterID *int32      `json:"parameter_id"`
+	Column2     []string    `json:"column_2"`
+	TeamID      pgtype.UUID `json:"team_id"`
+}
+
+// Returns distinct part IDs where a specific parameter matches any of the given values.
+// Used to pre-filter parts for enum/text parameter-based search.
+func (q *Queries) FindPartIDsByParameterValues(ctx context.Context, arg FindPartIDsByParameterValuesParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, findPartIDsByParameterValues, arg.ParameterID, arg.Column2, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var part_id pgtype.UUID
+		if err := rows.Scan(&part_id); err != nil {
+			return nil, err
+		}
+		items = append(items, part_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findPartsByParameterRange = `-- name: FindPartsByParameterRange :many
 SELECT DISTINCT p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.category, p.package, p.datasheet_url, p.lifecycle_status, p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at, p.short_description, p.product_url, p.image_url, p.category_id, p.category_source
 FROM parts p
@@ -99,6 +180,86 @@ func (q *Queries) FindPartsByParameterRange(ctx context.Context, arg FindPartsBy
 			&i.ImageUrl,
 			&i.CategoryID,
 			&i.CategorySource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCategoryParameters = `-- name: GetCategoryParameters :many
+WITH RECURSIVE cat_tree AS (
+    SELECT cat.id FROM categories cat WHERE cat.id = $1
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+)
+SELECT
+    pd.id,
+    pd.slug,
+    pd.display_name,
+    pd.unit,
+    pd.unit_symbol,
+    pd.value_type,
+    MIN(CASE WHEN pd.value_type = 'numeric' THEN pp.numeric_value END) AS min_numeric,
+    MAX(CASE WHEN pd.value_type = 'numeric' THEN pp.numeric_value END) AS max_numeric,
+    array_remove(
+        array_agg(DISTINCT CASE WHEN pd.value_type IN ('enum', 'text') AND pp.value IS NOT NULL THEN pp.value END),
+        NULL
+    ) AS enum_values
+FROM part_parameters pp
+JOIN parts p ON p.id = pp.part_id
+JOIN parameter_definitions pd ON pd.id = pp.parameter_id
+WHERE p.category_id IN (SELECT ct2.id FROM cat_tree ct2)
+  AND pp.parameter_id IS NOT NULL
+  AND pd.value_type != 'range'
+  AND ($2::uuid IS NULL OR p.scope = 'global' OR p.team_id = $2)
+GROUP BY pd.id, pd.slug, pd.display_name, pd.unit, pd.unit_symbol, pd.value_type
+ORDER BY pd.display_name
+`
+
+type GetCategoryParametersParams struct {
+	ID     int32       `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetCategoryParametersRow struct {
+	ID          int32       `json:"id"`
+	Slug        string      `json:"slug"`
+	DisplayName string      `json:"display_name"`
+	Unit        *string     `json:"unit"`
+	UnitSymbol  *string     `json:"unit_symbol"`
+	ValueType   string      `json:"value_type"`
+	MinNumeric  interface{} `json:"min_numeric"`
+	MaxNumeric  interface{} `json:"max_numeric"`
+	EnumValues  interface{} `json:"enum_values"`
+}
+
+// Returns parameter definitions present for parts in a category (and all descendant categories),
+// including numeric value ranges and distinct enum/text values found across those parts.
+// Range-type parameters are excluded. Optional team_id scopes to global + team-owned parts.
+func (q *Queries) GetCategoryParameters(ctx context.Context, arg GetCategoryParametersParams) ([]GetCategoryParametersRow, error) {
+	rows, err := q.db.Query(ctx, getCategoryParameters, arg.ID, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetCategoryParametersRow
+	for rows.Next() {
+		var i GetCategoryParametersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.DisplayName,
+			&i.Unit,
+			&i.UnitSymbol,
+			&i.ValueType,
+			&i.MinNumeric,
+			&i.MaxNumeric,
+			&i.EnumValues,
 		); err != nil {
 			return nil, err
 		}
