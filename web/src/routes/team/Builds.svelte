@@ -53,6 +53,10 @@
     enabled: dialogOpen && !!selectedProjectId,
   }));
 
+  $effect(() => {
+    selectedRevisionId = revisionsQuery.data?.items.filter(item => item.is_active)[0]?.id ?? ""
+  })
+
   function openDialog() {
     step = 1;
     selectedProjectId = '';

@@ -38,7 +38,7 @@ WHERE shopping_cart_id = (SELECT id FROM shopping_carts WHERE team_id = $1);
 -- name: UpsertCartItem :one
 INSERT INTO cart_line_items (shopping_cart_id, part_id, quantity, listing_id, source, source_bom_line_item_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (shopping_cart_id, part_id)
+ON CONFLICT (shopping_cart_id, part_id, source)
 DO UPDATE SET
     quantity   = cart_line_items.quantity + EXCLUDED.quantity,
     listing_id = COALESCE(EXCLUDED.listing_id, cart_line_items.listing_id)
@@ -107,6 +107,26 @@ WHERE shopping_cart_id = $1 AND source = 'bom_shortfall';
 SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
 FROM inventory_entries ie
 WHERE ie.team_id = $1 AND ie.part_id = ANY($2::uuid[]);
+
+-- name: GetCartItemByID :one
+SELECT cli.id, cli.shopping_cart_id, cli.part_id, cli.quantity, cli.listing_id,
+       cli.source, cli.source_bom_line_item_id
+FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+WHERE cli.id = $1 AND sc.team_id = $2;
+
+-- name: UpsertManualCartItem :one
+INSERT INTO cart_line_items (shopping_cart_id, part_id, quantity, listing_id, source)
+VALUES ($1, $2, $3, $4, 'manual')
+ON CONFLICT (shopping_cart_id, part_id, source)
+DO UPDATE SET
+    quantity   = EXCLUDED.quantity,
+    listing_id = COALESCE(EXCLUDED.listing_id, cart_line_items.listing_id)
+RETURNING id, shopping_cart_id, part_id, quantity, listing_id, source, source_bom_line_item_id;
+
+-- name: DeleteManualCartItemForPart :exec
+DELETE FROM cart_line_items
+WHERE shopping_cart_id = $1 AND part_id = $2 AND source = 'manual';
 
 -- name: GetListingsForCartResolution :many
 SELECT

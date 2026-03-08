@@ -15,10 +15,24 @@
   } from '$lib/utils/cart.js';
   import type { CartItem } from '$lib/types/orders.js';
 
-  let { teamId, distributorGroups }: {
+  let { teamId, distributorGroups, companionPartIds }: {
     teamId: string;
     distributorGroups: Map<string, CartItem[]>;
+    companionPartIds: Set<string>;
   } = $props();
+
+  // Map of part_id → manual companion quantity (excess above demand floor).
+  const companionQtyByPartId = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const [, grpItems] of distributorGroups) {
+      for (const item of grpItems) {
+        if (item.source === 'manual' && companionPartIds.has(item.part_id)) {
+          m.set(item.part_id, (m.get(item.part_id) ?? 0) + item.quantity);
+        }
+      }
+    }
+    return m;
+  });
 
   const qc = useQueryClient();
   let expandedItemId = $state<string | null>(null);
@@ -31,7 +45,9 @@
   }
 
   function getQty(item: CartItem): string {
-    return qtyEdits[item.id] !== undefined ? qtyEdits[item.id] : String(item.quantity);
+    if (qtyEdits[item.id] !== undefined) return qtyEdits[item.id];
+    const companionQty = item.source !== 'manual' ? (companionQtyByPartId.get(item.part_id) ?? 0) : 0;
+    return String(item.quantity + companionQty);
   }
 
   function handleQtyInput(itemId: string, val: string) {
@@ -42,7 +58,9 @@
     const raw = qtyEdits[item.id];
     if (raw === undefined) return;
     const qty = parseInt(raw, 10);
-    if (isNaN(qty) || qty < 1 || qty === item.quantity) {
+    const companionQty = item.source !== 'manual' ? (companionQtyByPartId.get(item.part_id) ?? 0) : 0;
+    const combined = item.quantity + companionQty;
+    if (isNaN(qty) || qty < 1 || qty === combined) {
       const next = { ...qtyEdits };
       delete next[item.id];
       qtyEdits = next;
@@ -102,7 +120,7 @@
         </TableRow>
       </TableHeader>
       <TableBody>
-        {#each distItems as item (item.id)}
+        {#each distItems.filter(i => !(i.source === 'manual' && companionPartIds.has(i.part_id))) as item (item.id)}
           {@const moq = itemMoq(item)}
           {@const belowMoq = moq > 0 && item.quantity < moq}
           {@const demand = totalBuildDemand(item)}
@@ -148,6 +166,12 @@
                   {/if}
                   {#if orderQty > item.quantity}
                     <span class="text-emerald-600 dark:text-emerald-400">↑ {orderQty} (price break)</span>
+                  {/if}
+                  {#if companionPartIds.has(item.part_id)}
+                    {@const cqty = companionQtyByPartId.get(item.part_id) ?? 0}
+                    {#if cqty > 0}
+                      <span>+{cqty} manual</span>
+                    {/if}
                   {/if}
                 </div>
               </div>

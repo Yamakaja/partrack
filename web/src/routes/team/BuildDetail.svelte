@@ -316,29 +316,54 @@
         {#snippet badges()}
           <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
         {/snippet}
-        <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm sm:grid-cols-4">
-          <div>
-            <span class="text-muted-foreground">Revision:</span>
-            <span class="font-medium"> {build.bom_revision_label}</span>
+        <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-xs text-muted-foreground uppercase tracking-wide">Project</span>
+            <a
+              href="/teams/{teamId}/projects/{build.project_id}"
+              class="font-medium hover:underline"
+              onclick={(e) => { e.preventDefault(); navigate(`/teams/${teamId}/projects/${build.project_id}`); }}
+            >{build.project_name}</a>
           </div>
-          <div>
-            <span class="text-muted-foreground">Quantity:</span>
-            <span class="font-medium tabular-nums"> {build.quantity}</span>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-xs text-muted-foreground uppercase tracking-wide">Revision</span>
+            <span class="font-medium">{build.bom_revision_label}</span>
           </div>
-          <div>
-            <span class="text-muted-foreground">Created:</span>
-            <span class="font-medium"> <DateDisplay value={build.created_at} /></span>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-xs text-muted-foreground uppercase tracking-wide">Planned qty</span>
+            <span class="font-medium tabular-nums">{build.quantity}</span>
           </div>
+          {#if build.status === 'assembled'}
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs text-muted-foreground uppercase tracking-wide">Assembled qty</span>
+              <span class="font-medium tabular-nums {(build.assembled_quantity ?? build.quantity) < build.quantity ? 'text-yellow-600 dark:text-yellow-400' : ''}">
+                {build.assembled_quantity ?? build.quantity}
+                {#if (build.assembled_quantity ?? build.quantity) < build.quantity}
+                  <span class="text-xs text-muted-foreground">(of {build.quantity})</span>
+                {/if}
+              </span>
+            </div>
+          {/if}
+          <div class="flex flex-col gap-0.5">
+            <span class="text-xs text-muted-foreground uppercase tracking-wide">Created</span>
+            <span class="font-medium"><DateDisplay value={build.created_at} /></span>
+          </div>
+          {#if build.created_by_display_name}
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs text-muted-foreground uppercase tracking-wide">Created by</span>
+              <span class="font-medium">{build.created_by_display_name}</span>
+            </div>
+          {/if}
           {#if build.assembled_at}
-            <div>
-              <span class="text-muted-foreground">Assembled:</span>
-              <span class="font-medium"> <DateDisplay value={build.assembled_at} /></span>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs text-muted-foreground uppercase tracking-wide">Assembled</span>
+              <span class="font-medium"><DateDisplay value={build.assembled_at} /></span>
             </div>
           {/if}
           {#if build.assembled_by_display_name}
-            <div>
-              <span class="text-muted-foreground">Assembled by:</span>
-              <span class="font-medium"> {build.assembled_by_display_name}</span>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs text-muted-foreground uppercase tracking-wide">Assembled by</span>
+              <span class="font-medium">{build.assembled_by_display_name}</span>
             </div>
           {/if}
         </div>

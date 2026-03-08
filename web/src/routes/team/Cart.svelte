@@ -67,8 +67,23 @@
 
   // --- Derived ---
 
+  let items = $derived(cartQuery.data?.items ?? []);
+
+  // Part IDs that have at least one shortfall/maintenance item (the demand floor).
+  let nonManualPartIds = $derived(
+    new Set(items.filter(i => i.source !== 'manual').map(i => i.part_id))
+  );
+
+  // Part IDs where a manual item is a companion (excess) to a shortfall/maintenance item.
+  let companionPartIds = $derived(
+    new Set(
+      items
+        .filter(i => i.source === 'manual' && nonManualPartIds.has(i.part_id))
+        .map(i => i.part_id)
+    )
+  );
+
   let distributorGroups = $derived.by(() => {
-    const items = cartQuery.data?.items ?? [];
     const groups = new Map<string, CartItem[]>();
     for (const item of items) {
       const key = itemDistributor(item);
@@ -80,10 +95,10 @@
 
   let distributorTotals = $derived.by(() => {
     const result = new Map<string, { subtotal: string; fixed_order_cost: string; total: string }>();
-    for (const [dist, items] of distributorGroups) {
+    for (const [dist, distItems] of distributorGroups) {
       let subtotal = 0;
       let fixedCost = 0;
-      for (const item of items) {
+      for (const item of distItems) {
         const oq = effectiveOrderQty(item);
         subtotal += effectiveUnitPrice(item, oq) * oq;
         const fcStr = item.listing?.fixed_order_cost ?? '0';
@@ -101,7 +116,7 @@
 
   let buildOrderCosts = $derived.by(() => {
     const costs = new Map<string, number>();
-    for (const item of cartQuery.data?.items ?? []) {
+    for (const item of items) {
       const unitPrice = effectiveUnitPrice(item, effectiveOrderQty(item));
       if (!unitPrice) continue;
       for (const d of item.build_demands ?? []) {
@@ -116,9 +131,9 @@
     let parts = 0;
     let subtotal = 0;
     let total = 0;
-    for (const [dist, items] of distributorGroups) {
+    for (const [dist, distItems] of distributorGroups) {
       if (dist === 'Unassigned') continue;
-      positions += items.length;
+      positions += distItems.length;
       for (const item of items) parts += effectiveOrderQty(item);
       const t = distributorTotals.get(dist);
       if (t) {
@@ -129,8 +144,9 @@
     return { positions, parts, subtotal: subtotal.toFixed(2), total: total.toFixed(2) };
   });
 
+  // Standalone manual items only — companions are shown via the shortfall row in Order Details.
   let manualItems = $derived(
-    (cartQuery.data?.items ?? []).filter(i => i.source === 'manual')
+    items.filter(i => i.source === 'manual' && !companionPartIds.has(i.part_id))
   );
 
   let pendingBuilds = $derived(pendingBuildsQuery.data?.items ?? []);
@@ -217,7 +233,7 @@
 
         <section class="space-y-4">
           <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Order Details</h3>
-          <CartOrderDetailsSection {teamId} {distributorGroups} />
+          <CartOrderDetailsSection {teamId} {distributorGroups} {companionPartIds} />
         </section>
       {/if}
     {/if}

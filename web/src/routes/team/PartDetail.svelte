@@ -387,11 +387,7 @@
               onRowClick={(a) => navigate(`/teams/${teamId}/builds/${a.build_id}`)}
               renderers={{ build_status: renderAllocStatus }}
               emptyMessage="No active reservations"
-            >
-              {#snippet toolbarLeft()}
-                <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Reservations</h3>
-              {/snippet}
-            </DataTable>
+              title="Reservations" />
           </section>
         {/if}
 

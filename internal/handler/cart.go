@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -407,10 +408,11 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid quantity", "BAD_REQUEST")
 			return
 		}
-		_, err := h.Queries.UpdateCartItemQuantity(r.Context(), dbgen.UpdateCartItemQuantityParams{
-			ID:       itemID,
-			TeamID:   teamID,
-			Quantity: qty,
+
+		// Fetch the item to determine its source and enforce demand floor.
+		cartItem, err := h.Queries.GetCartItemByID(r.Context(), dbgen.GetCartItemByIDParams{
+			ID:     itemID,
+			TeamID: teamID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -419,6 +421,51 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 			}
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
+		}
+
+		switch cartItem.Source {
+		case dbgen.CartItemSourceBomShortfall, dbgen.CartItemSourceInventoryMaintenance:
+			// The stored quantity is the demand floor. Users may add manual excess on top.
+			floor := cartItem.Quantity
+			if qty < floor {
+				writeError(w, http.StatusBadRequest,
+					fmt.Sprintf("cannot order less than the required quantity of %d", floor),
+					"BELOW_DEMAND_FLOOR")
+				return
+			}
+			excess := qty - floor
+			if excess > 0 {
+				if _, err := h.Queries.UpsertManualCartItem(r.Context(), dbgen.UpsertManualCartItemParams{
+					ShoppingCartID: cartItem.ShoppingCartID,
+					PartID:         cartItem.PartID,
+					Quantity:       excess,
+					ListingID:      cartItem.ListingID,
+				}); err != nil {
+					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+					return
+				}
+			} else {
+				if err := h.Queries.DeleteManualCartItemForPart(r.Context(), dbgen.DeleteManualCartItemForPartParams{
+					ShoppingCartID: cartItem.ShoppingCartID,
+					PartID:         cartItem.PartID,
+				}); err != nil {
+					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+					return
+				}
+			}
+		default: // source = 'manual'
+			if _, err := h.Queries.UpdateCartItemQuantity(r.Context(), dbgen.UpdateCartItemQuantityParams{
+				ID:       itemID,
+				TeamID:   teamID,
+				Quantity: qty,
+			}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					writeError(w, http.StatusNotFound, "cart item not found", "NOT_FOUND")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
 		}
 		updated = true
 	}

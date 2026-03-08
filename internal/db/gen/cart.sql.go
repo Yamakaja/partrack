@@ -60,6 +60,49 @@ func (q *Queries) DeleteCartItem(ctx context.Context, arg DeleteCartItemParams) 
 	return err
 }
 
+const deleteManualCartItemForPart = `-- name: DeleteManualCartItemForPart :exec
+DELETE FROM cart_line_items
+WHERE shopping_cart_id = $1 AND part_id = $2 AND source = 'manual'
+`
+
+type DeleteManualCartItemForPartParams struct {
+	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
+	PartID         pgtype.UUID `json:"part_id"`
+}
+
+func (q *Queries) DeleteManualCartItemForPart(ctx context.Context, arg DeleteManualCartItemForPartParams) error {
+	_, err := q.db.Exec(ctx, deleteManualCartItemForPart, arg.ShoppingCartID, arg.PartID)
+	return err
+}
+
+const getCartItemByID = `-- name: GetCartItemByID :one
+SELECT cli.id, cli.shopping_cart_id, cli.part_id, cli.quantity, cli.listing_id,
+       cli.source, cli.source_bom_line_item_id
+FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+WHERE cli.id = $1 AND sc.team_id = $2
+`
+
+type GetCartItemByIDParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) GetCartItemByID(ctx context.Context, arg GetCartItemByIDParams) (CartLineItem, error) {
+	row := q.db.QueryRow(ctx, getCartItemByID, arg.ID, arg.TeamID)
+	var i CartLineItem
+	err := row.Scan(
+		&i.ID,
+		&i.ShoppingCartID,
+		&i.PartID,
+		&i.Quantity,
+		&i.ListingID,
+		&i.Source,
+		&i.SourceBomLineItemID,
+	)
+	return i, err
+}
+
 const getCartItems = `-- name: GetCartItems :many
 SELECT
     cli.id,
@@ -475,7 +518,7 @@ func (q *Queries) UpdateCartItemQuantity(ctx context.Context, arg UpdateCartItem
 const upsertCartItem = `-- name: UpsertCartItem :one
 INSERT INTO cart_line_items (shopping_cart_id, part_id, quantity, listing_id, source, source_bom_line_item_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (shopping_cart_id, part_id)
+ON CONFLICT (shopping_cart_id, part_id, source)
 DO UPDATE SET
     quantity   = cart_line_items.quantity + EXCLUDED.quantity,
     listing_id = COALESCE(EXCLUDED.listing_id, cart_line_items.listing_id)
@@ -499,6 +542,43 @@ func (q *Queries) UpsertCartItem(ctx context.Context, arg UpsertCartItemParams) 
 		arg.ListingID,
 		arg.Source,
 		arg.SourceBomLineItemID,
+	)
+	var i CartLineItem
+	err := row.Scan(
+		&i.ID,
+		&i.ShoppingCartID,
+		&i.PartID,
+		&i.Quantity,
+		&i.ListingID,
+		&i.Source,
+		&i.SourceBomLineItemID,
+	)
+	return i, err
+}
+
+const upsertManualCartItem = `-- name: UpsertManualCartItem :one
+INSERT INTO cart_line_items (shopping_cart_id, part_id, quantity, listing_id, source)
+VALUES ($1, $2, $3, $4, 'manual')
+ON CONFLICT (shopping_cart_id, part_id, source)
+DO UPDATE SET
+    quantity   = EXCLUDED.quantity,
+    listing_id = COALESCE(EXCLUDED.listing_id, cart_line_items.listing_id)
+RETURNING id, shopping_cart_id, part_id, quantity, listing_id, source, source_bom_line_item_id
+`
+
+type UpsertManualCartItemParams struct {
+	ShoppingCartID pgtype.UUID `json:"shopping_cart_id"`
+	PartID         pgtype.UUID `json:"part_id"`
+	Quantity       int32       `json:"quantity"`
+	ListingID      pgtype.UUID `json:"listing_id"`
+}
+
+func (q *Queries) UpsertManualCartItem(ctx context.Context, arg UpsertManualCartItemParams) (CartLineItem, error) {
+	row := q.db.QueryRow(ctx, upsertManualCartItem,
+		arg.ShoppingCartID,
+		arg.PartID,
+		arg.Quantity,
+		arg.ListingID,
 	)
 	var i CartLineItem
 	err := row.Scan(

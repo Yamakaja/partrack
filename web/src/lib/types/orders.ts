@@ -99,6 +99,7 @@ export interface Build {
   status: BuildStatus;
   created_at: string;
   created_by?: string;
+  created_by_display_name?: string;
   assembled_at?: string;
   assembled_by_display_name?: string;
   notes?: string;
