@@ -68,6 +68,7 @@ export interface DataTableProps<T> {
   detailPanel?: Snippet<[row: T]>;
   detailPanelOpen?: (row: T) => boolean;
   actions?: Snippet<[row: T]>;
+  title?: string;
   toolbarLeft?: Snippet;
   toolbarRight?: Snippet;
   compact?: boolean;

@@ -47,14 +47,14 @@ func orderResponse(o dbgen.GetOrderRow) map[string]any {
 
 func orderLineItemResponse(li dbgen.GetOrderLineItemsRow) map[string]any {
 	return map[string]any{
-		"id":                       li.ID.String(),
-		"listing_id":               li.ListingID.String(),
-		"part_mpn":                 li.PartMpn,
-		"sku":                      li.Sku,
-		"packaging_type":           li.PackagingType,
-		"quantity_ordered":         li.QuantityOrdered,
-		"quantity_received":        li.QuantityReceived,
-		"unit_price_snapshot":      numericString(li.UnitPriceSnapshot),
+		"id":                        li.ID.String(),
+		"listing_id":                li.ListingID.String(),
+		"part_mpn":                  li.PartMpn,
+		"sku":                       li.Sku,
+		"packaging_type":            li.PackagingType,
+		"quantity_ordered":          li.QuantityOrdered,
+		"quantity_received":         li.QuantityReceived,
+		"unit_price_snapshot":       numericString(li.UnitPriceSnapshot),
 		"fixed_order_cost_snapshot": numericString(li.FixedOrderCostSnapshot),
 	}
 }
@@ -72,7 +72,7 @@ func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("status"); s != "" {
 		statusFilter = dbgen.NullOrderStatus{
 			OrderStatus: dbgen.OrderStatus(s),
-			Valid:        true,
+			Valid:       true,
 		}
 	}
 
@@ -180,6 +180,7 @@ func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	for i, li := range lineItems {
 		items[i] = orderLineItemResponse(li)
 	}
+	resp["line_item_count"] = len(items)
 	resp["items"] = items
 
 	writeJSON(w, http.StatusOK, resp)
@@ -414,9 +415,9 @@ func (h *Handler) LinkOrderReference(w http.ResponseWriter, r *http.Request) {
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 
 	resp := map[string]any{
-		"id":                   row.ID.String(),
-		"status":               string(row.Status),
-		"external_reference":   row.ExternalReference,
+		"id":                 row.ID.String(),
+		"status":             string(row.Status),
+		"external_reference": row.ExternalReference,
 	}
 	if row.ExternalRefLinkedAt.Valid {
 		resp["external_ref_linked_at"] = row.ExternalRefLinkedAt.Time.UTC().Format(time.RFC3339)

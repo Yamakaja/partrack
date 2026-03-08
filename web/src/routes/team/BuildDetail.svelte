@@ -346,10 +346,6 @@
 
       <!-- Parts section -->
       <section class="space-y-2">
-        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          {build.status === 'assembled' ? 'Consumed Parts' : 'Required Parts'}
-        </h3>
-
         {#if build.status === 'assembled'}
           <!-- Deductions for assembled builds -->
           <DataTable
@@ -358,7 +354,9 @@
             renderers={{ part_mpn: renderMpn }}
             emptyMessage="No consumed parts recorded."
             onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.part_id}`);}}
-          />
+            title="Consumed Parts"
+          >
+        </DataTable>
 
         {:else if build.status === 'ordered' || build.status === 'ready'}
           <!-- Allocation table for ordered/ready builds -->
@@ -368,8 +366,9 @@
             renderers={{ part_mpn: renderMpn, _status: renderAllocStatus }}
             emptyMessage="No allocation data available."
             onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.part_id}`);}}
-
-          />
+            title="Ordered Parts"
+          >
+        </DataTable>
 
         {:else}
           <!-- Preview table for draft/pending builds -->
@@ -386,8 +385,9 @@
               renderers={{ resolved_part_mpn: renderPreviewMpn, sufficient: renderSufficient }}
               emptyMessage="No parts data."
               onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.resolved_part_id}`);}}
-
-            />
+              title="Required Parts"
+            >
+            </DataTable>
             {#if build.status === 'pending'}
               <p class="text-sm text-muted-foreground mt-1">
                 This build is pending fulfilment. Shortfalls will be covered via the shopping cart.

@@ -310,7 +310,7 @@
           </div>
           <div>
             <span class="text-muted-foreground">Items:</span>
-            <span class="font-medium tabular-nums"> {order.line_item_count}</span>
+            <span class="font-medium tabular-nums"> {order.items?.length ?? 0}</span>
           </div>
           {#if order.total_price != null}
             <div>

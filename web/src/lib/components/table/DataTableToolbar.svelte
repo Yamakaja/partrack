@@ -10,12 +10,14 @@
 
   let {
     source,
+    title,
     toolbarLeft,
     toolbarRight,
     showColumnPicker = false,
     exportFilename = 'export.csv',
   }: {
     source: DataSource<T>;
+    title?: string;
     toolbarLeft?: Snippet;
     toolbarRight?: Snippet;
     showColumnPicker?: boolean;
@@ -25,7 +27,7 @@
   const activeFilters = $derived([...source.filters.entries()].filter(([, v]) => v.size > 0));
   const hasColumnPicker = $derived(showColumnPicker && !!source.setColumnHidden);
   const hasContent = $derived(
-    !!toolbarLeft || !!toolbarRight || activeFilters.length > 0 || source.exportEnabled || hasColumnPicker,
+    !!title || !!toolbarLeft || !!toolbarRight || activeFilters.length > 0 || source.exportEnabled || hasColumnPicker,
   );
 
   function filterLabel(key: string, values: Set<string>): string {
@@ -64,6 +66,9 @@
 {#if hasContent}
   <div class="flex items-center justify-between gap-2 flex-wrap">
     <div class="flex items-center gap-2 flex-wrap">
+      {#if title}
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{title}</h3>
+      {/if}
       {#if toolbarLeft}
         {@render toolbarLeft()}
       {/if}

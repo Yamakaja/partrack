@@ -15,6 +15,7 @@
     detailPanel,
     detailPanelOpen,
     actions,
+    title,
     toolbarLeft,
     toolbarRight,
     compact = false,
@@ -27,7 +28,7 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  <DataTableToolbar {source} {toolbarLeft} {toolbarRight} {showColumnPicker} {exportFilename} />
+  <DataTableToolbar {source} {title} {toolbarLeft} {toolbarRight} {showColumnPicker} {exportFilename} />
 
   <Table>
     <DataTableHeader {source} {actions} {detailPanel} {stickyHeader} />
