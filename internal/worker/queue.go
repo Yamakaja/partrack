@@ -434,6 +434,8 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	projData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"]})
 	q.Publish(Event{Type: "project_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: projData})
+	revData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"], "revision_id": payload["bom_revision_id"]})
+	q.Publish(Event{Type: "revision_changed", TeamID: job.TeamID, Data: revData})
 }
 
 func (q *Queue) handlePartEnrich(job Job) {

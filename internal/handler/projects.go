@@ -190,6 +190,7 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "project_changed", teamID.String(), map[string]string{"project_id": p.ID.String()})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":                       p.ID.String(),
 		"name":                     p.Name,
@@ -442,6 +443,7 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		updatedCreatedAt = row.CreatedAt
 	}
 
+	h.publishEvent(r, "project_changed", teamID.String(), map[string]string{"project_id": updatedID.String()})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":                       updatedID.String(),
 		"name":                     updatedName,

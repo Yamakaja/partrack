@@ -1,11 +1,10 @@
 /**
  * SSE-driven cache invalidation.
  *
- * When another user mutates shared data the server publishes an entity-change
- * event over the team's SSE channel (the acting user's own channel is skipped
- * server-side, so we never receive our own events here).  This module
- * subscribes to those events and calls invalidateQueries so that every
- * connected browser stays up-to-date without manual refresh.
+ * When a user mutates shared data the server publishes an entity-change event
+ * over the team's SSE channel. This module subscribes to those events and
+ * calls invalidateQueries so that every connected browser stays up-to-date
+ * without manual refresh.
  */
 import type { QueryClient } from '@tanstack/svelte-query';
 import { subscribeSSEType } from '$lib/api/sse.js';
@@ -58,7 +57,10 @@ export function activateTeamInvalidation(teamId: string) {
     subscribeSSEType(teamId, 'project_changed', (ev) => {
       qc!.invalidateQueries({ queryKey: ['projects', teamId] });
       const projectId = ev.data.project_id as string | undefined;
-      if (projectId) qc!.invalidateQueries({ queryKey: ['project', teamId, projectId] });
+      if (projectId) {
+        qc!.invalidateQueries({ queryKey: ['project', teamId, projectId] });
+        qc!.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
+      }
     }),
 
     subscribeSSEType(teamId, 'build_changed', (ev) => {
@@ -66,6 +68,21 @@ export function activateTeamInvalidation(teamId: string) {
       qc!.invalidateQueries({ queryKey: ['dashboard', teamId] });
       const buildId = ev.data.build_id as string | undefined;
       if (buildId) qc!.invalidateQueries({ queryKey: ['build', buildId] });
+    }),
+
+    subscribeSSEType(teamId, 'revision_changed', (ev) => {
+      const projectId = ev.data.project_id as string | undefined;
+      const revisionId = ev.data.revision_id as string | undefined;
+      if (projectId) {
+        qc!.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
+        if (revisionId) {
+          qc!.invalidateQueries({ queryKey: ['revision', teamId, projectId, revisionId] });
+        }
+      }
+    }),
+
+    subscribeSSEType(teamId, 'checkout_changed', () => {
+      qc!.invalidateQueries({ queryKey: ['checkouts', teamId] });
     }),
   ];
 }

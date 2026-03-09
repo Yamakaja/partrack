@@ -364,7 +364,7 @@
     {teamId}
     jobId={modalJobId}
     onStartReview={async () => {
-      await qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+      await qc.refetchQueries({ queryKey: ['revision', teamId, projectId, revId] });
       showImportModal = false;
       startFullReview();
     }}

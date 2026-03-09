@@ -216,6 +216,8 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": rev.ID.String()})
+
 	jobID := h.Worker.Enqueue(worker.JobBOMImport, teamID.String(), map[string]string{
 		"bom_revision_id": rev.ID.String(),
 		"project_id":      projectID.String(),
@@ -337,6 +339,11 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 // UpdateRevision handles PATCH /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}
 // Body: {label?, notes?}
 func (h *Handler) UpdateRevision(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
 	var projectID pgtype.UUID
 	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
@@ -372,6 +379,7 @@ func (h *Handler) UpdateRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": row.ID.String()})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":          row.ID.String(),
 		"label":       row.Label,

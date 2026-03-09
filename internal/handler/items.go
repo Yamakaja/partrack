@@ -17,6 +17,16 @@ import (
 //
 //	{ignored?} — toggle ignore state on the item.
 func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var projectID pgtype.UUID
+	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
+		return
+	}
 	var revID pgtype.UUID
 	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
@@ -54,6 +64,7 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+		h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": revID.String()})
 		writeJSON(w, http.StatusOK, map[string]any{
 			"id":                    row.ID.String(),
 			"reference_designators": row.ReferenceDesignators,
@@ -94,6 +105,7 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": revID.String()})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":                    row.ID.String(),
 		"reference_designators": row.ReferenceDesignators,
@@ -108,6 +120,21 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 // AddSubstitute handles POST /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes
 // Body: {part_id}
 func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var projectID pgtype.UUID
+	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
+		return
+	}
+	var revID pgtype.UUID
+	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
 	var itemID pgtype.UUID
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
@@ -145,6 +172,7 @@ func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": revID.String()})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"bom_line_item_id": itemID.String(),
 		"part_id":          partID.String(),
@@ -188,6 +216,21 @@ func (h *Handler) ListSubstitutes(w http.ResponseWriter, r *http.Request) {
 
 // RemoveSubstitute handles DELETE /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}
 func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var projectID pgtype.UUID
+	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
+		return
+	}
+	var revID pgtype.UUID
+	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
 	var itemID pgtype.UUID
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
@@ -208,6 +251,7 @@ func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": revID.String()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -217,9 +261,13 @@ func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var teamID, revID, itemID pgtype.UUID
+	var teamID, projectID, revID, itemID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
 		return
 	}
 	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
@@ -350,6 +398,7 @@ func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": revID.String()})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"part_id":           resolvedPartID.String(),
 		"part_mpn":          resolvedMPN,

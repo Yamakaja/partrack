@@ -385,6 +385,9 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishEvent(r, "checkout_changed", teamID.String(), map[string]string{"checkout_id": checkout.ID.String()})
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{})
+
 	if reservationWarnings == nil {
 		reservationWarnings = []reservationWarning{}
 	}
