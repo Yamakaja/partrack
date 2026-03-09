@@ -1,0 +1,364 @@
+{
+  "SearchLocaleUsed": {
+    "Site": "DE",
+    "Language": "en",
+    "Currency": "EUR"
+  },
+  "Product": {
+    "Description": {
+      "ProductDescription": "XTAL OSC XO 25.0000MHZ CMOS SMD",
+      "DetailedDescription": "25 MHz XO (Standard) CMOS Oscillator 3.3V Enable/Disable 4-SMD, No Lead"
+    },
+    "Manufacturer": {
+      "Id": 535,
+      "Name": "Abracon LLC"
+    },
+    "ManufacturerProductNumber": "ASE-25.000MHZ-L-C-T",
+    "UnitPrice": 0.84,
+    "ProductUrl": "https://www.digikey.de/en/products/detail/abracon-llc/ASE-25-000MHZ-L-C-T/1236885",
+    "DatasheetUrl": "https://abracon.com/Oscillators/ASEseries.pdf",
+    "PhotoUrl": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/8893/MFG_535%7E4SMD-1.2-3.2X2.5%7E%7E4.jpg",
+    "ProductVariations": [
+      {
+        "DigiKeyProductNumber": "535-ASE-25.000MHZ-L-C-TTR-ND",
+        "PackageType": {
+          "Id": 1,
+          "Name": "Tape & Reel (TR)"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1000,
+            "UnitPrice": 0.54613,
+            "TotalPrice": 546.13000
+          },
+          {
+            "BreakQuantity": 2000,
+            "UnitPrice": 0.52356,
+            "TotalPrice": 1047.12000
+          },
+          {
+            "BreakQuantity": 3000,
+            "UnitPrice": 0.5108,
+            "TotalPrice": 1532.4000
+          },
+          {
+            "BreakQuantity": 5000,
+            "UnitPrice": 0.50573,
+            "TotalPrice": 2528.65000
+          },
+          {
+            "BreakQuantity": 7000,
+            "UnitPrice": 0.46951,
+            "TotalPrice": 3286.57000
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": false,
+        "Supplier": {
+          "Id": 535,
+          "Name": "Abracon LLC"
+        },
+        "QuantityAvailableforPackageType": 27000,
+        "MaxQuantityForDistribution": 0,
+        "MinimumOrderQuantity": 1000,
+        "StandardPackage": 0,
+        "DigiReelFee": 0.0
+      },
+      {
+        "DigiKeyProductNumber": "535-ASE-25.000MHZ-L-C-TCT-ND",
+        "PackageType": {
+          "Id": 2,
+          "Name": "Cut Tape (CT)"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1,
+            "UnitPrice": 0.84,
+            "TotalPrice": 0.84
+          },
+          {
+            "BreakQuantity": 10,
+            "UnitPrice": 0.723,
+            "TotalPrice": 7.230
+          },
+          {
+            "BreakQuantity": 25,
+            "UnitPrice": 0.6836,
+            "TotalPrice": 17.0900
+          },
+          {
+            "BreakQuantity": 50,
+            "UnitPrice": 0.6556,
+            "TotalPrice": 32.7800
+          },
+          {
+            "BreakQuantity": 100,
+            "UnitPrice": 0.6284,
+            "TotalPrice": 62.8400
+          },
+          {
+            "BreakQuantity": 250,
+            "UnitPrice": 0.59428,
+            "TotalPrice": 148.57000
+          },
+          {
+            "BreakQuantity": 500,
+            "UnitPrice": 0.5697,
+            "TotalPrice": 284.8500
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": false,
+        "Supplier": {
+          "Id": 535,
+          "Name": "Abracon LLC"
+        },
+        "QuantityAvailableforPackageType": 27473,
+        "MaxQuantityForDistribution": 0,
+        "MinimumOrderQuantity": 1,
+        "StandardPackage": 0,
+        "DigiReelFee": 0.0
+      },
+      {
+        "DigiKeyProductNumber": "535-ASE-25.000MHZ-L-C-TDKR-ND",
+        "PackageType": {
+          "Id": 243,
+          "Name": "Digi-Reel®"
+        },
+        "StandardPricing": [
+          {
+            "BreakQuantity": 1,
+            "UnitPrice": 0.84,
+            "TotalPrice": 0.84
+          },
+          {
+            "BreakQuantity": 10,
+            "UnitPrice": 0.723,
+            "TotalPrice": 7.230
+          },
+          {
+            "BreakQuantity": 25,
+            "UnitPrice": 0.6836,
+            "TotalPrice": 17.0900
+          },
+          {
+            "BreakQuantity": 50,
+            "UnitPrice": 0.6556,
+            "TotalPrice": 32.7800
+          },
+          {
+            "BreakQuantity": 100,
+            "UnitPrice": 0.6284,
+            "TotalPrice": 62.8400
+          },
+          {
+            "BreakQuantity": 250,
+            "UnitPrice": 0.59428,
+            "TotalPrice": 148.57000
+          },
+          {
+            "BreakQuantity": 500,
+            "UnitPrice": 0.5697,
+            "TotalPrice": 284.8500
+          }
+        ],
+        "MyPricing": [],
+        "MarketPlace": false,
+        "TariffActive": false,
+        "Supplier": {
+          "Id": 535,
+          "Name": "Abracon LLC"
+        },
+        "QuantityAvailableforPackageType": 27473,
+        "MaxQuantityForDistribution": 999999999,
+        "MinimumOrderQuantity": 1,
+        "StandardPackage": 1,
+        "DigiReelFee": 5.5
+      }
+    ],
+    "QuantityAvailable": 27473,
+    "ProductStatus": {
+      "Id": 0,
+      "Status": "Active"
+    },
+    "BackOrderNotAllowed": false,
+    "NormallyStocking": true,
+    "Discontinued": false,
+    "EndOfLife": false,
+    "Ncnr": false,
+    "PrimaryVideoUrl": "https://www.digikey.com/api/videos/videoplayer/smallplayer/6199253411001",
+    "Parameters": [
+      {
+        "ParameterId": 2338,
+        "ParameterText": "Base Resonator",
+        "ParameterType": "String",
+        "ValueId": "335090",
+        "ValueText": "Crystal"
+      },
+      {
+        "ParameterId": 183,
+        "ParameterText": "Type",
+        "ParameterType": "String",
+        "ValueId": "422799",
+        "ValueText": "XO (Standard)"
+      },
+      {
+        "ParameterId": 2150,
+        "ParameterText": "Frequency",
+        "ParameterType": "UnitOfMeasure",
+        "ValueId": "25 MHz",
+        "ValueText": "25 MHz"
+      },
+      {
+        "ParameterId": 110,
+        "ParameterText": "Function",
+        "ParameterType": "String",
+        "ValueId": "344200",
+        "ValueText": "Enable/Disable"
+      },
+      {
+        "ParameterId": 71,
+        "ParameterText": "Output",
+        "ParameterType": "String",
+        "ValueId": "331587",
+        "ValueText": "CMOS"
+      },
+      {
+        "ParameterId": 276,
+        "ParameterText": "Voltage - Supply",
+        "ParameterType": "String",
+        "ValueId": "174115",
+        "ValueText": "3.3V"
+      },
+      {
+        "ParameterId": 253,
+        "ParameterText": "Frequency Stability",
+        "ParameterType": "String",
+        "ValueId": "2614",
+        "ValueText": "±50ppm"
+      },
+      {
+        "ParameterId": 2092,
+        "ParameterText": "Absolute Pull Range (APR)",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 252,
+        "ParameterText": "Operating Temperature",
+        "ParameterType": "String",
+        "ValueId": "212617",
+        "ValueText": "-40°C ~ 85°C"
+      },
+      {
+        "ParameterId": 1121,
+        "ParameterText": "Current - Supply (Max)",
+        "ParameterType": "String",
+        "ValueId": "92291",
+        "ValueText": "13mA"
+      },
+      {
+        "ParameterId": 707,
+        "ParameterText": "Ratings",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 69,
+        "ParameterText": "Mounting Type",
+        "ParameterType": "String",
+        "ValueId": "409393",
+        "ValueText": "Surface Mount"
+      },
+      {
+        "ParameterId": 16,
+        "ParameterText": "Package / Case",
+        "ParameterType": "String",
+        "ValueId": "228342",
+        "ValueText": "4-SMD, No Lead"
+      },
+      {
+        "ParameterId": 1291,
+        "ParameterText": "Supplier Device Package",
+        "ParameterType": "String",
+        "ValueId": "838541",
+        "ValueText": "4-SMD (3.2x2.5)"
+      },
+      {
+        "ParameterId": 46,
+        "ParameterText": "Size / Dimension",
+        "ParameterType": "String",
+        "ValueId": "10964",
+        "ValueText": "0.126\" L x 0.098\" W (3.20mm x 2.50mm)"
+      },
+      {
+        "ParameterId": 1500,
+        "ParameterText": "Height - Seated (Max)",
+        "ParameterType": "String",
+        "ValueId": "6754",
+        "ValueText": "0.047\" (1.20mm)"
+      }
+    ],
+    "BaseProductNumber": null,
+    "Category": {
+      "CategoryId": 12,
+      "ParentId": 0,
+      "Name": "Crystals, Oscillators, Resonators",
+      "ProductCount": 0,
+      "NewProductCount": 0,
+      "ImageUrl": "https://www.digikey.de//mm.digikey.com/Volume0/opasdata/d220001/derivates/3/200/140/638/4-SMD_2.0x1.6_tmb.jpg",
+      "SeoDescription": "Crystal, oscillator, and resonator products are devices used as sources or references for frequency generation and time measurement. Based in most cases on the physical vibration of some mechanical structure that vibrates at a known frequency, they are further classified along lines of their specific implementation and the degree to which additional supporting functions are incorporated, enabling convenience of use or higher attainable degrees of precision and/or accuracy.",
+      "ChildCategories": [
+        {
+          "CategoryId": 172,
+          "ParentId": 12,
+          "Name": "Oscillators",
+          "ProductCount": 0,
+          "NewProductCount": 0,
+          "ImageUrl": "https://www.digikey.de//mm.digikey.com/Volume0/opasdata/d220001/derivates/3/002/141/713/MFG_4606_O1_tmb.jpg",
+          "SeoDescription": "Oscillator products are used as frequency/time reference sources, distinguished from crystal products often used for similar purposes by their integration of additional functions for maintenance and stabilization of the resulting output. In minimal form, they consist of a crystal or other resonant element plus functions needed to allow a user to obtain a frequency reference without extensive attention to the operation of the resonant element. More advanced devices integrate temperature compensation or control functions in order to obtain a more stable reference or one capable of selective adjustment.",
+          "ChildCategories": []
+        }
+      ]
+    },
+    "DateLastBuyChance": null,
+    "ManufacturerLeadWeeks": "10",
+    "ManufacturerPublicQuantity": 0,
+    "Series": {
+      "Id": 8250,
+      "Name": "ASE"
+    },
+    "ShippingInfo": null,
+    "Classifications": {
+      "ReachStatus": "REACH Unaffected",
+      "RohsStatus": "ROHS3 Compliant",
+      "MoistureSensitivityLevel": "1  (Unlimited)",
+      "ExportControlClassNumber": "EAR99",
+      "HtsusCode": "8542.39.0090"
+    },
+    "OtherNames": [
+      "535-9568-2-NDL",
+      "535-9568-6",
+      "535-9568-2",
+      "535-9568-1",
+      "ASE-25.000MHZ-LC-T",
+      "535-ASE-25.000MHZ-L-C-TCT",
+      "535-ASE-25.000MHZ-L-C-TTR-ND",
+      "ASE25000MHZLCT",
+      "535-9568-6-ND",
+      "Q4736343A",
+      "ASE-25.000MHZ-L-C-T",
+      "535-ASE-25.000MHZ-L-C-TDKR",
+      "535-9568-2-ND",
+      "535-9568-1-ND",
+      "535-ASE-25.000MHZ-L-C-TTR",
+      "6196-ASE-25.000MHZ-L-C-T"
+    ]
+  },
+  "AccountIdUsed": 0,
+  "CustomerIdUsed": 0
+}
