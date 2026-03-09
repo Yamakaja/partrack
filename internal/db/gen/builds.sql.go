@@ -49,17 +49,24 @@ const countBuilds = `-- name: CountBuilds :one
 SELECT COUNT(*) FROM builds
 WHERE team_id = $1
   AND ($2::uuid IS NULL OR project_id = $2)
-  AND ($3::text IS NULL OR status = $3)
+  AND (array_length($3::text[], 1) IS NULL OR status = ANY($3::text[]))
+  AND ($4::uuid IS NULL OR created_by = $4)
 `
 
 type CountBuildsParams struct {
-	TeamID    pgtype.UUID `json:"team_id"`
-	ProjectID pgtype.UUID `json:"project_id"`
-	Status    *string     `json:"status"`
+	TeamID          pgtype.UUID `json:"team_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+	Statuses        []string    `json:"statuses"`
+	CreatedByFilter pgtype.UUID `json:"created_by_filter"`
 }
 
 func (q *Queries) CountBuilds(ctx context.Context, arg CountBuildsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countBuilds, arg.TeamID, arg.ProjectID, arg.Status)
+	row := q.db.QueryRow(ctx, countBuilds,
+		arg.TeamID,
+		arg.ProjectID,
+		arg.Statuses,
+		arg.CreatedByFilter,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -498,11 +505,12 @@ func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UU
 }
 
 const getBuildPipeline = `-- name: GetBuildPipeline :many
-SELECT b.id, b.status, b.quantity,
-       b.created_at, b.notes,
+SELECT b.id, b.project_id, b.status, b.quantity,
+       b.created_at, b.notes, b.created_by, b.excluded_from_cart,
+       b.bom_revision_id,
        pr.name AS project_name,
-       br.label AS revision_label,
-       u.display_name AS created_by_name
+       br.label AS bom_revision_label,
+       u.display_name AS created_by_display_name
 FROM builds b
 JOIN projects pr ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
@@ -513,14 +521,18 @@ ORDER BY b.created_at DESC
 `
 
 type GetBuildPipelineRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	Status        string             `json:"status"`
-	Quantity      int32              `json:"quantity"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	Notes         *string            `json:"notes"`
-	ProjectName   string             `json:"project_name"`
-	RevisionLabel string             `json:"revision_label"`
-	CreatedByName *string            `json:"created_by_name"`
+	ID                   pgtype.UUID        `json:"id"`
+	ProjectID            pgtype.UUID        `json:"project_id"`
+	Status               string             `json:"status"`
+	Quantity             int32              `json:"quantity"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	Notes                *string            `json:"notes"`
+	CreatedBy            pgtype.UUID        `json:"created_by"`
+	ExcludedFromCart     bool               `json:"excluded_from_cart"`
+	BomRevisionID        pgtype.UUID        `json:"bom_revision_id"`
+	ProjectName          string             `json:"project_name"`
+	BomRevisionLabel     string             `json:"bom_revision_label"`
+	CreatedByDisplayName *string            `json:"created_by_display_name"`
 }
 
 func (q *Queries) GetBuildPipeline(ctx context.Context, teamID pgtype.UUID) ([]GetBuildPipelineRow, error) {
@@ -534,13 +546,17 @@ func (q *Queries) GetBuildPipeline(ctx context.Context, teamID pgtype.UUID) ([]G
 		var i GetBuildPipelineRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.ProjectID,
 			&i.Status,
 			&i.Quantity,
 			&i.CreatedAt,
 			&i.Notes,
+			&i.CreatedBy,
+			&i.ExcludedFromCart,
+			&i.BomRevisionID,
 			&i.ProjectName,
-			&i.RevisionLabel,
-			&i.CreatedByName,
+			&i.BomRevisionLabel,
+			&i.CreatedByDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -815,25 +831,42 @@ SELECT
     b.id, b.project_id, pr.name AS project_name,
     b.bom_revision_id, br.label AS bom_revision_label,
     b.quantity, b.status,
-    b.assembled_at, b.created_at, b.notes,
-    u.display_name AS assembled_by_display_name
+    b.assembled_at, b.created_at, b.notes, b.created_by,
+    u_assembled.display_name AS assembled_by_display_name,
+    u_created.display_name   AS created_by_display_name
 FROM builds b
 JOIN projects pr ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
-LEFT JOIN users u ON u.id = b.assembled_by
+LEFT JOIN users u_assembled ON u_assembled.id = b.assembled_by
+LEFT JOIN users u_created   ON u_created.id   = b.created_by
 WHERE b.team_id = $1
   AND ($2::uuid IS NULL OR b.project_id = $2)
-  AND ($3::text IS NULL OR b.status = $3)
-ORDER BY b.created_at DESC
-LIMIT $5 OFFSET $4
+  AND (array_length($3::text[], 1) IS NULL OR b.status = ANY($3::text[]))
+  AND ($4::uuid IS NULL OR b.created_by = $4)
+ORDER BY
+  CASE WHEN $5::text = 'project_name'       AND $6::text = 'asc'  THEN pr.name       END ASC  NULLS LAST,
+  CASE WHEN $5::text = 'project_name'       AND $6::text = 'desc' THEN pr.name       END DESC NULLS LAST,
+  CASE WHEN $5::text = 'bom_revision_label' AND $6::text = 'asc'  THEN br.label      END ASC  NULLS LAST,
+  CASE WHEN $5::text = 'bom_revision_label' AND $6::text = 'desc' THEN br.label      END DESC NULLS LAST,
+  CASE WHEN $5::text = 'status'             AND $6::text = 'asc'  THEN b.status      END ASC  NULLS LAST,
+  CASE WHEN $5::text = 'status'             AND $6::text = 'desc' THEN b.status      END DESC NULLS LAST,
+  CASE WHEN $5::text = 'quantity'           AND $6::text = 'asc'  THEN b.quantity    END ASC  NULLS LAST,
+  CASE WHEN $5::text = 'quantity'           AND $6::text = 'desc' THEN b.quantity    END DESC NULLS LAST,
+  CASE WHEN $5::text = 'created_at'         AND $6::text = 'asc'  THEN b.created_at  END ASC  NULLS LAST,
+  CASE WHEN $5::text = 'created_at'         AND $6::text = 'desc' THEN b.created_at  END DESC NULLS LAST,
+  b.created_at DESC
+LIMIT $8 OFFSET $7
 `
 
 type ListBuildsParams struct {
-	TeamID    pgtype.UUID `json:"team_id"`
-	ProjectID pgtype.UUID `json:"project_id"`
-	Status    *string     `json:"status"`
-	Offset    int32       `json:"offset"`
-	Limit     int32       `json:"limit"`
+	TeamID          pgtype.UUID `json:"team_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+	Statuses        []string    `json:"statuses"`
+	CreatedByFilter pgtype.UUID `json:"created_by_filter"`
+	SortBy          *string     `json:"sort_by"`
+	SortDir         *string     `json:"sort_dir"`
+	Offset          int32       `json:"offset"`
+	Limit           int32       `json:"limit"`
 }
 
 type ListBuildsRow struct {
@@ -847,14 +880,19 @@ type ListBuildsRow struct {
 	AssembledAt            pgtype.Timestamptz `json:"assembled_at"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	Notes                  *string            `json:"notes"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
 	AssembledByDisplayName *string            `json:"assembled_by_display_name"`
+	CreatedByDisplayName   *string            `json:"created_by_display_name"`
 }
 
 func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListBuildsRow, error) {
 	rows, err := q.db.Query(ctx, listBuilds,
 		arg.TeamID,
 		arg.ProjectID,
-		arg.Status,
+		arg.Statuses,
+		arg.CreatedByFilter,
+		arg.SortBy,
+		arg.SortDir,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -876,7 +914,9 @@ func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListB
 			&i.AssembledAt,
 			&i.CreatedAt,
 			&i.Notes,
+			&i.CreatedBy,
 			&i.AssembledByDisplayName,
+			&i.CreatedByDisplayName,
 		); err != nil {
 			return nil, err
 		}

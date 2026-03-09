@@ -16,9 +16,22 @@ export interface BuildPreviewItem {
 
 export function listBuilds(
   teamId: string,
-  params: { status?: string; project_id?: string; limit?: number; offset?: number } = {},
+  params: {
+    status?: string | string[];
+    project_id?: string;
+    created_by?: string;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+  } = {},
 ) {
-  return request<PaginatedResponse<Build>>('GET', `/api/v1/teams/${teamId}/builds?${qs(params)}`);
+  const { status, ...rest } = params;
+  const statuses = status === undefined ? [] : Array.isArray(status) ? status : [status];
+  const statusParams = statuses.map((s) => `status=${encodeURIComponent(s)}`).join('&');
+  const base = qs(rest);
+  const query = [base, statusParams].filter(Boolean).join('&');
+  return request<PaginatedResponse<Build>>('GET', `/api/v1/teams/${teamId}/builds?${query}`);
 }
 
 export function getBuild(teamId: string, buildId: string) {
@@ -74,6 +87,15 @@ export function toggleBuildCartInclusion(teamId: string, buildId: string, exclud
     `/api/v1/teams/${teamId}/builds/${buildId}/cart-inclusion`,
     { excluded },
   );
+}
+
+export function getBuildPipeline(teamId: string) {
+  return request<{
+    draft: Build[];
+    pending: Build[];
+    ordered: Build[];
+    ready: Build[];
+  }>('GET', `/api/v1/teams/${teamId}/builds/pipeline`);
 }
 
 export function previewBuild(

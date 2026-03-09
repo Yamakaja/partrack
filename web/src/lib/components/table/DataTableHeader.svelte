@@ -13,11 +13,13 @@
     actions,
     detailPanel,
     stickyHeader = true,
+    headerFilters,
   }: {
     source: DataSource<T>;
     actions?: Snippet<[row: T]>;
     detailPanel?: Snippet<[row: T]>;
     stickyHeader?: boolean;
+    headerFilters?: Record<string, Snippet>;
   } = $props();
 
   const visibleColumns = $derived(
@@ -118,7 +120,9 @@
             <span>{col.header}</span>
           {/if}
 
-          {#if col.filterable && col.type === 'date'}
+          {#if headerFilters?.[col.key]}
+            {@render headerFilters[col.key]()}
+          {:else if col.filterable && col.type === 'date'}
             <DateRangeFilterPopover
               columnLabel={col.header}
               isFiltered={isFiltered(col.key)}

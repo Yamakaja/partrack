@@ -123,6 +123,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// 14. Builds
 					r.Get("/builds", h.ListBuilds)
+					r.Get("/builds/pipeline", h.GetBuildPipeline)
 					r.Get("/builds/{buildId}", h.GetBuild)
 
 					// Part allocations

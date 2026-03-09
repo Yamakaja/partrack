@@ -65,6 +65,8 @@ export interface DataTableProps<T> {
   getRowKey: (row: T) => string;
   /** Per-column custom renderers, keyed by ColumnSpec.key. Takes priority over col.render. */
   renderers?: Record<string, Snippet<[value: unknown, row: T]>>;
+  /** Per-column custom header filter components, keyed by ColumnSpec.key. Replaces built-in filter UI. */
+  headerFilters?: Record<string, Snippet>;
   detailPanel?: Snippet<[row: T]>;
   detailPanelOpen?: (row: T) => boolean;
   actions?: Snippet<[row: T]>;

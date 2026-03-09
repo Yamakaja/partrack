@@ -3,23 +3,38 @@ SELECT
     b.id, b.project_id, pr.name AS project_name,
     b.bom_revision_id, br.label AS bom_revision_label,
     b.quantity, b.status,
-    b.assembled_at, b.created_at, b.notes,
-    u.display_name AS assembled_by_display_name
+    b.assembled_at, b.created_at, b.notes, b.created_by,
+    u_assembled.display_name AS assembled_by_display_name,
+    u_created.display_name   AS created_by_display_name
 FROM builds b
 JOIN projects pr ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
-LEFT JOIN users u ON u.id = b.assembled_by
+LEFT JOIN users u_assembled ON u_assembled.id = b.assembled_by
+LEFT JOIN users u_created   ON u_created.id   = b.created_by
 WHERE b.team_id = @team_id
   AND (sqlc.narg('project_id')::uuid IS NULL OR b.project_id = sqlc.narg('project_id'))
-  AND (sqlc.narg('status')::text IS NULL OR b.status = sqlc.narg('status'))
-ORDER BY b.created_at DESC
+  AND (array_length(sqlc.slice('statuses')::text[], 1) IS NULL OR b.status = ANY(sqlc.slice('statuses')::text[]))
+  AND (sqlc.narg('created_by_filter')::uuid IS NULL OR b.created_by = sqlc.narg('created_by_filter'))
+ORDER BY
+  CASE WHEN sqlc.narg('sort_by')::text = 'project_name'       AND sqlc.narg('sort_dir')::text = 'asc'  THEN pr.name       END ASC  NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'project_name'       AND sqlc.narg('sort_dir')::text = 'desc' THEN pr.name       END DESC NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'bom_revision_label' AND sqlc.narg('sort_dir')::text = 'asc'  THEN br.label      END ASC  NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'bom_revision_label' AND sqlc.narg('sort_dir')::text = 'desc' THEN br.label      END DESC NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'status'             AND sqlc.narg('sort_dir')::text = 'asc'  THEN b.status      END ASC  NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'status'             AND sqlc.narg('sort_dir')::text = 'desc' THEN b.status      END DESC NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'quantity'           AND sqlc.narg('sort_dir')::text = 'asc'  THEN b.quantity    END ASC  NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'quantity'           AND sqlc.narg('sort_dir')::text = 'desc' THEN b.quantity    END DESC NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'created_at'         AND sqlc.narg('sort_dir')::text = 'asc'  THEN b.created_at  END ASC  NULLS LAST,
+  CASE WHEN sqlc.narg('sort_by')::text = 'created_at'         AND sqlc.narg('sort_dir')::text = 'desc' THEN b.created_at  END DESC NULLS LAST,
+  b.created_at DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountBuilds :one
 SELECT COUNT(*) FROM builds
 WHERE team_id = @team_id
   AND (sqlc.narg('project_id')::uuid IS NULL OR project_id = sqlc.narg('project_id'))
-  AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'));
+  AND (array_length(sqlc.slice('statuses')::text[], 1) IS NULL OR status = ANY(sqlc.slice('statuses')::text[]))
+  AND (sqlc.narg('created_by_filter')::uuid IS NULL OR created_by = sqlc.narg('created_by_filter'));
 
 -- name: CreateBuildPlan :one
 INSERT INTO builds (team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by)
@@ -209,11 +224,12 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, build_id;
 
 -- name: GetBuildPipeline :many
-SELECT b.id, b.status, b.quantity,
-       b.created_at, b.notes,
+SELECT b.id, b.project_id, b.status, b.quantity,
+       b.created_at, b.notes, b.created_by, b.excluded_from_cart,
+       b.bom_revision_id,
        pr.name AS project_name,
-       br.label AS revision_label,
-       u.display_name AS created_by_name
+       br.label AS bom_revision_label,
+       u.display_name AS created_by_display_name
 FROM builds b
 JOIN projects pr ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id

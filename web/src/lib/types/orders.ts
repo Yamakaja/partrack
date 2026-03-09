@@ -104,7 +104,7 @@ export interface Build {
   assembled_quantity?: number;
   status: BuildStatus;
   created_at: string;
-  created_by?: string;
+  created_by: string;
   created_by_display_name?: string;
   assembled_at?: string;
   assembled_by_display_name?: string;

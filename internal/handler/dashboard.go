@@ -51,12 +51,11 @@ type dashboardActivityItem struct {
 }
 
 type dashboardBuildEntry struct {
-	ID            string  `json:"id"`
-	ProjectName   string  `json:"project_name"`
-	RevisionLabel string  `json:"revision_label"`
-	Quantity      int32   `json:"quantity"`
-	CreatedAt     string  `json:"created_at"`
-	CreatedByName *string `json:"created_by_name"`
+	ID               string `json:"id"`
+	ProjectName      string `json:"project_name"`
+	BomRevisionLabel string `json:"bom_revision_label"`
+	Quantity         int32  `json:"quantity"`
+	CreatedAt        string `json:"created_at"`
 }
 
 type dashboardBuildPipeline struct {
@@ -167,12 +166,11 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, row := range pipelineRows {
 		entry := dashboardBuildEntry{
-			ID:            row.ID.String(),
-			ProjectName:   row.ProjectName,
-			RevisionLabel: row.RevisionLabel,
-			Quantity:      row.Quantity,
-			CreatedAt:     row.CreatedAt.Time.UTC().Format(time.RFC3339),
-			CreatedByName: row.CreatedByName,
+			ID:               row.ID.String(),
+			ProjectName:      row.ProjectName,
+			BomRevisionLabel: row.BomRevisionLabel,
+			Quantity:         row.Quantity,
+			CreatedAt:        row.CreatedAt.Time.UTC().Format(time.RFC3339),
 		}
 		if _, ok := pipelineStages[row.Status]; ok {
 			pipelineStages[row.Status] = append(pipelineStages[row.Status], entry)

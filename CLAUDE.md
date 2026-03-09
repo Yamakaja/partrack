@@ -93,7 +93,7 @@ Read these in order when onboarding to the project:
 | [userstory.md](userstory.md) | User stories organised into 6 epics. Defines what the system must do. |
 | [datamodel.md](datamodel.md) | Conceptual data model — entities, relationships, and design decisions. Start here before touching any schema or data layer. |
 | [architecture.md](architecture.md) | Living architecture document. Updated as design sessions progress. |
-| [api.md](api.md) | Full REST API endpoint reference — methods, paths, roles, request/response shapes. |
+| [api.md](api.md) | Full REST API endpoint reference — methods, paths, roles, request/response shapes. Please update the API to implement your changes in the most efficient way, we are not trying to keep the API stable right now |
 
 ## What partrack Does
 

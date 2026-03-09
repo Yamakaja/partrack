@@ -90,8 +90,14 @@ func (h *Handler) computeDeductions(
 	return result, nil
 }
 
+// validSortColumns lists the allowed sort_by values for ListBuilds.
+var validBuildSortColumns = map[string]bool{
+	"project_name": true, "bom_revision_label": true,
+	"status": true, "quantity": true, "created_at": true,
+}
+
 // ListBuilds handles GET /api/v1/teams/{teamId}/builds
-// Query: project_id?, status?, limit, offset
+// Query: project_id?, status? (repeatable), created_by?, sort_by?, sort_dir?, limit, offset
 func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -107,17 +113,33 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var status *string
-	if s := r.URL.Query().Get("status"); s != "" {
-		status = &s
+	statuses := r.URL.Query()["status"]
+
+	var createdByFilter pgtype.UUID
+	if s := r.URL.Query().Get("created_by"); s != "" {
+		if err := createdByFilter.Scan(s); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid created_by", "BAD_REQUEST")
+			return
+		}
+	}
+
+	var sortBy, sortDir *string
+	if s := r.URL.Query().Get("sort_by"); s != "" && validBuildSortColumns[s] {
+		sortBy = &s
+		dir := r.URL.Query().Get("sort_dir")
+		if dir != "desc" {
+			dir = "asc"
+		}
+		sortDir = &dir
 	}
 
 	limit, offset := parsePaginationParams(r)
 
 	total, err := h.Queries.CountBuilds(r.Context(), dbgen.CountBuildsParams{
-		TeamID:    teamID,
-		ProjectID: projectID,
-		Status:    status,
+		TeamID:          teamID,
+		ProjectID:       projectID,
+		Statuses:        statuses,
+		CreatedByFilter: createdByFilter,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -125,11 +147,14 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.Queries.ListBuilds(r.Context(), dbgen.ListBuildsParams{
-		TeamID:    teamID,
-		ProjectID: projectID,
-		Status:    status,
-		Limit:     limit,
-		Offset:    offset,
+		TeamID:          teamID,
+		ProjectID:       projectID,
+		Statuses:        statuses,
+		CreatedByFilter: createdByFilter,
+		SortBy:          sortBy,
+		SortDir:         sortDir,
+		Limit:           limit,
+		Offset:          offset,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -147,6 +172,8 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 		AssembledAt            *string `json:"assembled_at"`
 		CreatedAt              string  `json:"created_at"`
 		Notes                  *string `json:"notes"`
+		CreatedBy              string  `json:"created_by"`
+		CreatedByDisplayName   *string `json:"created_by_display_name"`
 		AssembledByDisplayName *string `json:"assembled_by_display_name"`
 	}
 
@@ -168,6 +195,8 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 			AssembledAt:            assembledAt,
 			CreatedAt:              b.CreatedAt.Time.UTC().Format(time.RFC3339),
 			Notes:                  b.Notes,
+			CreatedBy:              b.CreatedBy.String(),
+			CreatedByDisplayName:   b.CreatedByDisplayName,
 			AssembledByDisplayName: b.AssembledByDisplayName,
 		}
 	}
@@ -178,6 +207,63 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
+}
+
+// GetBuildPipeline handles GET /api/v1/teams/{teamId}/builds/pipeline
+// Returns all active (non-terminal) builds grouped by status.
+func (h *Handler) GetBuildPipeline(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+
+	rows, err := h.Queries.GetBuildPipeline(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type pipelineBuild struct {
+		ID                    string  `json:"id"`
+		ProjectID             string  `json:"project_id"`
+		ProjectName           string  `json:"project_name"`
+		BomRevisionID         string  `json:"bom_revision_id"`
+		BomRevisionLabel      string  `json:"bom_revision_label"`
+		Quantity              int32   `json:"quantity"`
+		Status                string  `json:"status"`
+		CreatedAt             string  `json:"created_at"`
+		Notes                 *string `json:"notes"`
+		CreatedBy             string  `json:"created_by"`
+		CreatedByDisplayName  *string `json:"created_by_display_name"`
+		ExcludedFromCart      bool    `json:"excluded_from_cart"`
+	}
+
+	result := map[string][]pipelineBuild{
+		"draft": {}, "pending": {}, "ordered": {}, "ready": {},
+	}
+
+	for _, row := range rows {
+		if _, ok := result[row.Status]; !ok {
+			continue
+		}
+		result[row.Status] = append(result[row.Status], pipelineBuild{
+			ID:                   row.ID.String(),
+			ProjectID:            row.ProjectID.String(),
+			ProjectName:          row.ProjectName,
+			BomRevisionID:        row.BomRevisionID.String(),
+			BomRevisionLabel:     row.BomRevisionLabel,
+			Quantity:             row.Quantity,
+			Status:               row.Status,
+			CreatedAt:            row.CreatedAt.Time.UTC().Format(time.RFC3339),
+			Notes:                row.Notes,
+			CreatedBy:            row.CreatedBy.String(),
+			CreatedByDisplayName: row.CreatedByDisplayName,
+			ExcludedFromCart:     row.ExcludedFromCart,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // PreviewBuild handles POST /api/v1/teams/{teamId}/builds/preview

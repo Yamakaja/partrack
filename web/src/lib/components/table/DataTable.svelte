@@ -12,6 +12,7 @@
     rowClass,
     getRowKey,
     renderers,
+    headerFilters,
     detailPanel,
     detailPanelOpen,
     actions,
@@ -31,7 +32,7 @@
   <DataTableToolbar {source} {title} {toolbarLeft} {toolbarRight} {showColumnPicker} {exportFilename} />
 
   <Table>
-    <DataTableHeader {source} {actions} {detailPanel} {stickyHeader} />
+    <DataTableHeader {source} {actions} {detailPanel} {stickyHeader} {headerFilters} />
     <DataTableBody
       {source}
       {getRowKey}
