@@ -22,7 +22,11 @@ Runtime requires:
 ## Tests
 
 ```bash
+# Run all tests
 PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go test -p 1 ./...
+
+# Run a single test or package
+PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go test -p 1 -run TestFunctionName ./internal/handler/
 ```
 
 - Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.
@@ -63,7 +67,7 @@ sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal
 
 ## Key Patterns
 
-- All handler methods live on `handler.Handler` (holds DB pool, Config, Worker queue). Add DB queries by writing SQL in `db/queries/`, running `sqlc generate`, then calling the generated types from handlers.
+- All handler methods live on `handler.Handler` (holds DB pool, Config, Worker queue). Add DB queries by writing SQL in `db/queries/`, running `sqlc generate` (regenerates `internal/db/gen/`), then calling the generated types from handlers. After regenerating, always run `go build ./...` to confirm — LSP diagnostics may lag.
 - Authentication middleware (`middleware.Authenticate`) injects `*middleware.User` into the request context. Retrieve it with `middleware.UserFromContext(ctx)`.
 - Team role enforcement: `middleware.RequireTeamRole("member")` etc. — injects `*middleware.TeamMembership` into ctx.
 - Background jobs: `h.Worker.Enqueue(worker.JobBOMImport, teamID, payload)` returns a job ID. Progress events are published via `h.Worker.Publish(ev)` and consumed by SSE subscribers.
@@ -74,7 +78,11 @@ sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal
 
 ## UX Patterns
 
-- See doc/ux.md
+See [doc/ux.md](doc/ux.md) for the canonical reference. Key conventions:
+- Every page: `flex flex-col h-full` with sticky `<Topbar>` + `flex-1 overflow-auto p-6 space-y-6` content area
+- Sections within pages use `<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">` headers
+- Data tables: use the `DataTable` component in `web/src/lib/components/table/` — see `DataTableProps`, `ColumnSpec`, `LocalDataSource`
+- Dialogs: bits-ui `Dialog.Root`; Popovers: controlled mode with `open` + `onOpenChange` (never `bind:open` with object property keys)
 
 ## Design Documents
 
