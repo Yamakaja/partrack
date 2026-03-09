@@ -1,17 +1,16 @@
 <script lang="ts">
-  import Papa  from 'papaparse';
+  import Papa from 'papaparse';
   import { Dialog } from 'bits-ui';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { importRevision, type BOMImportConfig } from '$lib/api/revisions.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { Distributor } from '$lib/types/parts.js';
   import { listDistributors } from '$lib/api/distributors.js';
   import { navigate } from '$lib/router/index.svelte.js';
-
-  type ColumnRole = 'ignore' | 'designators' | 'quantity' | 'mpn' | 'description'
-               | 'manufacturer' | 'name' | 'sku' | 'distributor';
+  import { AUTO_MAP, buildItems, type ColumnRole, type DistMapping } from './bom-import-utils.js';
+  import BOMImportStepParse from './BOMImportStepParse.svelte';
+  import BOMImportStepMapColumns from './BOMImportStepMapColumns.svelte';
+  import BOMImportStepMapDistributors from './BOMImportStepMapDistributors.svelte';
+  import BOMImportStepDetails from './BOMImportStepDetails.svelte';
 
   let {
     teamId,
@@ -28,56 +27,6 @@
     oncomplete?: (jobId: string, revisionId: string) => void;
     trigger: import('svelte').Snippet<[() => void]>;
   } = $props();
-
-  const AUTO_MAP: Record<string, ColumnRole> = {
-    ref: 'designators',
-    reference: 'designators',
-    refdes: 'designators',
-    designator: 'designators',
-    designators: 'designators',
-    refs: 'designators',
-    qty: 'quantity',
-    quantity: 'quantity',
-    count: 'quantity',
-    mpn: 'mpn',
-    'manufacturer part number': 'mpn',
-    'manufacturer part number 1': 'mpn',
-    'part number': 'mpn',
-    partnumber: 'mpn',
-    part_number: 'mpn',
-    description: 'description',
-    desc: 'description',
-    value: 'description',
-    manufacturer: 'manufacturer',
-    'manufacturer 1': 'manufacturer',
-    mfr: 'manufacturer',
-    mfg: 'manufacturer',
-    'manufacturer name': 'manufacturer',
-    name: 'name',
-    sku: 'sku',
-    'distributor sku': 'sku',
-    'supplier sku': 'sku',
-    distributor: 'distributor',
-    'distributor name': 'distributor',
-    vendor: 'distributor',
-    supplier: 'distributor',
-    'supplier 1': 'distributor',
-    'supplier part number 1': 'sku'
-  };
-
-  const ROLE_LABELS: Record<ColumnRole, string> = {
-    ignore: '— Ignore —',
-    designators: 'Designators *',
-    quantity: 'Quantity *',
-    mpn: 'MPN',
-    description: 'Description',
-    manufacturer: 'Manufacturer',
-    name: 'Name',
-    sku: 'SKU',
-    distributor: 'Distributor',
-  };
-
-  const COLUMN_WIDTH: number = 80
 
   let open = $state(false);
   let step = $state<'parse' | 'map' | 'distributor-map' | 'details'>('parse');
@@ -96,8 +45,6 @@
   let columnRoles = $state<ColumnRole[]>([]);
 
   // Distributor mapping step
-  type DistMapping = Record<string, string | undefined>;
-
   let uniqueDistributorNames = $state<string[]>([]);
   let distributorMappings = $state<DistMapping>({});
   let availableDistributors = $state<Distributor[]>([]);
@@ -109,18 +56,20 @@
 
   let fileInputEl: HTMLInputElement;
 
-  // Initialize parse + mapping options from a previously saved bom_import_config, if provided.
+  // Holds the last loaded bom_import_config so that advanceToMap can apply role
+  // mappings based on stored header names.
+  let _storedConfigForMapping: BOMImportConfig | null | undefined = null;
+
+  // Initialize parse + mapping options from a previously saved bom_import_config.
   function applyInitialConfig(config: BOMImportConfig | null | undefined) {
     if (!config) return;
 
-    // Core PapaParse options
     if (config.delimiter) delimiter = config.delimiter;
     if (config.quoteChar) quoteChar = config.quoteChar;
     if (config.escapeChar) escapeChar = config.escapeChar;
     if (config.comments) comments = config.comments;
 
     if (config.hasHeader !== undefined) {
-      // Stored as string on the backend; treat anything truthy as true
       hasHeader = config.hasHeader === 'true' || config.hasHeader === '1';
     }
 
@@ -131,15 +80,10 @@
       }
     }
 
-    // Column mapping based on stored header names; we only apply this once we have parsed
-    // the header row, so we store the config and use it during advanceToMap.
+    // Column mapping based on stored header names is applied during advanceToMap.
     _storedConfigForMapping = config;
     distributorMappings = config.mapping ?? {};
   }
-
-  // Holds the last loaded bom_import_config so that advanceToMap can apply role mappings
-  // based on the stored header names.
-  let _storedConfigForMapping: BOMImportConfig | null | undefined = null;
 
   // Re-parse whenever any option or raw text changes.
   $effect(() => {
@@ -172,7 +116,6 @@
     step = 'parse';
 
     // Re-apply the project's saved import config (overrides defaults above).
-    // By the time the user can select a file, initialConfig is loaded.
     applyInitialConfig(initialConfig);
 
     rawText = await file.text();
@@ -185,7 +128,7 @@
       const lines = text.split(/\r?\n/);
       text = lines.slice(skipFirstLines).join('\n');
     }
-    
+
     const result = Papa.parse<string[]>(text, {
       delimiter: delimiter,
       quoteChar: quoteChar,
@@ -193,23 +136,22 @@
       header: false,
       comments: comments || false,
       skipEmptyLines: true,
-      dynamicTyping: false
+      dynamicTyping: false,
     });
-    
+
     parsedRows = result.data as string[][];
   }
 
   function advanceToMap() {
     const numCols = parsedRows[0]?.length ?? 0;
 
-    // Start with either AUTO_MAP- or ignore-based roles, as before
     if (hasHeader && parsedRows.length > 0) {
       columnRoles = parsedRows[0].map((h) => AUTO_MAP[h.toLowerCase().trim()] ?? 'ignore');
     } else {
       columnRoles = Array.from({ length: numCols }, () => 'ignore' as ColumnRole);
     }
 
-    // If we have a stored config and a header row, try to refine the mapping so the
+    // If we have a stored config and a header row, refine the mapping so the
     // exact columns the user picked last time are re-selected.
     if (hasHeader && parsedRows.length > 0 && _storedConfigForMapping) {
       const header = parsedRows[0];
@@ -244,59 +186,64 @@
   let headerRow = $derived(
     hasHeader && parsedRows.length > 0
       ? parsedRows[0]
-      : (parsedRows[0]?.map((_, i) => `Column ${i + 1}`) ?? [])
+      : (parsedRows[0]?.map((_, i) => `Column ${i + 1}`) ?? []),
   );
   let dataRows = $derived(hasHeader ? parsedRows.slice(1) : parsedRows);
   let previewRows = $derived(dataRows.slice(0, 20));
 
-  // Column requirements (designators + quantity must each be mapped once)
+  // Column requirements (designators + quantity must each be mapped exactly once)
   let hasRequiredColumns = $derived(
-    columnRoles.filter(r => r === 'designators').length === 1 &&
-    columnRoles.filter(r => r === 'quantity').length === 1
+    columnRoles.filter((r) => r === 'designators').length === 1 &&
+      columnRoles.filter((r) => r === 'quantity').length === 1,
   );
 
   // Final import requires a revision label and valid column mapping.
-  let canImport = $derived(
-    label.trim().length > 0 && hasRequiredColumns
-  );
+  let canImport = $derived(label.trim().length > 0 && hasRequiredColumns);
 
-  function buildItems(mapping?: DistMapping) {
-    const desigIdx = columnRoles.indexOf('designators');
-    const qtyIdx   = columnRoles.indexOf('quantity');
-    const descIdx  = columnRoles.indexOf('description');
-    const mfrIdx   = columnRoles.indexOf('manufacturer');
-    const mpnIdx   = columnRoles.indexOf('mpn');
-    const nameIdx  = columnRoles.indexOf('name');
-    const skuIdx   = columnRoles.indexOf('sku');
-    const distIdx  = columnRoles.indexOf('distributor');
+  async function handleMapStepNext() {
+    if (!hasRequiredColumns || importing) return;
 
-    return dataRows
-      .map(row => {
-        const distributorName = distIdx >= 0 && row[distIdx]?.trim() ? row[distIdx].trim() : undefined;
-        const resolvedDistributorId = distributorName && mapping
-          ? (mapping[distributorName] || null)
-          : null;
+    const items = buildItems(dataRows, columnRoles);
+    const names = Array.from(
+      new Set(
+        items
+          .map((it) => it.distributor_name?.trim())
+          .filter((v): v is string => !!v && v.length > 0),
+      ),
+    );
 
-        return {
-          reference_designators: row[desigIdx]?.trim() ?? '',
-          quantity: parseInt(row[qtyIdx] ?? '0', 10),
-          raw_description:  descIdx >= 0 && row[descIdx]?.trim() ? row[descIdx].trim() : undefined,
-          mpn:              mpnIdx >= 0  && row[mpnIdx]?.trim()  ? row[mpnIdx].trim()  : undefined,
-          manufacturer:     mfrIdx  >= 0 && row[mfrIdx]?.trim()  ? row[mfrIdx].trim()  : undefined,
-          name:             nameIdx >= 0 && row[nameIdx]?.trim() ? row[nameIdx].trim() : undefined,
-          sku:              skuIdx  >= 0 && row[skuIdx]?.trim()  ? row[skuIdx].trim()  : undefined,
-          distributor_name: distributorName,
-          resolved_distributor_id: resolvedDistributorId,
-        };
-      })
-      .filter(it => it.reference_designators && it.quantity > 0);
+    // If there are no distributor names in the BOM, skip to the details step.
+    if (names.length === 0) {
+      step = 'details';
+      return;
+    }
+
+    uniqueDistributorNames = names;
+    for (const n of names) {
+      if (!(n in distributorMappings)) distributorMappings[n] = undefined;
+    }
+
+    importing = true;
+    try {
+      const resp = await listDistributors();
+      availableDistributors = resp.items;
+      step = 'distributor-map';
+    } catch (err: any) {
+      pushToast('error', 'Failed to load distributors', err.message ?? String(err));
+    } finally {
+      importing = false;
+    }
+  }
+
+  function handleDistributorNext() {
+    step = 'details';
   }
 
   async function performImport(mapping?: DistMapping) {
     if (!canImport) return;
     importing = true;
     try {
-      const items = buildItems(mapping);
+      const items = buildItems(dataRows, columnRoles, mapping);
 
       const desigIdx = columnRoles.indexOf('designators');
       const qtyIdx   = columnRoles.indexOf('quantity');
@@ -326,7 +273,7 @@
           name_col:         nameIdx  >= 0 ? (headerRow[nameIdx]  ?? '') : '',
           sku_col:          skuIdx   >= 0 ? (headerRow[skuIdx]   ?? '') : '',
           distributor_col:  distIdx  >= 0 ? (headerRow[distIdx]  ?? '') : '',
-          mapping: mapping
+          mapping: mapping,
         },
         items,
       });
@@ -342,74 +289,10 @@
     }
   }
 
-  async function handleMapStepNext() {
-    if (!hasRequiredColumns || importing) return;
-
-    const items = buildItems();
-    const names = Array.from(new Set(
-      items
-        .map((it) => it.distributor_name?.trim())
-        .filter((v): v is string => !!v && v.length > 0),
-    ));
-
-    // If there are no distributor names in the BOM, skip distributor mapping
-    // and go straight to the final details step.
-    if (names.length === 0) {
-      step = 'details';
-      return;
-    }
-
-    uniqueDistributorNames = names;
-    // distributorMappings = {};
-    for (const n of names) {
-      if (!(n in distributorMappings))
-        distributorMappings[n] = undefined;
-    }
-
-    importing = true;
-    try {
-      const resp = await listDistributors();
-      availableDistributors = resp.items;
-      step = 'distributor-map';
-    } catch (err: any) {
-      pushToast('error', 'Failed to load distributors', err.message ?? String(err));
-    } finally {
-      importing = false;
-    }
-  }
-
-  function handleDistributorNext() {
-    step = 'details';
-  }
-
   async function handleFinalImport() {
     if (!canImport || importing) return;
     const mapping = uniqueDistributorNames.length > 0 ? distributorMappings : undefined;
     await performImport(mapping);
-  }
-
-  function truncateRow(s: string|undefined): string {
-    if (!s)
-      return "";
-    if (s.length <= COLUMN_WIDTH)
-      return s;
-
-    return s.substring(0, COLUMN_WIDTH) + "..."
-  }
-
-  function checkForDuplicates(roles: ColumnRole[]): boolean {
-    let counter: Record<string, boolean> = {}
-    for (let i = 0; i < roles.length; i++) {
-      if (roles[i] === "ignore")
-        continue;
-
-      if (counter[roles[i]])
-        return true;
-
-      counter[roles[i]] = true;
-    }
-
-    return false;
   }
 </script>
 
@@ -463,245 +346,53 @@
       </div>
 
       {#if step === 'parse'}
-        <!-- ── Step 1: Parse options + preview ── -->
-
-        <!-- Parse options -->
-        <div class="shrink-0 border-b border-border px-6 py-3">
-          <div class="flex items-end gap-4">
-            <div class="w-20 space-y-1">
-              <Label class="text-xs">Delimiter</Label>
-              <Input class="h-7 font-mono text-xs" bind:value={delimiter} placeholder="auto" maxlength={3} />
-            </div>
-            <div class="w-16 space-y-1">
-              <Label class="text-xs">Quote</Label>
-              <Input class="h-7 font-mono text-xs" bind:value={quoteChar} maxlength={1} />
-            </div>
-            <div class="w-16 space-y-1">
-              <Label class="text-xs">Escape</Label>
-              <Input class="h-7 font-mono text-xs" bind:value={escapeChar} maxlength={1} />
-            </div>
-            <div class="w-16 space-y-1">
-              <Label class="text-xs">Comments</Label>
-              <Input class="h-7 font-mono text-xs" bind:value={comments} placeholder="none" maxlength={1} />
-            </div>
-            <div class="w-40 space-y-1">
-              <Label class="text-xs">Skip first N lines</Label>
-              <input
-                type="number"
-                min="0"
-                bind:value={skipFirstLines}
-                class="flex h-7 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </div>
-            <div class="flex items-center gap-2 pb-0.5">
-              <input
-                id="has-header"
-                type="checkbox"
-                bind:checked={hasHeader}
-                class="h-4 w-4 rounded border-input accent-primary"
-              />
-              <Label for="has-header" class="cursor-pointer text-xs">Header row</Label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Preview table -->
-        <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
-          {#if parsedRows.length === 0}
-            <p class="py-8 text-center text-sm text-muted-foreground">
-              No data parsed — check parse options above.
-            </p>
-          {:else}
-            <div class="overflow-x-auto">
-              <table class="w-max border-collapse text-xs">
-                <thead>
-                  <tr class="border-b border-border">
-                    {#each headerRow as h}
-                      <th class="whitespace-nowrap bg-muted/40 px-3 py-1.5 text-left font-semibold text-muted-foreground">
-                        {h}
-                      </th>
-                    {/each}
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each previewRows as row, i (i)}
-                    <tr class="border-b border-border/60 hover:bg-muted/20">
-                      {#each headerRow as _, ci}
-                        <td class="whitespace-nowrap px-3 py-1.5 font-mono text-muted-foreground">
-                          {truncateRow(row[ci])}
-                        </td>
-                      {/each}
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-            {#if dataRows.length > 20}
-              <p class="mt-2 text-xs text-muted-foreground">
-                Showing first 20 of {dataRows.length} data rows.
-              </p>
-            {/if}
-          {/if}
-        </div>
-
-        <!-- Step 1 footer -->
-        <div class="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
-          <Button variant="outline" onclick={handleClose}>Cancel</Button>
-          <Button onclick={advanceToMap} disabled={parsedRows.length === 0}>
-            Next: Map Columns →
-          </Button>
-        </div>
-
+        <BOMImportStepParse
+          {parsedRows}
+          {headerRow}
+          {dataRows}
+          {previewRows}
+          bind:delimiter
+          bind:quoteChar
+          bind:escapeChar
+          bind:hasHeader
+          bind:comments
+          bind:skipFirstLines
+          onnext={advanceToMap}
+          oncancel={handleClose}
+        />
       {:else if step === 'map'}
-        <!-- ── Step 2: Column mapping + revision label ── -->
-
-        <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
-          {#if headerRow.length === 0}
-            <p class="py-8 text-center text-sm text-muted-foreground">No columns to map.</p>
-          {:else}
-            <div class="overflow-x-auto">
-              <table class="w-max border-collapse text-xs">
-                <thead>
-                  <tr class="border-b-2 border-border">
-                    {#each headerRow as colName, ci}
-                      <th class="min-w-[140px] px-2 py-2 align-top">
-                        <select
-                          bind:value={columnRoles[ci]}
-                          class="w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                          {#each Object.entries(ROLE_LABELS) as [role, roleLabel]}
-                            <option value={role}>{roleLabel}</option>
-                          {/each}
-                        </select>
-                        {#if hasHeader}
-                          <div class="mt-0.5 max-w-[130px] truncate text-muted-foreground" title={colName}>
-                            {colName}
-                          </div>
-                        {/if}
-                      </th>
-                    {/each}
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each previewRows as row, i (i)}
-                    <tr class="border-b border-border/60 hover:bg-muted/20">
-                      {#each headerRow as _, ci}
-                        <td class="whitespace-nowrap px-2 py-1.5 font-mono text-muted-foreground">
-                          {truncateRow(row[ci])}
-                        </td>
-                      {/each}
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-
-          {#if checkForDuplicates(columnRoles)}
-            <p class="mt-2 text-xs text-destructive">
-              Each column can only be assigned once.
-            </p>
-          {:else if columnRoles.filter(r => r === 'designators').length === 0 || columnRoles.filter(r => r === 'quantity').length === 0}
-            <p class="mt-2 text-xs text-muted-foreground">
-              Assign at least one column as <strong>Designators *</strong> and one as <strong>Quantity *</strong> to enable import.
-            </p>
-          {/if}
-        </div>
-
-        <!-- Step 2 footer -->
-        <div class="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
-          <Button variant="outline" onclick={() => (step = 'parse')}>← Back</Button>
-          <div class="flex gap-2">
-            <Button variant="outline" onclick={handleClose}>Cancel</Button>
-            <Button onclick={handleMapStepNext} disabled={!hasRequiredColumns || importing}>
-              Next: Distributor Mapping →
-            </Button>
-          </div>
-        </div>
-
+        <BOMImportStepMapColumns
+          {headerRow}
+          {previewRows}
+          {hasHeader}
+          bind:columnRoles
+          {hasRequiredColumns}
+          {importing}
+          onback={() => (step = 'parse')}
+          onnext={handleMapStepNext}
+          oncancel={handleClose}
+        />
       {:else if step === 'distributor-map'}
-        <!-- ── Step 3: Distributor mapping ── -->
-
-        <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
-          {#if uniqueDistributorNames.length === 0}
-            <p class="py-8 text-center text-sm text-muted-foreground">
-              No distributors detected in the BOM.
-            </p>
-          {:else}
-            <div class="space-y-4">
-              <div class="overflow-x-auto">
-                <table class="w-full border-collapse text-xs">
-                  <thead>
-                    <tr class="border-b border-border">
-                      <th class="px-3 py-1.5 text-left font-semibold text-muted-foreground">CSV distributor</th>
-                      <th class="px-3 py-1.5 text-left font-semibold text-muted-foreground">Resolve using</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each uniqueDistributorNames as name (name)}
-                      <tr class="border-b border-border/60">
-                        <td class="px-3 py-1.5 font-mono text-xs">{name}</td>
-                        <td class="px-3 py-1.5">
-                          <select
-                            bind:value={distributorMappings[name]}
-                            class="w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          >
-                            <option value={''}>None (do not use for resolution)</option>
-                            {#each availableDistributors as d}
-                              <option value={d.id}>{d.name}</option>
-                            {/each}
-                          </select>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          {/if}
-        </div>
-
-        <div class="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
-          <Button variant="outline" onclick={() => (step = 'map')}>← Back</Button>
-          <div class="flex gap-2">
-            <Button variant="outline" onclick={handleClose}>Cancel</Button>
-            <Button onclick={handleDistributorNext} disabled={!hasRequiredColumns}>
-              Next: Details →
-            </Button>
-          </div>
-        </div>
-
+        <BOMImportStepMapDistributors
+          {uniqueDistributorNames}
+          {availableDistributors}
+          bind:distributorMappings
+          {hasRequiredColumns}
+          onback={() => (step = 'map')}
+          onnext={handleDistributorNext}
+          oncancel={handleClose}
+        />
       {:else}
-        <!-- ── Step 4: Details / final confirmation ── -->
-        <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
-          <div class="space-y-3 max-w-xl">
-            <div class="space-y-1">
-              <Label class="text-xs">Revision label</Label>
-              <Input bind:value={label} placeholder="e.g. v1.0, Rev A" class="h-8 text-sm max-w-xs" />
-            </div>
-            <div class="space-y-1">
-              <Label class="text-xs">Notes (optional)</Label>
-              <textarea
-                bind:value={notes}
-                rows={3}
-                placeholder="Any notes about this revision…"
-                class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              ></textarea>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
-          <Button variant="outline" onclick={() => (step = uniqueDistributorNames.length > 0 ? 'distributor-map' : 'map')}>
-            ← Back
-          </Button>
-          <div class="flex gap-2">
-            <Button variant="outline" onclick={handleClose}>Cancel</Button>
-            <Button onclick={handleFinalImport} disabled={!canImport || importing}>
-              {importing ? 'Importing…' : 'Import'}
-            </Button>
-          </div>
-        </div>
+        <BOMImportStepDetails
+          bind:label
+          bind:notes
+          {canImport}
+          {importing}
+          hasDistributorStep={uniqueDistributorNames.length > 0}
+          onback={() => (step = uniqueDistributorNames.length > 0 ? 'distributor-map' : 'map')}
+          onimport={handleFinalImport}
+          oncancel={handleClose}
+        />
       {/if}
     </Dialog.Content>
   </Dialog.Portal>
