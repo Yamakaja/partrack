@@ -1,0 +1,14 @@
+DROP INDEX IF EXISTS idx_part_parameters_source_distributor_id;
+DROP INDEX IF EXISTS idx_orders_distributor_id;
+DROP INDEX IF EXISTS idx_bom_line_item_substitutes_part_id;
+DROP INDEX IF EXISTS idx_builds_project_id;
+DROP INDEX IF EXISTS idx_order_line_items_listing_id;
+DROP INDEX IF EXISTS idx_inventory_entries_storage_location_id;
+DROP INDEX IF EXISTS idx_orders_ext_ref_trgm;
+DROP INDEX IF EXISTS idx_orders_po_number_trgm;
+DROP INDEX IF EXISTS idx_storage_locations_label_trgm;
+DROP INDEX IF EXISTS idx_projects_name_trgm;
+DROP INDEX IF EXISTS idx_part_aliases_alias_trgm;
+DROP INDEX IF EXISTS idx_parts_description_trgm;
+DROP INDEX IF EXISTS idx_parts_manufacturer_trgm;
+DROP INDEX IF EXISTS idx_parts_mpn_trgm;
