@@ -6,7 +6,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { ChevronDown, ChevronRight, Trash2 } from 'lucide-svelte';
+  import { ChevronDown, ChevronRight, SquareArrowOutUpRight, Trash2 } from 'lucide-svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import CartItemDetail from '$lib/components/cart/CartItemDetail.svelte';
   import {
@@ -14,6 +14,7 @@
     calcSubtotal, itemSku, itemMoq, totalBuildDemand,
   } from '$lib/utils/cart.js';
   import type { CartItem } from '$lib/types/orders.js';
+  import { navigate } from '$lib/router/index.svelte';
 
   let { teamId, distributorGroups, companionPartIds }: {
     teamId: string;
@@ -121,7 +122,7 @@
           <TableHead>Part MPN</TableHead>
           <TableHead>SKU</TableHead>
           <TableHead>Order Qty</TableHead>
-          <TableHead>Stock</TableHead>
+          <TableHead>Distributor Stock</TableHead>
           <TableHead>Unit Price</TableHead>
           <TableHead>Subtotal</TableHead>
           <TableHead></TableHead>
@@ -218,7 +219,15 @@
               >
                 <Trash2 class="h-4 w-4" />
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onclick={() => navigate("/teams/" + teamId + "/parts/" + item.part_id)}
+              >
+                <SquareArrowOutUpRight class="h-4 w-4"/>
+              </Button>
             </TableCell>
+
           </TableRow>
 
           <!-- Expandable detail row -->

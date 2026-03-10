@@ -7,7 +7,7 @@
   import { updateInventoryEntry } from '$lib/api/inventory.js';
   import { subscribeSSE } from '$lib/api/sse.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { RefreshCw, Star, Sparkles, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-svelte';
+  import { RefreshCw, Star, Sparkles, Trash2, Plus, ChevronDown, ChevronRight, ShoppingCart } from 'lucide-svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import AddListingDialog from '$lib/components/parts/AddListingDialog.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
@@ -25,6 +25,8 @@
     onpreferredchange,
     ondelete,
     onadd,
+    cartEnabled = false,
+    onCart,
   }: {
     partId: string;
     teamId?: string;
@@ -36,6 +38,8 @@
     onpreferredchange?: () => void;
     ondelete?: () => void;
     onadd?: () => void;
+    cartEnabled?: boolean;
+    onCart?: (opts: { listingId: string; moq: number; distributorName: string; sku: string; packaging?: string }) => void;
   } = $props();
 
   let sortedListings = $derived(
@@ -253,6 +257,22 @@
                   title="Delete listing"
                 >
                   <Trash2 class="h-3.5 w-3.5 text-destructive" />
+                </Button>
+              {/if}
+              {#if cartEnabled && onCart}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onclick={() => onCart!({
+                    listingId: listing.id,
+                    moq: listing.moq ?? 1,
+                    distributorName: listing.distributor_name,
+                    sku: listing.sku,
+                    packaging: listing.packaging_type ?? undefined,
+                  })}
+                  title="Add to cart"
+                >
+                  <ShoppingCart class="h-3.5 w-3.5" />
                 </Button>
               {/if}
             </div>

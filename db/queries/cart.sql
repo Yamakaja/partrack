@@ -140,6 +140,14 @@ RETURNING id, shopping_cart_id, part_id, quantity, listing_id, source, source_bo
 DELETE FROM cart_line_items
 WHERE shopping_cart_id = $1 AND part_id = $2 AND source = 'manual';
 
+-- name: GetCartQuantityForPart :one
+SELECT COALESCE(SUM(cli.quantity), 0)::int AS quantity_in_cart
+FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+WHERE sc.team_id = @team_id
+  AND cli.part_id = @part_id
+  AND (sqlc.narg('listing_id')::uuid IS NULL OR cli.listing_id = sqlc.narg('listing_id'));
+
 -- name: GetListingsForCartResolution :many
 SELECT
     dl.id              AS listing_id,

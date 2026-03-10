@@ -289,6 +289,28 @@ func (q *Queries) GetCartItemsForConvert(ctx context.Context, teamID pgtype.UUID
 	return items, nil
 }
 
+const getCartQuantityForPart = `-- name: GetCartQuantityForPart :one
+SELECT COALESCE(SUM(cli.quantity), 0)::int AS quantity_in_cart
+FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+WHERE sc.team_id = $1
+  AND cli.part_id = $2
+  AND ($3::uuid IS NULL OR cli.listing_id = $3)
+`
+
+type GetCartQuantityForPartParams struct {
+	TeamID    pgtype.UUID `json:"team_id"`
+	PartID    pgtype.UUID `json:"part_id"`
+	ListingID pgtype.UUID `json:"listing_id"`
+}
+
+func (q *Queries) GetCartQuantityForPart(ctx context.Context, arg GetCartQuantityForPartParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getCartQuantityForPart, arg.TeamID, arg.PartID, arg.ListingID)
+	var quantity_in_cart int32
+	err := row.Scan(&quantity_in_cart)
+	return quantity_in_cart, err
+}
+
 const getInventoryQuantitiesForParts = `-- name: GetInventoryQuantitiesForParts :many
 SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
 FROM inventory_entries ie

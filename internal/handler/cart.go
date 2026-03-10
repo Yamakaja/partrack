@@ -404,6 +404,40 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetCartPartQuantity handles GET /api/v1/teams/{teamId}/cart/part-quantity
+// Query params: part_id (required), listing_id (optional)
+func (h *Handler) GetCartPartQuantity(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var partID pgtype.UUID
+	if err := partID.Scan(r.URL.Query().Get("part_id")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part_id", "BAD_REQUEST")
+		return
+	}
+	var listingID pgtype.UUID
+	if s := r.URL.Query().Get("listing_id"); s != "" {
+		if err := listingID.Scan(s); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid listing_id", "BAD_REQUEST")
+			return
+		}
+	}
+
+	qty, err := h.Queries.GetCartQuantityForPart(r.Context(), dbgen.GetCartQuantityForPartParams{
+		TeamID:    teamID,
+		PartID:    partID,
+		ListingID: listingID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int32{"quantity_in_cart": qty})
+}
+
 // UpdateCartItem handles PATCH /api/v1/teams/{teamId}/cart/items/{itemId}
 // Body: {quantity?, listing_id?}
 func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {

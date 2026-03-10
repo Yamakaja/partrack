@@ -6,6 +6,8 @@
   import { listCategories } from '$lib/api/categories.js';
   import type { LifecycleStatus } from '$lib/types/parts.js';
   import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
+  import { addCartItem, getCartPartQuantity } from '$lib/api/cart.js';
+  import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { listStorageLocations } from '$lib/api/storage.js';
   import CategoryPicker from '$lib/components/CategoryPicker.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -24,7 +26,7 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
-  import { ArrowLeft, PackagePlus, Pencil } from 'lucide-svelte';
+  import { ArrowLeft, PackagePlus, Pencil, ShoppingCart } from 'lucide-svelte';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
 
@@ -43,6 +45,19 @@
   let editMinStock = $state('');
   let editReorderQty = $state('');
   let editSaving = $state(false);
+
+  // Role check
+  let isPurchaser = $derived(
+    activeTeamStore.current?.role === 'purchaser' || activeTeamStore.current?.role === 'admin'
+  );
+
+  // Add to Cart dialog
+  let addToCartOpen = $state(false);
+  let addToCartQty = $state('1');
+  let addingToCart = $state(false);
+  let addToCartListingId = $state<string | null>(null);
+  let addToCartListingLabel = $state('');
+  let cartCurrentQty = $state<number | null>(null);
 
   // Edit part dialog
   let editPartOpen = $state(false);
@@ -203,6 +218,57 @@
     }
   }
 
+  async function openAddToCartDialog(opts?: {
+    listingId: string;
+    moq: number;
+    distributorName: string;
+    sku: string;
+    packaging?: string;
+  }) {
+    addToCartListingId = opts?.listingId ?? null;
+    cartCurrentQty = null;
+    if (opts) {
+      addToCartQty = String(Math.max(opts.moq, partQuery.data?.reorder_quantity ?? 1, 1));
+      addToCartListingLabel = [
+        opts.distributorName,
+        opts.sku,
+        opts.packaging,
+        `MOQ ${opts.moq}`,
+      ].filter(Boolean).join(' – ');
+    } else {
+      addToCartQty = String(Math.max(partQuery.data?.reorder_quantity ?? 1, 1));
+      addToCartListingLabel = '';
+    }
+    addToCartOpen = true;
+    try {
+      const res = await getCartPartQuantity(teamId, partId, opts?.listingId ?? undefined);
+      cartCurrentQty = res.quantity_in_cart;
+    } catch {
+      cartCurrentQty = null;
+    }
+  }
+
+  async function handleAddToCart(e: Event) {
+    e.preventDefault();
+    const qty = parseInt(addToCartQty, 10);
+    if (isNaN(qty) || qty <= 0) return;
+    addingToCart = true;
+    try {
+      await addCartItem(teamId, {
+        part_id: partId,
+        quantity: qty,
+        ...(addToCartListingId ? { listing_id: addToCartListingId } : {}),
+      });
+      addToCartOpen = false;
+      qc.invalidateQueries({ queryKey: ['cart', teamId] });
+      pushToast('success', 'Added to cart');
+    } catch (err: any) {
+      pushToast('error', 'Failed to add to cart', err.message);
+    } finally {
+      addingToCart = false;
+    }
+  }
+
   async function handleEditSave(e: Event) {
     e.preventDefault();
     editSaving = true;
@@ -256,6 +322,11 @@
         <Button variant="outline" size="sm" onclick={openEditPart}>
           <Pencil class="h-4 w-4 mr-1" /> Edit Part
         </Button>
+        {#if isPurchaser}
+          <Button variant="outline" size="sm" onclick={() => openAddToCartDialog()}>
+            <ShoppingCart class="h-4 w-4 mr-1" /> Add to Cart
+          </Button>
+        {/if}
       {/if}
       {#if tracked}
         <Button variant="outline" size="sm" onclick={openEdit}>Edit Settings</Button>
@@ -364,6 +435,8 @@
             onpreferredchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
             ondelete={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
             onadd={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
+            cartEnabled={isPurchaser}
+            onCart={(opts) => openAddToCartDialog(opts)}
           />
         </section>
 
@@ -476,6 +549,38 @@
           <Button variant="outline" type="button" onclick={() => editPartOpen = false}>Cancel</Button>
           <Button type="submit" disabled={editPartSaving}>
             {editPartSaving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </div>
+      </form>
+    </Dialog.Content>
+  </Dialog.Portal>
+</Dialog.Root>
+
+<!-- Add to Cart Dialog -->
+<Dialog.Root bind:open={addToCartOpen}>
+  <Dialog.Portal>
+    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+      <Dialog.Title class="text-lg font-semibold mb-4">Add to Cart</Dialog.Title>
+      <form onsubmit={handleAddToCart} class="space-y-4">
+        {#if addToCartListingLabel}
+          <div class="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+            {addToCartListingLabel}
+          </div>
+        {/if}
+        {#if cartCurrentQty !== null && cartCurrentQty > 0}
+          <p class="text-sm text-muted-foreground">
+            Currently in cart: <span class="font-medium text-foreground">{cartCurrentQty}</span>
+          </p>
+        {/if}
+        <div class="space-y-1">
+          <Label for="cart-qty">Quantity</Label>
+          <Input id="cart-qty" type="number" min="1" bind:value={addToCartQty} />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <Button variant="outline" type="button" onclick={() => addToCartOpen = false}>Cancel</Button>
+          <Button type="submit" disabled={addingToCart}>
+            {addingToCart ? 'Adding…' : 'Add to Cart'}
           </Button>
         </div>
       </form>
