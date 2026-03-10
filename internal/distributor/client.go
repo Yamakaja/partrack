@@ -251,3 +251,19 @@ type ThreeLeggedAuthClient interface {
 	// ExchangeCode exchanges an authorization code for access + refresh tokens.
 	ExchangeCode(ctx context.Context, creds json.RawMessage, code, redirectURI string) (*OAuthTokens, error)
 }
+
+// RateLimitStatus holds the most recently observed rate limit headers from a distributor API.
+type RateLimitStatus struct {
+	Limit     int       `json:"limit"`
+	Remaining int       `json:"remaining"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// RateLimitReporter is optionally implemented by distributor clients that expose
+// rate limit headers (e.g. X-Ratelimit-Limit / X-Ratelimit-Remaining).
+// Check at runtime: if rl, ok := client.(distributor.RateLimitReporter); ok { ... }
+type RateLimitReporter interface {
+	// RateLimitStatus returns the last observed rate limit for the credentials,
+	// or nil if no request has been made yet with those credentials.
+	RateLimitStatus(credentials json.RawMessage) *RateLimitStatus
+}

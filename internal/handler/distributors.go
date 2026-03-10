@@ -95,13 +95,14 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 	}
 
 	type item struct {
-		DistributorID        string         `json:"distributor_id"`
-		DistributorName      string         `json:"distributor_name"`
-		Enabled              bool           `json:"enabled"`
-		Preferred            bool           `json:"preferred"`
-		CacheDurationSeconds int32          `json:"cache_duration_seconds"`
-		HasCredentials       bool           `json:"has_credentials"`
-		ApiCredentials       map[string]any `json:"api_credentials,omitempty"`
+		DistributorID        string                      `json:"distributor_id"`
+		DistributorName      string                      `json:"distributor_name"`
+		Enabled              bool                        `json:"enabled"`
+		Preferred            bool                        `json:"preferred"`
+		CacheDurationSeconds int32                       `json:"cache_duration_seconds"`
+		HasCredentials       bool                        `json:"has_credentials"`
+		ApiCredentials       map[string]any              `json:"api_credentials,omitempty"`
+		RateLimit            *distributor.RateLimitStatus `json:"rate_limit,omitempty"`
 	}
 	items := make([]item, len(configs))
 	for i, c := range configs {
@@ -131,6 +132,10 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 					if len(creds) > 0 {
 						it.ApiCredentials = creds
 					}
+				}
+				// Include rate limit status if the client supports it.
+				if rl, ok := client.(distributor.RateLimitReporter); ok {
+					it.RateLimit = rl.RateLimitStatus(c.ApiCredentials)
 				}
 			}
 		}

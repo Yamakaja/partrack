@@ -15,28 +15,37 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Yamakaja/partrack/internal/distributor"
 )
 
 // Credentials is the JSON structure stored in distributor_configs.api_credentials for DigiKey.
 type Credentials struct {
 	ClientID         string `json:"client_id"`
 	ClientSecret     string `json:"client_secret"`
-	LocaleSite       string `json:"locale_site"`                    // default "US"
-	LocaleCurrency   string `json:"locale_currency"`                // default "USD"
-	LocaleLanguage   string `json:"locale_language"`                // default "en"
-	AccountID        string `json:"account_id"`                     // optional; required for quote/MyList operations
-	Scope            string `json:"scope"`                          // 3-legged OAuth scope; default "openid"
-	Sandbox          bool   `json:"sandbox"`                        // true → sandbox-api.digikey.com
+	LocaleSite       string `json:"locale_site"`                   // default "US"
+	LocaleCurrency   string `json:"locale_currency"`               // default "USD"
+	LocaleLanguage   string `json:"locale_language"`               // default "en"
+	AccountID        string `json:"account_id"`                    // optional; required for quote/MyList operations
+	Scope            string `json:"scope"`                         // 3-legged OAuth scope; default "openid"
+	Sandbox          bool   `json:"sandbox"`                       // true → sandbox-api.digikey.com
 	ThreeLeggedToken string `json:"_three_legged_token,omitempty"` // injected by handler; never stored in DB
 }
 
 // Client is the DigiKey distributor implementation.
 type Client struct {
 	mu          sync.Mutex
-	tokens      map[string]*cachedToken // keyed by client_id
+	tokens      map[string]*cachedToken    // keyed by client_id
+	rateLimits  map[string]*rateLimitEntry // keyed by client_id
 	httpClient  *http.Client
 	debug       bool
 	searchCache sync.Map // key: clientID+"/"+sku → searchCacheEntry
+}
+
+type rateLimitEntry struct {
+	limit     int
+	remaining int
+	updatedAt time.Time
 }
 
 type searchCacheEntry struct {
@@ -53,6 +62,7 @@ type cachedToken struct {
 func New() *Client {
 	return &Client{
 		tokens:     make(map[string]*cachedToken),
+		rateLimits: make(map[string]*rateLimitEntry),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -145,9 +155,14 @@ func (c *Client) doRequest(ctx context.Context, method, rawURL string, body any,
 		}
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		c.updateRateLimit(creds.ClientID, resp.Header)
 
 		if c.debug {
-			log.Printf("digikey [response] status=%d body=%s", resp.StatusCode, respBody)
+			log.Printf("digikey [response] status=%d", resp.StatusCode)
+			for k, vs := range resp.Header {
+				log.Printf("digikey [response] %s: %s", k, vs)
+			}
+			log.Printf("digikey [response] body=%s", respBody)
 		}
 
 		switch resp.StatusCode {
@@ -204,4 +219,37 @@ func (c *Client) doGet(ctx context.Context, rawURL string, creds Credentials, ou
 
 func (c *Client) doPostJSON(ctx context.Context, rawURL string, body any, creds Credentials, out any) (bool, error) {
 	return c.doRequest(ctx, http.MethodPost, rawURL, body, creds, out)
+}
+
+// updateRateLimit parses X-Ratelimit-Limit and X-Ratelimit-Remaining headers and
+// stores the values in the per-client-id rate limit map. No-op if headers are absent.
+func (c *Client) updateRateLimit(clientID string, h http.Header) {
+	limit, errL := strconv.Atoi(h.Get("X-Ratelimit-Limit"))
+	remaining, errR := strconv.Atoi(h.Get("X-Ratelimit-Remaining"))
+	if errL != nil || errR != nil {
+		return
+	}
+	c.mu.Lock()
+	c.rateLimits[clientID] = &rateLimitEntry{limit: limit, remaining: remaining, updatedAt: time.Now()}
+	c.mu.Unlock()
+}
+
+// RateLimitStatus implements distributor.RateLimitReporter. It returns the last observed
+// rate limit headers for the client_id in credentials, or nil if none have been recorded yet.
+func (c *Client) RateLimitStatus(credentials json.RawMessage) *distributor.RateLimitStatus {
+	var creds Credentials
+	if err := json.Unmarshal(credentials, &creds); err != nil || creds.ClientID == "" {
+		return nil
+	}
+	c.mu.Lock()
+	entry := c.rateLimits[creds.ClientID]
+	c.mu.Unlock()
+	if entry == nil {
+		return nil
+	}
+	return &distributor.RateLimitStatus{
+		Limit:     entry.limit,
+		Remaining: entry.remaining,
+		UpdatedAt: entry.updatedAt,
+	}
 }

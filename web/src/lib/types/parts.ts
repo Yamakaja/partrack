@@ -137,6 +137,12 @@ export interface Distributor {
   api_type: string | null;
 }
 
+export interface DistributorRateLimit {
+  limit: number;
+  remaining: number;
+  updated_at: string;
+}
+
 export interface DistributorConfig {
   id: string;
   distributor_id: string;
@@ -146,6 +152,7 @@ export interface DistributorConfig {
   cache_duration_seconds: number;
   has_credentials: boolean;
   api_credentials?: Record<string, unknown> | null;
+  rate_limit?: DistributorRateLimit | null;
 }
 
 export interface CategoryParameter {

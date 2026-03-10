@@ -11,7 +11,7 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Settings } from 'lucide-svelte';
-  import type { Distributor, DistributorConfig, CredentialField } from '$lib/types/parts.js';
+  import type { Distributor, DistributorConfig, CredentialField, DistributorRateLimit } from '$lib/types/parts.js';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -57,6 +57,14 @@
   let deleteConfirmOpen = $state(false);
   let deletingDistributor = $state<Distributor | null>(null);
   let deleting = $state(false);
+
+  function rateLimitColor(rl: DistributorRateLimit): string {
+    if (rl.limit === 0) return 'text-muted-foreground';
+    const pct = rl.remaining / rl.limit;
+    if (pct >= 0.5) return 'text-green-600';
+    if (pct >= 0.1) return 'text-yellow-600';
+    return 'text-destructive';
+  }
 
   function openConfigure(dist: Distributor, config: DistributorConfig | null) {
     configuringDistributor = dist;
@@ -172,6 +180,7 @@
             <TableHead>Enabled</TableHead>
             <TableHead>Preferred</TableHead>
             <TableHead>Cache Duration</TableHead>
+            <TableHead>API Rate Limit</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -198,6 +207,18 @@
               </TableCell>
               <TableCell class="text-muted-foreground text-sm">
                 {config ? `${config.cache_duration_seconds}s` : '—'}
+              </TableCell>
+              <TableCell class="text-sm">
+                {#if config?.rate_limit}
+                  <span
+                    class={rateLimitColor(config.rate_limit)}
+                    title={`Last observed: ${new Date(config.rate_limit.updated_at).toLocaleString()}`}
+                  >
+                    {config.rate_limit.remaining} / {config.rate_limit.limit}
+                  </span>
+                {:else}
+                  <span class="text-muted-foreground">—</span>
+                {/if}
               </TableCell>
               <TableCell>
                 <div class="flex items-center gap-1">
