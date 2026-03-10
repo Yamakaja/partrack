@@ -716,8 +716,9 @@ func (h *Handler) getOrderingClient(order dbgen.GetOrderRow) (distributor.Orderi
 	return oc, nil
 }
 
-// mergeDigiKeyIntegrations deep-merges patch into the digikey sub-object of integrations JSONB.
-func mergeDigiKeyIntegrations(current []byte, patch map[string]any) ([]byte, error) {
+// mergeDistributorIntegrations deep-merges patch into the distributor's sub-object of integrations JSONB.
+// apiType is used as the sub-object key (e.g. "digikey").
+func mergeDistributorIntegrations(apiType string, current []byte, patch map[string]any) ([]byte, error) {
 	var top map[string]any
 	if len(current) > 0 {
 		if err := json.Unmarshal(current, &top); err != nil {
@@ -727,14 +728,14 @@ func mergeDigiKeyIntegrations(current []byte, patch map[string]any) ([]byte, err
 		top = make(map[string]any)
 	}
 
-	dk, _ := top["digikey"].(map[string]any)
-	if dk == nil {
-		dk = make(map[string]any)
+	sub, _ := top[apiType].(map[string]any)
+	if sub == nil {
+		sub = make(map[string]any)
 	}
 	for k, v := range patch {
-		dk[k] = v
+		sub[k] = v
 	}
-	top["digikey"] = dk
+	top[apiType] = sub
 	return json.Marshal(top)
 }
 
@@ -775,8 +776,8 @@ func (h *Handler) PushToDistributor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creds, err := h.getThreeLeggedCreds(r, order)
-	if errors.Is(err, ErrOAuthRequired) {
+	creds, err := h.getEnrichedCreds(r, order)
+	if errors.Is(err, distributor.ErrOAuthRequired) {
 		writeError(w, http.StatusUnauthorized, "OAuth authorization required", "OAUTH_REQUIRED")
 		return
 	}
@@ -808,7 +809,7 @@ func (h *Handler) PushToDistributor(w http.ResponseWriter, r *http.Request) {
 	if result != nil {
 		patch["list_url"] = result.ListURL
 	}
-	updated, mergeErr := mergeDigiKeyIntegrations(order.Integrations, patch)
+	updated, mergeErr := mergeDistributorIntegrations(*order.DistributorApiType, order.Integrations, patch)
 	if mergeErr == nil {
 		_, _ = h.Queries.UpdateOrderIntegrations(ctx, dbgen.UpdateOrderIntegrationsParams{
 			ID:           orderID,
@@ -819,7 +820,7 @@ func (h *Handler) PushToDistributor(w http.ResponseWriter, r *http.Request) {
 
 	if apiErr != nil {
 		writeError(w, http.StatusBadGateway,
-			fmt.Sprintf("DigiKey list created but parts could not be added: %v", apiErr),
+			fmt.Sprintf("list created but some parts could not be added: %v", apiErr),
 			"LIST_PARTS_FAILED")
 		return
 	}
@@ -873,8 +874,8 @@ func (h *Handler) RequestQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creds, err := h.getThreeLeggedCreds(r, order)
-	if errors.Is(err, ErrOAuthRequired) {
+	creds, err := h.getEnrichedCreds(r, order)
+	if errors.Is(err, distributor.ErrOAuthRequired) {
 		writeError(w, http.StatusUnauthorized, "OAuth authorization required", "OAUTH_REQUIRED")
 		return
 	}
@@ -901,10 +902,9 @@ func (h *Handler) RequestQuote(w http.ResponseWriter, r *http.Request) {
 	quoteName := "partrack-" + orderID.String()[:8]
 	quoteResult, err := oc.RequestQuote(ctx, quoteName, items, creds)
 	if err != nil {
-		// A 400 from DigiKey typically means missing config (e.g. account_id not set).
 		if strings.Contains(err.Error(), "400") {
 			writeError(w, http.StatusUnprocessableEntity,
-				fmt.Sprintf("DigiKey rejected the quote — check that account_id is configured in your DigiKey distributor settings: %v", err),
+				fmt.Sprintf("distributor rejected the quote request: %v", err),
 				"QUOTE_CONFIG_ERROR")
 			return
 		}
@@ -921,7 +921,7 @@ func (h *Handler) RequestQuote(w http.ResponseWriter, r *http.Request) {
 		"quote_name":  quoteResult.QuoteName,
 		"quote_items": quoteItemsRaw,
 	}
-	updated, mergeErr := mergeDigiKeyIntegrations(order.Integrations, patch)
+	updated, mergeErr := mergeDistributorIntegrations(*order.DistributorApiType, order.Integrations, patch)
 	if mergeErr == nil {
 		_, _ = h.Queries.UpdateOrderIntegrations(ctx, dbgen.UpdateOrderIntegrationsParams{
 			ID:           orderID,
@@ -971,7 +971,7 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if order.ExternalReference == nil || *order.ExternalReference == "" {
-		writeError(w, http.StatusUnprocessableEntity, "order has no external_reference (DigiKey sales order number)", "NO_EXTERNAL_REFERENCE")
+		writeError(w, http.StatusUnprocessableEntity, "order has no external_reference", "NO_EXTERNAL_REFERENCE")
 		return
 	}
 
@@ -1003,7 +1003,7 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 		"last_status_detail":     statusResult.StatusDetail,
 		"last_status_checked_at": statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
 	}
-	updated, mergeErr := mergeDigiKeyIntegrations(order.Integrations, patch)
+	updated, mergeErr := mergeDistributorIntegrations(*order.DistributorApiType, order.Integrations, patch)
 	if mergeErr == nil {
 		_, _ = h.Queries.UpdateOrderIntegrations(ctx, dbgen.UpdateOrderIntegrationsParams{
 			ID:           orderID,

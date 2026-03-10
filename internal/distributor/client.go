@@ -5,8 +5,13 @@ package distributor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// ErrOAuthRequired is returned by CredentialEnricher.EnrichCredentials when
+// re-authorization is needed (no token stored, or refresh failed).
+var ErrOAuthRequired = errors.New("oauth_required")
 
 // LifecycleStatus represents the lifecycle state of a part as reported by a distributor.
 // The zero value ("") means the distributor did not report a status and the existing
@@ -210,22 +215,39 @@ type OAuthTokens struct {
 	ExpiresIn    int // seconds
 }
 
+// StoredToken is a generic OAuth token set as persisted in the oauth_tokens table.
+type StoredToken struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    time.Time
+	AccountID    string // optional; empty if not applicable to this distributor
+}
+
+// CredentialProvider is a token store abstraction passed to CredentialEnricher.
+// The handler constructs a thin adapter scoped to a specific (team, distributor) pair.
+type CredentialProvider interface {
+	GetOAuthToken(ctx context.Context) (*StoredToken, error)
+	StoreOAuthToken(ctx context.Context, tok *StoredToken) error
+	DeleteOAuthToken(ctx context.Context) error
+}
+
+// CredentialEnricher is optionally implemented by distributors that need
+// runtime-resolved credentials (e.g. 3-legged OAuth tokens injected into
+// the base 2-legged credential set).
+// Check at runtime: if ce, ok := client.(distributor.CredentialEnricher); ok { ... }
+type CredentialEnricher interface {
+	// EnrichCredentials merges runtime credentials into the base 2-legged
+	// credentials JSON, returning enriched credentials ready for ordering API calls.
+	// Returns ErrOAuthRequired when re-authorization by the user is needed.
+	EnrichCredentials(ctx context.Context, base json.RawMessage, provider CredentialProvider) (json.RawMessage, error)
+}
+
 // ThreeLeggedAuthClient is implemented by distributors that support the OAuth
 // authorization-code (3-legged) flow for per-user/per-team token acquisition.
+// Token refresh is an internal concern of the CredentialEnricher implementation.
 type ThreeLeggedAuthClient interface {
 	// AuthorizeURL builds the authorization redirect URL for the user.
 	AuthorizeURL(creds json.RawMessage, redirectURI, state string) (string, error)
 	// ExchangeCode exchanges an authorization code for access + refresh tokens.
 	ExchangeCode(ctx context.Context, creds json.RawMessage, code, redirectURI string) (*OAuthTokens, error)
-	// RefreshToken exchanges a refresh token for a new access token.
-	RefreshToken(ctx context.Context, creds json.RawMessage, refreshToken string) (*OAuthTokens, error)
-}
-
-// AccountIDResolver is implemented by distributors that can resolve the account ID
-// for the authenticated user after a 3-legged OAuth exchange. The account ID is
-// often required for ordering APIs (e.g. DigiKey's X-DIGIKEY-Account-Id header).
-type AccountIDResolver interface {
-	// GetPrimaryAccountID fetches the primary account ID for the user identified
-	// by accessToken. Returns the account ID string, or an error if unavailable.
-	GetPrimaryAccountID(ctx context.Context, creds json.RawMessage, accessToken string) (string, error)
 }

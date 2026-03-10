@@ -5,6 +5,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/Yamakaja/partrack/internal/config"
@@ -13,6 +14,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 )
 
 // Handler holds shared dependencies for all HTTP handlers.
@@ -25,6 +27,47 @@ type Handler struct {
 	Distributors distributor.Registry
 	CartResolver *CartResolver
 	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
+	refreshGroup singleflight.Group    // deduplicates concurrent credential enrichment per (team, distributor)
+}
+
+// getEnrichedCreds returns credentials for ordering API calls.
+// If the distributor client implements CredentialEnricher, it enriches the base
+// 2-legged credentials with runtime-resolved tokens (e.g. OAuth).
+// Concurrent calls for the same (team, distributor) are deduplicated via singleflight.
+func (h *Handler) getEnrichedCreds(r *http.Request, order dbgen.GetOrderRow) (json.RawMessage, error) {
+	ctx := r.Context()
+
+	if order.DistributorApiType == nil {
+		return nil, fmt.Errorf("distributor has no api_type")
+	}
+	client := h.Distributors.Lookup(*order.DistributorApiType)
+
+	cfg, err := h.Queries.GetDistributorConfigRaw(ctx, dbgen.GetDistributorConfigRawParams{
+		TeamID:        order.TeamID,
+		DistributorID: order.DistributorID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get distributor config: %w", err)
+	}
+
+	ce, ok := client.(distributor.CredentialEnricher)
+	if !ok {
+		return cfg.ApiCredentials, nil
+	}
+
+	provider := &dbCredentialProvider{
+		queries:       h.Queries,
+		teamID:        order.TeamID,
+		distributorID: order.DistributorID,
+	}
+	key := order.TeamID.String() + "/" + order.DistributorID.String()
+	result, err, _ := h.refreshGroup.Do(key, func() (any, error) {
+		return ce.EnrichCredentials(ctx, cfg.ApiCredentials, provider)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(json.RawMessage), nil
 }
 
 // New creates a Handler and initialises OIDC providers.

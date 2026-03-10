@@ -1027,8 +1027,8 @@ func (c *Client) ExchangeCode(ctx context.Context, rawCreds json.RawMessage, cod
 	})
 }
 
-// RefreshToken exchanges a refresh token for a new access token.
-func (c *Client) RefreshToken(ctx context.Context, rawCreds json.RawMessage, refreshToken string) (*distributor.OAuthTokens, error) {
+// refreshToken exchanges a refresh token for a new access token.
+func (c *Client) refreshToken(ctx context.Context, rawCreds json.RawMessage, refreshToken string) (*distributor.OAuthTokens, error) {
 	var creds Credentials
 	if err := json.Unmarshal(rawCreds, &creds); err != nil {
 		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
@@ -1074,11 +1074,63 @@ func (c *Client) postTokenForm(ctx context.Context, creds Credentials, form url.
 	}, nil
 }
 
-// ---- AccountIDResolver implementation ----
+// ---- CredentialEnricher implementation ----
 
-// GetPrimaryAccountID calls GET /CustomerResource/v1/associatedaccounts using the
+// EnrichCredentials implements distributor.CredentialEnricher.
+// It fetches a stored 3-legged OAuth token, refreshes it if needed,
+// lazily resolves the account ID on first use, and injects both into
+// the base 2-legged credentials JSON.
+func (c *Client) EnrichCredentials(ctx context.Context, base json.RawMessage, provider distributor.CredentialProvider) (json.RawMessage, error) {
+	tok, err := provider.GetOAuthToken(ctx)
+	if err != nil || tok == nil {
+		return nil, distributor.ErrOAuthRequired
+	}
+
+	accessToken := tok.AccessToken
+
+	// Refresh if expiring within 60 seconds.
+	if time.Now().Add(60 * time.Second).After(tok.ExpiresAt) {
+		newToks, err := c.refreshToken(ctx, base, tok.RefreshToken)
+		if err != nil {
+			_ = provider.DeleteOAuthToken(ctx)
+			return nil, distributor.ErrOAuthRequired
+		}
+		tok = &distributor.StoredToken{
+			AccessToken:  newToks.AccessToken,
+			RefreshToken: newToks.RefreshToken,
+			ExpiresAt:    time.Now().Add(time.Duration(newToks.ExpiresIn) * time.Second),
+			AccountID:    tok.AccountID, // preserved across refresh
+		}
+		_ = provider.StoreOAuthToken(ctx, tok)
+		accessToken = tok.AccessToken
+	}
+
+	// Lazy account ID resolution: if not yet stored, try to fetch it.
+	if tok.AccountID == "" {
+		if id, err := c.getPrimaryAccountID(ctx, base, accessToken); err == nil && id != "" {
+			updated := *tok
+			updated.AccountID = id
+			_ = provider.StoreOAuthToken(ctx, &updated) // best-effort
+			tok = &updated
+		}
+		// Non-fatal: proceed without account ID (e.g. sandbox environment)
+	}
+
+	// Inject DigiKey-specific fields into the base 2-legged credentials.
+	var m map[string]any
+	if err := json.Unmarshal(base, &m); err != nil {
+		return nil, err
+	}
+	m["_three_legged_token"] = accessToken
+	if tok.AccountID != "" {
+		m["account_id"] = tok.AccountID
+	}
+	return json.Marshal(m)
+}
+
+// getPrimaryAccountID calls GET /CustomerResource/v1/associatedaccounts using the
 // provided 3-legged access token and returns the first AccountId found.
-func (c *Client) GetPrimaryAccountID(ctx context.Context, rawCreds json.RawMessage, accessToken string) (string, error) {
+func (c *Client) getPrimaryAccountID(ctx context.Context, rawCreds json.RawMessage, accessToken string) (string, error) {
 	var creds Credentials
 	if err := json.Unmarshal(rawCreds, &creds); err != nil {
 		return "", fmt.Errorf("digikey: unmarshal credentials: %w", err)
