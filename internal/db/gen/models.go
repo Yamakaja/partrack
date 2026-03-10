@@ -525,6 +525,17 @@ type InventoryEntry struct {
 	ReorderQuantity      *int32      `json:"reorder_quantity"`
 }
 
+type OauthToken struct {
+	ID            pgtype.UUID        `json:"id"`
+	TeamID        pgtype.UUID        `json:"team_id"`
+	DistributorID pgtype.UUID        `json:"distributor_id"`
+	AccessToken   string             `json:"access_token"`
+	RefreshToken  string             `json:"refresh_token"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	AccountID     string             `json:"account_id"`
+}
+
 type OidcIdentity struct {
 	ID            pgtype.UUID        `json:"id"`
 	UserID        pgtype.UUID        `json:"user_id"`
@@ -547,6 +558,7 @@ type Order struct {
 	CreatedBy           pgtype.UUID               `json:"created_by"`
 	CreatedAt           pgtype.Timestamptz        `json:"created_at"`
 	PurchaseOrderNumber *string                   `json:"purchase_order_number"`
+	Integrations        []byte                    `json:"integrations"`
 }
 
 type OrderLineItem struct {

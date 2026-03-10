@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -20,6 +22,7 @@ func orderResponse(o dbgen.GetOrderRow) map[string]any {
 		"id":                      o.ID.String(),
 		"distributor_id":          o.DistributorID.String(),
 		"distributor_name":        o.DistributorName,
+		"distributor_api_type":    o.DistributorApiType,
 		"status":                  string(o.Status),
 		"external_reference":      o.ExternalReference,
 		"notes":                   o.Notes,
@@ -41,6 +44,13 @@ func orderResponse(o dbgen.GetOrderRow) map[string]any {
 		resp["received_at"] = o.ReceivedAt.Time.UTC().Format(time.RFC3339)
 	} else {
 		resp["received_at"] = nil
+	}
+	// integrations: return as raw JSON object (nil/empty stays as null/empty)
+	if len(o.Integrations) > 0 {
+		var raw json.RawMessage = o.Integrations
+		resp["integrations"] = raw
+	} else {
+		resp["integrations"] = json.RawMessage("{}")
 	}
 	return resp
 }
@@ -685,5 +695,328 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		"order_status":         string(newOrderStatus),
 		"new_quantity_on_hand": newQty,
 		"allocation_breakdown": allocationBreakdown,
+	})
+}
+
+// ---- Distributor API ordering helpers ----
+
+// getOrderingClient returns the OrderingClient for the order's distributor, or an error.
+func (h *Handler) getOrderingClient(order dbgen.GetOrderRow) (distributor.OrderingClient, error) {
+	if order.DistributorApiType == nil || *order.DistributorApiType == "" {
+		return nil, fmt.Errorf("distributor has no API integration")
+	}
+	client := h.Distributors.Lookup(*order.DistributorApiType)
+	if client == nil {
+		return nil, fmt.Errorf("unknown distributor: %s", *order.DistributorApiType)
+	}
+	oc, ok := client.(distributor.OrderingClient)
+	if !ok {
+		return nil, fmt.Errorf("distributor does not support ordering APIs")
+	}
+	return oc, nil
+}
+
+// mergeDigiKeyIntegrations deep-merges patch into the digikey sub-object of integrations JSONB.
+func mergeDigiKeyIntegrations(current []byte, patch map[string]any) ([]byte, error) {
+	var top map[string]any
+	if len(current) > 0 {
+		if err := json.Unmarshal(current, &top); err != nil {
+			top = make(map[string]any)
+		}
+	} else {
+		top = make(map[string]any)
+	}
+
+	dk, _ := top["digikey"].(map[string]any)
+	if dk == nil {
+		dk = make(map[string]any)
+	}
+	for k, v := range patch {
+		dk[k] = v
+	}
+	top["digikey"] = dk
+	return json.Marshal(top)
+}
+
+// PushToDistributor handles POST /api/v1/teams/{teamId}/orders/{orderId}/push-to-distributor
+// Role: purchaser+
+// Creates a parts list on the distributor's platform (e.g. DigiKey MyList).
+func (h *Handler) PushToDistributor(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var orderID pgtype.UUID
+	if err := orderID.Scan(chi.URLParam(r, "orderId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order id", "BAD_REQUEST")
+		return
+	}
+
+	ctx := r.Context()
+
+	order, err := h.Queries.GetOrder(ctx, dbgen.GetOrderParams{ID: orderID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if order.Status == dbgen.OrderStatusCancelled || order.Status == dbgen.OrderStatusReceived {
+		writeError(w, http.StatusConflict, "cannot push cancelled or received order", "ORDER_NOT_PUSHABLE")
+		return
+	}
+
+	oc, err := h.getOrderingClient(order)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "NO_ORDERING_SUPPORT")
+		return
+	}
+
+	creds, err := h.getThreeLeggedCreds(r, order)
+	if errors.Is(err, ErrOAuthRequired) {
+		writeError(w, http.StatusUnauthorized, "OAuth authorization required", "OAUTH_REQUIRED")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get credentials", "INTERNAL_ERROR")
+		return
+	}
+
+	lineItems, err := h.Queries.GetOrderLineItems(ctx, orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	items := make([]distributor.OrderItem, len(lineItems))
+	for i, li := range lineItems {
+		items[i] = distributor.OrderItem{
+			SKU:               li.Sku,
+			Quantity:          li.QuantityOrdered,
+			CustomerReference: li.ID.String(),
+		}
+	}
+
+	listName := "partrack-" + orderID.String()[:8]
+	result, listID, apiErr := oc.CreateList(ctx, listName, items, creds)
+
+	// Persist listID regardless of partial failure.
+	patch := map[string]any{"list_id": listID}
+	if result != nil {
+		patch["list_url"] = result.ListURL
+	}
+	updated, mergeErr := mergeDigiKeyIntegrations(order.Integrations, patch)
+	if mergeErr == nil {
+		_, _ = h.Queries.UpdateOrderIntegrations(ctx, dbgen.UpdateOrderIntegrationsParams{
+			ID:           orderID,
+			TeamID:       teamID,
+			Integrations: updated,
+		})
+	}
+
+	if apiErr != nil {
+		writeError(w, http.StatusBadGateway,
+			fmt.Sprintf("DigiKey list created but parts could not be added: %v", apiErr),
+			"LIST_PARTS_FAILED")
+		return
+	}
+
+	_, _ = h.Queries.TransitionOrderToExportedViaAPI(ctx, dbgen.TransitionOrderToExportedViaAPIParams{
+		ID:     orderID,
+		TeamID: teamID,
+	})
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"list_id":  listID,
+		"list_url": result.ListURL,
+	})
+}
+
+// RequestQuote handles POST /api/v1/teams/{teamId}/orders/{orderId}/request-quote
+// Role: purchaser+
+// Creates a quote on the distributor's platform with confirmed pricing.
+func (h *Handler) RequestQuote(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var orderID pgtype.UUID
+	if err := orderID.Scan(chi.URLParam(r, "orderId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order id", "BAD_REQUEST")
+		return
+	}
+
+	ctx := r.Context()
+
+	order, err := h.Queries.GetOrder(ctx, dbgen.GetOrderParams{ID: orderID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if order.Status == dbgen.OrderStatusCancelled || order.Status == dbgen.OrderStatusReceived {
+		writeError(w, http.StatusConflict, "cannot quote cancelled or received order", "ORDER_NOT_QUOTABLE")
+		return
+	}
+
+	oc, err := h.getOrderingClient(order)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "NO_ORDERING_SUPPORT")
+		return
+	}
+
+	creds, err := h.getThreeLeggedCreds(r, order)
+	if errors.Is(err, ErrOAuthRequired) {
+		writeError(w, http.StatusUnauthorized, "OAuth authorization required", "OAUTH_REQUIRED")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get credentials", "INTERNAL_ERROR")
+		return
+	}
+
+	lineItems, err := h.Queries.GetOrderLineItems(ctx, orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	items := make([]distributor.OrderItem, len(lineItems))
+	for i, li := range lineItems {
+		items[i] = distributor.OrderItem{
+			SKU:               li.Sku,
+			Quantity:          li.QuantityOrdered,
+			CustomerReference: li.ID.String(),
+		}
+	}
+
+	quoteName := "partrack-" + orderID.String()[:8]
+	quoteResult, err := oc.RequestQuote(ctx, quoteName, items, creds)
+	if err != nil {
+		// A 400 from DigiKey typically means missing config (e.g. account_id not set).
+		if strings.Contains(err.Error(), "400") {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("DigiKey rejected the quote — check that account_id is configured in your DigiKey distributor settings: %v", err),
+				"QUOTE_CONFIG_ERROR")
+			return
+		}
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("quote request failed: %v", err), "QUOTE_FAILED")
+		return
+	}
+
+	// Serialize quote items for storage.
+	quoteItemsJSON, _ := json.Marshal(quoteResult.Items)
+	var quoteItemsRaw json.RawMessage = quoteItemsJSON
+
+	patch := map[string]any{
+		"quote_id":    quoteResult.QuoteID,
+		"quote_name":  quoteResult.QuoteName,
+		"quote_items": quoteItemsRaw,
+	}
+	updated, mergeErr := mergeDigiKeyIntegrations(order.Integrations, patch)
+	if mergeErr == nil {
+		_, _ = h.Queries.UpdateOrderIntegrations(ctx, dbgen.UpdateOrderIntegrationsParams{
+			ID:           orderID,
+			TeamID:       teamID,
+			Integrations: updated,
+		})
+	}
+
+	_, _ = h.Queries.TransitionOrderToExportedViaAPI(ctx, dbgen.TransitionOrderToExportedViaAPIParams{
+		ID:     orderID,
+		TeamID: teamID,
+	})
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"quote_id":   quoteResult.QuoteID,
+		"quote_name": quoteResult.QuoteName,
+		"items":      quoteResult.Items,
+	})
+}
+
+// GetDistributorStatus handles GET /api/v1/teams/{teamId}/orders/{orderId}/distributor-status
+// Role: viewer+
+// Fetches live order status from the distributor using external_reference.
+func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var orderID pgtype.UUID
+	if err := orderID.Scan(chi.URLParam(r, "orderId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order id", "BAD_REQUEST")
+		return
+	}
+
+	ctx := r.Context()
+
+	order, err := h.Queries.GetOrder(ctx, dbgen.GetOrderParams{ID: orderID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if order.ExternalReference == nil || *order.ExternalReference == "" {
+		writeError(w, http.StatusUnprocessableEntity, "order has no external_reference (DigiKey sales order number)", "NO_EXTERNAL_REFERENCE")
+		return
+	}
+
+	oc, err := h.getOrderingClient(order)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "NO_ORDERING_SUPPORT")
+		return
+	}
+
+	// Status check uses 2-legged credentials — no 3-legged token needed.
+	cfg, err := h.Queries.GetDistributorConfigRaw(ctx, dbgen.GetDistributorConfigRawParams{
+		TeamID:        order.TeamID,
+		DistributorID: order.DistributorID,
+	})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "distributor config not found", "CONFIG_NOT_FOUND")
+		return
+	}
+
+	statusResult, err := oc.GetOrderStatus(ctx, *order.ExternalReference, cfg.ApiCredentials)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("status fetch failed: %v", err), "STATUS_FETCH_FAILED")
+		return
+	}
+
+	// Persist last status into integrations.
+	patch := map[string]any{
+		"last_status":            statusResult.Status,
+		"last_status_detail":     statusResult.StatusDetail,
+		"last_status_checked_at": statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
+	}
+	updated, mergeErr := mergeDigiKeyIntegrations(order.Integrations, patch)
+	if mergeErr == nil {
+		_, _ = h.Queries.UpdateOrderIntegrations(ctx, dbgen.UpdateOrderIntegrationsParams{
+			ID:           orderID,
+			TeamID:       teamID,
+			Integrations: updated,
+		})
+	}
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":         statusResult.Status,
+		"status_detail":  statusResult.StatusDetail,
+		"line_items":     statusResult.LineItems,
+		"last_checked_at": statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
 	})
 }

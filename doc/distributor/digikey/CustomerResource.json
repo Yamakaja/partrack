@@ -1,0 +1,236 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "CustomerResource",
+        "description": "Look up customer information that will be used in other API calls.",
+        "termsOfService": "https:\/\/www.digikey.com\/en\/terms-and-conditions",
+        "contact": {
+            "name": "API Support",
+            "url": "https:\/\/developer.digikey.com\/support"
+        },
+        "version": "v1"
+    },
+    "host": "api.digikey.com",
+    "x-host-sandbox": "sandbox-api.digikey.com",
+    "x-host-production": "api.digikey.com",
+    "securityDefinitions": {
+        "apiKeySecurity": {
+            "type": "apiKey",
+            "name": "X-DIGIKEY-Client-Id",
+            "in": "header",
+            "description": "Client Id for current application"
+        },
+        "oauth2ApplicationSecurity": {
+            "type": "oauth2",
+            "flow": "application",
+            "tokenUrl": "https:\/\/api.digikey.com\/v1\/oauth2\/token"
+        }
+    },
+    "security": [
+        {
+            "apiKeySecurity": [],
+            "oauth2ApplicationSecurity": []
+        }
+    ],
+    "schemes": [
+        "https"
+    ],
+    "basePath": "\/CustomerResource\/v1",
+    "paths": {
+        "\/associatedaccounts": {
+            "get": {
+                "tags": [
+                    "CustomerResource"
+                ],
+                "summary": "Look up Account IDs that are associated with your CustomerID",
+                "operationId": "AssociatedAccounts",
+                "produces": [
+                    "application\/json"
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "Authorization",
+                        "description": "OAuth Bearer Token. Please see<a href= \"https:\/\/developer.digikey.com\/documentation\/oauth\" target= \"_blank\" > OAuth 2.0 Documentation <\/a > page for more info.",
+                        "type": "string"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-DIGIKEY-Client-Id",
+                        "description": "The Client Id for your app.",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#\/definitions\/AccountAssociationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - The input model is invalid or malformed.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - Token is expired or Client Id or subscription are invalid.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "The target resource is forbidden.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found - The requested resource could not be found",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests - Your rate limit has been exceeded",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "An unhandled error occurred.",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable - The service is temporarily unavailable",
+                        "schema": {
+                            "$ref": "#\/definitions\/DKProblemDetails"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "AccountAddress": {
+            "description": "Address for account",
+            "type": "object",
+            "properties": {
+                "CompanyName": {
+                    "description": "Company name on address",
+                    "type": "string",
+                    "example": "Corporation X"
+                },
+                "AddressLine1": {
+                    "description": "First address line",
+                    "type": "string",
+                    "example": "123 North Street"
+                },
+                "AddressLine2": {
+                    "description": "Second address line",
+                    "type": "string",
+                    "example": "123 North Street"
+                },
+                "AddressLine3": {
+                    "description": "Third address line",
+                    "type": "string",
+                    "example": "123 North Street"
+                },
+                "City": {
+                    "description": "City on address",
+                    "type": "string",
+                    "example": "Metrocity"
+                },
+                "State": {
+                    "description": "State code on address",
+                    "type": "string",
+                    "example": "MN"
+                },
+                "PostalCode": {
+                    "description": "Postal code on address",
+                    "type": "string",
+                    "example": "78303"
+                },
+                "CountryCode": {
+                    "description": "Country on address",
+                    "type": "string",
+                    "example": "USA"
+                }
+            },
+            "additionalProperties": false
+        },
+        "AccountAssociationResponse": {
+            "description": "AccountAssociationResponse",
+            "type": "object",
+            "properties": {
+                "Accounts": {
+                    "description": "List of accounts associated with your customer ID",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#\/definitions\/AccountInformation"
+                    }
+                },
+                "EmailAddressUsed": {
+                    "description": "Email address used to look up associated AccountIDs. This is the email address that you used for authentication.",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "AccountInformation": {
+            "description": "Information on a particular account",
+            "type": "object",
+            "properties": {
+                "AccountId": {
+                    "format": "int32",
+                    "description": "Your DigiKey AccountID. You may need to populate this value in some search, quote, list, and account history API calls. It is also needed when placing an order. Select ‘My account’ above to learn more about AccountIDs.",
+                    "type": "integer"
+                },
+                "Address": {
+                    "$ref": "#\/definitions\/AccountAddress"
+                }
+            },
+            "additionalProperties": false
+        },
+        "DKProblemDetails": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "status": {
+                    "format": "int32",
+                    "type": "integer"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "correlationId": {
+                    "type": "string"
+                },
+                "errors": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "readOnly": true
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "tags": []
+}

@@ -17,6 +17,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/auth/reset-password", h.GetResetPasswordInfo)
 		r.Post("/auth/reset-password", h.CompletePasswordReset)
 
+		// ── OAuth callbacks (no session required) ───────────────────────────
+		r.Get("/oauth/callback/digikey", h.OAuthCallback)
+
 		// Categories and parameter definitions (public — no auth required)
 		r.Get("/categories", h.ListCategories)
 		r.Get("/parameter-definitions", h.ListParameterDefinitions)
@@ -120,6 +123,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// 13. Orders
 					r.Get("/orders", h.ListOrders)
 					r.Get("/orders/{orderId}", h.GetOrder)
+					r.Get("/orders/{orderId}/distributor-status", h.GetDistributorStatus)
 
 					// 14. Builds
 					r.Get("/builds", h.ListBuilds)
@@ -210,6 +214,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/orders/{orderId}/submit", h.SubmitOrder)
 					r.Post("/orders/{orderId}/reference", h.LinkOrderReference)
 					r.Post("/orders/{orderId}/items/{itemId}/receive", h.ReceiveOrderItem)
+					r.Post("/orders/{orderId}/push-to-distributor", h.PushToDistributor)
+					r.Post("/orders/{orderId}/request-quote", h.RequestQuote)
+					r.Get("/oauth/digikey/initiate", h.InitiateOAuth)
 				})
 
 				// Admin+

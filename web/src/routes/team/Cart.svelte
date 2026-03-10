@@ -57,7 +57,12 @@
       qc.invalidateQueries({ queryKey: ['builds', teamId] });
       qc.invalidateQueries({ queryKey: ['builds', teamId, 'pending'] });
       pushToast('success', `Created ${result.order_ids.length} order(s)`);
-      navigate(`/teams/${teamId}/orders`);
+      if (result.order_ids.length == 1) {
+        navigate(`/teams/${teamId}/orders/${result.order_ids[0]}`);
+      } else {
+        navigate(`/teams/${teamId}/orders`);
+      }
+
     } catch (err: any) {
       pushToast('error', 'Failed to convert cart', err.message);
     } finally {

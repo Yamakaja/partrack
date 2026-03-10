@@ -25,8 +25,9 @@ WHERE team_id = $1
 -- name: GetOrder :one
 SELECT
     o.id, o.team_id, o.distributor_id, d.name AS distributor_name,
+    d.api_type AS distributor_api_type,
     o.status, o.submission_method, o.external_reference, o.external_ref_linked_at,
-    o.received_at, o.notes, o.purchase_order_number, o.created_at,
+    o.received_at, o.notes, o.purchase_order_number, o.integrations, o.created_at,
     u.display_name AS created_by_display_name
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
@@ -197,3 +198,16 @@ JOIN   build_orders bo         ON bo.order_id = oli.order_id
 WHERE  bo.build_id = $1
   AND  dl.part_id  = $2
   AND  oli.quantity_received < oli.quantity_ordered;
+
+-- name: TransitionOrderToExportedViaAPI :one
+UPDATE orders
+SET status = 'exported', submission_method = 'api'
+WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
+  AND status IN ('draft', 'exported')
+RETURNING id, status, submission_method;
+
+-- name: UpdateOrderIntegrations :one
+UPDATE orders
+SET integrations = $3
+WHERE id = $1 AND team_id = $2
+RETURNING id, integrations;

@@ -5,6 +5,7 @@
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import DigiKeyCard from '$lib/components/orders/DigiKeyCard.svelte';
   import { DataTable, LocalDataSource, getNestedValue } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Dialog } from '$lib/components/ui/dialog/index.js';
@@ -167,14 +168,42 @@
     orderQuery.data?.status === 'partially_received'
   );
 
+  // Show a toast if returning from DigiKey OAuth flow.
+  $effect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('oauth_success')) {
+      pushToast('success', 'DigiKey account connected');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('oauth_success');
+      window.history.replaceState({}, '', url.toString());
+    } else if (params.has('oauth_error')) {
+      pushToast('error', 'DigiKey authorization failed', params.get('oauth_error') ?? '');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('oauth_error');
+      window.history.replaceState({}, '', url.toString());
+    }
+  });
+
+  // Build a SKU → quoted unit price map from integrations for the inline column.
+  const quotePriceBySku = $derived.by(() => {
+    const items = orderQuery.data?.integrations?.digikey?.quote_items;
+    if (!items?.length) return null;
+    const map: Record<string, string> = {};
+    for (const qi of items) {
+      if (qi.unit_price) map[qi.sku] = qi.unit_price;
+    }
+    return map;
+  });
+
   const columns: ColumnSpec<OrderLineItem>[] = [
-    { key: 'sku',                 header: 'SKU',         type: 'text',     filterable: true },
-    { key: 'part_mpn',            header: 'Part MPN',    type: 'text',     filterable: true },
-    { key: 'packaging_type',      header: 'Packaging',   type: 'enum',     filterable: true },
-    { key: 'unit_price_snapshot', header: 'Unit Price',  type: 'currency', align: 'right' },
-    { key: '_total',              header: 'Total',       type: 'currency', align: 'right' },
-    { key: 'quantity_ordered',    header: 'Ordered',     type: 'numeric',  align: 'right' },
-    { key: 'quantity_received',   header: 'Received',    type: 'numeric',  align: 'right' },
+    { key: 'sku',                 header: 'SKU',           type: 'text',     filterable: true },
+    { key: 'part_mpn',            header: 'Part MPN',      type: 'text',     filterable: true },
+    { key: 'packaging_type',      header: 'Packaging',     type: 'enum',     filterable: true },
+    { key: 'unit_price_snapshot', header: 'Unit Price',    type: 'currency', align: 'right' },
+    { key: '_quoted_price',       header: 'Quoted Price',  type: 'currency', align: 'right', hidden: true },
+    { key: '_total',              header: 'Total',         type: 'currency', align: 'right' },
+    { key: 'quantity_ordered',    header: 'Ordered',       type: 'numeric',  align: 'right' },
+    { key: 'quantity_received',   header: 'Received',      type: 'numeric',  align: 'right' },
     {
       key: '_receipt_status',
       header: 'Status',
@@ -184,8 +213,8 @@
       filterValues: ['pending', 'partial', 'received'],
       filterLabels: { pending: 'Pending', partial: 'Partial', received: 'Received' },
     },
-    { key: '_receive_qty',        header: 'Receive Qty', type: 'enum',     sortable: false, hidden: true },
-    { key: '_receive_action',     header: '',            type: 'enum',     sortable: false, hidden: true, width: '90px' },
+    { key: '_receive_qty',        header: 'Receive Qty',   type: 'enum',     sortable: false, hidden: true },
+    { key: '_receive_action',     header: '',              type: 'enum',     sortable: false, hidden: true, width: '90px' },
   ];
 
   const source = new LocalDataSource<OrderLineItem>(
@@ -193,6 +222,7 @@
     columns,
     (row, key) => {
       if (key === '_total') return parseFloat(row.unit_price_snapshot) * row.quantity_ordered;
+      if (key === '_quoted_price') return quotePriceBySku?.[row.sku] ?? null;
       if (key === '_receipt_status') {
         if (row.quantity_received >= row.quantity_ordered) return 'received';
         if (row.quantity_received > 0) return 'partial';
@@ -205,6 +235,7 @@
   $effect(() => {
     source.setColumnHidden('_receive_qty', !receivingMode);
     source.setColumnHidden('_receive_action', !receivingMode);
+    source.setColumnHidden('_quoted_price', !quotePriceBySku);
   });
 
   function handleExportCSV() {
@@ -345,6 +376,15 @@
         </div>
       </MetadataCard>
 
+      {#if order.distributor_api_type === 'digikey'}
+        <DigiKeyCard
+          {teamId}
+          {orderId}
+          {order}
+          returnTo={window.location.pathname}
+        />
+      {/if}
+
       {#snippet renderSku(value: unknown)}
         <span class="font-mono text-xs">{String(value ?? '')}</span>
       {/snippet}
@@ -353,6 +393,13 @@
       {/snippet}
       {#snippet renderUnitPrice(value: unknown)}
         <PriceDisplay value={String(value ?? '')} decimals={4} />
+      {/snippet}
+      {#snippet renderQuotedPrice(value: unknown)}
+        {#if value != null}
+          <PriceDisplay value={String(value)} decimals={4} />
+        {:else}
+          <span class="text-muted-foreground">—</span>
+        {/if}
       {/snippet}
       {#snippet renderTotal(_value: unknown, row: OrderLineItem)}
         <PriceDisplay value={(parseFloat(row.unit_price_snapshot) * row.quantity_ordered).toFixed(2)} decimals={2} />
@@ -397,6 +444,7 @@
           sku: renderSku,
           part_mpn: renderMpn,
           unit_price_snapshot: renderUnitPrice,
+          _quoted_price: renderQuotedPrice,
           _total: renderTotal,
           _receipt_status: renderReceiptStatus,
           _receive_qty: renderReceiveQty,

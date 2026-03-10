@@ -5,6 +5,7 @@ package distributor
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // LifecycleStatus represents the lifecycle state of a part as reported by a distributor.
@@ -133,4 +134,98 @@ type Client interface {
 	EnrichPart(ctx context.Context, sku string, credentials json.RawMessage) (*EnrichmentResult, error)
 	RefreshListing(ctx context.Context, sku string, credentials json.RawMessage) (*Listing, error)
 	SearchParts(ctx context.Context, q SearchQuery, credentials json.RawMessage) (*SearchResult, error)
+}
+
+// --- Ordering types ---
+
+// OrderItem is a single line in a distributor ordering operation.
+type OrderItem struct {
+	SKU               string
+	Quantity          int32
+	CustomerReference string // partrack order_line_items.id (UUID string)
+}
+
+// PartsListResult is returned by CreateList on success.
+type PartsListResult struct {
+	ListID  string
+	ListURL string
+}
+
+// QuoteLineItem holds confirmed pricing for one SKU from a quote response.
+type QuoteLineItem struct {
+	SKU               string
+	CustomerReference string // echoed back from the distributor
+	UnitPrice         string // decimal string at ordered quantity, e.g. "0.4200"
+	QuantityAvailable int32
+	IsObsolete        bool
+	IsDiscontinued    bool
+	ExpirationDate    *time.Time
+}
+
+// QuoteResult wraps a confirmed quote from the distributor.
+type QuoteResult struct {
+	QuoteID   int64
+	QuoteName string
+	Items     []QuoteLineItem
+}
+
+// OrderStatusLineItem holds per-SKU shipment progress.
+type OrderStatusLineItem struct {
+	SKU               string
+	QuantityOrdered   int32
+	QuantityShipped   int32
+	QuantityBackOrder int32
+}
+
+// OrderStatusResult holds the live status of a placed distributor order.
+type OrderStatusResult struct {
+	SalesOrderID  string
+	Status        string
+	StatusDetail  string
+	LineItems     []OrderStatusLineItem
+	LastCheckedAt time.Time
+}
+
+// OrderingClient is implemented by distributors that support API ordering flows.
+// Check at runtime: if oc, ok := client.(distributor.OrderingClient); ok { ... }
+// Credentials JSON may include a "_three_legged_token" field injected by the handler
+// for APIs that require 3-legged OAuth.
+type OrderingClient interface {
+	// CreateList pushes items to a saved parts list on the distributor's platform.
+	// Returns (result, listID, err); listID is populated even on partial failure so
+	// the caller can persist the orphaned list_id before returning the error.
+	CreateList(ctx context.Context, listName string, items []OrderItem, creds json.RawMessage) (*PartsListResult, string, error)
+	// RequestQuote creates a quote and fetches confirmed pricing.
+	RequestQuote(ctx context.Context, quoteName string, items []OrderItem, creds json.RawMessage) (*QuoteResult, error)
+	// GetOrderStatus fetches live order status using 2-legged credentials.
+	GetOrderStatus(ctx context.Context, salesOrderID string, creds json.RawMessage) (*OrderStatusResult, error)
+}
+
+// --- OAuth types ---
+
+// OAuthTokens holds a token set returned by a 3-legged OAuth exchange.
+type OAuthTokens struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int // seconds
+}
+
+// ThreeLeggedAuthClient is implemented by distributors that support the OAuth
+// authorization-code (3-legged) flow for per-user/per-team token acquisition.
+type ThreeLeggedAuthClient interface {
+	// AuthorizeURL builds the authorization redirect URL for the user.
+	AuthorizeURL(creds json.RawMessage, redirectURI, state string) (string, error)
+	// ExchangeCode exchanges an authorization code for access + refresh tokens.
+	ExchangeCode(ctx context.Context, creds json.RawMessage, code, redirectURI string) (*OAuthTokens, error)
+	// RefreshToken exchanges a refresh token for a new access token.
+	RefreshToken(ctx context.Context, creds json.RawMessage, refreshToken string) (*OAuthTokens, error)
+}
+
+// AccountIDResolver is implemented by distributors that can resolve the account ID
+// for the authenticated user after a 3-legged OAuth exchange. The account ID is
+// often required for ordering APIs (e.g. DigiKey's X-DIGIKEY-Account-Id header).
+type AccountIDResolver interface {
+	// GetPrimaryAccountID fetches the primary account ID for the user identified
+	// by accessToken. Returns the account ID string, or an error if unavailable.
+	GetPrimaryAccountID(ctx context.Context, creds json.RawMessage, accessToken string) (string, error)
 }

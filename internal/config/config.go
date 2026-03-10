@@ -14,6 +14,7 @@ type Config struct {
 	Auth     AuthConfig     `yaml:"auth"`
 	OIDC     []OIDCProvider `yaml:"oidc"`
 	Log      LogConfig      `yaml:"log"`
+	App      AppConfig      `yaml:"app"`
 }
 
 type ServerConfig struct {
@@ -39,6 +40,10 @@ type OIDCProvider struct {
 
 type LogConfig struct {
 	Level string `yaml:"level"`
+}
+
+type AppConfig struct {
+	BaseURL string `yaml:"base_url"`
 }
 
 func defaults() *Config {
@@ -84,6 +89,9 @@ func Load() *Config {
 	}
 	if v := os.Getenv("PARTRACK_LISTEN_ADDR"); v != "" {
 		cfg.Server.ListenAddr = v
+	}
+	if v := os.Getenv("PARTRACK_APP_BASE_URL"); v != "" {
+		cfg.App.BaseURL = v
 	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET

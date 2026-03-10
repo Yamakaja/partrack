@@ -1,0 +1,1 @@
+ALTER TABLE orders ADD COLUMN integrations JSONB NOT NULL DEFAULT '{}';

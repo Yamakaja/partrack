@@ -22,13 +22,15 @@ import (
 
 // Credentials is the JSON structure stored in distributor_configs.api_credentials for DigiKey.
 type Credentials struct {
-	ClientID       string `json:"client_id"`
-	ClientSecret   string `json:"client_secret"`
-	LocaleSite     string `json:"locale_site"`     // default "US"
-	LocaleCurrency string `json:"locale_currency"` // default "USD"
-	LocaleLanguage string `json:"locale_language"` // default "en"
-	AccountID      string `json:"account_id"`      // optional; required for quote/MyList operations
-	Sandbox        bool   `json:"sandbox"`         // true → sandbox-api.digikey.com
+	ClientID         string `json:"client_id"`
+	ClientSecret     string `json:"client_secret"`
+	LocaleSite       string `json:"locale_site"`           // default "US"
+	LocaleCurrency   string `json:"locale_currency"`       // default "USD"
+	LocaleLanguage   string `json:"locale_language"`       // default "en"
+	AccountID        string `json:"account_id"`            // optional; required for quote/MyList operations
+	Scope            string `json:"scope"`                 // 3-legged OAuth scope; default "openid"
+	Sandbox          bool   `json:"sandbox"`               // true → sandbox-api.digikey.com
+	ThreeLeggedToken string `json:"_three_legged_token,omitempty"` // injected by handler; never stored in DB
 }
 
 // Client is the DigiKey distributor implementation.
@@ -88,7 +90,12 @@ func orDefault(s, def string) string {
 // ---- token management ----
 
 // getToken returns a valid bearer token, fetching a new one if the cached one expires soon.
+// If a ThreeLeggedToken is set in creds (injected by handler), it is returned directly.
 func (c *Client) getToken(ctx context.Context, creds Credentials) (string, error) {
+	if creds.ThreeLeggedToken != "" {
+		return creds.ThreeLeggedToken, nil
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -222,7 +229,7 @@ func (c *Client) doRequest(ctx context.Context, method, rawURL string, body any,
 			return true, nil
 
 		case http.StatusNotFound:
-			return false, nil
+			return false, fmt.Errorf("digikey: 404 not found: %s", respBody)
 
 		case http.StatusBadRequest:
 			return false, fmt.Errorf("digikey: 400 bad request: %s", respBody)
@@ -731,4 +738,389 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+// ---- locale → domain map ----
+
+var localeSiteDomain = map[string]string{
+	"US": "digikey.com", "CA": "digikey.ca", "UK": "digikey.co.uk",
+	"DE": "digikey.de", "AT": "digikey.at", "BE": "digikey.be",
+	"DK": "digikey.dk", "FI": "digikey.fi", "IE": "digikey.ie",
+	"IT": "digikey.it", "LU": "digikey.lu", "NL": "digikey.nl",
+	"NO": "digikey.no", "PL": "digikey.pl", "PT": "digikey.pt",
+	"ES": "digikey.es", "SE": "digikey.se", "CH": "digikey.ch",
+	"AU": "digikey.com.au", "NZ": "digikey.co.nz", "SG": "digikey.sg",
+	"HK": "digikey.hk", "JP": "digikey.jp", "CN": "digikey.cn",
+	"KR": "digikey.kr", "TW": "digikey.tw", "IN": "digikey.in",
+	"MX": "digikey.com.mx", "BR": "digikey.com.br",
+}
+
+func listURL(creds Credentials, listID string) string {
+	domain := localeSiteDomain[strings.ToUpper(orDefault(creds.LocaleSite, "US"))]
+	if domain == "" {
+		domain = "digikey.com"
+	}
+	return fmt.Sprintf("https://www.%s/en/mylists/list/%s", domain, listID)
+}
+
+// ---- MyLists API structs ----
+
+type createListRequest struct {
+	ListName string `json:"ListName"`
+	Source   string `json:"Source"`
+}
+
+type createListResponse struct {
+	Id string `json:"Id"`
+}
+
+type requestedQuantity struct {
+	Quantity int32 `json:"Quantity"`
+}
+
+type requestedPart struct {
+	RequestedPartNumber string              `json:"RequestedPartNumber"`
+	CustomerReference   string              `json:"CustomerReference"`
+	Quantities          []requestedQuantity `json:"Quantities"`
+}
+
+// ---- Quote API structs ----
+
+type createQuoteRequest struct {
+	QuoteName string `json:"QuoteName"`
+}
+
+type createQuoteResponse struct {
+	Quote struct {
+		QuoteId   int64  `json:"QuoteId"`
+		QuoteName string `json:"QuoteName"`
+	} `json:"Quote"`
+}
+
+type addProductToQuote struct {
+	ProductNumber     string  `json:"ProductNumber"`
+	CustomerReference string  `json:"CustomerReference"`
+	Quantities        []int32 `json:"Quantities"`
+}
+
+type quoteProductQuantity struct {
+	Quantity      int32   `json:"Quantity"`
+	UnitPrice     float64 `json:"UnitPrice"`
+	ExtendedPrice float64 `json:"ExtendedPrice"`
+}
+
+type quoteProduct struct {
+	DigikeyProductNumber string               `json:"DigikeyProductNumber"`
+	CustomerReference    string               `json:"CustomerReference"`
+	QuantityAvailable    int32                `json:"QuantityAvailable"`
+	IsObsolete           bool                 `json:"IsObsolete"`
+	IsDiscontinued       bool                 `json:"IsDiscontinued"`
+	ExpirationDate       *time.Time           `json:"ExpirationDate"`
+	Quantities           []quoteProductQuantity `json:"Quantities"`
+}
+
+type productsFromQuoteResponse struct {
+	Products []quoteProduct `json:"Products"`
+}
+
+// ---- OrderStatus API structs ----
+
+type salesOrderStatusInfo struct {
+	SalesOrderStatus string `json:"SalesOrderStatus"`
+	ShortDescription string `json:"ShortDescription"`
+}
+
+type salesOrderLineItem struct {
+	DigiKeyProductNumber string `json:"DigiKeyProductNumber"`
+	QuantityOrdered      int32  `json:"QuantityOrdered"`
+	QuantityShipped      int32  `json:"QuantityShipped"`
+	QuantityBackOrder    int32  `json:"QuantityBackOrder"`
+}
+
+type salesOrderResponse struct {
+	SalesOrderId int32                `json:"SalesOrderId"`
+	Status       salesOrderStatusInfo `json:"Status"`
+	LineItems    []salesOrderLineItem `json:"LineItems"`
+}
+
+// ---- OrderingClient implementation ----
+
+// CreateList implements distributor.OrderingClient.
+// Creates a DigiKey MyList and adds the supplied items.
+// Returns (result, listID, err); listID is set even when parts-add fails.
+func (c *Client) CreateList(ctx context.Context, listName string, items []distributor.OrderItem, rawCreds json.RawMessage) (*distributor.PartsListResult, string, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, "", fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+
+	// Create the list.
+	createURL := baseURL(creds) + "/mylists/v1/lists"
+	var createResp createListResponse
+	ok, err := c.doPostJSON(ctx, createURL, createListRequest{ListName: listName, Source: "partrack"}, creds, &createResp)
+	if err != nil {
+		return nil, "", fmt.Errorf("digikey: create list: %w", err)
+	}
+	if !ok || createResp.Id == "" {
+		return nil, "", fmt.Errorf("digikey: create list returned no ID")
+	}
+	listID := createResp.Id
+
+	// Add parts.
+	parts := make([]requestedPart, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, requestedPart{
+			RequestedPartNumber: item.SKU,
+			CustomerReference:   item.CustomerReference,
+			Quantities:          []requestedQuantity{{Quantity: item.Quantity}},
+		})
+	}
+	addURL := fmt.Sprintf("%s/mylists/v1/lists/%s/parts", baseURL(creds), listID)
+	_, err = c.doPostJSON(ctx, addURL, parts, creds, &struct{}{})
+	if err != nil {
+		return nil, listID, fmt.Errorf("digikey: add parts to list %s: %w", listID, err)
+	}
+
+	url := listURL(creds, listID)
+	return &distributor.PartsListResult{ListID: listID, ListURL: url}, listID, nil
+}
+
+// RequestQuote implements distributor.OrderingClient.
+// Creates a quote, adds items, then fetches confirmed pricing.
+func (c *Client) RequestQuote(ctx context.Context, quoteName string, items []distributor.OrderItem, rawCreds json.RawMessage) (*distributor.QuoteResult, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+	base := baseURL(creds)
+
+	// Create quote.
+	var createResp createQuoteResponse
+	ok, err := c.doPostJSON(ctx, base+"/quoting/v4/quotes", createQuoteRequest{QuoteName: quoteName}, creds, &createResp)
+	if err != nil {
+		return nil, fmt.Errorf("digikey: create quote: %w", err)
+	}
+	if !ok || createResp.Quote.QuoteId == 0 {
+		return nil, fmt.Errorf("digikey: create quote returned no ID")
+	}
+	quoteID := createResp.Quote.QuoteId
+	quoteIDStr := strconv.FormatInt(quoteID, 10)
+
+	// Add items to quote.
+	products := make([]addProductToQuote, 0, len(items))
+	for _, item := range items {
+		products = append(products, addProductToQuote{
+			ProductNumber:     item.SKU,
+			CustomerReference: item.CustomerReference,
+			Quantities:        []int32{item.Quantity},
+		})
+	}
+	addURL := fmt.Sprintf("%s/quoting/v4/quotes/%s/details", base, quoteIDStr)
+	_, err = c.doPostJSON(ctx, addURL, products, creds, &struct{}{})
+	if err != nil {
+		return nil, fmt.Errorf("digikey: add products to quote %d: %w", quoteID, err)
+	}
+
+	// Fetch confirmed pricing.
+	getURL := fmt.Sprintf("%s/quoting/v4/quotes/%s/details", base, quoteIDStr)
+	var detailsResp productsFromQuoteResponse
+	ok, err = c.doGet(ctx, getURL, creds, &detailsResp)
+	if err != nil {
+		return nil, fmt.Errorf("digikey: get quote details %d: %w", quoteID, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("digikey: quote %d not found after creation", quoteID)
+	}
+
+	resultItems := make([]distributor.QuoteLineItem, 0, len(detailsResp.Products))
+	for _, p := range detailsResp.Products {
+		item := distributor.QuoteLineItem{
+			SKU:               p.DigikeyProductNumber,
+			CustomerReference: p.CustomerReference,
+			QuantityAvailable: p.QuantityAvailable,
+			IsObsolete:        p.IsObsolete,
+			IsDiscontinued:    p.IsDiscontinued,
+			ExpirationDate:    p.ExpirationDate,
+		}
+		if len(p.Quantities) > 0 {
+			item.UnitPrice = fmt.Sprintf("%.4f", p.Quantities[0].UnitPrice)
+		}
+		resultItems = append(resultItems, item)
+	}
+
+	return &distributor.QuoteResult{
+		QuoteID:   quoteID,
+		QuoteName: createResp.Quote.QuoteName,
+		Items:     resultItems,
+	}, nil
+}
+
+// GetOrderStatus implements distributor.OrderingClient.
+// Fetches live order status using 2-legged credentials (no 3-legged token needed).
+func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCreds json.RawMessage) (*distributor.OrderStatusResult, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/orderstatus/v4/salesorder/%s", baseURL(creds), url.PathEscape(salesOrderID))
+	var resp salesOrderResponse
+	ok, err := c.doGet(ctx, endpoint, creds, &resp)
+	if err != nil {
+		return nil, fmt.Errorf("digikey: get order status: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("digikey: order %s not found", salesOrderID)
+	}
+
+	lineItems := make([]distributor.OrderStatusLineItem, 0, len(resp.LineItems))
+	for _, li := range resp.LineItems {
+		lineItems = append(lineItems, distributor.OrderStatusLineItem{
+			SKU:               li.DigiKeyProductNumber,
+			QuantityOrdered:   li.QuantityOrdered,
+			QuantityShipped:   li.QuantityShipped,
+			QuantityBackOrder: li.QuantityBackOrder,
+		})
+	}
+
+	return &distributor.OrderStatusResult{
+		SalesOrderID:  salesOrderID,
+		Status:        resp.Status.SalesOrderStatus,
+		StatusDetail:  resp.Status.ShortDescription,
+		LineItems:     lineItems,
+		LastCheckedAt: time.Now(),
+	}, nil
+}
+
+// ---- ThreeLeggedAuthClient implementation ----
+
+// AuthorizeURL builds the DigiKey OAuth2 authorization redirect URL.
+func (c *Client) AuthorizeURL(rawCreds json.RawMessage, redirectURI, state string) (string, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return "", fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+	scope := orDefault(creds.Scope, "openid")
+	authURL := baseURL(creds) + "/v1/oauth2/authorize"
+	params := url.Values{
+		"response_type": {"code"},
+		"client_id":     {creds.ClientID},
+		"redirect_uri":  {redirectURI},
+		"scope":         {scope},
+		"state":         {state},
+	}
+	return authURL + "?" + params.Encode(), nil
+}
+
+// ExchangeCode exchanges an authorization code for access + refresh tokens.
+func (c *Client) ExchangeCode(ctx context.Context, rawCreds json.RawMessage, code, redirectURI string) (*distributor.OAuthTokens, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+	return c.postTokenForm(ctx, creds, url.Values{
+		"grant_type":   {"authorization_code"},
+		"code":         {code},
+		"redirect_uri": {redirectURI},
+		"client_id":    {creds.ClientID},
+		"client_secret": {creds.ClientSecret},
+	})
+}
+
+// RefreshToken exchanges a refresh token for a new access token.
+func (c *Client) RefreshToken(ctx context.Context, rawCreds json.RawMessage, refreshToken string) (*distributor.OAuthTokens, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return nil, fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+	return c.postTokenForm(ctx, creds, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {creds.ClientID},
+		"client_secret": {creds.ClientSecret},
+	})
+}
+
+// postTokenForm POSTs form-encoded values to the DigiKey token endpoint and returns tokens.
+func (c *Client) postTokenForm(ctx context.Context, creds Credentials, form url.Values) (*distributor.OAuthTokens, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL(creds), strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("digikey: build token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("digikey: token request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("digikey: token endpoint %d: %s", resp.StatusCode, body)
+	}
+
+	var tok struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &tok); err != nil {
+		return nil, fmt.Errorf("digikey: decode token response: %w", err)
+	}
+	return &distributor.OAuthTokens{
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+		ExpiresIn:    tok.ExpiresIn,
+	}, nil
+}
+
+// ---- AccountIDResolver implementation ----
+
+// GetPrimaryAccountID calls GET /CustomerResource/v1/associatedaccounts using the
+// provided 3-legged access token and returns the first AccountId found.
+func (c *Client) GetPrimaryAccountID(ctx context.Context, rawCreds json.RawMessage, accessToken string) (string, error) {
+	var creds Credentials
+	if err := json.Unmarshal(rawCreds, &creds); err != nil {
+		return "", fmt.Errorf("digikey: unmarshal credentials: %w", err)
+	}
+
+	endpoint := baseURL(creds) + "/CustomerResource/v1/associatedaccounts"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("digikey: build associatedaccounts request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-DIGIKEY-Client-Id", creds.ClientID)
+
+	if c.debug {
+		log.Printf("digikey [request] GET %s", endpoint)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("digikey: associatedaccounts request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if c.debug {
+		log.Printf("digikey [response] status=%d body=%s", resp.StatusCode, body)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("digikey: associatedaccounts %d: %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		Accounts []struct {
+			AccountId int32 `json:"AccountId"`
+		} `json:"Accounts"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("digikey: decode associatedaccounts response: %w", err)
+	}
+	if len(result.Accounts) == 0 {
+		return "", fmt.Errorf("digikey: no accounts associated with this OAuth token")
+	}
+	return strconv.FormatInt(int64(result.Accounts[0].AccountId), 10), nil
 }

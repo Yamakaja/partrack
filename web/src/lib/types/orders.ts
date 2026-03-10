@@ -60,11 +60,37 @@ export interface Cart {
   items: CartItem[];
 }
 
+export interface QuoteItem {
+  sku: string;
+  customer_reference: string;
+  unit_price: string;
+  quantity_available: number;
+  is_obsolete: boolean;
+  is_discontinued: boolean;
+  expiration_date: string | null;
+}
+
+export interface DigiKeyIntegration {
+  list_id?: string;
+  list_url?: string;
+  quote_id?: number;
+  quote_name?: string;
+  quote_items?: QuoteItem[];
+  last_status?: string;
+  last_status_detail?: string;
+  last_status_checked_at?: string;
+}
+
+export interface OrderIntegrations {
+  digikey?: DigiKeyIntegration;
+}
+
 export interface Order {
   id: string;
   team_id: string;
   distributor_id: string;
   distributor_name: string;
+  distributor_api_type: string | null;
   status: OrderStatus;
   external_reference: string | null;
   purchase_order_number: string | null;
@@ -76,6 +102,7 @@ export interface Order {
   total_price: string | null;
   line_item_count: number;
   created_by_display_name: string;
+  integrations: OrderIntegrations;
 }
 
 export interface OrderLineItem {

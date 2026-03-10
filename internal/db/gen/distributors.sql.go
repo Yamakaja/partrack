@@ -42,6 +42,22 @@ func (q *Queries) GetDistributor(ctx context.Context, id pgtype.UUID) (Distribut
 	return i, err
 }
 
+const getDistributorByApiType = `-- name: GetDistributorByApiType :one
+SELECT id, name, website, api_type FROM distributors WHERE api_type = $1
+`
+
+func (q *Queries) GetDistributorByApiType(ctx context.Context, apiType *string) (Distributor, error) {
+	row := q.db.QueryRow(ctx, getDistributorByApiType, apiType)
+	var i Distributor
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Website,
+		&i.ApiType,
+	)
+	return i, err
+}
+
 const getDistributorConfigForSearch = `-- name: GetDistributorConfigForSearch :one
 SELECT d.api_type, dc.api_credentials
 FROM distributor_configs dc

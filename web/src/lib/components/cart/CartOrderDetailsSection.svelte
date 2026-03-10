@@ -222,7 +222,7 @@
               <Button
                 variant="ghost"
                 size="sm"
-                onclick={() => navigate("/teams/" + teamId + "/parts/" + item.part_id)}
+                onclick={() => navigate(`/teams/${teamId}/parts/${item.part_id}`)}
               >
                 <SquareArrowOutUpRight class="h-4 w-4"/>
               </Button>

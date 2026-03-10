@@ -234,8 +234,9 @@ func (q *Queries) GetOnOrderQtysForParts(ctx context.Context, arg GetOnOrderQtys
 const getOrder = `-- name: GetOrder :one
 SELECT
     o.id, o.team_id, o.distributor_id, d.name AS distributor_name,
+    d.api_type AS distributor_api_type,
     o.status, o.submission_method, o.external_reference, o.external_ref_linked_at,
-    o.received_at, o.notes, o.purchase_order_number, o.created_at,
+    o.received_at, o.notes, o.purchase_order_number, o.integrations, o.created_at,
     u.display_name AS created_by_display_name
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
@@ -253,6 +254,7 @@ type GetOrderRow struct {
 	TeamID               pgtype.UUID               `json:"team_id"`
 	DistributorID        pgtype.UUID               `json:"distributor_id"`
 	DistributorName      string                    `json:"distributor_name"`
+	DistributorApiType   *string                   `json:"distributor_api_type"`
 	Status               OrderStatus               `json:"status"`
 	SubmissionMethod     NullOrderSubmissionMethod `json:"submission_method"`
 	ExternalReference    *string                   `json:"external_reference"`
@@ -260,6 +262,7 @@ type GetOrderRow struct {
 	ReceivedAt           pgtype.Timestamptz        `json:"received_at"`
 	Notes                *string                   `json:"notes"`
 	PurchaseOrderNumber  *string                   `json:"purchase_order_number"`
+	Integrations         []byte                    `json:"integrations"`
 	CreatedAt            pgtype.Timestamptz        `json:"created_at"`
 	CreatedByDisplayName string                    `json:"created_by_display_name"`
 }
@@ -272,6 +275,7 @@ func (q *Queries) GetOrder(ctx context.Context, arg GetOrderParams) (GetOrderRow
 		&i.TeamID,
 		&i.DistributorID,
 		&i.DistributorName,
+		&i.DistributorApiType,
 		&i.Status,
 		&i.SubmissionMethod,
 		&i.ExternalReference,
@@ -279,6 +283,7 @@ func (q *Queries) GetOrder(ctx context.Context, arg GetOrderParams) (GetOrderRow
 		&i.ReceivedAt,
 		&i.Notes,
 		&i.PurchaseOrderNumber,
+		&i.Integrations,
 		&i.CreatedAt,
 		&i.CreatedByDisplayName,
 	)
@@ -700,6 +705,57 @@ type TransitionOrderToExportedParams struct {
 func (q *Queries) TransitionOrderToExported(ctx context.Context, arg TransitionOrderToExportedParams) error {
 	_, err := q.db.Exec(ctx, transitionOrderToExported, arg.ID, arg.TeamID)
 	return err
+}
+
+const transitionOrderToExportedViaAPI = `-- name: TransitionOrderToExportedViaAPI :one
+UPDATE orders
+SET status = 'exported', submission_method = 'api'
+WHERE id = $1 AND team_id = $2
+  AND status IN ('draft', 'exported')
+RETURNING id, status, submission_method
+`
+
+type TransitionOrderToExportedViaAPIParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type TransitionOrderToExportedViaAPIRow struct {
+	ID               pgtype.UUID               `json:"id"`
+	Status           OrderStatus               `json:"status"`
+	SubmissionMethod NullOrderSubmissionMethod `json:"submission_method"`
+}
+
+func (q *Queries) TransitionOrderToExportedViaAPI(ctx context.Context, arg TransitionOrderToExportedViaAPIParams) (TransitionOrderToExportedViaAPIRow, error) {
+	row := q.db.QueryRow(ctx, transitionOrderToExportedViaAPI, arg.ID, arg.TeamID)
+	var i TransitionOrderToExportedViaAPIRow
+	err := row.Scan(&i.ID, &i.Status, &i.SubmissionMethod)
+	return i, err
+}
+
+const updateOrderIntegrations = `-- name: UpdateOrderIntegrations :one
+UPDATE orders
+SET integrations = $3
+WHERE id = $1 AND team_id = $2
+RETURNING id, integrations
+`
+
+type UpdateOrderIntegrationsParams struct {
+	ID           pgtype.UUID `json:"id"`
+	TeamID       pgtype.UUID `json:"team_id"`
+	Integrations []byte      `json:"integrations"`
+}
+
+type UpdateOrderIntegrationsRow struct {
+	ID           pgtype.UUID `json:"id"`
+	Integrations []byte      `json:"integrations"`
+}
+
+func (q *Queries) UpdateOrderIntegrations(ctx context.Context, arg UpdateOrderIntegrationsParams) (UpdateOrderIntegrationsRow, error) {
+	row := q.db.QueryRow(ctx, updateOrderIntegrations, arg.ID, arg.TeamID, arg.Integrations)
+	var i UpdateOrderIntegrationsRow
+	err := row.Scan(&i.ID, &i.Integrations)
+	return i, err
 }
 
 const updateOrderLineItemQuantity = `-- name: UpdateOrderLineItemQuantity :exec

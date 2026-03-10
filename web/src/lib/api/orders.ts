@@ -1,5 +1,5 @@
 import { request, qs } from './client.js';
-import type { Order, OrderLineItem } from '$lib/types/orders.js';
+import type { Order, OrderLineItem, QuoteItem } from '$lib/types/orders.js';
 import type { PaginatedResponse } from '$lib/types/common.js';
 
 export function listOrders(teamId: string, params: { status?: string; limit?: number; offset?: number } = {}) {
@@ -39,4 +39,29 @@ export function updateOrderPurchaseOrderNumber(teamId: string, orderId: string, 
 
 export function cancelOrder(teamId: string, orderId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/orders/${orderId}`);
+}
+
+export function pushToDistributor(teamId: string, orderId: string) {
+  return request<{ list_id: string; list_url: string }>(
+    'POST', `/api/v1/teams/${teamId}/orders/${orderId}/push-to-distributor`,
+  );
+}
+
+export function requestQuote(teamId: string, orderId: string) {
+  return request<{ quote_id: number; quote_name: string; items: QuoteItem[] }>(
+    'POST', `/api/v1/teams/${teamId}/orders/${orderId}/request-quote`,
+  );
+}
+
+export interface DistributorStatusLineItem {
+  sku: string;
+  quantity_ordered: number;
+  quantity_shipped: number;
+  quantity_back_order: number;
+}
+
+export function getDistributorStatus(teamId: string, orderId: string) {
+  return request<{ status: string; status_detail: string; line_items: DistributorStatusLineItem[]; last_checked_at: string }>(
+    'GET', `/api/v1/teams/${teamId}/orders/${orderId}/distributor-status`,
+  );
 }
