@@ -1,0 +1,1 @@
+DROP INDEX distributor_configs_team_preferred_unique;

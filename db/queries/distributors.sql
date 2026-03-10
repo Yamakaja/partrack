@@ -33,6 +33,13 @@ FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1 AND dc.distributor_id = $2;
 
+-- name: ClearTeamPreferredDistributor :exec
+-- Clears preferred on all distributor configs for a team.
+-- Call this inside a transaction before setting a new preferred distributor.
+UPDATE distributor_configs
+SET preferred = FALSE
+WHERE team_id = $1 AND preferred = TRUE;
+
 -- name: UpsertDistributorConfig :one
 -- Updates api_credentials to the supplied value (pass NULL to clear).
 INSERT INTO distributor_configs (team_id, distributor_id, enabled, preferred, cache_duration_seconds, api_credentials)

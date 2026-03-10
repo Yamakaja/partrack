@@ -186,17 +186,49 @@ func (h *Handler) UpsertDistributorConfig(w http.ResponseWriter, r *http.Request
 	_, credentialsPresent := raw["api_credentials"]
 	if !credentialsPresent {
 		// Leave existing credentials unchanged.
-		row, err := h.Queries.UpsertDistributorConfigKeepCredentials(r.Context(),
-			dbgen.UpsertDistributorConfigKeepCredentialsParams{
-				TeamID:               teamID,
-				DistributorID:        distributorID,
-				Enabled:              req.Enabled,
-				Preferred:            req.Preferred,
-				CacheDurationSeconds: req.CacheDurationSeconds,
-			})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
+		var row dbgen.UpsertDistributorConfigKeepCredentialsRow
+		if req.Preferred {
+			tx, err := h.DB.Begin(r.Context())
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			defer tx.Rollback(r.Context()) //nolint:errcheck
+			q := h.Queries.WithTx(tx)
+			if err := q.ClearTeamPreferredDistributor(r.Context(), teamID); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			row, err = q.UpsertDistributorConfigKeepCredentials(r.Context(),
+				dbgen.UpsertDistributorConfigKeepCredentialsParams{
+					TeamID:               teamID,
+					DistributorID:        distributorID,
+					Enabled:              req.Enabled,
+					Preferred:            req.Preferred,
+					CacheDurationSeconds: req.CacheDurationSeconds,
+				})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			if err := tx.Commit(r.Context()); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+		} else {
+			var err error
+			row, err = h.Queries.UpsertDistributorConfigKeepCredentials(r.Context(),
+				dbgen.UpsertDistributorConfigKeepCredentialsParams{
+					TeamID:               teamID,
+					DistributorID:        distributorID,
+					Enabled:              req.Enabled,
+					Preferred:            req.Preferred,
+					CacheDurationSeconds: req.CacheDurationSeconds,
+				})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
 		}
 		hasCreds, _ := row.HasCredentials.(bool)
 		writeJSON(w, http.StatusOK, configResult{
@@ -263,17 +295,43 @@ func (h *Handler) UpsertDistributorConfig(w http.ResponseWriter, r *http.Request
 		apiCredentials = merged
 	}
 
-	row, err := h.Queries.UpsertDistributorConfig(r.Context(), dbgen.UpsertDistributorConfigParams{
+	upsertParams := dbgen.UpsertDistributorConfigParams{
 		TeamID:               teamID,
 		DistributorID:        distributorID,
 		Enabled:              req.Enabled,
 		Preferred:            req.Preferred,
 		CacheDurationSeconds: req.CacheDurationSeconds,
 		ApiCredentials:       apiCredentials,
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
+	}
+	var row dbgen.UpsertDistributorConfigRow
+	if req.Preferred {
+		tx, err := h.DB.Begin(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		defer tx.Rollback(r.Context()) //nolint:errcheck
+		q := h.Queries.WithTx(tx)
+		if err := q.ClearTeamPreferredDistributor(r.Context(), teamID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		row, err = q.UpsertDistributorConfig(r.Context(), upsertParams)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	} else {
+		var err error
+		row, err = h.Queries.UpsertDistributorConfig(r.Context(), upsertParams)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
 	}
 	hasCreds, _ := row.HasCredentials.(bool)
 	writeJSON(w, http.StatusOK, configResult{

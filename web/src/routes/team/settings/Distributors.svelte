@@ -10,7 +10,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Settings } from 'lucide-svelte';
+  import { Settings, Star } from 'lucide-svelte';
   import type { Distributor, DistributorConfig, CredentialField, DistributorRateLimit } from '$lib/types/parts.js';
 
   let { teamId }: { teamId: string } = $props();
@@ -42,8 +42,9 @@
   let configureOpen = $state(false);
   let configuringDistributor = $state<Distributor | null>(null);
   let cfgEnabled = $state(false);
-  let cfgPreferred = $state(false);
+  let cfgPreferredCurrent = $state(false); // preserved through dialog saves; not editable here
   let cfgCacheDuration = $state('3600');
+  let settingPreferred = $state(false);
   let configHasCredentials = $state(false);
   let saving = $state(false);
 
@@ -66,10 +67,26 @@
     return 'text-destructive';
   }
 
+  async function togglePreferred(dist: Distributor, config: DistributorConfig) {
+    settingPreferred = true;
+    try {
+      await upsertDistributorConfig(teamId, dist.id, {
+        enabled: config.enabled,
+        preferred: !config.preferred,
+        cache_duration_seconds: config.cache_duration_seconds,
+      });
+      qc.invalidateQueries({ queryKey: ['distributor-configs', teamId] });
+    } catch (err: any) {
+      pushToast('error', 'Failed to update preferred distributor', err.message);
+    } finally {
+      settingPreferred = false;
+    }
+  }
+
   function openConfigure(dist: Distributor, config: DistributorConfig | null) {
     configuringDistributor = dist;
     cfgEnabled = config?.enabled ?? false;
-    cfgPreferred = config?.preferred ?? false;
+    cfgPreferredCurrent = config?.preferred ?? false;
     cfgCacheDuration = String(config?.cache_duration_seconds ?? 3600);
     configHasCredentials = config?.has_credentials ?? false;
     credentialSpec = null;
@@ -128,7 +145,7 @@
     try {
       await upsertDistributorConfig(teamId, configuringDistributor.id, {
         enabled: cfgEnabled,
-        preferred: cfgPreferred,
+        preferred: cfgPreferredCurrent,
         cache_duration_seconds: cacheDuration,
         api_credentials: credentials,
       });
@@ -178,7 +195,6 @@
             <TableHead>Distributor</TableHead>
             <TableHead>API Type</TableHead>
             <TableHead>Enabled</TableHead>
-            <TableHead>Preferred</TableHead>
             <TableHead>Cache Duration</TableHead>
             <TableHead>API Rate Limit</TableHead>
             <TableHead>Actions</TableHead>
@@ -198,13 +214,6 @@
                   <Badge variant="secondary">Not configured</Badge>
                 {/if}
               </TableCell>
-              <TableCell>
-                {#if config?.preferred}
-                  <Badge variant="default">Preferred</Badge>
-                {:else}
-                  <span class="text-muted-foreground text-sm">—</span>
-                {/if}
-              </TableCell>
               <TableCell class="text-muted-foreground text-sm">
                 {config ? `${config.cache_duration_seconds}s` : '—'}
               </TableCell>
@@ -222,6 +231,17 @@
               </TableCell>
               <TableCell>
                 <div class="flex items-center gap-1">
+                  {#if config}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={settingPreferred}
+                      onclick={() => togglePreferred(distributor, config)}
+                      title={config.preferred ? 'Clear preferred distributor' : 'Set as preferred distributor'}
+                    >
+                      <Star class="h-4 w-4 {config.preferred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}" />
+                    </Button>
+                  {/if}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -265,14 +285,6 @@
             class="h-4 w-4 rounded border-input"
           />
           Enabled
-        </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            bind:checked={cfgPreferred}
-            class="h-4 w-4 rounded border-input"
-          />
-          Preferred
         </label>
         <div class="space-y-1">
           <Label for="cache-duration">Cache Duration (seconds)</Label>

@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearTeamPreferredDistributor = `-- name: ClearTeamPreferredDistributor :exec
+UPDATE distributor_configs
+SET preferred = FALSE
+WHERE team_id = $1 AND preferred = TRUE
+`
+
+// Clears preferred on all distributor configs for a team.
+// Call this inside a transaction before setting a new preferred distributor.
+func (q *Queries) ClearTeamPreferredDistributor(ctx context.Context, teamID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearTeamPreferredDistributor, teamID)
+	return err
+}
+
 const deleteDistributorConfig = `-- name: DeleteDistributorConfig :exec
 DELETE FROM distributor_configs
 WHERE team_id = $1 AND distributor_id = $2

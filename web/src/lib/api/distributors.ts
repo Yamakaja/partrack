@@ -32,7 +32,7 @@ export function upsertDistributorConfig(
   distributorId: string,
   body: {
     enabled: boolean;
-    preferred: boolean;
+    preferred?: boolean;
     cache_duration_seconds: number;
     api_credentials?: Record<string, unknown> | null;
   },
