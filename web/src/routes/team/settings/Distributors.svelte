@@ -238,6 +238,9 @@
       });
       configureOpen = false;
       qc.invalidateQueries({ queryKey: ['distributor-configs', teamId] });
+      if (configuringDistributor.supports_oauth && configuringDistributor.api_type) {
+        loadOAuthStatus(configuringDistributor.api_type);
+      }
       pushToast('success', 'Distributor configuration saved');
     } catch (err: any) {
       pushToast('error', 'Failed to save configuration', err.message);
