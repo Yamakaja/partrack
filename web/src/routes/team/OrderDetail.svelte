@@ -15,6 +15,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Pencil, Copy, Package } from 'lucide-svelte';
+  import { getTrackingUrl } from '$lib/utils/tracking.js';
   import type { OrderStatus, OrderLineItem, DigiKeyStatusLineItem } from '$lib/types/orders.js';
 
   /** Compare packaging strings, normalizing whitespace/parens for equivalence. */
@@ -430,8 +431,12 @@
       {#snippet renderSku(value: unknown)}
         <span class="font-mono text-xs">{String(value ?? '')}</span>
       {/snippet}
-      {#snippet renderMpn(value: unknown)}
-        <span class="font-mono font-medium text-xs">{value != null ? String(value) : '—'}</span>
+      {#snippet renderMpn(_value: unknown, row: OrderLineItem)}
+        <a
+          href={`/teams/${teamId}/parts/${row.part_id}`}
+          class="font-mono font-medium text-xs hover:underline"
+          onclick={(e) => e.stopPropagation()}
+        >{row.part_mpn ?? '—'}</a>
       {/snippet}
       {#snippet renderUnitPrice(_value: unknown, row: OrderLineItem)}
         {@const dk = dkStatusBySku?.get(row.sku)}
@@ -536,8 +541,19 @@
                         </div>
                       {/if}
                       {#if shipment.tracking_number}
+                        {@const trackingUrl = getTrackingUrl(shipment.tracking_number, order.integrations?.digikey?.last_status_ship_method)}
                         <div class="flex items-center gap-1">
-                          <span class="font-mono text-xs">{shipment.tracking_number}</span>
+                          {#if trackingUrl}
+                            <a
+                              href={trackingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="font-mono text-xs hover:underline"
+                              onclick={(e) => e.stopPropagation()}
+                            >{shipment.tracking_number}</a>
+                          {:else}
+                            <span class="font-mono text-xs">{shipment.tracking_number}</span>
+                          {/if}
                           <button
                             type="button"
                             onclick={async (e) => {

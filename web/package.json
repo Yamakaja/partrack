@@ -28,6 +28,7 @@
     "lucide-svelte": "^0.575.0",
     "mode-watcher": "^1.1.0",
     "papaparse": "^5.5.3",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "tracking-number-validation": "^2.0.2"
   }
 }

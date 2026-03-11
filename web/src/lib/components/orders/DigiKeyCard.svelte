@@ -10,6 +10,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { ExternalLink, Copy } from 'lucide-svelte';
+  import { getTrackingUrl } from '$lib/utils/tracking.js';
   import type { Order } from '$lib/types/orders.js';
 
   interface Props {
@@ -322,7 +323,17 @@
                     <td class="px-3 py-1.5">
                       <div class="flex items-center gap-1.5">
                         {#if group.tracking_number}
-                          <span class="font-mono">{group.tracking_number}</span>
+                          {@const trackingUrl = getTrackingUrl(group.tracking_number, dk.last_status_ship_method)}
+                          {#if trackingUrl}
+                            <a
+                              href={trackingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="font-mono hover:underline"
+                            >{group.tracking_number}</a>
+                          {:else}
+                            <span class="font-mono">{group.tracking_number}</span>
+                          {/if}
                           <button
                             type="button"
                             onclick={() => copyToClipboard(group.tracking_number)}

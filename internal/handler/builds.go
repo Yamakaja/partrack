@@ -209,6 +209,21 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type pipelineBuild struct {
+	ID                   string  `json:"id"`
+	ProjectID            string  `json:"project_id"`
+	ProjectName          string  `json:"project_name"`
+	BomRevisionID        string  `json:"bom_revision_id"`
+	BomRevisionLabel     string  `json:"bom_revision_label"`
+	Quantity             int32   `json:"quantity"`
+	Status               string  `json:"status"`
+	CreatedAt            string  `json:"created_at"`
+	Notes                *string `json:"notes"`
+	CreatedBy            string  `json:"created_by"`
+	CreatedByDisplayName *string `json:"created_by_display_name"`
+	ExcludedFromCart     bool    `json:"excluded_from_cart"`
+}
+
 // GetBuildPipeline handles GET /api/v1/teams/{teamId}/builds/pipeline
 // Returns all active (non-terminal) builds grouped by status.
 func (h *Handler) GetBuildPipeline(w http.ResponseWriter, r *http.Request) {
@@ -222,21 +237,6 @@ func (h *Handler) GetBuildPipeline(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
-	}
-
-	type pipelineBuild struct {
-		ID                    string  `json:"id"`
-		ProjectID             string  `json:"project_id"`
-		ProjectName           string  `json:"project_name"`
-		BomRevisionID         string  `json:"bom_revision_id"`
-		BomRevisionLabel      string  `json:"bom_revision_label"`
-		Quantity              int32   `json:"quantity"`
-		Status                string  `json:"status"`
-		CreatedAt             string  `json:"created_at"`
-		Notes                 *string `json:"notes"`
-		CreatedBy             string  `json:"created_by"`
-		CreatedByDisplayName  *string `json:"created_by_display_name"`
-		ExcludedFromCart      bool    `json:"excluded_from_cart"`
 	}
 
 	result := map[string][]pipelineBuild{
