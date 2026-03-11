@@ -211,3 +211,25 @@ UPDATE orders
 SET integrations = $3
 WHERE id = $1 AND team_id = $2
 RETURNING id, integrations;
+
+-- name: GetOrderByExternalReference :one
+SELECT id FROM orders
+WHERE team_id = $1 AND external_reference = $2
+LIMIT 1;
+
+-- name: UpdateOrderLineItemExternalData :exec
+UPDATE order_line_items
+SET unit_price_snapshot       = $2,
+    external_unit_price       = $3,
+    external_qty_ordered      = $4,
+    external_qty_shipped      = $5,
+    external_qty_backordered  = $6
+WHERE id = $1;
+
+-- name: CreateOrderLineItemForImport :one
+INSERT INTO order_line_items (
+    order_id, listing_id,
+    quantity_ordered, unit_price_snapshot, fixed_order_cost_snapshot,
+    external_unit_price, external_qty_ordered, external_qty_shipped, external_qty_backordered
+) VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8)
+RETURNING *;

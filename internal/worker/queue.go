@@ -20,6 +20,8 @@ const (
 	JobBOMImport      JobType = "bom_import"
 	JobPartEnrich     JobType = "part_enrich"
 	JobListingRefresh JobType = "listing_refresh"
+	JobOrderImport    JobType = "order_import"
+	JobOrderLink      JobType = "order_link"
 )
 
 // Job is a unit of work submitted to the Queue.
@@ -148,6 +150,10 @@ func (q *Queue) process(job Job) {
 		handler = q.handlePartEnrich
 	case JobListingRefresh:
 		handler = q.handleListingRefresh
+	case JobOrderImport:
+		handler = q.handleOrderImport
+	case JobOrderLink:
+		handler = q.handleOrderLink
 	default:
 		handler = q.handleUnknown
 	}

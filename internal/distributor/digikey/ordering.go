@@ -133,6 +133,7 @@ func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCre
 
 	endpoint := fmt.Sprintf("%s/orderstatus/v4/salesorder/%s", baseURL(creds), url.PathEscape(salesOrderID))
 	var resp salesOrderResponse
+	creds.AccountID = "42"
 	ok, err := c.doGet(ctx, endpoint, creds, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("digikey: get order status: %w", err)
@@ -145,6 +146,8 @@ func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCre
 	for _, li := range resp.LineItems {
 		lineItems = append(lineItems, distributor.OrderStatusLineItem{
 			SKU:               li.DigiKeyProductNumber,
+			MPN:               li.ManufacturerProductNumber,
+			UnitPrice:         li.UnitPrice,
 			QuantityOrdered:   li.QuantityOrdered,
 			QuantityShipped:   li.QuantityShipped,
 			QuantityBackOrder: li.QuantityBackOrder,
@@ -155,6 +158,8 @@ func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCre
 		SalesOrderID:  salesOrderID,
 		Status:        resp.Status.SalesOrderStatus,
 		StatusDetail:  resp.Status.ShortDescription,
+		PurchaseOrder: resp.PurchaseOrder,
+		DateEntered:   resp.DateEntered,
 		LineItems:     lineItems,
 		LastCheckedAt: time.Now(),
 	}, nil

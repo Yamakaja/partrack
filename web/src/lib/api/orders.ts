@@ -65,3 +65,22 @@ export function getDistributorStatus(teamId: string, orderId: string) {
     'GET', `/api/v1/teams/${teamId}/orders/${orderId}/distributor-status`,
   );
 }
+
+export interface ImportOrderProgress {
+  status: 'progress' | 'complete' | 'error';
+  job_id: string;
+  order_id?: string;
+  total: number;
+  resolved?: number;
+  processed?: number;
+  unresolved_skus: string[];
+  extra_items_added?: number;
+  error?: string;
+}
+
+export function importOrder(
+  teamId: string,
+  body: { sales_order_id: string; existing_order_id?: string; force?: boolean },
+) {
+  return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/orders/import`, body);
+}

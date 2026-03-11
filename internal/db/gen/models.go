@@ -570,6 +570,10 @@ type OrderLineItem struct {
 	QuantityReceived       int32          `json:"quantity_received"`
 	UnitPriceSnapshot      pgtype.Numeric `json:"unit_price_snapshot"`
 	FixedOrderCostSnapshot pgtype.Numeric `json:"fixed_order_cost_snapshot"`
+	ExternalUnitPrice      pgtype.Numeric `json:"external_unit_price"`
+	ExternalQtyOrdered     *int32         `json:"external_qty_ordered"`
+	ExternalQtyShipped     *int32         `json:"external_qty_shipped"`
+	ExternalQtyBackordered *int32         `json:"external_qty_backordered"`
 }
 
 type ParameterDefinition struct {

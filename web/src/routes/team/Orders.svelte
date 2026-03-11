@@ -1,16 +1,21 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
+  import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { listOrders } from '$lib/api/orders.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import type { OrderStatus } from '$lib/types/orders.js';
+  import ImportOrderDialog from '$lib/components/orders/ImportOrderDialog.svelte';
 
   let { teamId }: { teamId: string } = $props();
+
+  const qc = useQueryClient();
+  let showImportDialog = $state(false);
 
   let ordersQuery = createQuery(() => ({
     queryKey: ['orders', teamId],
@@ -128,8 +133,20 @@
   <DateDisplay value={String(value)} />
 {/snippet}
 
+<ImportOrderDialog
+  {teamId}
+  bind:open={showImportDialog}
+  onSuccess={() => qc.invalidateQueries({ queryKey: ['orders', teamId] })}
+/>
+
 <div class="flex flex-col h-full">
-  <Topbar title="Orders" />
+  <Topbar title="Orders">
+    {#snippet actions()}
+      <Button size="sm" onclick={() => { showImportDialog = true; }}>
+        Import DigiKey Order
+      </Button>
+    {/snippet}
+  </Topbar>
 
   <div class="flex-1 overflow-auto p-6">
     {#if ordersQuery.isPending}

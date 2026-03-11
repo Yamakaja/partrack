@@ -12,6 +12,7 @@ import (
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
+	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -1019,4 +1020,178 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 		"line_items":     statusResult.LineItems,
 		"last_checked_at": statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
 	})
+}
+
+// ImportOrder handles POST /orders/import.
+// Body: { "sales_order_id": "...", "existing_order_id": "uuid" (optional), "force": bool (optional) }
+//
+// Case A (existing_order_id present): synchronous mismatch pre-flight, then enqueue JobOrderLink.
+// Case B (no existing_order_id): enqueue JobOrderImport immediately.
+func (h *Handler) ImportOrder(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	user := middleware.UserFromContext(ctx)
+
+	var body struct {
+		SalesOrderID    string `json:"sales_order_id"`
+		ExistingOrderID string `json:"existing_order_id"`
+		Force           bool   `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	if body.SalesOrderID == "" {
+		writeError(w, http.StatusUnprocessableEntity, "sales_order_id is required", "MISSING_SALES_ORDER_ID")
+		return
+	}
+
+	if body.ExistingOrderID != "" {
+		// Case A: link existing partrack order.
+		h.importOrderLink(w, r, teamID, user, body.SalesOrderID, body.ExistingOrderID, body.Force)
+	} else {
+		// Case B: create new order from DigiKey data.
+		h.importOrderNew(w, r, teamID, user, body.SalesOrderID)
+	}
+}
+
+func (h *Handler) importOrderNew(w http.ResponseWriter, r *http.Request, teamID pgtype.UUID, user *middleware.User, salesOrderID string) {
+	ctx := r.Context()
+	apiType := "digikey"
+
+	dist, err := h.Queries.GetDistributorByApiType(ctx, &apiType)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "DigiKey distributor not configured", "DISTRIBUTOR_NOT_FOUND")
+		return
+	}
+
+	if _, err := h.Queries.GetDistributorConfigRaw(ctx, dbgen.GetDistributorConfigRawParams{
+		TeamID:        teamID,
+		DistributorID: dist.ID,
+	}); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "DigiKey not configured for this team", "CONFIG_NOT_FOUND")
+		return
+	}
+
+	// Duplicate check.
+	if _, err := h.Queries.GetOrderByExternalReference(ctx, dbgen.GetOrderByExternalReferenceParams{
+		TeamID:            teamID,
+		ExternalReference: &salesOrderID,
+	}); err == nil {
+		writeError(w, http.StatusConflict, "order already imported", "ALREADY_IMPORTED")
+		return
+	}
+
+	jobID := h.Worker.Enqueue(worker.JobOrderImport, teamID.String(), map[string]string{
+		"sales_order_id": salesOrderID,
+		"distributor_id": dist.ID.String(),
+		"user_id":        user.ID,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})
+}
+
+func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID pgtype.UUID, user *middleware.User, salesOrderID, existingOrderIDStr string, force bool) {
+	ctx := r.Context()
+
+	var orderID pgtype.UUID
+	if err := orderID.Scan(existingOrderIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid existing_order_id", "BAD_REQUEST")
+		return
+	}
+
+	order, err := h.Queries.GetOrder(ctx, dbgen.GetOrderParams{ID: orderID, TeamID: teamID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+		return
+	}
+
+	// Validate distributor is DigiKey and order is in a linkable status.
+	if order.DistributorApiType == nil || *order.DistributorApiType != "digikey" {
+		writeError(w, http.StatusUnprocessableEntity, "order distributor is not DigiKey", "WRONG_DISTRIBUTOR")
+		return
+	}
+	validStatuses := map[string]bool{"draft": true, "exported": true, "submitted": true}
+	if !validStatuses[string(order.Status)] {
+		writeError(w, http.StatusUnprocessableEntity, "order is not in a linkable status", "WRONG_STATUS")
+		return
+	}
+
+	cfg, err := h.Queries.GetDistributorConfigRaw(ctx, dbgen.GetDistributorConfigRawParams{
+		TeamID:        teamID,
+		DistributorID: order.DistributorID,
+	})
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "distributor not configured", "CONFIG_NOT_FOUND")
+		return
+	}
+
+	oc, err := h.getOrderingClient(order)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "NO_ORDERING_SUPPORT")
+		return
+	}
+
+	// Synchronous pre-flight: fetch DigiKey order to validate and check for mismatches.
+	dkOrder, err := oc.GetOrderStatus(ctx, salesOrderID, cfg.ApiCredentials)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to fetch DigiKey order: "+err.Error(), "FETCH_FAILED")
+		return
+	}
+
+	if !force {
+		// Build set of DigiKey SKUs.
+		dkSKUs := make(map[string]int32, len(dkOrder.LineItems))
+		for _, li := range dkOrder.LineItems {
+			dkSKUs[li.SKU] = li.QuantityOrdered
+		}
+
+		// Check how many partrack SKUs / qty are missing from DigiKey.
+		lineItems, err := h.Queries.GetOrderLineItems(ctx, orderID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get line items", "INTERNAL")
+			return
+		}
+
+		var missingSKUs []string
+		var totalQty, missingQty int32
+		for _, li := range lineItems {
+			totalQty += li.QuantityOrdered
+			if _, found := dkSKUs[li.Sku]; !found {
+				missingSKUs = append(missingSKUs, li.Sku)
+				missingQty += li.QuantityOrdered
+			}
+		}
+
+		// Warn if >10% of SKUs or qty are missing.
+		if len(lineItems) > 0 && len(missingSKUs) > 0 {
+			skuPct := float64(len(missingSKUs)) / float64(len(lineItems)) * 100
+			qtyPct := float64(0)
+			if totalQty > 0 {
+				qtyPct = float64(missingQty) / float64(totalQty) * 100
+			}
+			if skuPct > 10 || qtyPct > 10 {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"code":             "order_mismatch",
+					"missing_skus":     missingSKUs,
+					"missing_qty_pct":  qtyPct,
+					"missing_sku_pct":  skuPct,
+				})
+				return
+			}
+		}
+	}
+
+	jobID := h.Worker.Enqueue(worker.JobOrderLink, teamID.String(), map[string]string{
+		"sales_order_id": salesOrderID,
+		"order_id":       existingOrderIDStr,
+		"distributor_id": order.DistributorID.String(),
+		"user_id":        user.ID,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})
 }

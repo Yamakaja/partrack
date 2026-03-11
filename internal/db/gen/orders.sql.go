@@ -96,13 +96,67 @@ type CreateOrderLineItemParams struct {
 	FixedOrderCostSnapshot pgtype.Numeric `json:"fixed_order_cost_snapshot"`
 }
 
-func (q *Queries) CreateOrderLineItem(ctx context.Context, arg CreateOrderLineItemParams) (OrderLineItem, error) {
+type CreateOrderLineItemRow struct {
+	ID                     pgtype.UUID    `json:"id"`
+	OrderID                pgtype.UUID    `json:"order_id"`
+	ListingID              pgtype.UUID    `json:"listing_id"`
+	QuantityOrdered        int32          `json:"quantity_ordered"`
+	QuantityReceived       int32          `json:"quantity_received"`
+	UnitPriceSnapshot      pgtype.Numeric `json:"unit_price_snapshot"`
+	FixedOrderCostSnapshot pgtype.Numeric `json:"fixed_order_cost_snapshot"`
+}
+
+func (q *Queries) CreateOrderLineItem(ctx context.Context, arg CreateOrderLineItemParams) (CreateOrderLineItemRow, error) {
 	row := q.db.QueryRow(ctx, createOrderLineItem,
 		arg.OrderID,
 		arg.ListingID,
 		arg.QuantityOrdered,
 		arg.UnitPriceSnapshot,
 		arg.FixedOrderCostSnapshot,
+	)
+	var i CreateOrderLineItemRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrderID,
+		&i.ListingID,
+		&i.QuantityOrdered,
+		&i.QuantityReceived,
+		&i.UnitPriceSnapshot,
+		&i.FixedOrderCostSnapshot,
+	)
+	return i, err
+}
+
+const createOrderLineItemForImport = `-- name: CreateOrderLineItemForImport :one
+INSERT INTO order_line_items (
+    order_id, listing_id,
+    quantity_ordered, unit_price_snapshot, fixed_order_cost_snapshot,
+    external_unit_price, external_qty_ordered, external_qty_shipped, external_qty_backordered
+) VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8)
+RETURNING id, order_id, listing_id, quantity_ordered, quantity_received, unit_price_snapshot, fixed_order_cost_snapshot, external_unit_price, external_qty_ordered, external_qty_shipped, external_qty_backordered
+`
+
+type CreateOrderLineItemForImportParams struct {
+	OrderID                pgtype.UUID    `json:"order_id"`
+	ListingID              pgtype.UUID    `json:"listing_id"`
+	QuantityOrdered        int32          `json:"quantity_ordered"`
+	UnitPriceSnapshot      pgtype.Numeric `json:"unit_price_snapshot"`
+	ExternalUnitPrice      pgtype.Numeric `json:"external_unit_price"`
+	ExternalQtyOrdered     *int32         `json:"external_qty_ordered"`
+	ExternalQtyShipped     *int32         `json:"external_qty_shipped"`
+	ExternalQtyBackordered *int32         `json:"external_qty_backordered"`
+}
+
+func (q *Queries) CreateOrderLineItemForImport(ctx context.Context, arg CreateOrderLineItemForImportParams) (OrderLineItem, error) {
+	row := q.db.QueryRow(ctx, createOrderLineItemForImport,
+		arg.OrderID,
+		arg.ListingID,
+		arg.QuantityOrdered,
+		arg.UnitPriceSnapshot,
+		arg.ExternalUnitPrice,
+		arg.ExternalQtyOrdered,
+		arg.ExternalQtyShipped,
+		arg.ExternalQtyBackordered,
 	)
 	var i OrderLineItem
 	err := row.Scan(
@@ -113,6 +167,10 @@ func (q *Queries) CreateOrderLineItem(ctx context.Context, arg CreateOrderLineIt
 		&i.QuantityReceived,
 		&i.UnitPriceSnapshot,
 		&i.FixedOrderCostSnapshot,
+		&i.ExternalUnitPrice,
+		&i.ExternalQtyOrdered,
+		&i.ExternalQtyShipped,
+		&i.ExternalQtyBackordered,
 	)
 	return i, err
 }
@@ -288,6 +346,24 @@ func (q *Queries) GetOrder(ctx context.Context, arg GetOrderParams) (GetOrderRow
 		&i.CreatedByDisplayName,
 	)
 	return i, err
+}
+
+const getOrderByExternalReference = `-- name: GetOrderByExternalReference :one
+SELECT id FROM orders
+WHERE team_id = $1 AND external_reference = $2
+LIMIT 1
+`
+
+type GetOrderByExternalReferenceParams struct {
+	TeamID            pgtype.UUID `json:"team_id"`
+	ExternalReference *string     `json:"external_reference"`
+}
+
+func (q *Queries) GetOrderByExternalReference(ctx context.Context, arg GetOrderByExternalReferenceParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getOrderByExternalReference, arg.TeamID, arg.ExternalReference)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getOrderLineItem = `-- name: GetOrderLineItem :one
@@ -756,6 +832,37 @@ func (q *Queries) UpdateOrderIntegrations(ctx context.Context, arg UpdateOrderIn
 	var i UpdateOrderIntegrationsRow
 	err := row.Scan(&i.ID, &i.Integrations)
 	return i, err
+}
+
+const updateOrderLineItemExternalData = `-- name: UpdateOrderLineItemExternalData :exec
+UPDATE order_line_items
+SET unit_price_snapshot       = $2,
+    external_unit_price       = $3,
+    external_qty_ordered      = $4,
+    external_qty_shipped      = $5,
+    external_qty_backordered  = $6
+WHERE id = $1
+`
+
+type UpdateOrderLineItemExternalDataParams struct {
+	ID                     pgtype.UUID    `json:"id"`
+	UnitPriceSnapshot      pgtype.Numeric `json:"unit_price_snapshot"`
+	ExternalUnitPrice      pgtype.Numeric `json:"external_unit_price"`
+	ExternalQtyOrdered     *int32         `json:"external_qty_ordered"`
+	ExternalQtyShipped     *int32         `json:"external_qty_shipped"`
+	ExternalQtyBackordered *int32         `json:"external_qty_backordered"`
+}
+
+func (q *Queries) UpdateOrderLineItemExternalData(ctx context.Context, arg UpdateOrderLineItemExternalDataParams) error {
+	_, err := q.db.Exec(ctx, updateOrderLineItemExternalData,
+		arg.ID,
+		arg.UnitPriceSnapshot,
+		arg.ExternalUnitPrice,
+		arg.ExternalQtyOrdered,
+		arg.ExternalQtyShipped,
+		arg.ExternalQtyBackordered,
+	)
+	return err
 }
 
 const updateOrderLineItemQuantity = `-- name: UpdateOrderLineItemQuantity :exec

@@ -177,6 +177,8 @@ type QuoteResult struct {
 // OrderStatusLineItem holds per-SKU shipment progress.
 type OrderStatusLineItem struct {
 	SKU               string
+	MPN               string
+	UnitPrice         float64
 	QuantityOrdered   int32
 	QuantityShipped   int32
 	QuantityBackOrder int32
@@ -187,6 +189,8 @@ type OrderStatusResult struct {
 	SalesOrderID  string
 	Status        string
 	StatusDetail  string
+	PurchaseOrder string
+	DateEntered   time.Time
 	LineItems     []OrderStatusLineItem
 	LastCheckedAt time.Time
 }

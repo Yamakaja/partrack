@@ -24,7 +24,6 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/categories", h.ListCategories)
 		r.Get("/parameter-definitions", h.ListParameterDefinitions)
 
-
 		// ── Authenticated-only routes ────────────────────────────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)
@@ -170,7 +169,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// Parts (team-scoped mutations)
 					r.Post("/parts/import", h.ImportPart)
-				r.Post("/parts/enrich-all", h.ReEnrichAll)
+					r.Post("/parts/enrich-all", h.ReEnrichAll)
 					r.Post("/parts/{partId}/enrich", h.EnrichPart)
 					r.Post("/parts/{partId}/listings", h.AddListing)
 					r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)
@@ -208,6 +207,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Patch("/builds/{buildId}/cart-inclusion", h.ToggleBuildCartInclusion)
 
 					// Orders
+					r.Post("/orders/import", h.ImportOrder)
 					r.Patch("/orders/{orderId}", h.UpdateOrder)
 					r.Delete("/orders/{orderId}", h.CancelOrder)
 					r.Get("/orders/{orderId}/export", h.ExportOrder)
@@ -217,8 +217,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/orders/{orderId}/push-to-distributor", h.PushToDistributor)
 					r.Post("/orders/{orderId}/request-quote", h.RequestQuote)
 					r.Get("/oauth/{distributorApiType}/initiate", h.InitiateOAuth)
-				r.Get("/oauth/{distributorApiType}/status", h.GetOAuthStatus)
-				r.Delete("/oauth/{distributorApiType}/token", h.DisconnectOAuth)
+					r.Get("/oauth/{distributorApiType}/status", h.GetOAuthStatus)
+					r.Delete("/oauth/{distributorApiType}/token", h.DisconnectOAuth)
 				})
 
 				// Admin+
