@@ -328,6 +328,13 @@ func (h *Handler) UpsertDistributorConfig(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+		if err := q.DeleteOAuthTokensForTeamDistributor(r.Context(), dbgen.DeleteOAuthTokensForTeamDistributorParams{
+			TeamID:        teamID,
+			DistributorID: distributorID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
@@ -336,6 +343,13 @@ func (h *Handler) UpsertDistributorConfig(w http.ResponseWriter, r *http.Request
 		var err error
 		row, err = h.Queries.UpsertDistributorConfig(r.Context(), upsertParams)
 		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if err := h.Queries.DeleteOAuthTokensForTeamDistributor(r.Context(), dbgen.DeleteOAuthTokensForTeamDistributorParams{
+			TeamID:        teamID,
+			DistributorID: distributorID,
+		}); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}

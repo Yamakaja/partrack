@@ -12,3 +12,6 @@ RETURNING id, expires_at;
 
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens WHERE team_id = $1 AND user_id = $2 AND distributor_id = $3;
+
+-- name: DeleteOAuthTokensForTeamDistributor :exec
+DELETE FROM oauth_tokens WHERE team_id = $1 AND distributor_id = $2;

@@ -26,6 +26,20 @@ func (q *Queries) DeleteOAuthToken(ctx context.Context, arg DeleteOAuthTokenPara
 	return err
 }
 
+const deleteOAuthTokensForTeamDistributor = `-- name: DeleteOAuthTokensForTeamDistributor :exec
+DELETE FROM oauth_tokens WHERE team_id = $1 AND distributor_id = $2
+`
+
+type DeleteOAuthTokensForTeamDistributorParams struct {
+	TeamID        pgtype.UUID `json:"team_id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+}
+
+func (q *Queries) DeleteOAuthTokensForTeamDistributor(ctx context.Context, arg DeleteOAuthTokensForTeamDistributorParams) error {
+	_, err := q.db.Exec(ctx, deleteOAuthTokensForTeamDistributor, arg.TeamID, arg.DistributorID)
+	return err
+}
+
 const getOAuthToken = `-- name: GetOAuthToken :one
 SELECT id, team_id, user_id, distributor_id, access_token, refresh_token, expires_at, updated_at, account_id
 FROM oauth_tokens
