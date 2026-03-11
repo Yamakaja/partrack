@@ -62,8 +62,13 @@
 
   const cellPadding = $derived(compact ? 'py-2 px-4' : 'py-4 px-4');
 
+  function getCellValue(row: T, key: string): unknown {
+    if (source.getValue) return source.getValue(row, key);
+    return getNestedValue(row, key);
+  }
+
   function defaultCellValue(col: ColumnSpec<T>, row: T): string {
-    const val = getNestedValue(row, col.key);
+    const val = getCellValue(row, col.key);
     if (val === null || val === undefined) return '—';
     switch (col.type) {
       case 'numeric':
@@ -149,9 +154,9 @@
             )}
           >
             {#if renderers?.[col.key]}
-              {@render renderers[col.key](getNestedValue(row, col.key), row)}
+              {@render renderers[col.key](getCellValue(row, col.key), row)}
             {:else if col.render}
-              {@render col.render(getNestedValue(row, col.key), row)}
+              {@render col.render(getCellValue(row, col.key), row)}
             {:else}
               {defaultCellValue(col, row)}
             {/if}

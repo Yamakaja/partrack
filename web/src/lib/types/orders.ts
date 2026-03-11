@@ -70,6 +70,50 @@ export interface QuoteItem {
   expiration_date: string | null;
 }
 
+export interface DigiKeyStatusShipment {
+  quantity_shipped: number;
+  invoice_id: number;
+  shipped_date?: string;
+  tracking_number: string;
+  expected_delivery_date?: string;
+}
+
+export interface DigiKeyStatusSchedule {
+  scheduled_date?: string;
+  quantity_scheduled: number;
+  release_date?: string;
+}
+
+export interface DigiKeyStatusLineItem {
+  sku: string;
+  mpn: string;
+  pack_type?: string;
+  unit_price: number;
+  quantity_ordered: number;
+  quantity_shipped: number;
+  quantity_back_order: number;
+  quantity_reserved: number;
+  shipments: DigiKeyStatusShipment[];
+  schedules: DigiKeyStatusSchedule[];
+}
+
+export interface DigiKeyAddress {
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  company_name?: string;
+  phone?: string;
+  iso_code?: string;
+}
+
+export interface DigiKeyContact {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+}
+
 export interface DigiKeyIntegration {
   list_id?: string;
   list_url?: string;
@@ -79,6 +123,13 @@ export interface DigiKeyIntegration {
   last_status?: string;
   last_status_detail?: string;
   last_status_checked_at?: string;
+  last_status_order_number?: number;
+  last_status_currency?: string;
+  last_status_total_price?: number;
+  last_status_ship_method?: string;
+  last_status_shipping_address?: DigiKeyAddress;
+  last_status_contact?: DigiKeyContact;
+  last_status_line_items?: DigiKeyStatusLineItem[];
 }
 
 export interface OrderIntegrations {

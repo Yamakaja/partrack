@@ -14,8 +14,21 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Pencil } from 'lucide-svelte';
-  import type { OrderStatus, OrderLineItem } from '$lib/types/orders.js';
+  import { Pencil, Copy, Package } from 'lucide-svelte';
+  import type { OrderStatus, OrderLineItem, DigiKeyStatusLineItem } from '$lib/types/orders.js';
+
+  /** Compare packaging strings, normalizing whitespace/parens for equivalence. */
+  function packagingMatches(orderPkg: string | null, dkPack: string | undefined): boolean {
+    if (!orderPkg || !dkPack) return true; // no data to compare
+    const normalize = (s: string) => s.replace(/[\s()_-]/g, '').toLowerCase();
+    return normalize(orderPkg).includes(normalize(dkPack)) || normalize(dkPack).includes(normalize(orderPkg));
+  }
+
+  /** Compare unit prices (string vs number) with tolerance for rounding. */
+  function priceMatches(orderPrice: string, dkPrice: number | undefined): boolean {
+    if (dkPrice === undefined) return true;
+    return Math.abs(parseFloat(orderPrice) - dkPrice) < 0.0001;
+  }
 
   let { teamId, orderId }: { teamId: string; orderId: string } = $props();
 
@@ -198,6 +211,15 @@
     return map;
   });
 
+  // Build a SKU → DigiKey status line item map for the inline status columns.
+  const dkStatusBySku = $derived.by(() => {
+    const items = orderQuery.data?.integrations?.digikey?.last_status_line_items;
+    if (!items?.length) return null;
+    const map = new Map<string, DigiKeyStatusLineItem>();
+    for (const li of items) map.set(li.sku, li);
+    return map;
+  });
+
   const columns: ColumnSpec<OrderLineItem>[] = [
     { key: 'sku',                 header: 'SKU',           type: 'text',     filterable: true },
     { key: 'part_mpn',            header: 'Part MPN',      type: 'text',     filterable: true },
@@ -216,8 +238,8 @@
       filterValues: ['pending', 'partial', 'received'],
       filterLabels: { pending: 'Pending', partial: 'Partial', received: 'Received' },
     },
-    { key: '_receive_qty',        header: 'Receive Qty',   type: 'enum',     sortable: false, hidden: true },
-    { key: '_receive_action',     header: '',              type: 'enum',     sortable: false, hidden: true, width: '90px' },
+    { key: '_receive_qty',      header: 'Receive Qty',  type: 'enum',    sortable: false, hidden: true },
+    { key: '_receive_action',   header: '',             type: 'enum',    sortable: false, hidden: true, width: '90px' },
   ];
 
   const source = new LocalDataSource<OrderLineItem>(
@@ -411,8 +433,19 @@
       {#snippet renderMpn(value: unknown)}
         <span class="font-mono font-medium text-xs">{value != null ? String(value) : '—'}</span>
       {/snippet}
-      {#snippet renderUnitPrice(value: unknown)}
-        <PriceDisplay value={String(value ?? '')} decimals={4} />
+      {#snippet renderUnitPrice(_value: unknown, row: OrderLineItem)}
+        {@const dk = dkStatusBySku?.get(row.sku)}
+        {@const differs = dk != null && !priceMatches(row.unit_price_snapshot, dk.unit_price)}
+        <span class={differs ? 'text-amber-600 dark:text-amber-400' : ''} title={differs ? `DK: $${dk!.unit_price.toFixed(4)}` : undefined}>
+          <PriceDisplay value={row.unit_price_snapshot} decimals={4} />
+        </span>
+      {/snippet}
+      {#snippet renderPackaging(_value: unknown, row: OrderLineItem)}
+        {@const dk = dkStatusBySku?.get(row.sku)}
+        {@const differs = dk != null && dk.pack_type != null && !packagingMatches(row.packaging_type, dk.pack_type)}
+        <span class={differs ? 'text-amber-600 dark:text-amber-400' : ''} title={differs ? `DK: ${dk!.pack_type}` : undefined}>
+          {row.packaging_type ?? '—'}
+        </span>
       {/snippet}
       {#snippet renderQuotedPrice(value: unknown)}
         {#if value != null}
@@ -423,6 +456,13 @@
       {/snippet}
       {#snippet renderTotal(_value: unknown, row: OrderLineItem)}
         <PriceDisplay value={(parseFloat(row.unit_price_snapshot) * row.quantity_ordered).toFixed(2)} decimals={2} />
+      {/snippet}
+      {#snippet renderOrdered(_value: unknown, row: OrderLineItem)}
+        {@const dk = dkStatusBySku?.get(row.sku)}
+        {@const differs = dk != null && dk.quantity_ordered !== row.quantity_ordered}
+        <span class={differs ? 'text-amber-600 dark:text-amber-400' : ''} title={differs ? `DK: ${dk!.quantity_ordered}` : undefined}>
+          {row.quantity_ordered}
+        </span>
       {/snippet}
       {#snippet renderReceiveQty(_value: unknown, row: OrderLineItem)}
         <Input
@@ -456,16 +496,119 @@
         {/if}
       {/snippet}
 
+      {#snippet shipmentDetailPanel(row: OrderLineItem)}
+        {@const dk = dkStatusBySku?.get(row.sku)}
+        {#if dk}
+          <div class="px-6 py-3 bg-muted/30 space-y-3">
+            <div class="flex gap-6 text-sm">
+              <div>
+                <span class="text-muted-foreground">Shipped:</span>
+                <span class="font-medium tabular-nums"> {dk.quantity_shipped}</span>
+              </div>
+              {#if dk.quantity_back_order > 0}
+                <div>
+                  <span class="text-muted-foreground">Backorder:</span>
+                  <span class="font-medium tabular-nums text-amber-600 dark:text-amber-400"> {dk.quantity_back_order}</span>
+                </div>
+              {/if}
+              {#if dk.quantity_reserved > 0}
+                <div>
+                  <span class="text-muted-foreground">Reserved:</span>
+                  <span class="font-medium tabular-nums"> {dk.quantity_reserved}</span>
+                </div>
+              {/if}
+            </div>
+
+            {#if dk.shipments?.length}
+              <div>
+                <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Shipments</h4>
+                <div class="space-y-1.5">
+                  {#each dk.shipments as shipment}
+                    <div class="flex items-center gap-4 text-sm">
+                      <div class="flex items-center gap-1.5">
+                        <Package class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span class="tabular-nums">{shipment.quantity_shipped} pcs</span>
+                      </div>
+                      {#if shipment.shipped_date}
+                        <div>
+                          <span class="text-muted-foreground">Shipped:</span>
+                          <span class="font-medium"> <DateDisplay value={shipment.shipped_date} /></span>
+                        </div>
+                      {/if}
+                      {#if shipment.tracking_number}
+                        <div class="flex items-center gap-1">
+                          <span class="font-mono text-xs">{shipment.tracking_number}</span>
+                          <button
+                            type="button"
+                            onclick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                await navigator.clipboard.writeText(shipment.tracking_number);
+                                pushToast('success', 'Copied to clipboard');
+                              } catch {
+                                pushToast('error', 'Failed to copy');
+                              }
+                            }}
+                            class="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                            title="Copy tracking number"
+                          >
+                            <Copy class="h-3 w-3" />
+                          </button>
+                        </div>
+                      {/if}
+                      {#if shipment.invoice_id}
+                        <div class="text-muted-foreground text-xs">
+                          Invoice #{shipment.invoice_id}
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            {#if dk.schedules?.length}
+              <div>
+                <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Scheduled Releases</h4>
+                <div class="space-y-1">
+                  {#each dk.schedules as schedule}
+                    <div class="flex items-center gap-4 text-sm">
+                      <span class="tabular-nums">{schedule.quantity_scheduled} pcs</span>
+                      {#if schedule.scheduled_date}
+                        <div>
+                          <span class="text-muted-foreground">Scheduled:</span>
+                          <span class="font-medium"> <DateDisplay value={schedule.scheduled_date} /></span>
+                        </div>
+                      {/if}
+                      {#if schedule.release_date}
+                        <div>
+                          <span class="text-muted-foreground">Release:</span>
+                          <span class="font-medium"> <DateDisplay value={schedule.release_date} /></span>
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      {/snippet}
+
       <DataTable
         {source}
         getRowKey={(r) => r.id}
         emptyMessage="No line items"
+        detailPanel={dkStatusBySku ? shipmentDetailPanel : undefined}
+        detailPanelOpen={(row) => false}
         renderers={{
           sku: renderSku,
           part_mpn: renderMpn,
+          packaging_type: renderPackaging,
           unit_price_snapshot: renderUnitPrice,
           _quoted_price: renderQuotedPrice,
           _total: renderTotal,
+          quantity_ordered: renderOrdered,
           _receipt_status: renderReceiptStatus,
           _receive_qty: renderReceiveQty,
           _receive_action: renderReceiveAction,

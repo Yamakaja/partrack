@@ -144,6 +144,24 @@ func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCre
 
 	lineItems := make([]distributor.OrderStatusLineItem, 0, len(resp.LineItems))
 	for _, li := range resp.LineItems {
+		shipments := make([]distributor.OrderStatusShipment, 0, len(li.ItemShipments))
+		for _, s := range li.ItemShipments {
+			shipments = append(shipments, distributor.OrderStatusShipment{
+				QuantityShipped:      s.QuantityShipped,
+				InvoiceID:            s.InvoiceId,
+				ShippedDate:          nonZeroTime(s.ShippedDate),
+				TrackingNumber:       s.TrackingNumber,
+				ExpectedDeliveryDate: s.ExpectedDeliveryDate,
+			})
+		}
+		schedules := make([]distributor.OrderStatusSchedule, 0, len(li.Schedules))
+		for _, sc := range li.Schedules {
+			schedules = append(schedules, distributor.OrderStatusSchedule{
+				ScheduledDate:     nonZeroTime(sc.ScheduledDate),
+				QuantityScheduled: sc.QuantityScheduled,
+				ReleaseDate:       nonZeroTime(sc.DigiKeyReleaseDate),
+			})
+		}
 		lineItems = append(lineItems, distributor.OrderStatusLineItem{
 			SKU:               li.DigiKeyProductNumber,
 			MPN:               li.ManufacturerProductNumber,
@@ -151,10 +169,14 @@ func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCre
 			QuantityOrdered:   li.QuantityOrdered,
 			QuantityShipped:   li.QuantityShipped,
 			QuantityBackOrder: li.QuantityBackOrder,
+			PackType:          li.PackType,
+			QuantityReserved:  li.QuantityReserved,
+			Shipments:         shipments,
+			Schedules:         schedules,
 		})
 	}
 
-	return &distributor.OrderStatusResult{
+	result := &distributor.OrderStatusResult{
 		SalesOrderID:  salesOrderID,
 		Status:        resp.Status.SalesOrderStatus,
 		StatusDetail:  resp.Status.ShortDescription,
@@ -162,5 +184,40 @@ func (c *Client) GetOrderStatus(ctx context.Context, salesOrderID string, rawCre
 		DateEntered:   resp.DateEntered,
 		LineItems:     lineItems,
 		LastCheckedAt: time.Now(),
-	}, nil
+		OrderNumber:   resp.OrderNumber,
+		Currency:      resp.Currency,
+		TotalPrice:    resp.TotalPrice,
+		ShipMethod:    resp.ShipMethod,
+	}
+
+	if resp.ShippingAddress.AddressLine1 != "" || resp.ShippingAddress.City != "" {
+		result.ShippingAddress = &distributor.OrderStatusAddress{
+			Line1:       resp.ShippingAddress.AddressLine1,
+			Line2:       resp.ShippingAddress.AddressLine2,
+			City:        resp.ShippingAddress.City,
+			State:       resp.ShippingAddress.State,
+			ZipCode:     resp.ShippingAddress.ZipCode,
+			CompanyName: resp.ShippingAddress.CompanyName,
+			Phone:       resp.ShippingAddress.Phone,
+			IsoCode:     resp.ShippingAddress.IsoCode,
+		}
+	}
+
+	if resp.Contact.Email != "" {
+		result.Contact = &distributor.OrderStatusContact{
+			FirstName: resp.Contact.FirstName,
+			LastName:  resp.Contact.LastName,
+			Email:     resp.Contact.Email,
+		}
+	}
+
+	return result, nil
+}
+
+// nonZeroTime returns nil when t is nil or the zero time value.
+func nonZeroTime(t *time.Time) *time.Time {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	return t
 }

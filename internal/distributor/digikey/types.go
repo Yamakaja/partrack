@@ -180,21 +180,63 @@ type salesOrderStatusInfo struct {
 	ShortDescription string `json:"ShortDescription"`
 }
 
+type salesOrderAddress struct {
+	AddressLine1 string `json:"AddressLine1"`
+	AddressLine2 string `json:"AddressLine2"`
+	City         string `json:"City"`
+	State        string `json:"State"`
+	ZipCode      string `json:"ZipCode"`
+	CompanyName  string `json:"CompanyName"`
+	Phone        string `json:"Phone"`
+	IsoCode      string `json:"IsoCode"`
+}
+
+type salesOrderContact struct {
+	FirstName string `json:"FirstName"`
+	LastName  string `json:"LastName"`
+	Email     string `json:"Email"`
+}
+
+type itemShipInfo struct {
+	QuantityShipped      int32      `json:"QuantityShipped"`
+	InvoiceId            int64      `json:"InvoiceId"`
+	ShippedDate          *time.Time `json:"ShippedDate"`
+	TrackingNumber       string     `json:"TrackingNumber"`
+	ExpectedDeliveryDate string     `json:"ExpectedDeliveryDate"`
+}
+
+type salesOrderSchedule struct {
+	ScheduledDate      *time.Time `json:"ScheduledDate"`
+	QuantityScheduled  int32      `json:"QuantityScheduled"`
+	DigiKeyReleaseDate *time.Time `json:"DigiKeyReleaseDate"`
+}
+
 type salesOrderLineItem struct {
-	DigiKeyProductNumber        string  `json:"DigiKeyProductNumber"`
-	ManufacturerProductNumber   string  `json:"ManufacturerProductNumber"`
-	UnitPrice                   float64 `json:"UnitPrice"`
-	QuantityOrdered             int32   `json:"QuantityOrdered"`
-	QuantityShipped             int32   `json:"QuantityShipped"`
-	QuantityBackOrder           int32   `json:"QuantityBackOrder"`
+	DigiKeyProductNumber      string               `json:"DigiKeyProductNumber"`
+	ManufacturerProductNumber string               `json:"ManufacturerProductNumber"`
+	UnitPrice                 float64              `json:"UnitPrice"`
+	QuantityOrdered           int32                `json:"QuantityOrdered"`
+	QuantityShipped           int32                `json:"QuantityShipped"`
+	QuantityBackOrder         int32                `json:"QuantityBackOrder"`
+	PackType                  string               `json:"PackType"`
+	QuantityReserved          int32                `json:"QuantityReserved"`
+	QuantityInitialRequested  int32                `json:"QuantityInitialRequested"`
+	ItemShipments             []itemShipInfo       `json:"ItemShipments"`
+	Schedules                 []salesOrderSchedule `json:"Schedules"`
 }
 
 type salesOrderResponse struct {
-	SalesOrderId  int32                `json:"SalesOrderId"`
-	Status        salesOrderStatusInfo `json:"Status"`
-	DateEntered   time.Time            `json:"DateEntered"`
-	PurchaseOrder string               `json:"PurchaseOrder"`
-	LineItems     []salesOrderLineItem `json:"LineItems"`
+	SalesOrderId    int32                `json:"SalesOrderId"`
+	OrderNumber     int64                `json:"OrderNumber"`
+	Status          salesOrderStatusInfo `json:"Status"`
+	DateEntered     time.Time            `json:"DateEntered"`
+	PurchaseOrder   string               `json:"PurchaseOrder"`
+	Currency        string               `json:"Currency"`
+	TotalPrice      float64              `json:"TotalPrice"`
+	ShipMethod      string               `json:"ShipMethod"`
+	ShippingAddress salesOrderAddress    `json:"ShippingAddress"`
+	Contact         salesOrderContact    `json:"Contact"`
+	LineItems       []salesOrderLineItem `json:"LineItems"`
 }
 
 // ---- locale → domain map ----

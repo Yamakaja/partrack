@@ -22,8 +22,13 @@
     }, obj as unknown);
   }
 
+  function getCellValue(row: T, key: string): unknown {
+    if (source.getValue) return source.getValue(row, key);
+    return getNestedValue(row, key);
+  }
+
   function defaultFormat(col: ColumnSpec<T>, row: T): string {
-    const val = getNestedValue(row, col.key);
+    const val = getCellValue(row, col.key);
     if (val === null || val === undefined) return '';
     switch (col.type) {
       case 'currency':

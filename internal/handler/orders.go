@@ -998,11 +998,21 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist last status into integrations.
+	// Serialize line items for JSONB storage (reuse JSON tags on the distributor types).
+	lineItemsJSON, _ := json.Marshal(statusResult.LineItems)
+
+	// Persist all status fields into integrations.
 	patch := map[string]any{
-		"last_status":            statusResult.Status,
-		"last_status_detail":     statusResult.StatusDetail,
-		"last_status_checked_at": statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
+		"last_status":                  statusResult.Status,
+		"last_status_detail":           statusResult.StatusDetail,
+		"last_status_checked_at":       statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
+		"last_status_order_number":     statusResult.OrderNumber,
+		"last_status_currency":         statusResult.Currency,
+		"last_status_total_price":      statusResult.TotalPrice,
+		"last_status_ship_method":      statusResult.ShipMethod,
+		"last_status_shipping_address": statusResult.ShippingAddress,
+		"last_status_contact":          statusResult.Contact,
+		"last_status_line_items":       json.RawMessage(lineItemsJSON),
 	}
 	updated, mergeErr := mergeDistributorIntegrations(*order.DistributorApiType, order.Integrations, patch)
 	if mergeErr == nil {
@@ -1015,10 +1025,16 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":         statusResult.Status,
-		"status_detail":  statusResult.StatusDetail,
-		"line_items":     statusResult.LineItems,
-		"last_checked_at": statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
+		"status":                  statusResult.Status,
+		"status_detail":           statusResult.StatusDetail,
+		"last_checked_at":         statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
+		"order_number":            statusResult.OrderNumber,
+		"currency":                statusResult.Currency,
+		"total_price":             statusResult.TotalPrice,
+		"ship_method":             statusResult.ShipMethod,
+		"shipping_address":        statusResult.ShippingAddress,
+		"contact":                 statusResult.Contact,
+		"line_items":              statusResult.LineItems,
 	})
 }
 

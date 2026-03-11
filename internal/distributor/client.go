@@ -174,25 +174,70 @@ type QuoteResult struct {
 	Items     []QuoteLineItem
 }
 
+// OrderStatusShipment holds per-shipment data for one line item.
+type OrderStatusShipment struct {
+	QuantityShipped      int32      `json:"quantity_shipped"`
+	InvoiceID            int64      `json:"invoice_id"`
+	ShippedDate          *time.Time `json:"shipped_date,omitempty"`
+	TrackingNumber       string     `json:"tracking_number"`
+	ExpectedDeliveryDate string     `json:"expected_delivery_date,omitempty"`
+}
+
+// OrderStatusSchedule holds a future release schedule entry for a line item.
+type OrderStatusSchedule struct {
+	ScheduledDate     *time.Time `json:"scheduled_date,omitempty"`
+	QuantityScheduled int32      `json:"quantity_scheduled"`
+	ReleaseDate       *time.Time `json:"release_date,omitempty"`
+}
+
+// OrderStatusAddress holds a shipping address from a distributor order.
+type OrderStatusAddress struct {
+	Line1       string `json:"line1,omitempty"`
+	Line2       string `json:"line2,omitempty"`
+	City        string `json:"city,omitempty"`
+	State       string `json:"state,omitempty"`
+	ZipCode     string `json:"zip_code,omitempty"`
+	CompanyName string `json:"company_name,omitempty"`
+	Phone       string `json:"phone,omitempty"`
+	IsoCode     string `json:"iso_code,omitempty"`
+}
+
+// OrderStatusContact holds contact information from a distributor order.
+type OrderStatusContact struct {
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
+	Email     string `json:"email,omitempty"`
+}
+
 // OrderStatusLineItem holds per-SKU shipment progress.
 type OrderStatusLineItem struct {
-	SKU               string
-	MPN               string
-	UnitPrice         float64
-	QuantityOrdered   int32
-	QuantityShipped   int32
-	QuantityBackOrder int32
+	SKU               string                `json:"sku"`
+	MPN               string                `json:"mpn"`
+	UnitPrice         float64               `json:"unit_price"`
+	QuantityOrdered   int32                 `json:"quantity_ordered"`
+	QuantityShipped   int32                 `json:"quantity_shipped"`
+	QuantityBackOrder int32                 `json:"quantity_back_order"`
+	PackType          string                `json:"pack_type,omitempty"`
+	QuantityReserved  int32                 `json:"quantity_reserved"`
+	Shipments         []OrderStatusShipment `json:"shipments"`
+	Schedules         []OrderStatusSchedule `json:"schedules"`
 }
 
 // OrderStatusResult holds the live status of a placed distributor order.
 type OrderStatusResult struct {
-	SalesOrderID  string
-	Status        string
-	StatusDetail  string
-	PurchaseOrder string
-	DateEntered   time.Time
-	LineItems     []OrderStatusLineItem
-	LastCheckedAt time.Time
+	SalesOrderID    string
+	Status          string
+	StatusDetail    string
+	PurchaseOrder   string
+	DateEntered     time.Time
+	LineItems       []OrderStatusLineItem
+	LastCheckedAt   time.Time
+	OrderNumber     int64
+	Currency        string
+	TotalPrice      float64
+	ShipMethod      string
+	ShippingAddress *OrderStatusAddress
+	Contact         *OrderStatusContact
 }
 
 // OrderingClient is implemented by distributors that support API ordering flows.

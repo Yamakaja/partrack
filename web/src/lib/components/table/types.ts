@@ -54,6 +54,9 @@ export interface DataSource<T> {
   refresh(): void;
   destroy?(): void;
 
+  // Custom value accessor for virtual/computed columns
+  getValue?(row: T, key: string): unknown;
+
   // Dynamic filter values (distinct values from data)
   getFilterValues?(key: string): string[];
 }

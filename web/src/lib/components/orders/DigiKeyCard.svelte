@@ -9,7 +9,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { ExternalLink } from 'lucide-svelte';
+  import { ExternalLink, Copy } from 'lucide-svelte';
   import type { Order } from '$lib/types/orders.js';
 
   interface Props {
@@ -27,7 +27,6 @@
   let pushing = $state(false);
   let quoting = $state(false);
   let checkingStatus = $state(false);
-
   const dk = $derived(order.integrations?.digikey ?? {});
 
   const canPush = $derived(
@@ -40,6 +39,48 @@
     !!order.external_reference &&
     (order.status === 'placed' || order.status === 'partially_received' || order.status === 'received')
   );
+
+  // Derive unique shipment groups by tracking number (fallback: invoice_id).
+  const shipmentGroups = $derived.by(() => {
+    const map = new Map<string, {
+      key: string;
+      tracking_number: string;
+      invoice_id: number;
+      shipped_date?: string;
+      expected_delivery_date?: string;
+      skus: string[];
+      total_qty_shipped: number;
+    }>();
+    for (const item of dk.last_status_line_items ?? []) {
+      for (const s of item.shipments) {
+        const key = s.tracking_number || `inv-${s.invoice_id}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            tracking_number: s.tracking_number,
+            invoice_id: s.invoice_id,
+            shipped_date: s.shipped_date,
+            expected_delivery_date: s.expected_delivery_date,
+            skus: [],
+            total_qty_shipped: 0,
+          });
+        }
+        const g = map.get(key)!;
+        if (!g.skus.includes(item.sku)) g.skus.push(item.sku);
+        g.total_qty_shipped += s.quantity_shipped;
+      }
+    }
+    return [...map.values()];
+  });
+
+  async function copyToClipboard(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      pushToast('success', 'Copied to clipboard');
+    } catch {
+      pushToast('error', 'Failed to copy');
+    }
+  }
 
   async function handleOAuthRequired() {
     try {
@@ -213,9 +254,114 @@
         {/if}
       </div>
 
-      {#if dk.last_status}
-        <!-- per-line shipment status if available from latest check -->
+      {#if dk.last_status_total_price}
+        <div class="flex items-center gap-2">
+          <span class="text-muted-foreground w-28 shrink-0">Order Total</span>
+          <span class="tabular-nums">
+            {dk.last_status_total_price.toFixed(2)}
+            {#if dk.last_status_currency}
+              <span class="text-muted-foreground">{dk.last_status_currency}</span>
+            {/if}
+          </span>
+        </div>
       {/if}
+
+      {#if dk.last_status_ship_method}
+        <div class="flex items-center gap-2">
+          <span class="text-muted-foreground w-28 shrink-0">Ship Method</span>
+          <span>{dk.last_status_ship_method}</span>
+        </div>
+      {/if}
+
+      {#if dk.last_status_contact}
+        {@const c = dk.last_status_contact}
+        <div class="flex items-center gap-2">
+          <span class="text-muted-foreground w-28 shrink-0">Contact</span>
+          <span>
+            {[c.first_name, c.last_name].filter(Boolean).join(' ')}
+            {#if c.email}
+              <span class="text-muted-foreground">— {c.email}</span>
+            {/if}
+          </span>
+        </div>
+      {/if}
+
+      {#if dk.last_status_shipping_address}
+        {@const a = dk.last_status_shipping_address}
+        <div class="flex gap-2">
+          <span class="text-muted-foreground w-28 shrink-0">Ship To</span>
+          <div class="text-xs leading-relaxed">
+            {#if a.company_name}<div>{a.company_name}</div>{/if}
+            {#if a.line1}<div>{a.line1}</div>{/if}
+            {#if a.line2}<div>{a.line2}</div>{/if}
+            {#if a.city || a.state || a.zip_code}
+              <div>{[a.city, a.state, a.zip_code].filter(Boolean).join(', ')}</div>
+            {/if}
+            {#if a.iso_code}<div class="text-muted-foreground">{a.iso_code}</div>{/if}
+          </div>
+        </div>
+      {/if}
+
+      {#if shipmentGroups.length > 0}
+        <div class="space-y-1.5">
+          <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Shipments</h3>
+          <div class="rounded border border-border overflow-hidden">
+            <table class="w-full text-xs">
+              <thead class="bg-muted/50">
+                <tr>
+                  <th class="text-left px-3 py-1.5 font-medium text-muted-foreground">Tracking #</th>
+                  <th class="text-left px-3 py-1.5 font-medium text-muted-foreground">Shipped</th>
+                  <th class="text-left px-3 py-1.5 font-medium text-muted-foreground">Expected</th>
+                  <th class="text-left px-3 py-1.5 font-medium text-muted-foreground">Items</th>
+                  <th class="text-right px-3 py-1.5 font-medium text-muted-foreground">Qty</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-border">
+                {#each shipmentGroups as group}
+                  <tr class="hover:bg-muted/30">
+                    <td class="px-3 py-1.5">
+                      <div class="flex items-center gap-1.5">
+                        {#if group.tracking_number}
+                          <span class="font-mono">{group.tracking_number}</span>
+                          <button
+                            type="button"
+                            onclick={() => copyToClipboard(group.tracking_number)}
+                            class="text-muted-foreground hover:text-foreground transition-colors"
+                            title="Copy tracking number"
+                          >
+                            <Copy class="h-3 w-3" />
+                          </button>
+                        {:else}
+                          <span class="text-muted-foreground">Invoice #{group.invoice_id}</span>
+                        {/if}
+                      </div>
+                    </td>
+                    <td class="px-3 py-1.5 text-muted-foreground">
+                      {#if group.shipped_date}
+                        <DateDisplay value={group.shipped_date} />
+                      {:else}
+                        —
+                      {/if}
+                    </td>
+                    <td class="px-3 py-1.5 text-muted-foreground">
+                      {group.expected_delivery_date || '—'}
+                    </td>
+                    <td class="px-3 py-1.5 text-muted-foreground">
+                      {#if group.skus.length <= 3}
+                        {group.skus.join(', ')}
+                      {:else}
+                        <span title={group.skus.join(', ')}>{group.skus.length} line items</span>
+                      {/if}
+                    </td>
+                    <td class="px-3 py-1.5 text-right tabular-nums">{group.total_qty_shipped}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {/if}
+
     {/if}
 
     {#if !dk.list_id && !dk.quote_id && !dk.last_status}

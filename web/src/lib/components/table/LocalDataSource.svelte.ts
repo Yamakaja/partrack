@@ -125,6 +125,10 @@ export class LocalDataSource<T> implements DataSource<T> {
     if (getValue) this.#getValue = getValue;
   }
 
+  getValue(row: T, key: string): unknown {
+    return this.#getValue(row, key);
+  }
+
   setColumnHidden(key: string, hidden: boolean): void {
     this.#hiddenOverrides[key] = hidden;
   }

@@ -53,15 +53,8 @@ export function requestQuote(teamId: string, orderId: string) {
   );
 }
 
-export interface DistributorStatusLineItem {
-  sku: string;
-  quantity_ordered: number;
-  quantity_shipped: number;
-  quantity_back_order: number;
-}
-
 export function getDistributorStatus(teamId: string, orderId: string) {
-  return request<{ status: string; status_detail: string; line_items: DistributorStatusLineItem[]; last_checked_at: string }>(
+  return request<{ status: string; status_detail: string; last_checked_at: string }>(
     'GET', `/api/v1/teams/${teamId}/orders/${orderId}/distributor-status`,
   );
 }
