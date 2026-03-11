@@ -12,36 +12,51 @@ import (
 )
 
 const deleteOAuthToken = `-- name: DeleteOAuthToken :exec
-DELETE FROM oauth_tokens WHERE team_id = $1 AND distributor_id = $2
+DELETE FROM oauth_tokens WHERE team_id = $1 AND user_id = $2 AND distributor_id = $3
 `
 
 type DeleteOAuthTokenParams struct {
 	TeamID        pgtype.UUID `json:"team_id"`
+	UserID        pgtype.UUID `json:"user_id"`
 	DistributorID pgtype.UUID `json:"distributor_id"`
 }
 
 func (q *Queries) DeleteOAuthToken(ctx context.Context, arg DeleteOAuthTokenParams) error {
-	_, err := q.db.Exec(ctx, deleteOAuthToken, arg.TeamID, arg.DistributorID)
+	_, err := q.db.Exec(ctx, deleteOAuthToken, arg.TeamID, arg.UserID, arg.DistributorID)
 	return err
 }
 
 const getOAuthToken = `-- name: GetOAuthToken :one
-SELECT id, team_id, distributor_id, access_token, refresh_token, expires_at, updated_at, account_id
+SELECT id, team_id, user_id, distributor_id, access_token, refresh_token, expires_at, updated_at, account_id
 FROM oauth_tokens
-WHERE team_id = $1 AND distributor_id = $2
+WHERE team_id = $1 AND user_id = $2 AND distributor_id = $3
 `
 
 type GetOAuthTokenParams struct {
 	TeamID        pgtype.UUID `json:"team_id"`
+	UserID        pgtype.UUID `json:"user_id"`
 	DistributorID pgtype.UUID `json:"distributor_id"`
 }
 
-func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (OauthToken, error) {
-	row := q.db.QueryRow(ctx, getOAuthToken, arg.TeamID, arg.DistributorID)
-	var i OauthToken
+type GetOAuthTokenRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	TeamID        pgtype.UUID        `json:"team_id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	DistributorID pgtype.UUID        `json:"distributor_id"`
+	AccessToken   string             `json:"access_token"`
+	RefreshToken  string             `json:"refresh_token"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	AccountID     string             `json:"account_id"`
+}
+
+func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (GetOAuthTokenRow, error) {
+	row := q.db.QueryRow(ctx, getOAuthToken, arg.TeamID, arg.UserID, arg.DistributorID)
+	var i GetOAuthTokenRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
+		&i.UserID,
 		&i.DistributorID,
 		&i.AccessToken,
 		&i.RefreshToken,
@@ -53,15 +68,16 @@ func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (O
 }
 
 const upsertOAuthToken = `-- name: UpsertOAuthToken :one
-INSERT INTO oauth_tokens (team_id, distributor_id, access_token, refresh_token, expires_at, updated_at, account_id)
-VALUES ($1, $2, $3, $4, $5, now(), $6)
-ON CONFLICT (team_id, distributor_id)
-DO UPDATE SET access_token = $3, refresh_token = $4, expires_at = $5, updated_at = now(), account_id = $6
+INSERT INTO oauth_tokens (team_id, user_id, distributor_id, access_token, refresh_token, expires_at, updated_at, account_id)
+VALUES ($1, $2, $3, $4, $5, $6, now(), $7)
+ON CONFLICT (team_id, user_id, distributor_id)
+DO UPDATE SET access_token = $4, refresh_token = $5, expires_at = $6, updated_at = now(), account_id = $7
 RETURNING id, expires_at
 `
 
 type UpsertOAuthTokenParams struct {
 	TeamID        pgtype.UUID        `json:"team_id"`
+	UserID        pgtype.UUID        `json:"user_id"`
 	DistributorID pgtype.UUID        `json:"distributor_id"`
 	AccessToken   string             `json:"access_token"`
 	RefreshToken  string             `json:"refresh_token"`
@@ -77,6 +93,7 @@ type UpsertOAuthTokenRow struct {
 func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) (UpsertOAuthTokenRow, error) {
 	row := q.db.QueryRow(ctx, upsertOAuthToken,
 		arg.TeamID,
+		arg.UserID,
 		arg.DistributorID,
 		arg.AccessToken,
 		arg.RefreshToken,

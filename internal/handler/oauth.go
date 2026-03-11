@@ -2,24 +2,63 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/distributor"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// oauthState is JSON-encoded into the base64url state parameter.
+// oauthState is JSON-encoded into the signed state parameter.
 type oauthState struct {
 	TeamID        string `json:"team_id"`
+	UserID        string `json:"user_id"`
 	DistributorID string `json:"distributor_id"`
 	ReturnTo      string `json:"return_to"`
+}
+
+// signState encodes state as base64url(JSON).base64url(HMAC-SHA256).
+func signState(state oauthState, secret string) (string, error) {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return "", err
+	}
+	payloadEnc := base64.URLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payloadEnc)) //nolint:errcheck
+	sig := base64.URLEncoding.EncodeToString(mac.Sum(nil))
+	return payloadEnc + "." + sig, nil
+}
+
+// verifyAndDecodeState verifies the HMAC signature and returns the decoded state.
+func verifyAndDecodeState(raw, secret string) (oauthState, error) {
+	dot := strings.LastIndex(raw, ".")
+	if dot < 0 {
+		return oauthState{}, errors.New("invalid state format")
+	}
+	payloadEnc, sigEnc := raw[:dot], raw[dot+1:]
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payloadEnc)) //nolint:errcheck
+	expectedSig := base64.URLEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sigEnc), []byte(expectedSig)) {
+		return oauthState{}, errors.New("invalid state signature")
+	}
+	payload, err := base64.URLEncoding.DecodeString(payloadEnc)
+	if err != nil {
+		return oauthState{}, err
+	}
+	var s oauthState
+	return s, json.Unmarshal(payload, &s)
 }
 
 // oauthRedirectURI constructs the absolute OAuth callback URI for the given distributor api_type.
@@ -63,13 +102,18 @@ func (h *Handler) InitiateOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the state param.
-	stateData, _ := json.Marshal(oauthState{
+	// Build the signed state param (includes user ID so the callback can scope the token).
+	user := middleware.UserFromContext(r.Context())
+	signed, err := signState(oauthState{
 		TeamID:        teamID.String(),
+		UserID:        user.ID,
 		DistributorID: dist.ID.String(),
 		ReturnTo:      returnTo,
-	})
-	state := base64.URLEncoding.EncodeToString(stateData)
+	}, h.Config.Auth.SessionSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build state", "INTERNAL_ERROR")
+		return
+	}
 
 	// Assert ThreeLeggedAuthClient.
 	client := h.Distributors.Lookup(apiType)
@@ -79,7 +123,7 @@ func (h *Handler) InitiateOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authURL, err := tlc.AuthorizeURL(cfg.ApiCredentials, h.oauthRedirectURI(apiType), state)
+	authURL, err := tlc.AuthorizeURL(cfg.ApiCredentials, h.oauthRedirectURI(apiType), signed)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to build authorization URL", "OAUTH_URL_FAILED")
 		return
@@ -94,15 +138,10 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	apiType := chi.URLParam(r, "distributorApiType")
 	q := r.URL.Query()
 
-	// Decode state.
+	// Verify HMAC and decode state.
 	stateRaw := q.Get("state")
-	stateBytes, err := base64.URLEncoding.DecodeString(stateRaw)
+	state, err := verifyAndDecodeState(stateRaw, h.Config.Auth.SessionSecret)
 	if err != nil {
-		http.Error(w, "invalid state", http.StatusBadRequest)
-		return
-	}
-	var state oauthState
-	if err := json.Unmarshal(stateBytes, &state); err != nil {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
@@ -127,12 +166,16 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Parse IDs from state.
-	var teamID, distributorID pgtype.UUID
+	var teamID, distributorID, userID pgtype.UUID
 	if err := teamID.Scan(state.TeamID); err != nil {
 		http.Redirect(w, r, returnTo+"?oauth_error=invalid_state", http.StatusFound)
 		return
 	}
 	if err := distributorID.Scan(state.DistributorID); err != nil {
+		http.Redirect(w, r, returnTo+"?oauth_error=invalid_state", http.StatusFound)
+		return
+	}
+	if err := userID.Scan(state.UserID); err != nil {
 		http.Redirect(w, r, returnTo+"?oauth_error=invalid_state", http.StatusFound)
 		return
 	}
@@ -167,6 +210,7 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	_, err = h.Queries.UpsertOAuthToken(ctx, dbgen.UpsertOAuthTokenParams{
 		TeamID:        teamID,
+		UserID:        userID,
 		DistributorID: distributorID,
 		AccessToken:   tokens.AccessToken,
 		RefreshToken:  tokens.RefreshToken,
@@ -181,17 +225,110 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, returnTo+"?oauth_success=1", http.StatusFound)
 }
 
+// GetOAuthStatus handles GET /api/v1/teams/{teamId}/oauth/{distributorApiType}/status
+// Role: purchaser+
+// Returns the current user's OAuth connection status for the distributor.
+func (h *Handler) GetOAuthStatus(w http.ResponseWriter, r *http.Request) {
+	apiType := chi.URLParam(r, "distributorApiType")
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "INVALID_TEAM_ID")
+		return
+	}
+
+	ctx := r.Context()
+	user := middleware.UserFromContext(ctx)
+
+	dist, err := h.Queries.GetDistributorByApiType(ctx, ptrTo(apiType))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "distributor not found", "DISTRIBUTOR_NOT_FOUND")
+		return
+	}
+
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid user ID", "INTERNAL_ERROR")
+		return
+	}
+
+	tok, err := h.Queries.GetOAuthToken(ctx, dbgen.GetOAuthTokenParams{
+		TeamID:        teamID,
+		UserID:        userID,
+		DistributorID: dist.ID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"connected":  false,
+			"account_id": "",
+			"updated_at": "",
+		})
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"connected":  true,
+		"account_id": tok.AccountID,
+		"updated_at": tok.UpdatedAt.Time.Format(time.RFC3339),
+	})
+}
+
+// DisconnectOAuth handles DELETE /api/v1/teams/{teamId}/oauth/{distributorApiType}/token
+// Role: purchaser+
+// Removes the current user's stored OAuth token for the distributor.
+func (h *Handler) DisconnectOAuth(w http.ResponseWriter, r *http.Request) {
+	apiType := chi.URLParam(r, "distributorApiType")
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "INVALID_TEAM_ID")
+		return
+	}
+
+	ctx := r.Context()
+	user := middleware.UserFromContext(ctx)
+
+	dist, err := h.Queries.GetDistributorByApiType(ctx, ptrTo(apiType))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "distributor not found", "DISTRIBUTOR_NOT_FOUND")
+		return
+	}
+
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid user ID", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := h.Queries.DeleteOAuthToken(ctx, dbgen.DeleteOAuthTokenParams{
+		TeamID:        teamID,
+		UserID:        userID,
+		DistributorID: dist.ID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // dbCredentialProvider adapts DB queries to distributor.CredentialProvider
-// for a specific (team, distributor) pair.
+// for a specific (team, user, distributor) triple.
 type dbCredentialProvider struct {
 	queries       *dbgen.Queries
 	teamID        pgtype.UUID
+	userID        pgtype.UUID
 	distributorID pgtype.UUID
 }
 
 func (p *dbCredentialProvider) GetOAuthToken(ctx context.Context) (*distributor.StoredToken, error) {
 	tok, err := p.queries.GetOAuthToken(ctx, dbgen.GetOAuthTokenParams{
 		TeamID:        p.teamID,
+		UserID:        p.userID,
 		DistributorID: p.distributorID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -213,6 +350,7 @@ func (p *dbCredentialProvider) StoreOAuthToken(ctx context.Context, tok *distrib
 	exp.Scan(tok.ExpiresAt) //nolint:errcheck
 	_, err := p.queries.UpsertOAuthToken(ctx, dbgen.UpsertOAuthTokenParams{
 		TeamID:        p.teamID,
+		UserID:        p.userID,
 		DistributorID: p.distributorID,
 		AccessToken:   tok.AccessToken,
 		RefreshToken:  tok.RefreshToken,
@@ -225,6 +363,7 @@ func (p *dbCredentialProvider) StoreOAuthToken(ctx context.Context, tok *distrib
 func (p *dbCredentialProvider) DeleteOAuthToken(ctx context.Context) error {
 	return p.queries.DeleteOAuthToken(ctx, dbgen.DeleteOAuthTokenParams{
 		TeamID:        p.teamID,
+		UserID:        p.userID,
 		DistributorID: p.distributorID,
 	})
 }

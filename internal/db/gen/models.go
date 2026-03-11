@@ -534,6 +534,7 @@ type OauthToken struct {
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	AccountID     string             `json:"account_id"`
+	UserID        pgtype.UUID        `json:"user_id"`
 }
 
 type OidcIdentity struct {

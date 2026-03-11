@@ -23,18 +23,25 @@ func (h *Handler) ListDistributors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type item struct {
-		ID      string  `json:"id"`
-		Name    string  `json:"name"`
-		Website *string `json:"website"`
-		ApiType *string `json:"api_type"`
+		ID           string  `json:"id"`
+		Name         string  `json:"name"`
+		Website      *string `json:"website"`
+		ApiType      *string `json:"api_type"`
+		SupportsOAuth bool   `json:"supports_oauth"`
 	}
 	items := make([]item, len(distributors))
 	for i, d := range distributors {
+		var supportsOAuth bool
+		if d.ApiType != nil {
+			client := h.Distributors.Lookup(*d.ApiType)
+			_, supportsOAuth = client.(distributor.ThreeLeggedAuthClient)
+		}
 		items[i] = item{
-			ID:      d.ID.String(),
-			Name:    d.Name,
-			Website: d.Website,
-			ApiType: d.ApiType,
+			ID:           d.ID.String(),
+			Name:         d.Name,
+			Website:      d.Website,
+			ApiType:      d.ApiType,
+			SupportsOAuth: supportsOAuth,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

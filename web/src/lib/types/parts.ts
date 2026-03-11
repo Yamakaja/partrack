@@ -135,6 +135,7 @@ export interface Distributor {
   name: string;
   website: string | null;
   api_type: string | null;
+  supports_oauth: boolean;
 }
 
 export interface DistributorRateLimit {

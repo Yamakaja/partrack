@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { listDistributors, listDistributorConfigs, upsertDistributorConfig, deleteDistributorConfig, getCredentialSpec } from '$lib/api/distributors.js';
+  import { getOAuthStatus, disconnectOAuth, getDigiKeyAuthURL, type OAuthStatus } from '$lib/api/oauth.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
@@ -38,11 +39,99 @@
     }));
   });
 
+  // OAuth-capable distributors (for "My Accounts" section)
+  let oauthDistributors = $derived(
+    (distributorsQuery.data?.items ?? []).filter(d => d.supports_oauth && d.api_type)
+  );
+
+  // Per-distributor OAuth status state
+  let oauthStatuses = $state<Record<string, OAuthStatus | null>>({});
+  let oauthLoading = $state<Record<string, boolean>>({});
+  let oauthDisconnecting = $state<Record<string, boolean>>({});
+  let oauthConnecting = $state<Record<string, boolean>>({});
+
+  // Load OAuth status for each OAuth-capable distributor
+  $effect(() => {
+    for (const dist of oauthDistributors) {
+      const key = dist.api_type!;
+      if (oauthStatuses[key] === undefined && !oauthLoading[key]) {
+        loadOAuthStatus(key);
+      }
+    }
+  });
+
+  // Handle oauth_success / oauth_error params on page load
+  $effect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('oauth_success')) {
+      pushToast('success', 'DigiKey account connected successfully');
+      for (const key of Object.keys(oauthStatuses)) {
+        loadOAuthStatus(key);
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.delete('oauth_success');
+      history.replaceState(null, '', url.toString());
+    } else if (params.has('oauth_error')) {
+      pushToast('error', 'DigiKey connection failed', params.get('oauth_error') ?? '');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('oauth_error');
+      history.replaceState(null, '', url.toString());
+    }
+  });
+
+  async function loadOAuthStatus(apiType: string) {
+    oauthLoading[apiType] = true;
+    try {
+      const status = await getOAuthStatus(teamId, apiType);
+      oauthStatuses[apiType] = status;
+    } catch {
+      oauthStatuses[apiType] = null;
+    } finally {
+      oauthLoading[apiType] = false;
+    }
+  }
+
+  async function handleConnect(apiType: string) {
+    if (oauthConnecting[apiType]) return;
+    oauthConnecting[apiType] = true;
+    try {
+      const returnTo = window.location.pathname + window.location.search;
+      const { auth_url } = await getDigiKeyAuthURL(teamId, returnTo);
+      window.location.href = auth_url;
+    } catch (err: any) {
+      pushToast('error', 'Failed to initiate DigiKey authorization', err.message);
+      oauthConnecting[apiType] = false;
+    }
+  }
+
+  async function handleDisconnect(apiType: string) {
+    if (oauthDisconnecting[apiType]) return;
+    oauthDisconnecting[apiType] = true;
+    try {
+      await disconnectOAuth(teamId, apiType);
+      oauthStatuses[apiType] = { connected: false, account_id: '', updated_at: '' };
+      pushToast('success', 'DigiKey account disconnected');
+    } catch (err: any) {
+      pushToast('error', 'Failed to disconnect DigiKey account', err.message);
+    } finally {
+      oauthDisconnecting[apiType] = false;
+    }
+  }
+
+  function formatUpdatedAt(ts: string): string {
+    if (!ts) return '';
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return ts;
+    }
+  }
+
   // Configure dialog state
   let configureOpen = $state(false);
   let configuringDistributor = $state<Distributor | null>(null);
   let cfgEnabled = $state(false);
-  let cfgPreferredCurrent = $state(false); // preserved through dialog saves; not editable here
+  let cfgPreferredCurrent = $state(false);
   let cfgCacheDuration = $state('3600');
   let settingPreferred = $state(false);
   let configHasCredentials = $state(false);
@@ -105,7 +194,7 @@
               return [f.key, typeof stored === 'boolean' ? stored : false];
             }
             if (f.secret) {
-              return [f.key, '']; // never pre-populate secret fields
+              return [f.key, ''];
             }
             const stored = config?.api_credentials?.[f.key];
             return [f.key, typeof stored === 'string' ? stored : ''];
@@ -136,8 +225,6 @@
           obj[field.key] = typeof val === 'string' ? val.trim() : '';
         }
       }
-      // Always send the credentials object when a spec exists so the backend
-      // can perform field-level merging (preserving existing secret values).
       credentials = obj;
     }
 
@@ -183,88 +270,154 @@
 <div class="flex flex-col h-full">
   <Topbar title="Distributors" />
 
-  <div class="flex-1 overflow-auto p-6">
+  <div class="flex-1 overflow-auto p-6 space-y-6">
     {#if distributorsQuery.isPending || configsQuery.isPending}
       <div class="text-sm text-muted-foreground">Loading…</div>
     {:else if distributorsQuery.isError}
       <div class="text-sm text-destructive">Error: {distributorsQuery.error.message}</div>
     {:else}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Distributor</TableHead>
-            <TableHead>API Type</TableHead>
-            <TableHead>Enabled</TableHead>
-            <TableHead>Cache Duration</TableHead>
-            <TableHead>API Rate Limit</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {#each displayList as { distributor, config } (distributor.id)}
-            <TableRow>
-              <TableCell class="font-medium">{distributor.name}</TableCell>
-              <TableCell class="text-muted-foreground text-sm">{distributor.api_type ?? '—'}</TableCell>
-              <TableCell>
-                {#if config}
-                  <Badge variant={config.enabled ? 'success' : 'secondary'}>
-                    {config.enabled ? 'Enabled' : 'Disabled'}
-                  </Badge>
-                {:else}
-                  <Badge variant="secondary">Not configured</Badge>
-                {/if}
-              </TableCell>
-              <TableCell class="text-muted-foreground text-sm">
-                {config ? `${config.cache_duration_seconds}s` : '—'}
-              </TableCell>
-              <TableCell class="text-sm">
-                {#if config?.rate_limit}
-                  <span
-                    class={rateLimitColor(config.rate_limit)}
-                    title={`Last observed: ${new Date(config.rate_limit.updated_at).toLocaleString()}`}
-                  >
-                    {config.rate_limit.remaining} / {config.rate_limit.limit}
-                  </span>
-                {:else}
-                  <span class="text-muted-foreground">—</span>
-                {/if}
-              </TableCell>
-              <TableCell>
-                <div class="flex items-center gap-1">
-                  {#if config}
+      <!-- Team configuration (admin-only API) -->
+      {#if configsQuery.data}
+        <div>
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Team Configuration</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Distributor</TableHead>
+                <TableHead>API Type</TableHead>
+                <TableHead>Enabled</TableHead>
+                <TableHead>Cache Duration</TableHead>
+                <TableHead>API Rate Limit</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {#each displayList as { distributor, config } (distributor.id)}
+                <TableRow>
+                  <TableCell class="font-medium">{distributor.name}</TableCell>
+                  <TableCell class="text-muted-foreground text-sm">{distributor.api_type ?? '—'}</TableCell>
+                  <TableCell>
+                    {#if config}
+                      <Badge variant={config.enabled ? 'success' : 'secondary'}>
+                        {config.enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    {:else}
+                      <Badge variant="secondary">Not configured</Badge>
+                    {/if}
+                  </TableCell>
+                  <TableCell class="text-muted-foreground text-sm">
+                    {config ? `${config.cache_duration_seconds}s` : '—'}
+                  </TableCell>
+                  <TableCell class="text-sm">
+                    {#if config?.rate_limit}
+                      <span
+                        class={rateLimitColor(config.rate_limit)}
+                        title={`Last observed: ${new Date(config.rate_limit.updated_at).toLocaleString()}`}
+                      >
+                        {config.rate_limit.remaining} / {config.rate_limit.limit}
+                      </span>
+                    {:else}
+                      <span class="text-muted-foreground">—</span>
+                    {/if}
+                  </TableCell>
+                  <TableCell>
+                    <div class="flex items-center gap-1">
+                      {#if config}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={settingPreferred}
+                          onclick={() => togglePreferred(distributor, config)}
+                          title={config.preferred ? 'Clear preferred distributor' : 'Set as preferred distributor'}
+                        >
+                          <Star class="h-4 w-4 {config.preferred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}" />
+                        </Button>
+                      {/if}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onclick={() => openConfigure(distributor, config)}
+                      >
+                        <Settings class="h-4 w-4 mr-1" /> Configure
+                      </Button>
+                      {#if config}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onclick={() => promptDeleteConfig(distributor)}
+                          class="text-destructive hover:text-destructive"
+                        >
+                          Remove
+                        </Button>
+                      {/if}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              {/each}
+            </TableBody>
+          </Table>
+        </div>
+      {/if}
+
+      <!-- My Distributor Accounts (per-user OAuth connections) -->
+      {#if oauthDistributors.length > 0}
+        <div>
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">My Distributor Accounts</h3>
+          <div class="space-y-3">
+            {#each oauthDistributors as dist (dist.api_type)}
+              {@const apiType = dist.api_type!}
+              {@const status = oauthStatuses[apiType]}
+              {@const loading = oauthLoading[apiType]}
+              <div class="rounded-lg border border-border p-4">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="space-y-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium text-sm">{dist.name}</span>
+                      {#if loading}
+                        <span class="text-xs text-muted-foreground">Loading…</span>
+                      {:else if status === null}
+                        <span class="text-xs text-destructive">Failed to load status</span>
+                      {:else if status?.connected}
+                        <Badge variant="success">Connected</Badge>
+                      {:else}
+                        <Badge variant="secondary">Not connected</Badge>
+                      {/if}
+                    </div>
+                    {#if !loading && status?.connected}
+                      {#if status.account_id}
+                        <div class="text-xs text-muted-foreground font-mono">{status.account_id}</div>
+                      {/if}
+                      {#if status.updated_at}
+                        <div class="text-xs text-muted-foreground">Last updated: {formatUpdatedAt(status.updated_at)}</div>
+                      {/if}
+                    {/if}
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    {#if !loading && status?.connected}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={oauthDisconnecting[apiType]}
+                        onclick={() => handleDisconnect(apiType)}
+                      >
+                        {oauthDisconnecting[apiType] ? 'Disconnecting…' : 'Disconnect'}
+                      </Button>
+                    {/if}
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled={settingPreferred}
-                      onclick={() => togglePreferred(distributor, config)}
-                      title={config.preferred ? 'Clear preferred distributor' : 'Set as preferred distributor'}
-                    >
-                      <Star class="h-4 w-4 {config.preferred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}" />
-                    </Button>
-                  {/if}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onclick={() => openConfigure(distributor, config)}
-                  >
-                    <Settings class="h-4 w-4 mr-1" /> Configure
-                  </Button>
-                  {#if config}
-                    <Button
-                      variant="ghost"
+                      variant={status?.connected ? 'ghost' : 'outline'}
                       size="sm"
-                      onclick={() => promptDeleteConfig(distributor)}
-                      class="text-destructive hover:text-destructive"
+                      disabled={oauthConnecting[apiType]}
+                      onclick={() => handleConnect(apiType)}
                     >
-                      Remove
+                      {oauthConnecting[apiType] ? 'Redirecting…' : status?.connected ? 'Reconnect' : 'Connect'}
                     </Button>
-                  {/if}
+                  </div>
                 </div>
-              </TableCell>
-            </TableRow>
-          {/each}
-        </TableBody>
-      </Table>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
     {/if}
   </div>
 </div>

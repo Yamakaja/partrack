@@ -217,6 +217,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/orders/{orderId}/push-to-distributor", h.PushToDistributor)
 					r.Post("/orders/{orderId}/request-quote", h.RequestQuote)
 					r.Get("/oauth/{distributorApiType}/initiate", h.InitiateOAuth)
+				r.Get("/oauth/{distributorApiType}/status", h.GetOAuthStatus)
+				r.Delete("/oauth/{distributorApiType}/token", h.DisconnectOAuth)
 				})
 
 				// Admin+

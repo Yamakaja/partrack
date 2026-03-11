@@ -13,6 +13,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
 )
@@ -55,12 +56,17 @@ func (h *Handler) getEnrichedCreds(r *http.Request, order dbgen.GetOrderRow) (js
 		return cfg.ApiCredentials, nil
 	}
 
+	user := middleware.UserFromContext(r.Context())
+	var userID pgtype.UUID
+	userID.Scan(user.ID) //nolint:errcheck
+
 	provider := &dbCredentialProvider{
 		queries:       h.Queries,
 		teamID:        order.TeamID,
+		userID:        userID,
 		distributorID: order.DistributorID,
 	}
-	key := order.TeamID.String() + "/" + order.DistributorID.String()
+	key := order.TeamID.String() + "/" + user.ID + "/" + order.DistributorID.String()
 	result, err, _ := h.refreshGroup.Do(key, func() (any, error) {
 		return ce.EnrichCredentials(ctx, cfg.ApiCredentials, provider)
 	})
