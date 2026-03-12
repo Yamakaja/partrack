@@ -66,6 +66,7 @@ export function activateTeamInvalidation(teamId: string) {
     subscribeSSEType(teamId, 'build_changed', (ev) => {
       qc!.invalidateQueries({ queryKey: ['builds', teamId] });
       qc!.invalidateQueries({ queryKey: ['dashboard', teamId] });
+      qc!.invalidateQueries({ queryKey: ['order-builds'] });
       const buildId = ev.data.build_id as string | undefined;
       if (buildId) qc!.invalidateQueries({ queryKey: ['build', buildId] });
     }),

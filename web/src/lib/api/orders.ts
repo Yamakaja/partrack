@@ -1,5 +1,5 @@
 import { request, qs } from './client.js';
-import type { Order, OrderLineItem, QuoteItem } from '$lib/types/orders.js';
+import type { Order, OrderLineItem, QuoteItem, LinkedBuild } from '$lib/types/orders.js';
 import type { PaginatedResponse } from '$lib/types/common.js';
 
 export function listOrders(teamId: string, params: { status?: string; limit?: number; offset?: number } = {}) {
@@ -55,6 +55,10 @@ export function requestQuote(teamId: string, orderId: string) {
   return request<{ quote_id: number; quote_name: string; items: QuoteItem[] }>(
     'POST', `/api/v1/teams/${teamId}/orders/${orderId}/request-quote`,
   );
+}
+
+export function getOrderLinkedBuilds(teamId: string, orderId: string) {
+  return request<LinkedBuild[]>('GET', `/api/v1/teams/${teamId}/orders/${orderId}/linked-builds`);
 }
 
 export function getDistributorStatus(teamId: string, orderId: string) {

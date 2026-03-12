@@ -41,7 +41,7 @@ CREATE TYPE cart_item_source AS ENUM (
 -- =============================================================
 
 CREATE TABLE users (
-    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id           UUID        PRIMARY KEY DEFAULT uuidv7(),
     display_name TEXT        NOT NULL,
     email        TEXT        NOT NULL UNIQUE,
     is_active    BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -49,14 +49,14 @@ CREATE TABLE users (
 );
 
 CREATE TABLE teams (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          UUID        PRIMARY KEY DEFAULT uuidv7(),
     name        TEXT        NOT NULL,
     description TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE team_memberships (
-    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id         UUID        PRIMARY KEY DEFAULT uuidv7(),
     team_id    UUID        NOT NULL REFERENCES teams(id),
     user_id    UUID        NOT NULL REFERENCES users(id),
     role       team_role   NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE team_memberships (
 );
 
 CREATE TABLE oidc_identities (
-    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id             UUID        PRIMARY KEY DEFAULT uuidv7(),
     user_id        UUID        NOT NULL REFERENCES users(id),
     provider       TEXT        NOT NULL,  -- matches config-file provider slug
     subject        TEXT        NOT NULL,  -- 'sub' claim from ID token
@@ -75,7 +75,7 @@ CREATE TABLE oidc_identities (
 );
 
 CREATE TABLE user_credentials (
-    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id            UUID        PRIMARY KEY DEFAULT uuidv7(),
     user_id       UUID        NOT NULL UNIQUE REFERENCES users(id),
     password_hash TEXT        NOT NULL,  -- bcrypt
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -90,7 +90,7 @@ CREATE TABLE user_preferences (
 );
 
 CREATE TABLE sessions (
-    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id           UUID        PRIMARY KEY DEFAULT uuidv7(),
     user_id      UUID        NOT NULL REFERENCES users(id),
     token_hash   TEXT        NOT NULL UNIQUE,  -- SHA-256 hex of raw session token
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -102,7 +102,7 @@ CREATE TABLE sessions (
 CREATE INDEX ON sessions (user_id);
 
 CREATE TABLE api_tokens (
-    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id           UUID        PRIMARY KEY DEFAULT uuidv7(),
     user_id      UUID        NOT NULL REFERENCES users(id),
     name         TEXT        NOT NULL,
     token_hash   TEXT        NOT NULL UNIQUE,  -- SHA-256 hex of raw token
@@ -118,14 +118,14 @@ CREATE INDEX ON api_tokens (user_id);
 -- =============================================================
 
 CREATE TABLE distributors (
-    id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id       UUID PRIMARY KEY DEFAULT uuidv7(),
     name     TEXT NOT NULL,
     website  TEXT,
     api_type TEXT  -- integration type identifier; NULL if no API integration
 );
 
 CREATE TABLE distributor_configs (
-    id                     UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                     UUID        PRIMARY KEY DEFAULT uuidv7(),
     team_id                UUID        NOT NULL REFERENCES teams(id),
     distributor_id         UUID        NOT NULL REFERENCES distributors(id),
     enabled                BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -141,7 +141,7 @@ CREATE TABLE distributor_configs (
 -- =============================================================
 
 CREATE TABLE parts (
-    id                            UUID                  PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                            UUID                  PRIMARY KEY DEFAULT uuidv7(),
     scope                         part_scope            NOT NULL,
     team_id                       UUID                  REFERENCES teams(id),  -- NULL for global parts
     mpn                           TEXT,
@@ -164,7 +164,7 @@ CREATE INDEX ON parts (mpn)     WHERE mpn IS NOT NULL;
 CREATE INDEX ON parts (team_id) WHERE team_id IS NOT NULL;
 
 CREATE TABLE part_parameters (
-    id                    UUID                  PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                    UUID                  PRIMARY KEY DEFAULT uuidv7(),
     part_id               UUID                  NOT NULL REFERENCES parts(id),
     name                  TEXT                  NOT NULL,  -- normalised key e.g. 'resistance'
     value                 TEXT                  NOT NULL,
@@ -178,7 +178,7 @@ CREATE TABLE part_parameters (
 CREATE INDEX ON part_parameters (part_id);
 
 CREATE TABLE distributor_listings (
-    id                UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                UUID           PRIMARY KEY DEFAULT uuidv7(),
     part_id           UUID           NOT NULL REFERENCES parts(id),
     distributor_id    UUID           NOT NULL REFERENCES distributors(id),
     sku               TEXT           NOT NULL,
@@ -198,7 +198,7 @@ CREATE INDEX ON distributor_listings (part_id);
 -- =============================================================
 
 CREATE TABLE storage_locations (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          UUID PRIMARY KEY DEFAULT uuidv7(),
     team_id     UUID NOT NULL REFERENCES teams(id),
     label       TEXT NOT NULL,
     description TEXT,
@@ -206,7 +206,7 @@ CREATE TABLE storage_locations (
 );
 
 CREATE TABLE inventory_entries (
-    id                     UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                     UUID    PRIMARY KEY DEFAULT uuidv7(),
     team_id                UUID    NOT NULL REFERENCES teams(id),
     part_id                UUID    NOT NULL REFERENCES parts(id),
     quantity_on_hand       INT     NOT NULL DEFAULT 0,
@@ -221,7 +221,7 @@ CREATE INDEX ON inventory_entries (team_id);
 -- stock_adjustments source FKs are added via ALTER TABLE after
 -- builds, general_checkouts, and order_line_items are defined below.
 CREATE TABLE stock_adjustments (
-    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID        PRIMARY KEY DEFAULT uuidv7(),
     inventory_entry_id  UUID        NOT NULL REFERENCES inventory_entries(id),
     delta               INT         NOT NULL,
     adjusted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -255,7 +255,7 @@ CREATE INDEX ON stock_adjustments (general_checkout_id) WHERE general_checkout_i
 -- =============================================================
 
 CREATE TABLE projects (
-    id                     UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                     UUID           PRIMARY KEY DEFAULT uuidv7(),
     team_id                UUID           NOT NULL REFERENCES teams(id),
     name                   TEXT           NOT NULL,
     description            TEXT,
@@ -268,7 +268,7 @@ CREATE TABLE projects (
 CREATE INDEX ON projects (team_id);
 
 CREATE TABLE bom_revisions (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          UUID        PRIMARY KEY DEFAULT uuidv7(),
     project_id  UUID        NOT NULL REFERENCES projects(id),
     label       TEXT        NOT NULL,
     imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -283,7 +283,7 @@ ALTER TABLE projects
     FOREIGN KEY (active_bom_revision_id) REFERENCES bom_revisions(id);
 
 CREATE TABLE bom_line_items (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                    UUID PRIMARY KEY DEFAULT uuidv7(),
     bom_revision_id       UUID NOT NULL REFERENCES bom_revisions(id),
     reference_designators TEXT NOT NULL,  -- e.g. "R1, R3, R7"
     quantity              INT  NOT NULL CHECK (quantity > 0),
@@ -306,12 +306,12 @@ CREATE TABLE bom_line_item_substitutes (
 -- =============================================================
 
 CREATE TABLE shopping_carts (
-    id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id      UUID PRIMARY KEY DEFAULT uuidv7(),
     team_id UUID NOT NULL UNIQUE REFERENCES teams(id)
 );
 
 CREATE TABLE cart_line_items (
-    id                      UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                      UUID             PRIMARY KEY DEFAULT uuidv7(),
     shopping_cart_id        UUID             NOT NULL REFERENCES shopping_carts(id),
     part_id                 UUID             NOT NULL REFERENCES parts(id),
     quantity                INT              NOT NULL CHECK (quantity > 0),
@@ -332,7 +332,7 @@ CREATE INDEX ON cart_line_items (shopping_cart_id);
 -- =============================================================
 
 CREATE TABLE builds (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              UUID        PRIMARY KEY DEFAULT uuidv7(),
     team_id         UUID        NOT NULL REFERENCES teams(id),
     project_id      UUID        NOT NULL REFERENCES projects(id),
     bom_revision_id UUID        NOT NULL REFERENCES bom_revisions(id),
@@ -349,7 +349,7 @@ CREATE INDEX ON builds (team_id);
 -- =============================================================
 
 CREATE TABLE general_checkouts (
-    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id           UUID        PRIMARY KEY DEFAULT uuidv7(),
     team_id      UUID        NOT NULL REFERENCES teams(id),
     performed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reason       TEXT,
@@ -358,7 +358,7 @@ CREATE TABLE general_checkouts (
 CREATE INDEX ON general_checkouts (team_id);
 
 CREATE TABLE general_checkout_line_items (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID PRIMARY KEY DEFAULT uuidv7(),
     general_checkout_id UUID NOT NULL REFERENCES general_checkouts(id),
     part_id             UUID NOT NULL REFERENCES parts(id),
     quantity            INT  NOT NULL CHECK (quantity > 0)
@@ -371,7 +371,7 @@ CREATE INDEX ON general_checkout_line_items (general_checkout_id);
 -- =============================================================
 
 CREATE TABLE orders (
-    id                     UUID                    PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                     UUID                    PRIMARY KEY DEFAULT uuidv7(),
     team_id                UUID                    NOT NULL REFERENCES teams(id),
     distributor_id         UUID                    NOT NULL REFERENCES distributors(id),
     status                 order_status            NOT NULL DEFAULT 'draft',
@@ -387,7 +387,7 @@ CREATE INDEX ON orders (team_id);
 CREATE INDEX ON orders (status);
 
 CREATE TABLE order_line_items (
-    id                        UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                        UUID           PRIMARY KEY DEFAULT uuidv7(),
     order_id                  UUID           NOT NULL REFERENCES orders(id),
     listing_id                UUID           NOT NULL REFERENCES distributor_listings(id),
     quantity_ordered          INT            NOT NULL CHECK (quantity_ordered > 0),
@@ -425,7 +425,7 @@ ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- One-time password reset tokens generated by admins and shared out-of-band.
 CREATE TABLE password_reset_tokens (
-    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id         UUID        PRIMARY KEY DEFAULT uuidv7(),
     user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT        NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

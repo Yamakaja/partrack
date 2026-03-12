@@ -159,6 +159,28 @@ WHERE bpa.part_id = $1
 -- name: GetLinkedBuildIDsForOrder :many
 SELECT build_id FROM build_orders WHERE order_id = $1;
 
+-- name: GetLinkedBuildsForOrder :many
+SELECT
+    b.id, b.project_id, pr.name AS project_name,
+    b.bom_revision_id, br.label AS bom_revision_label,
+    b.quantity, b.status,
+    b.created_at,
+    u_created.display_name AS created_by_display_name,
+    COUNT(DISTINCT oli.id)::int AS total_line_items,
+    COUNT(DISTINCT CASE WHEN bpa.quantity_received >= bpa.quantity_needed THEN oli.id END)::int AS fulfilled_line_items
+FROM build_orders bo
+JOIN builds b ON b.id = bo.build_id
+JOIN projects pr ON pr.id = b.project_id
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+LEFT JOIN users u_created ON u_created.id = b.created_by
+JOIN order_line_items oli ON oli.order_id = bo.order_id
+JOIN distributor_listings dl ON dl.id = oli.listing_id
+JOIN build_part_allocations bpa ON bpa.build_id = bo.build_id AND bpa.part_id = dl.part_id
+WHERE bo.order_id = $1
+GROUP BY b.id, b.project_id, pr.name, b.bom_revision_id, br.label,
+         b.quantity, b.status, b.created_at, u_created.display_name
+ORDER BY b.created_at;
+
 -- name: GetReservedQtysForParts :many
 SELECT bpa.part_id,
        COALESCE(SUM(bpa.quantity_reserved), 0)::int AS total_reserved

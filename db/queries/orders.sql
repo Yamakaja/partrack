@@ -66,7 +66,7 @@ RETURNING id, purchase_order_number;
 -- name: UpdateOrderNotes :one
 UPDATE orders
 SET notes = sqlc.narg('notes')
-WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id') AND status = 'draft'
+WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
 RETURNING id, status, notes;
 
 -- name: UpdateOrderLineItemQuantity :exec

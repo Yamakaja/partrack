@@ -172,6 +172,20 @@ export interface OrderLineItem {
   fixed_order_cost_snapshot: string;
 }
 
+export interface LinkedBuild {
+  id: string;
+  project_id: string;
+  project_name: string;
+  bom_revision_id: string;
+  bom_revision_label: string;
+  quantity: number;
+  status: BuildStatus;
+  created_at: string;
+  created_by_display_name: string;
+  total_line_items: number;
+  fulfilled_line_items: number;
+}
+
 export interface Build {
   id: string;
   team_id: string;

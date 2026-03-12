@@ -11,7 +11,7 @@ CREATE INDEX ON categories (parent_id);
 
 -- Distributor → partrack category mapping
 CREATE TABLE distributor_category_mappings (
-  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                        UUID PRIMARY KEY DEFAULT uuidv7(),
   distributor_id            UUID NOT NULL REFERENCES distributors(id) ON DELETE CASCADE,
   distributor_category_id   TEXT NOT NULL,
   distributor_category_name TEXT NOT NULL DEFAULT '',

@@ -886,7 +886,7 @@ func (q *Queries) UpdateOrderLineItemQuantity(ctx context.Context, arg UpdateOrd
 const updateOrderNotes = `-- name: UpdateOrderNotes :one
 UPDATE orders
 SET notes = $1
-WHERE id = $2 AND team_id = $3 AND status = 'draft'
+WHERE id = $2 AND team_id = $3
 RETURNING id, status, notes
 `
 

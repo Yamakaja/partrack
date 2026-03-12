@@ -12,7 +12,7 @@ CREATE TABLE parameter_definitions (
 -- Maps distributor-specific parameter identifiers to partrack parameters.
 -- Rows with parameter_id IS NULL represent unmapped params awaiting admin review.
 CREATE TABLE distributor_parameter_mappings (
-  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                     UUID PRIMARY KEY DEFAULT uuidv7(),
   distributor_id         UUID NOT NULL REFERENCES distributors(id) ON DELETE CASCADE,
   distributor_param_id   TEXT NOT NULL,           -- distributor's own stable parameter ID
   distributor_param_name TEXT NOT NULL DEFAULT '', -- distributor's display name (for reference)

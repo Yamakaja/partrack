@@ -1,5 +1,5 @@
 CREATE TABLE oauth_tokens (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              UUID        PRIMARY KEY DEFAULT uuidv7(),
     team_id         UUID        NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     distributor_id  UUID        NOT NULL REFERENCES distributors(id),
     access_token    TEXT        NOT NULL,

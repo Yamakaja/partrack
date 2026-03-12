@@ -122,6 +122,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// 13. Orders
 					r.Get("/orders", h.ListOrders)
 					r.Get("/orders/{orderId}", h.GetOrder)
+					r.Get("/orders/{orderId}/linked-builds", h.GetOrderLinkedBuilds)
 					r.Get("/orders/{orderId}/distributor-status", h.GetDistributorStatus)
 
 					// 14. Builds

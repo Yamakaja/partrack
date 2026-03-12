@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder, updateOrderPurchaseOrderNumber, updateOrderNotes } from '$lib/api/orders.js';
+  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder, updateOrderPurchaseOrderNumber, updateOrderNotes, getOrderLinkedBuilds } from '$lib/api/orders.js';
+  import { navigate } from '$lib/router/index.svelte.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
@@ -16,7 +17,7 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Pencil, Copy, Package } from 'lucide-svelte';
   import { getTrackingUrl } from '$lib/utils/tracking.js';
-  import type { OrderStatus, OrderLineItem, DigiKeyStatusLineItem } from '$lib/types/orders.js';
+  import type { OrderStatus, OrderLineItem, DigiKeyStatusLineItem, BuildStatus } from '$lib/types/orders.js';
 
   /** Compare packaging strings, normalizing whitespace/parens for equivalence. */
   function packagingMatches(orderPkg: string | null, dkPack: string | undefined): boolean {
@@ -39,6 +40,35 @@
     queryKey: ['order', orderId],
     queryFn: () => getOrder(teamId, orderId),
   }));
+
+  let linkedBuildsQuery = createQuery(() => ({
+    queryKey: ['order-builds', orderId],
+    queryFn: () => getOrderLinkedBuilds(teamId, orderId),
+  }));
+
+  function buildStatusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
+    switch (status) {
+      case 'draft':     return 'secondary';
+      case 'pending':   return 'default';
+      case 'ordered':   return 'warning';
+      case 'ready':     return 'success';
+      case 'assembled': return 'secondary';
+      case 'cancelled': return 'destructive';
+      default:          return 'secondary';
+    }
+  }
+
+  function buildStatusLabel(status: BuildStatus): string {
+    switch (status) {
+      case 'draft':     return 'Draft';
+      case 'pending':   return 'Pending';
+      case 'ordered':   return 'Ordered';
+      case 'ready':     return 'Ready';
+      case 'assembled': return 'Assembled';
+      case 'cancelled': return 'Cancelled';
+      default:          return status;
+    }
+  }
 
   let showLinkDialog = $state(false);
 
@@ -473,6 +503,29 @@
         />
       {/if}
 
+      {#if linkedBuildsQuery.data?.length}
+        <div>
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Linked Builds</h3>
+          <div class="rounded-md border divide-y">
+            {#each linkedBuildsQuery.data as build}
+              <button
+                class="w-full text-left px-4 py-3 flex items-center gap-4 hover:bg-muted/50 transition-colors"
+                onclick={() => navigate(`/teams/${teamId}/builds/${build.id}`)}
+              >
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium text-sm truncate">{build.project_name}</div>
+                  <div class="text-xs text-muted-foreground">{build.bom_revision_label} · {build.quantity} board{build.quantity !== 1 ? 's' : ''}</div>
+                </div>
+                <div class="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {build.fulfilled_line_items}/{build.total_line_items} parts
+                </div>
+                <Badge variant={buildStatusVariant(build.status)}>{buildStatusLabel(build.status)}</Badge>
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       {#snippet renderSku(value: unknown)}
         <span class="font-mono text-xs">{String(value ?? '')}</span>
       {/snippet}
@@ -662,6 +715,7 @@
         emptyMessage="No line items"
         detailPanel={dkStatusBySku ? shipmentDetailPanel : undefined}
         detailPanelOpen={(row) => false}
+        title="Line Items"
         renderers={{
           sku: renderSku,
           part_mpn: renderMpn,
@@ -675,6 +729,7 @@
           _receive_action: renderReceiveAction,
         }}
       />
+
     </div>
 
     <Dialog

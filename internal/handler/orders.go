@@ -154,6 +154,63 @@ func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func linkedBuildResponse(b dbgen.GetLinkedBuildsForOrderRow) map[string]any {
+	resp := map[string]any{
+		"id":                   b.ID.String(),
+		"project_id":           b.ProjectID.String(),
+		"project_name":         b.ProjectName,
+		"bom_revision_id":      b.BomRevisionID.String(),
+		"bom_revision_label":   b.BomRevisionLabel,
+		"quantity":             b.Quantity,
+		"status":               b.Status,
+		"created_at":           b.CreatedAt.Time.UTC().Format(time.RFC3339),
+		"total_line_items":     b.TotalLineItems,
+		"fulfilled_line_items": b.FulfilledLineItems,
+	}
+	if b.CreatedByDisplayName != nil {
+		resp["created_by_display_name"] = *b.CreatedByDisplayName
+	} else {
+		resp["created_by_display_name"] = nil
+	}
+	return resp
+}
+
+// GetOrderLinkedBuilds handles GET /api/v1/teams/{teamId}/orders/{orderId}/linked-builds
+func (h *Handler) GetOrderLinkedBuilds(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var orderID pgtype.UUID
+	if err := orderID.Scan(chi.URLParam(r, "orderId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order id", "BAD_REQUEST")
+		return
+	}
+
+	// Verify order belongs to team.
+	if _, err := h.Queries.GetOrder(r.Context(), dbgen.GetOrderParams{ID: orderID, TeamID: teamID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	builds, err := h.Queries.GetLinkedBuildsForOrder(r.Context(), orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	result := make([]map[string]any, len(builds))
+	for i, b := range builds {
+		result[i] = linkedBuildResponse(b)
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // GetOrder handles GET /api/v1/teams/{teamId}/orders/{orderId}
 func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
@@ -248,7 +305,7 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, http.StatusNotFound, "order not found or not in draft status", "NOT_FOUND")
+				writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -1025,16 +1082,16 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":                  statusResult.Status,
-		"status_detail":           statusResult.StatusDetail,
-		"last_checked_at":         statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
-		"order_number":            statusResult.OrderNumber,
-		"currency":                statusResult.Currency,
-		"total_price":             statusResult.TotalPrice,
-		"ship_method":             statusResult.ShipMethod,
-		"shipping_address":        statusResult.ShippingAddress,
-		"contact":                 statusResult.Contact,
-		"line_items":              statusResult.LineItems,
+		"status":           statusResult.Status,
+		"status_detail":    statusResult.StatusDetail,
+		"last_checked_at":  statusResult.LastCheckedAt.UTC().Format(time.RFC3339),
+		"order_number":     statusResult.OrderNumber,
+		"currency":         statusResult.Currency,
+		"total_price":      statusResult.TotalPrice,
+		"ship_method":      statusResult.ShipMethod,
+		"shipping_address": statusResult.ShippingAddress,
+		"contact":          statusResult.Contact,
+		"line_items":       statusResult.LineItems,
 	})
 }
 
@@ -1192,10 +1249,10 @@ func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID
 			}
 			if skuPct > 10 || qtyPct > 10 {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-					"code":             "order_mismatch",
-					"missing_skus":     missingSKUs,
-					"missing_qty_pct":  qtyPct,
-					"missing_sku_pct":  skuPct,
+					"code":            "order_mismatch",
+					"missing_skus":    missingSKUs,
+					"missing_qty_pct": qtyPct,
+					"missing_sku_pct": skuPct,
 				})
 				return
 			}

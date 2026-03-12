@@ -51,7 +51,7 @@ CREATE TABLE build_orders (
 CREATE INDEX ON build_orders (order_id);
 
 CREATE TABLE build_part_allocations (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                UUID PRIMARY KEY DEFAULT uuidv7(),
     build_id          UUID NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
     part_id           UUID NOT NULL REFERENCES parts(id),
     quantity_needed   INT  NOT NULL CHECK (quantity_needed > 0),
