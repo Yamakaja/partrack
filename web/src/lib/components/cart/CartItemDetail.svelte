@@ -25,8 +25,19 @@
 </script>
 
 <TableRow class="bg-muted/30 hover:bg-muted/30">
-  <TableCell colspan={8} class="py-3 px-4">
+  <TableCell colspan={9} class="py-3 px-4">
     <div class="flex divide-x divide-border">
+
+      <!-- Product Image -->
+      {#if item.part_image_url}
+        <div class="shrink-0 pr-6 flex items-center justify-center">
+          <img
+            src={item.part_image_url}
+            alt={item.part_mpn ?? 'Part image'}
+            class="h-32 w-32 object-contain rounded border border-border bg-white p-2"
+          />
+        </div>
+      {/if}
 
       <!-- Part Details -->
       <div class="space-y-2 shrink-0 pr-8">

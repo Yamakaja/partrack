@@ -120,6 +120,7 @@
         <TableRow>
           <TableHead class="w-6"></TableHead>
           <TableHead>Part MPN</TableHead>
+          <TableHead>Description</TableHead>
           <TableHead>SKU</TableHead>
           <TableHead>Order Qty</TableHead>
           <TableHead>Distributor Stock</TableHead>
@@ -148,6 +149,11 @@
               {/if}
             </TableCell>
             <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
+            <TableCell class="text-xs text-muted-foreground max-w-[14rem]">
+              <span class="line-clamp-2 leading-snug" title={item.part_short_description ?? item.part_description ?? undefined}>
+                {item.part_short_description ?? item.part_description ?? '—'}
+              </span>
+            </TableCell>
             <TableCell class="text-muted-foreground text-sm">
               {itemSku(item) ?? '—'}
             </TableCell>

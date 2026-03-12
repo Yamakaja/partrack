@@ -16,6 +16,7 @@ SELECT
     p.package AS part_package,
     p.product_url AS part_product_url,
     p.datasheet_url AS part_datasheet_url,
+    p.image_url AS part_image_url,
     cli.quantity,
     cli.listing_id,
     dl.sku AS listing_sku,

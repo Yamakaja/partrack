@@ -50,6 +50,7 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 		"part_package":           i.PartPackage,
 		"part_product_url":       i.PartProductUrl,
 		"part_datasheet_url":     i.PartDatasheetUrl,
+		"part_image_url":         i.PartImageUrl,
 		"quantity":               i.Quantity,
 		"source":                  string(i.Source),
 		"source_bom_line_item_id": uuidPtrString(i.SourceBomLineItemID),

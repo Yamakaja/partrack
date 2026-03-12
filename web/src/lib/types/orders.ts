@@ -50,6 +50,7 @@ export interface CartItem {
   part_package: string | null;
   part_product_url: string | null;
   part_datasheet_url: string | null;
+  part_image_url: string | null;
   quantity: number;
   listing: CartListing | null;
   source: CartItemSource;

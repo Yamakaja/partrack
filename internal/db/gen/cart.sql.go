@@ -128,6 +128,7 @@ SELECT
     p.package AS part_package,
     p.product_url AS part_product_url,
     p.datasheet_url AS part_datasheet_url,
+    p.image_url AS part_image_url,
     cli.quantity,
     cli.listing_id,
     dl.sku AS listing_sku,
@@ -162,6 +163,7 @@ type GetCartItemsRow struct {
 	PartPackage            *string            `json:"part_package"`
 	PartProductUrl         *string            `json:"part_product_url"`
 	PartDatasheetUrl       *string            `json:"part_datasheet_url"`
+	PartImageUrl           *string            `json:"part_image_url"`
 	Quantity               int32              `json:"quantity"`
 	ListingID              pgtype.UUID        `json:"listing_id"`
 	ListingSku             *string            `json:"listing_sku"`
@@ -198,6 +200,7 @@ func (q *Queries) GetCartItems(ctx context.Context, teamID pgtype.UUID) ([]GetCa
 			&i.PartPackage,
 			&i.PartProductUrl,
 			&i.PartDatasheetUrl,
+			&i.PartImageUrl,
 			&i.Quantity,
 			&i.ListingID,
 			&i.ListingSku,
