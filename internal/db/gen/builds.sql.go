@@ -326,6 +326,7 @@ SELECT
     b.quantity, b.status, b.notes,
     b.assembled_at, b.assembled_quantity, b.excluded_from_cart,
     b.created_at, b.created_by,
+    b.selections_checked_at,
     u_assembled.display_name AS assembled_by_display_name,
     u_created.display_name   AS created_by_display_name
 FROM builds b
@@ -356,6 +357,7 @@ type GetBuildRow struct {
 	ExcludedFromCart       bool               `json:"excluded_from_cart"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	CreatedBy              pgtype.UUID        `json:"created_by"`
+	SelectionsCheckedAt    pgtype.Timestamptz `json:"selections_checked_at"`
 	AssembledByDisplayName *string            `json:"assembled_by_display_name"`
 	CreatedByDisplayName   *string            `json:"created_by_display_name"`
 }
@@ -378,6 +380,7 @@ func (q *Queries) GetBuild(ctx context.Context, arg GetBuildParams) (GetBuildRow
 		&i.ExcludedFromCart,
 		&i.CreatedAt,
 		&i.CreatedBy,
+		&i.SelectionsCheckedAt,
 		&i.AssembledByDisplayName,
 		&i.CreatedByDisplayName,
 	)
@@ -386,7 +389,8 @@ func (q *Queries) GetBuild(ctx context.Context, arg GetBuildParams) (GetBuildRow
 
 const getBuildForUpdate = `-- name: GetBuildForUpdate :one
 SELECT id, team_id, project_id, bom_revision_id, quantity, status, notes,
-       assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart
+       assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart,
+       selections_checked_at
 FROM builds
 WHERE id = $1 AND team_id = $2
 FOR UPDATE
@@ -398,19 +402,20 @@ type GetBuildForUpdateParams struct {
 }
 
 type GetBuildForUpdateRow struct {
-	ID                pgtype.UUID        `json:"id"`
-	TeamID            pgtype.UUID        `json:"team_id"`
-	ProjectID         pgtype.UUID        `json:"project_id"`
-	BomRevisionID     pgtype.UUID        `json:"bom_revision_id"`
-	Quantity          int32              `json:"quantity"`
-	Status            string             `json:"status"`
-	Notes             *string            `json:"notes"`
-	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
-	AssembledBy       pgtype.UUID        `json:"assembled_by"`
-	AssembledQuantity *int32             `json:"assembled_quantity"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	CreatedBy         pgtype.UUID        `json:"created_by"`
-	ExcludedFromCart  bool               `json:"excluded_from_cart"`
+	ID                  pgtype.UUID        `json:"id"`
+	TeamID              pgtype.UUID        `json:"team_id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	BomRevisionID       pgtype.UUID        `json:"bom_revision_id"`
+	Quantity            int32              `json:"quantity"`
+	Status              string             `json:"status"`
+	Notes               *string            `json:"notes"`
+	AssembledAt         pgtype.Timestamptz `json:"assembled_at"`
+	AssembledBy         pgtype.UUID        `json:"assembled_by"`
+	AssembledQuantity   *int32             `json:"assembled_quantity"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	ExcludedFromCart    bool               `json:"excluded_from_cart"`
+	SelectionsCheckedAt pgtype.Timestamptz `json:"selections_checked_at"`
 }
 
 func (q *Queries) GetBuildForUpdate(ctx context.Context, arg GetBuildForUpdateParams) (GetBuildForUpdateRow, error) {
@@ -430,6 +435,7 @@ func (q *Queries) GetBuildForUpdate(ctx context.Context, arg GetBuildForUpdatePa
 		&i.CreatedAt,
 		&i.CreatedBy,
 		&i.ExcludedFromCart,
+		&i.SelectionsCheckedAt,
 	)
 	return i, err
 }

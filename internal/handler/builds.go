@@ -8,6 +8,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
+	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -391,6 +392,12 @@ func (h *Handler) CreateBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Asynchronously compute substitute selections for this draft build.
+	h.Worker.Enqueue(worker.JobBuildSubstituteSelections, teamID.String(), map[string]any{
+		"build_id": build.ID.String(),
+		"team_id":  teamID.String(),
+	})
+
 	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": build.ID.String()})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":              build.ID.String(),
@@ -439,6 +446,23 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
+	}
+
+	substituteSelections, err := h.Queries.GetBuildSubstituteSelections(r.Context(), buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	var selectionsStale bool
+	if build.SelectionsCheckedAt.Valid {
+		stale, err := h.Queries.IsBuildSelectionStale(r.Context(), dbgen.IsBuildSelectionStaleParams{
+			BomRevisionID: build.BomRevisionID,
+			AdjustedAt:    build.SelectionsCheckedAt,
+		})
+		if err == nil {
+			selectionsStale = stale
+		}
 	}
 
 	type consumedItemResp struct {
@@ -490,28 +514,49 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		orderIDStrs[i] = oid.String()
 	}
 
+	type subSelectionResp struct {
+		BomLineItemID    string  `json:"bom_line_item_id"`
+		SelectedPartID   string  `json:"selected_part_id"`
+		SelectedPartMpn  *string `json:"selected_part_mpn"`
+	}
+	subSelResp := make([]subSelectionResp, len(substituteSelections))
+	for i, s := range substituteSelections {
+		subSelResp[i] = subSelectionResp{
+			BomLineItemID:   s.BomLineItemID.String(),
+			SelectedPartID:  s.SelectedPartID.String(),
+			SelectedPartMpn: s.SelectedPartMpn,
+		}
+	}
+
 	resp := map[string]any{
-		"id":                       build.ID.String(),
-		"project_id":               build.ProjectID.String(),
-		"project_name":             build.ProjectName,
-		"bom_revision_id":          build.BomRevisionID.String(),
-		"bom_revision_label":       build.BomRevisionLabel,
-		"quantity":                 build.Quantity,
-		"status":                   build.Status,
-		"notes":                    build.Notes,
-		"excluded_from_cart":       build.ExcludedFromCart,
-		"created_at":               build.CreatedAt.Time.UTC().Format(time.RFC3339),
-		"created_by_display_name":  build.CreatedByDisplayName,
+		"id":                        build.ID.String(),
+		"project_id":                build.ProjectID.String(),
+		"project_name":              build.ProjectName,
+		"bom_revision_id":           build.BomRevisionID.String(),
+		"bom_revision_label":        build.BomRevisionLabel,
+		"quantity":                  build.Quantity,
+		"status":                    build.Status,
+		"notes":                     build.Notes,
+		"excluded_from_cart":        build.ExcludedFromCart,
+		"created_at":                build.CreatedAt.Time.UTC().Format(time.RFC3339),
+		"created_by_display_name":   build.CreatedByDisplayName,
 		"assembled_by_display_name": build.AssembledByDisplayName,
-		"assembled_quantity":        build.AssembledQuantity,
-		"allocations":               allocs,
-		"order_ids":                 orderIDStrs,
-		"items":                     consumedItems,
+		"assembled_quantity":         build.AssembledQuantity,
+		"allocations":                allocs,
+		"order_ids":                  orderIDStrs,
+		"items":                      consumedItems,
+		"selections_stale":           selectionsStale,
+		"substitute_selections":      subSelResp,
 	}
 	if build.AssembledAt.Valid {
 		resp["assembled_at"] = build.AssembledAt.Time.UTC().Format(time.RFC3339)
 	} else {
 		resp["assembled_at"] = nil
+	}
+	if build.SelectionsCheckedAt.Valid {
+		resp["selections_checked_at"] = build.SelectionsCheckedAt.Time.UTC().Format(time.RFC3339)
+	} else {
+		resp["selections_checked_at"] = nil
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -609,6 +654,11 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !build.SelectionsCheckedAt.Valid {
+		writeError(w, http.StatusConflict, "substitute selections are still being computed, please try again shortly", "SUBSTITUTE_SELECTIONS_PENDING")
+		return
+	}
+
 	if err := qtx.UpdateBuildStatus(r.Context(), dbgen.UpdateBuildStatusParams{
 		ID:     buildID,
 		Status: "pending",
@@ -667,9 +717,10 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		AssembledQuantity        *int32                `json:"assembled_quantity"`
-		SubstituteSelections     []buildDeductionInput `json:"substitute_selections"`
-		AllowStockReconciliation bool                  `json:"allow_stock_reconciliation"`
+		AssembledQuantity          *int32                `json:"assembled_quantity"`
+		SubstituteSelections       []buildDeductionInput `json:"substitute_selections"`
+		AllowStockReconciliation   bool                  `json:"allow_stock_reconciliation"`
+		AllowOrphanedSelections    bool                  `json:"allow_orphaned_selections"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -712,7 +763,59 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deductions, err := h.computeDeductions(r, teamID, build.BomRevisionID, assembledQty, body.SubstituteSelections)
+	// If no substitute selections provided in the request body, load stored selections.
+	effectiveSelections := body.SubstituteSelections
+	if len(effectiveSelections) == 0 {
+		storedSels, err := qtx.GetBuildSubstituteSelections(r.Context(), buildID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		// Validate for orphans: confirm each selected part is still an approved substitute.
+		type orphanResp struct {
+			BomLineItemID  string  `json:"bom_line_item_id"`
+			SelectedPartID string  `json:"selected_part_id"`
+			SelectedPartMpn *string `json:"selected_part_mpn"`
+		}
+		var orphans []orphanResp
+		for _, sel := range storedSels {
+			subs, err := qtx.ListSubstitutesForLineItem(r.Context(), sel.BomLineItemID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			found := false
+			for _, s := range subs {
+				if s.PartID == sel.SelectedPartID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				orphans = append(orphans, orphanResp{
+					BomLineItemID:   sel.BomLineItemID.String(),
+					SelectedPartID:  sel.SelectedPartID.String(),
+					SelectedPartMpn: sel.SelectedPartMpn,
+				})
+			} else {
+				effectiveSelections = append(effectiveSelections, buildDeductionInput{
+					BomLineItemID: sel.BomLineItemID.String(),
+					PartID:        sel.SelectedPartID.String(),
+				})
+			}
+		}
+		if len(orphans) > 0 && !body.AllowOrphanedSelections {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":   "some substitute selections reference parts no longer approved",
+				"code":    "ORPHANED_SUBSTITUTE_SELECTIONS",
+				"orphans": orphans,
+			})
+			return
+		}
+		// If allow_orphaned_selections, orphaned line items simply fall back to primary (not added to effectiveSelections).
+	}
+
+	deductions, err := h.computeDeductions(r, teamID, build.BomRevisionID, assembledQty, effectiveSelections)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return

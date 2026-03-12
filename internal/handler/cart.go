@@ -102,17 +102,33 @@ func (h *Handler) recomputeBomShortfalls(
 	}
 
 	// Aggregate total demand per part across all included pending builds.
+	// Use substitute selections when a build has them locked in.
 	demandByPart := make(map[string]int32)
 	for _, pb := range pendingBuilds {
 		lineItems, err := q.ListBOMLineItems(ctx, pb.BomRevisionID)
 		if err != nil {
 			return 0, err
 		}
+
+		// Load substitute selections for this build (empty if none stored).
+		selRows, err := q.GetBuildSubstituteSelections(ctx, pb.ID)
+		if err != nil {
+			return 0, err
+		}
+		selectionMap := make(map[string]string, len(selRows))
+		for _, s := range selRows {
+			selectionMap[s.BomLineItemID.String()] = s.SelectedPartID.String()
+		}
+
 		for _, li := range lineItems {
 			if !li.ResolvedPartID.Valid || li.Ignored {
 				continue
 			}
-			demandByPart[li.ResolvedPartID.String()] += li.Quantity * pb.BuildQuantity
+			partID := li.ResolvedPartID.String()
+			if selectedID, ok := selectionMap[li.ID.String()]; ok {
+				partID = selectedID
+			}
+			demandByPart[partID] += li.Quantity * pb.BuildQuantity
 		}
 	}
 

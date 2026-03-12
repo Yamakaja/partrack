@@ -10,6 +10,7 @@
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
   import BOMImportProgressModal from '$lib/components/bom/BOMImportProgressModal.svelte';
   import BOMReviewDialog from '$lib/components/bom/BOMReviewDialog.svelte';
+  import ManageSubstitutesDialog from '$lib/components/bom/ManageSubstitutesDialog.svelte';
   import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
@@ -19,7 +20,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { linkAction } from '$lib/router/index.svelte.js';
-  import { ClipboardCheck, Pencil } from 'lucide-svelte';
+  import { ClipboardCheck, Pencil, Shuffle } from 'lucide-svelte';
   import { formatDate } from '$lib/utils/date.js';
 
   let {
@@ -118,6 +119,15 @@
     reviewOpen = false;
   }
 
+  // Substitutes dialog state
+  let managingItem = $state<BOMLineItem | null>(null);
+  let manageSubsOpen = $state(false);
+
+  function openManageSubstitutes(item: BOMLineItem) {
+    managingItem = item;
+    manageSubsOpen = true;
+  }
+
   // Inline editing
   let editing = $state(false);
   let editLabel = $state('');
@@ -187,6 +197,7 @@
       filterable: true,
       filterValues: ['Unresolved', 'Ambiguous', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Prior)', 'Manual', 'Resolved', 'Ignored'],
     },
+    { key: 'substitutes', header: 'Substitutes', type: 'text' },
   ];
 
   const source = new LocalDataSource<BOMRow>(() => rows, columns);
@@ -310,7 +321,7 @@
           getRowKey={(row) => row.id}
           onRowClick={(row) => startReviewForItem(row.id)}
           rowClass={(row) => row.ignored ? 'opacity-50' : ''}
-          renderers={{ status: renderStatus, distributor_name: renderDistributor, reference_designators: renderRefDes }}
+          renderers={{ status: renderStatus, distributor_name: renderDistributor, reference_designators: renderRefDes, substitutes: renderSubstitutes }}
           emptyMessage="No line items match the current filter"
         />
       {/if}
@@ -359,6 +370,25 @@
   </span>
 {/snippet}
 
+{#snippet renderSubstitutes(_value: unknown, row: BOMRow)}
+  <div class="flex items-center gap-1.5">
+    {#if row.substitutes && row.substitutes.length > 0}
+      <Badge variant="secondary" class="text-xs">{row.substitutes.length}</Badge>
+    {/if}
+    {#if row.resolved_part_id}
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-7 px-2 text-xs"
+        onclick={(e: MouseEvent) => { e.stopPropagation(); openManageSubstitutes(row); }}
+      >
+        <Shuffle class="h-3 w-3 mr-1" />
+        {row.substitutes && row.substitutes.length > 0 ? 'Manage' : 'Add'}
+      </Button>
+    {/if}
+  </div>
+{/snippet}
+
 {#if showImportModal}
   <BOMImportProgressModal
     {teamId}
@@ -385,3 +415,13 @@
   onresolve={handleResolve}
   onignore={handleIgnore}
 />
+
+{#if managingItem}
+  <ManageSubstitutesDialog
+    {teamId}
+    {projectId}
+    revisionId={revId}
+    lineItem={managingItem}
+    bind:open={manageSubsOpen}
+  />
+{/if}

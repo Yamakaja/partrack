@@ -389,6 +389,7 @@ type BomLineItem struct {
 type BomLineItemSubstitute struct {
 	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
 	PartID        pgtype.UUID `json:"part_id"`
+	Priority      int32       `json:"priority"`
 }
 
 type BomRevision struct {
@@ -401,19 +402,20 @@ type BomRevision struct {
 }
 
 type Build struct {
-	ID                pgtype.UUID        `json:"id"`
-	TeamID            pgtype.UUID        `json:"team_id"`
-	ProjectID         pgtype.UUID        `json:"project_id"`
-	BomRevisionID     pgtype.UUID        `json:"bom_revision_id"`
-	Quantity          int32              `json:"quantity"`
-	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
-	Notes             *string            `json:"notes"`
-	AssembledBy       pgtype.UUID        `json:"assembled_by"`
-	Status            string             `json:"status"`
-	AssembledQuantity *int32             `json:"assembled_quantity"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	CreatedBy         pgtype.UUID        `json:"created_by"`
-	ExcludedFromCart  bool               `json:"excluded_from_cart"`
+	ID                  pgtype.UUID        `json:"id"`
+	TeamID              pgtype.UUID        `json:"team_id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	BomRevisionID       pgtype.UUID        `json:"bom_revision_id"`
+	Quantity            int32              `json:"quantity"`
+	AssembledAt         pgtype.Timestamptz `json:"assembled_at"`
+	Notes               *string            `json:"notes"`
+	AssembledBy         pgtype.UUID        `json:"assembled_by"`
+	Status              string             `json:"status"`
+	AssembledQuantity   *int32             `json:"assembled_quantity"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	ExcludedFromCart    bool               `json:"excluded_from_cart"`
+	SelectionsCheckedAt pgtype.Timestamptz `json:"selections_checked_at"`
 }
 
 type BuildOrder struct {
@@ -428,6 +430,12 @@ type BuildPartAllocation struct {
 	QuantityNeeded   int32       `json:"quantity_needed"`
 	QuantityReserved int32       `json:"quantity_reserved"`
 	QuantityReceived int32       `json:"quantity_received"`
+}
+
+type BuildSubstituteSelection struct {
+	BuildID        pgtype.UUID `json:"build_id"`
+	BomLineItemID  pgtype.UUID `json:"bom_line_item_id"`
+	SelectedPartID pgtype.UUID `json:"selected_part_id"`
 }
 
 type CartLineItem struct {

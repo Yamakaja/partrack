@@ -104,3 +104,18 @@ export function previewBuild(
 ) {
   return request<{ items: BuildPreviewItem[] }>('POST', `/api/v1/teams/${teamId}/builds/preview`, body);
 }
+
+export function patchBuildSubstituteSelections(
+  teamId: string,
+  buildId: string,
+  selections: { bom_line_item_id: string; part_id: string }[],
+) {
+  return request<{
+    selections: { bom_line_item_id: string; selected_part_id: string; selected_part_mpn: string | null }[];
+    warnings: { bom_line_item_id: string; part_id: string; message: string }[];
+  }>('PATCH', `/api/v1/teams/${teamId}/builds/${buildId}/substitute-selections`, { selections });
+}
+
+export function refreshBuildSubstituteSelections(teamId: string, buildId: string) {
+  return request<{ status: string }>('POST', `/api/v1/teams/${teamId}/builds/${buildId}/substitute-selections/refresh`);
+}

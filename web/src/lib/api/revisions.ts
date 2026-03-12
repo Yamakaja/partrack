@@ -79,19 +79,48 @@ export function enrichBOMLineItem(
 export interface SubstituteItem {
   bom_line_item_id: string;
   part_id: string;
-  part_mpn: string;
+  part_mpn: string | null;
+  priority: number;
+}
+
+export interface LineItemSubstituteItem {
+  part_id: string;
+  part_mpn: string | null;
+  priority: number;
+}
+
+export interface PreviousRevisionItem {
+  id: string;
+  label: string;
+  imported_at: string;
 }
 
 export function listAllSubstitutes(teamId: string, projectId: string, revId: string) {
   return request<{ items: SubstituteItem[] }>('GET', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/substitutes`);
 }
 
+export function listLineItemSubstitutes(teamId: string, projectId: string, revId: string, itemId: string) {
+  return request<{ items: LineItemSubstituteItem[] }>('GET', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes`);
+}
+
 export function addSubstitute(teamId: string, projectId: string, revId: string, itemId: string, partId: string) {
-  return request<void>('POST', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes`, { part_id: partId });
+  return request<{ part_id: string; priority: number }>('POST', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes`, { part_id: partId });
 }
 
 export function removeSubstitute(teamId: string, projectId: string, revId: string, itemId: string, partId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes/${partId}`);
+}
+
+export function reorderSubstitutes(teamId: string, projectId: string, revId: string, itemId: string, partIds: string[]) {
+  return request<void>('PUT', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes/order`, { part_ids: partIds });
+}
+
+export function importSubstitutes(teamId: string, projectId: string, revId: string, itemId: string, sourceRevisionId: string) {
+  return request<void>('POST', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes/import`, { source_revision_id: sourceRevisionId });
+}
+
+export function listPreviousRevisionsWithSubstitutes(teamId: string, projectId: string, revId: string, itemId: string) {
+  return request<{ items: PreviousRevisionItem[] }>('GET', `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/substitutes/previous-revisions`);
 }
 
 export function getStockCheck(teamId: string, projectId: string, revId: string, buildQty: number) {

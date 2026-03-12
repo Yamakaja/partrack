@@ -203,6 +203,9 @@ export interface Build {
   assembled_by_display_name?: string;
   notes?: string;
   excluded_from_cart?: boolean;
+  selections_checked_at?: string | null;
+  selections_stale?: boolean;
+  substitute_selections?: import('./projects.js').SubstituteSelection[];
 }
 
 export interface BuildPartAllocation {

@@ -224,16 +224,26 @@
             </TableHeader>
             <TableBody>
               {#each result.items as item (item.bom_line_item_id)}
-                <TableRow>
+                {@const usingSub = !!item.selected_substitute_id}
+                {@const displayQty = usingSub ? (item.substitute_qty_on_hand ?? item.quantity_on_hand) : item.quantity_on_hand}
+                <TableRow class={usingSub ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}>
                   <TableCell class="font-mono text-xs font-medium">
-                    {item.resolved_part_mpn ?? '—'}
+                    <div class="flex items-center gap-1.5">
+                      {#if usingSub}
+                        <span class="text-muted-foreground line-through">{item.resolved_part_mpn ?? '—'}</span>
+                        <span>{item.selected_substitute_mpn ?? '—'}</span>
+                        <Badge variant="secondary" class="text-[10px] px-1 py-0">sub</Badge>
+                      {:else}
+                        {item.resolved_part_mpn ?? '—'}
+                      {/if}
+                    </div>
                   </TableCell>
                   <TableCell class="text-xs text-muted-foreground max-w-[180px] truncate">
                     {item.reference_designators}
                   </TableCell>
                   <TableCell class="text-right tabular-nums">{item.quantity_per_board}</TableCell>
                   <TableCell class="text-right tabular-nums">{item.required_quantity}</TableCell>
-                  <TableCell class="text-right tabular-nums text-muted-foreground">{item.quantity_on_hand}</TableCell>
+                  <TableCell class="text-right tabular-nums text-muted-foreground">{displayQty}</TableCell>
                   <TableCell class="text-right tabular-nums">
                     {#if item.quantity_reserved > 0}
                       <span title="{item.quantity_reserved} reserved by active builds">{item.quantity_free}</span>

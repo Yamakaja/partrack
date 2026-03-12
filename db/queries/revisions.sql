@@ -75,11 +75,13 @@ RETURNING id, reference_designators, quantity, raw_description,
 SELECT
     s.bom_line_item_id,
     s.part_id,
-    p.mpn AS part_mpn
+    p.mpn AS part_mpn,
+    s.priority
 FROM bom_line_item_substitutes s
 JOIN parts p ON p.id = s.part_id
 JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
-WHERE bli.bom_revision_id = $1;
+WHERE bli.bom_revision_id = $1
+ORDER BY s.bom_line_item_id, s.priority ASC;
 
 -- name: AddBOMSubstitute :exec
 INSERT INTO bom_line_item_substitutes (bom_line_item_id, part_id)

@@ -341,17 +341,20 @@ const listAllSubstitutesForRevision = `-- name: ListAllSubstitutesForRevision :m
 SELECT
     s.bom_line_item_id,
     s.part_id,
-    p.mpn AS part_mpn
+    p.mpn AS part_mpn,
+    s.priority
 FROM bom_line_item_substitutes s
 JOIN parts p ON p.id = s.part_id
 JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
 WHERE bli.bom_revision_id = $1
+ORDER BY s.bom_line_item_id, s.priority ASC
 `
 
 type ListAllSubstitutesForRevisionRow struct {
 	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
 	PartID        pgtype.UUID `json:"part_id"`
 	PartMpn       *string     `json:"part_mpn"`
+	Priority      int32       `json:"priority"`
 }
 
 func (q *Queries) ListAllSubstitutesForRevision(ctx context.Context, bomRevisionID pgtype.UUID) ([]ListAllSubstitutesForRevisionRow, error) {
@@ -363,7 +366,12 @@ func (q *Queries) ListAllSubstitutesForRevision(ctx context.Context, bomRevision
 	var items []ListAllSubstitutesForRevisionRow
 	for rows.Next() {
 		var i ListAllSubstitutesForRevisionRow
-		if err := rows.Scan(&i.BomLineItemID, &i.PartID, &i.PartMpn); err != nil {
+		if err := rows.Scan(
+			&i.BomLineItemID,
+			&i.PartID,
+			&i.PartMpn,
+			&i.Priority,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

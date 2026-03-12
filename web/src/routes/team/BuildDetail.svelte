@@ -2,7 +2,8 @@
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import {
     getBuild, submitBuild, checkoutBuild, cancelBuild,
-    previewBuild, type BuildPreviewItem,
+    previewBuild, refreshBuildSubstituteSelections, patchBuildSubstituteSelections,
+    type BuildPreviewItem,
   } from '$lib/api/builds.js';
   import { ApiError } from '$lib/api/client.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -19,7 +20,7 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { CheckCircle, Loader2, Send, XCircle } from 'lucide-svelte';
+  import { AlertTriangle, CheckCircle, Loader2, RefreshCw, Send, XCircle } from 'lucide-svelte';
   import type { BuildStatus, BuildConsumedItem, BuildPartAllocation } from '$lib/types/orders.js';
 
   let { teamId, buildId }: { teamId: string; buildId: string } = $props();
@@ -40,6 +41,42 @@
     }),
     enabled: !!buildQuery.data && (buildQuery.data.status === 'draft' || buildQuery.data.status === 'pending'),
   }));
+
+  // Substitute selection state
+  let refreshingSelections = $state(false);
+  let patchingSelection = $state<Record<string, boolean>>({});
+
+  // selectionsReady: true when selections have been computed (checked_at is set) and not stale
+  let selectionsReady = $derived(
+    !!buildQuery.data?.selections_checked_at && !buildQuery.data?.selections_stale
+  );
+
+  async function handleRefreshSelections() {
+    refreshingSelections = true;
+    try {
+      await refreshBuildSubstituteSelections(teamId, buildId);
+      // Poll for completion by refetching
+      qc.invalidateQueries({ queryKey: ['build', buildId] });
+      pushToast('info', 'Recalculating substitute selections…');
+    } catch (err: any) {
+      pushToast('error', 'Failed to refresh selections', err.message);
+    } finally {
+      refreshingSelections = false;
+    }
+  }
+
+  async function handleChangeSelection(lineItemId: string, partId: string | null) {
+    patchingSelection[lineItemId] = true;
+    try {
+      const selections = partId ? [{ bom_line_item_id: lineItemId, part_id: partId }] : [];
+      await patchBuildSubstituteSelections(teamId, buildId, selections);
+      qc.invalidateQueries({ queryKey: ['build', buildId] });
+    } catch (err: any) {
+      pushToast('error', 'Failed to update selection', err.message);
+    } finally {
+      patchingSelection[lineItemId] = false;
+    }
+  }
 
   // Action states
   let submitting = $state(false);
@@ -202,6 +239,7 @@
     { key: 'total_quantity', header: 'Total Needed', type: 'numeric', align: 'right', sortable: true },
     { key: 'quantity_on_hand', header: 'On Hand', type: 'numeric', align: 'right', sortable: true },
     { key: 'sufficient', header: 'Stock', type: 'custom' },
+    { key: 'substitutes', header: 'Using', type: 'custom' },
   ];
   const previewSource = new LocalDataSource<BuildPreviewItem>(
     () => previewQuery.data?.items ?? [],
@@ -233,6 +271,34 @@
   <Badge variant={value ? 'success' : 'destructive'}>
     {value ? 'In Stock' : 'Short'}
   </Badge>
+{/snippet}
+
+{#snippet renderSubstituteSelection(value: unknown, row: BuildPreviewItem)}
+  {@const subs = value as BuildPreviewItem['substitutes']}
+  {@const currentSelection = buildQuery.data?.substitute_selections?.find(
+    s => s.bom_line_item_id === row.bom_line_item_id
+  )}
+  {#if !subs || subs.length === 0}
+    <span class="text-xs text-muted-foreground">—</span>
+  {:else}
+    <div>
+      <select
+        class="h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+        disabled={patchingSelection[row.bom_line_item_id]}
+        value={currentSelection?.selected_part_id ?? ''}
+        onclick={(e) => e.stopPropagation()}
+        onchange={(e) => {
+          const val = (e.target as HTMLSelectElement).value;
+          handleChangeSelection(row.bom_line_item_id, val || null);
+        }}
+      >
+        <option value="">Primary</option>
+        {#each subs as sub (sub.part_id)}
+          <option value={sub.part_id}>{sub.part_mpn ?? sub.part_id} ({sub.quantity_on_hand} on hand)</option>
+        {/each}
+      </select>
+    </div>
+  {/if}
 {/snippet}
 
 <div class="flex flex-col h-full">
@@ -369,6 +435,33 @@
         </div>
       </MetadataCard>
 
+      <!-- Substitute selections staleness banner (draft builds only) -->
+      {#if build.status === 'draft'}
+        {#if !build.selections_checked_at}
+          <div class="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-800 dark:bg-blue-950/30">
+            <Loader2 class="h-4 w-4 shrink-0 animate-spin text-blue-500" />
+            <span class="text-blue-700 dark:text-blue-400">Calculating substitute selections…</span>
+          </div>
+        {:else if build.selections_stale}
+          <div class="flex items-center justify-between gap-3 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950/30">
+            <div class="flex items-center gap-2">
+              <AlertTriangle class="h-4 w-4 shrink-0 text-yellow-500" />
+              <span class="text-yellow-700 dark:text-yellow-400">Substitute selections may be out of date — inventory has changed since last check.</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={refreshingSelections}
+              onclick={handleRefreshSelections}
+              class="shrink-0"
+            >
+              <RefreshCw class="h-3.5 w-3.5 mr-1 {refreshingSelections ? 'animate-spin' : ''}" />
+              Refresh
+            </Button>
+          </div>
+        {/if}
+      {/if}
+
       <!-- Parts section -->
       <section class="space-y-2">
         {#if build.status === 'assembled'}
@@ -407,7 +500,7 @@
             <DataTable
               source={previewSource}
               getRowKey={(row) => row.bom_line_item_id}
-              renderers={{ resolved_part_mpn: renderPreviewMpn, sufficient: renderSufficient }}
+              renderers={{ resolved_part_mpn: renderPreviewMpn, sufficient: renderSufficient, substitutes: renderSubstituteSelection }}
               emptyMessage="No parts data."
               onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.resolved_part_id}`);}}
               title="Required Parts"

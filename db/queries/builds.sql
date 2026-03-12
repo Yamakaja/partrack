@@ -49,6 +49,7 @@ SELECT
     b.quantity, b.status, b.notes,
     b.assembled_at, b.assembled_quantity, b.excluded_from_cart,
     b.created_at, b.created_by,
+    b.selections_checked_at,
     u_assembled.display_name AS assembled_by_display_name,
     u_created.display_name   AS created_by_display_name
 FROM builds b
@@ -60,7 +61,8 @@ WHERE b.id = $1 AND b.team_id = $2;
 
 -- name: GetBuildForUpdate :one
 SELECT id, team_id, project_id, bom_revision_id, quantity, status, notes,
-       assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart
+       assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart,
+       selections_checked_at
 FROM builds
 WHERE id = $1 AND team_id = $2
 FOR UPDATE;

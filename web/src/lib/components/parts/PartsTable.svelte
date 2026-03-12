@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
+  import { untrack } from 'svelte';
   import { Popover } from 'bits-ui';
   import { X, Hash, Filter } from 'lucide-svelte';
   import { listParts, getCategoryParameters, type ParamFilter } from '$lib/api/parts.js';
@@ -20,13 +21,15 @@
     teamId,
     onRowClick,
     initialStockFilter = undefined,
+    syncUrl = true,
   }: {
     teamId: string;
     onRowClick: (part: PartSummary) => void;
     initialStockFilter?: string;
+    syncUrl?: boolean;
   } = $props();
 
-  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+  const hashParams = new URLSearchParams(untrack(() => syncUrl) ? window.location.hash.slice(1) : '');
 
   let searchValue = $state(hashParams.get('q') ?? '');
   let categoryFilter = $state<number | null>(
@@ -135,6 +138,7 @@
     if (categoryFilter != null) params.set('category_id', String(categoryFilter));
     if (Object.keys(paramFilters).length) params.set('pf', JSON.stringify(paramFilters));
     if (source.page > 1) params.set('page', String(source.page));
+    if (!syncUrl) return;
     const hash = params.toString();
     history.replaceState(null, '', window.location.pathname + (hash ? '#' + hash : ''));
   });

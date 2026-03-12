@@ -83,6 +83,7 @@ export interface BOMLineItem {
 export interface BOMSubstitute {
   part_id: string;
   part_mpn: string | null;
+  priority: number;
 }
 
 export interface StockCheckItem {
@@ -100,6 +101,15 @@ export interface StockCheckItem {
   stock_status: 'in_stock' | 'partial' | 'out_of_stock';
   min_stock_qty: number | null;
   below_restock: boolean;
+  selected_substitute_id: string | null;
+  selected_substitute_mpn: string | null;
+  substitute_qty_on_hand: number | null;
+}
+
+export interface SubstituteSelection {
+  bom_line_item_id: string;
+  selected_part_id: string;
+  selected_part_mpn: string | null;
 }
 
 export interface StockCheckResult {

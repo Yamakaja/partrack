@@ -159,12 +159,12 @@ func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Queries.AddBOMSubstitute(r.Context(), dbgen.AddBOMSubstituteParams{
+	row, err := h.Queries.AddSubstitute(r.Context(), dbgen.AddSubstituteParams{
 		BomLineItemID: itemID,
 		PartID:        partID,
 	})
 	if err != nil {
-		if isUniqueViolation(err) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusConflict, "substitute already exists", "CONFLICT")
 			return
 		}
@@ -175,7 +175,8 @@ func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
 	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": revID.String()})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"bom_line_item_id": itemID.String(),
-		"part_id":          partID.String(),
+		"part_id":          row.PartID.String(),
+		"priority":         row.Priority,
 	})
 }
 
@@ -195,20 +196,18 @@ func (h *Handler) ListSubstitutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type subItem struct {
-		BOMLineItemID string `json:"bom_line_item_id"`
-		PartID        string `json:"part_id"`
-		PartMPN       string `json:"part_mpn"`
+		BOMLineItemID string  `json:"bom_line_item_id"`
+		PartID        string  `json:"part_id"`
+		PartMPN       *string `json:"part_mpn"`
+		Priority      int32   `json:"priority"`
 	}
 	items := make([]subItem, len(rows))
 	for i, row := range rows {
-		mpn := ""
-		if row.PartMpn != nil {
-			mpn = *row.PartMpn
-		}
 		items[i] = subItem{
 			BOMLineItemID: row.BomLineItemID.String(),
 			PartID:        row.PartID.String(),
-			PartMPN:       mpn,
+			PartMPN:       row.PartMpn,
+			Priority:      row.Priority,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -242,7 +241,7 @@ func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Queries.RemoveBOMSubstitute(r.Context(), dbgen.RemoveBOMSubstituteParams{
+	err := h.Queries.RemoveSubstitute(r.Context(), dbgen.RemoveSubstituteParams{
 		BomLineItemID: itemID,
 		PartID:        partID,
 	})
