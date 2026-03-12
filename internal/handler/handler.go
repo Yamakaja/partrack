@@ -4,7 +4,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
@@ -115,6 +118,31 @@ func userIDFromContext(r *http.Request) string {
 		return u.ID
 	}
 	return ""
+}
+
+// checkTeamMembership returns the team membership for (teamID, userID),
+// consulting the auth cache before hitting the database. Returns nil, nil if
+// the user is not a member.
+func (h *Handler) checkTeamMembership(ctx context.Context, teamID, userID pgtype.UUID) (*middleware.TeamMembership, error) {
+	teamIDStr := teamID.String()
+	userIDStr := userID.String()
+
+	if role, ok := h.Cache.LookupMembership(teamIDStr, userIDStr); ok {
+		return &middleware.TeamMembership{TeamID: teamIDStr, UserID: userIDStr, Role: role}, nil
+	}
+
+	row, err := h.Queries.GetTeamMembership(ctx, dbgen.GetTeamMembershipParams{
+		TeamID: teamID,
+		UserID: userID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil //nolint:nilnil
+		}
+		return nil, err
+	}
+	h.Cache.StoreMembership(teamIDStr, userIDStr, string(row.Role))
+	return &middleware.TeamMembership{TeamID: teamIDStr, UserID: userIDStr, Role: string(row.Role)}, nil
 }
 
 // publishEvent marshals data and publishes a team-scoped SSE event, skipping the acting user's channel.

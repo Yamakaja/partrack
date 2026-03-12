@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -26,6 +27,28 @@ func (h *Handler) GetCategoryParameters(w http.ResponseWriter, r *http.Request) 
 		if err := arg.TeamID.Scan(v); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
 			return
+		}
+
+		user := middleware.UserFromContext(r.Context())
+		if user == nil {
+			writeError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+			return
+		}
+		if !user.IsAdmin {
+			var userID pgtype.UUID
+			if err := userID.Scan(user.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			m, err := h.checkTeamMembership(r.Context(), arg.TeamID, userID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			if m == nil {
+				writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+				return
+			}
 		}
 	}
 
