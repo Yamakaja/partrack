@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import {
-    getCart, addLowStock, convertCart,
+    getCart, addLowStock, convertCart, refreshCartListings,
   } from '$lib/api/cart.js';
   import { listBuilds } from '$lib/api/builds.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -35,6 +35,7 @@
 
   let addingLowStock = $state(false);
   let converting = $state(false);
+  let refreshingListings = $state(false);
 
   async function handleAddLowStock() {
     addingLowStock = true;
@@ -46,6 +47,18 @@
       pushToast('error', 'Failed to add low-stock items', err.message);
     } finally {
       addingLowStock = false;
+    }
+  }
+
+  async function handleRefreshListings() {
+    refreshingListings = true;
+    try {
+      await refreshCartListings(teamId);
+      pushToast('success', 'Refresh queued — cart will update automatically');
+    } catch (err: any) {
+      pushToast('error', 'Failed to queue refresh', err.message);
+    } finally {
+      refreshingListings = false;
     }
   }
 
@@ -172,6 +185,17 @@
         <RefreshCw class="h-4 w-4 mr-1" />
         {addingLowStock ? 'Adding…' : 'Add Low Stock'}
       </Button>
+      {#if items.some(i => i.listing !== null)}
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={handleRefreshListings}
+          disabled={refreshingListings}
+        >
+          <RefreshCw class="h-4 w-4 mr-1" />
+          {refreshingListings ? 'Queuing…' : 'Refresh Stock & Prices'}
+        </Button>
+      {/if}
       {#if (cartQuery.data?.items?.length ?? 0) > 0}
         <Button
           size="sm"

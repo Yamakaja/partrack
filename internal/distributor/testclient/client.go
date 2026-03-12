@@ -73,26 +73,28 @@ func (c *Client) EnrichPart(_ context.Context, sku string, _ json.RawMessage) (*
 }
 
 // RefreshListing returns updated stock data for the LM317 test SKU.
-// Returns nil for any other SKU.
-func (c *Client) RefreshListing(_ context.Context, sku string, _ json.RawMessage) (*distributor.Listing, error) {
+// Returns an empty slice for any other SKU.
+func (c *Client) RefreshListing(_ context.Context, sku string, _ json.RawMessage) ([]distributor.Listing, error) {
 	if simulateDelays {
 		time.Sleep(100 * time.Millisecond)
 	}
 
 	if sku != testSKU {
-		return nil, nil
+		return []distributor.Listing{}, nil
 	}
 
 	stockZero := int32(0)
-	return &distributor.Listing{
-		SKU:            testSKU,
-		PackagingType:  "tube",
-		UnitPrice:      "0.5000",
-		StockAvailable: &stockZero,
-		Moq:            1,
-		FixedOrderCost: "0.0000",
-		PriceBreaks: []distributor.PriceBreak{
-			{BreakQty: 1, UnitPrice: "0.5000"},
+	return []distributor.Listing{
+		{
+			SKU:            testSKU,
+			PackagingType:  "tube",
+			UnitPrice:      "0.5000",
+			StockAvailable: &stockZero,
+			Moq:            1,
+			FixedOrderCost: "0.0000",
+			PriceBreaks: []distributor.PriceBreak{
+				{BreakQty: 1, UnitPrice: "0.5000"},
+			},
 		},
 	}, nil
 }

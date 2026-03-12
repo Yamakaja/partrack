@@ -289,6 +289,48 @@ func (q *Queries) GetListingForRefresh(ctx context.Context, id pgtype.UUID) (Get
 	return i, err
 }
 
+const getListingsForRefreshBatch = `-- name: GetListingsForRefreshBatch :many
+SELECT dl.id, dl.part_id, dl.distributor_id, dl.sku, d.api_type
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE dl.id = ANY($1::uuid[])
+`
+
+type GetListingsForRefreshBatchRow struct {
+	ID            pgtype.UUID `json:"id"`
+	PartID        pgtype.UUID `json:"part_id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+	Sku           string      `json:"sku"`
+	ApiType       *string     `json:"api_type"`
+}
+
+// Fetches multiple listings by ID in one query for the batch refresh worker.
+func (q *Queries) GetListingsForRefreshBatch(ctx context.Context, dollar_1 []pgtype.UUID) ([]GetListingsForRefreshBatchRow, error) {
+	rows, err := q.db.Query(ctx, getListingsForRefreshBatch, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetListingsForRefreshBatchRow
+	for rows.Next() {
+		var i GetListingsForRefreshBatchRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PartID,
+			&i.DistributorID,
+			&i.Sku,
+			&i.ApiType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPart = `-- name: GetPart :one
 SELECT id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source FROM parts WHERE id = $1
 `

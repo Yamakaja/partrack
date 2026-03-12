@@ -500,6 +500,50 @@ func (q *Queries) GetPendingBuildsForTeamCart(ctx context.Context, teamID pgtype
 	return items, nil
 }
 
+const getRefreshableCartListings = `-- name: GetRefreshableCartListings :many
+SELECT dl.id AS listing_id
+FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+JOIN distributor_listings dl ON dl.id = cli.listing_id
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE sc.team_id = $1
+  AND cli.listing_id IS NOT NULL
+  AND d.api_type IS NOT NULL
+UNION
+SELECT dl.id AS listing_id
+FROM cart_line_items cli
+JOIN shopping_carts sc ON sc.id = cli.shopping_cart_id
+JOIN distributor_listings dl ON dl.part_id = cli.part_id
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE sc.team_id = $1
+  AND cli.listing_id IS NULL
+  AND d.api_type IS NOT NULL
+`
+
+// Returns distinct listing IDs to refresh for all cart items:
+//   - Items with an explicit listing: refresh that listing.
+//   - Items with no listing: refresh ALL eligible listings for the part
+//     so the auto-resolution process has up-to-date data.
+func (q *Queries) GetRefreshableCartListings(ctx context.Context, teamID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getRefreshableCartListings, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var listing_id pgtype.UUID
+		if err := rows.Scan(&listing_id); err != nil {
+			return nil, err
+		}
+		items = append(items, listing_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateCartItemListing = `-- name: UpdateCartItemListing :one
 UPDATE cart_line_items
 SET listing_id = $3

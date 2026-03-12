@@ -10,6 +10,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
+	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -315,6 +316,41 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": items,
 	})
+}
+
+// RefreshCartListings handles POST /api/v1/teams/{teamId}/cart/refresh-listings
+// Enqueues a batch listing refresh. For items with an explicit listing, that listing
+// is refreshed. For items with no listing, all eligible listings for the part are
+// refreshed so auto-resolution has up-to-date data.
+// Returns 202 {"job_id": "..."} or 204 if no refreshable listings exist.
+func (h *Handler) RefreshCartListings(w http.ResponseWriter, r *http.Request) {
+	teamIDStr := chi.URLParam(r, "teamId")
+	var teamID pgtype.UUID
+	if err := teamID.Scan(teamIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+
+	rows, err := h.Queries.GetRefreshableCartListings(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if len(rows) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	ids := make([]string, len(rows))
+	for i, listingID := range rows {
+		ids[i] = listingID.String()
+	}
+
+	jobID := h.Worker.Enqueue(worker.JobListingRefresh, teamIDStr, worker.ListingRefreshPayload{
+		ListingIDs: ids,
+		UserID:     userIDFromContext(r),
+	})
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // ClearCart handles DELETE /api/v1/teams/{teamId}/cart

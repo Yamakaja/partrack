@@ -201,6 +201,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Patch("/cart/items/{itemId}", h.UpdateCartItem)
 					r.Delete("/cart/items/{itemId}", h.RemoveCartItem)
 					r.Post("/cart/add-low-stock", h.AddLowStock)
+					r.Post("/cart/refresh-listings", h.RefreshCartListings)
 					r.Post("/cart/convert", h.ConvertCart)
 
 					// Build cart-inclusion toggle (purchaser+)

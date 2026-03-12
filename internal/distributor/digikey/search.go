@@ -133,8 +133,10 @@ func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMe
 }
 
 // RefreshListing fetches current stock and price for sku from DigiKey.
-// Returns nil, nil if the SKU is not found in the pricing response.
-func (c *Client) RefreshListing(ctx context.Context, sku string, rawCreds json.RawMessage) (*distributor.Listing, error) {
+// Returns all non-marketplace packaging variants found in the pricing response —
+// a single API call covers the full MPN, so callers can update multiple listings
+// from one network round-trip. Returns an empty slice when the SKU is not found.
+func (c *Client) RefreshListing(ctx context.Context, sku string, rawCreds json.RawMessage) ([]distributor.Listing, error) {
 	if rawCreds == nil {
 		return nil, fmt.Errorf("digikey: credentials required")
 	}
@@ -151,23 +153,23 @@ func (c *Client) RefreshListing(ctx context.Context, sku string, rawCreds json.R
 		return nil, err
 	}
 	if !found {
-		return nil, nil
+		return []distributor.Listing{}, nil
 	}
 
+	var listings []distributor.Listing
 	for _, pp := range resp.ProductPricings {
 		for _, v := range pp.ProductVariations {
-			if v.DigiKeyProductNumber != sku || v.MarketPlace {
+			if v.MarketPlace {
 				continue
 			}
-			listing := buildListing(
+			listings = append(listings, buildListing(
 				v.DigiKeyProductNumber, v.PackageType.Name,
 				v.QuantityAvailableforPackageType, v.MinimumOrderQuantity,
 				v.StandardPricing, v.MyPricing, v.DigiReelFee,
-			)
-			return &listing, nil
+			))
 		}
 	}
-	return nil, nil
+	return listings, nil
 }
 
 // SearchParts performs a keyword / MPN / manufacturer search using DigiKey's

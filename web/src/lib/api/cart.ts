@@ -34,3 +34,7 @@ export function addLowStock(teamId: string) {
 export function convertCart(teamId: string) {
   return request<{ order_ids: string[] }>('POST', `/api/v1/teams/${teamId}/cart/convert`);
 }
+
+export function refreshCartListings(teamId: string) {
+  return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/cart/refresh-listings`);
+}

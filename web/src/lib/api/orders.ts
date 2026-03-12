@@ -37,6 +37,10 @@ export function updateOrderPurchaseOrderNumber(teamId: string, orderId: string, 
   return request<void>('PATCH', `/api/v1/teams/${teamId}/orders/${orderId}`, { purchase_order_number });
 }
 
+export function updateOrderNotes(teamId: string, orderId: string, notes: string | null) {
+  return request<void>('PATCH', `/api/v1/teams/${teamId}/orders/${orderId}`, { notes });
+}
+
 export function cancelOrder(teamId: string, orderId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/orders/${orderId}`);
 }

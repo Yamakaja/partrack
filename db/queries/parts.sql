@@ -277,6 +277,13 @@ FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
 WHERE dl.id = $1;
 
+-- name: GetListingsForRefreshBatch :many
+-- Fetches multiple listings by ID in one query for the batch refresh worker.
+SELECT dl.id, dl.part_id, dl.distributor_id, dl.sku, d.api_type
+FROM distributor_listings dl
+JOIN distributors d ON d.id = dl.distributor_id
+WHERE dl.id = ANY($1::uuid[]);
+
 -- name: GetListingByPartAndID :one
 -- Fetches a listing row verifying it belongs to the given part.
 SELECT id, distributor_id, sku FROM distributor_listings

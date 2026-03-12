@@ -137,7 +137,11 @@ type Client interface {
 	// The SKU must be chosen unambiguously by the caller (e.g. selected from SearchParts results).
 	// Returns nil, nil if the SKU is not found.
 	EnrichPart(ctx context.Context, sku string, credentials json.RawMessage) (*EnrichmentResult, error)
-	RefreshListing(ctx context.Context, sku string, credentials json.RawMessage) (*Listing, error)
+	// RefreshListing fetches current price/stock for sku and returns data for all
+	// packaging variants found in the response (distributors typically return all
+	// variants for an MPN in a single call). Returns an empty slice when the SKU
+	// is not found.
+	RefreshListing(ctx context.Context, sku string, credentials json.RawMessage) ([]Listing, error)
 	SearchParts(ctx context.Context, q SearchQuery, credentials json.RawMessage) (*SearchResult, error)
 }
 

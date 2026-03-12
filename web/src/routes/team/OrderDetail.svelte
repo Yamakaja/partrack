@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder, updateOrderPurchaseOrderNumber } from '$lib/api/orders.js';
+  import { getOrder, markOrderPlaced, receiveLineItem, cancelOrder, updateOrderPurchaseOrderNumber, updateOrderNotes } from '$lib/api/orders.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
@@ -54,6 +54,9 @@
   let editingPoNumber = $state(false);
   let poNumberDraft = $state('');
   let savingPoNumber = $state(false);
+  let editingNotes = $state(false);
+  let notesDraft = $state('');
+  let savingNotes = $state(false);
 
   async function savePoNumber() {
     if (savingPoNumber) return;
@@ -78,6 +81,31 @@
   function handlePoNumberKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') savePoNumber();
     if (e.key === 'Escape') { editingPoNumber = false; }
+  }
+
+  async function saveNotes() {
+    if (savingNotes) return;
+    savingNotes = true;
+    try {
+      const value = notesDraft.trim() || null;
+      await updateOrderNotes(teamId, orderId, value);
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      editingNotes = false;
+    } catch (err: any) {
+      pushToast('error', 'Failed to save notes', err.message);
+    } finally {
+      savingNotes = false;
+    }
+  }
+
+  function startEditNotes(current: string | null) {
+    notesDraft = current ?? '';
+    editingNotes = true;
+  }
+
+  function handleNotesKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') saveNotes();
+    if (e.key === 'Escape') { editingNotes = false; }
   }
 
   function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
@@ -291,7 +319,7 @@
   {#if orderQuery.data}
     {@const order = orderQuery.data}
     <Topbar
-      title={order.distributor_name}
+      title={order.id.slice(0, 8)}
       breadcrumbs={[
         { label: 'Orders', href: `/teams/${teamId}/orders` },
       ]}
@@ -344,11 +372,15 @@
     </Topbar>
 
     <div class="flex-1 overflow-auto p-6 space-y-4">
-      <MetadataCard title={order.distributor_name}>
+      <MetadataCard title={order.id.slice(0, 8)}>
         {#snippet badges()}
           <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
         {/snippet}
         <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm sm:grid-cols-3">
+          <div>
+            <span class="text-muted-foreground">Distributor:</span>
+            <span class="font-medium"> {order.distributor_name}</span>
+          </div>
           <div class="flex items-center gap-1">
             <span class="text-muted-foreground">PO #:</span>
             {#if editingPoNumber}
@@ -410,12 +442,25 @@
               <span class="font-medium"> {order.submission_method}</span>
             </div>
           {/if}
-          {#if order.notes}
-            <div class="col-span-2 sm:col-span-3">
-              <span class="text-muted-foreground">Notes:</span>
-              <span class="font-medium"> {order.notes}</span>
-            </div>
-          {/if}
+          <div class="col-span-2 sm:col-span-3 flex items-center gap-1">
+            <span class="text-muted-foreground">Notes:</span>
+            {#if editingNotes}
+              <Input
+                class="h-6 flex-1 text-xs px-1"
+                value={notesDraft}
+                oninput={(e: Event) => { notesDraft = (e.target as HTMLInputElement).value; }}
+                onkeydown={handleNotesKeydown}
+                onblur={saveNotes}
+                disabled={savingNotes}
+                autofocus
+              />
+            {:else}
+              <span class="font-medium text-xs">{order.notes ?? '—'}</span>
+              <Button variant="ghost" size="icon" class="h-5 w-5 ml-0.5" onclick={() => startEditNotes(order.notes)}>
+                <Pencil class="h-3 w-3" />
+              </Button>
+            {/if}
+          </div>
         </div>
       </MetadataCard>
 
