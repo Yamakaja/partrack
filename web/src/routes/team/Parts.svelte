@@ -3,7 +3,6 @@
   import { createPart, importPart, reenrichAllParts } from '$lib/api/parts.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import type { DistributorSearchProduct } from '$lib/api/distributors.js';
-  import type { PartSummary } from '$lib/types/parts.js';
   import PartsTable from '$lib/components/parts/PartsTable.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
