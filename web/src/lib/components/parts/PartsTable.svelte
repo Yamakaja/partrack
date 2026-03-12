@@ -26,9 +26,17 @@
     initialStockFilter?: string;
   } = $props();
 
-  let searchValue = $state('');
-  let categoryFilter = $state<number | null>(null);
-  let paramFilters = $state<Record<number, ParamFilter>>({});
+  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+
+  let searchValue = $state(hashParams.get('q') ?? '');
+  let categoryFilter = $state<number | null>(
+    hashParams.get('category_id') ? Number(hashParams.get('category_id')) : null,
+  );
+  let paramFilters = $state<Record<number, ParamFilter>>((() => {
+    const pf = hashParams.get('pf');
+    if (!pf) return {};
+    try { return JSON.parse(pf); } catch { return {}; }
+  })());
   let filterOpenState = $state<Record<number, boolean>>({});
   // Local min/max text inputs for each open numeric filter popover
   let numericInputs = $state<Record<number, { min: string; max: string }>>({});
@@ -102,9 +110,34 @@
   );
 
   // svelte-ignore state_referenced_locally
-  if (initialStockFilter) {
-    source.setFilter('stock_status', new Set([initialStockFilter]));
+  {
+    const ss = hashParams.get('stock_status');
+    const ls = hashParams.get('lifecycle_status');
+    const ci = hashParams.get('category_id');
+    const pg = hashParams.get('page');
+    if (ss) {
+      source.setFilter('stock_status', new Set(ss.split(',')));
+    } else if (initialStockFilter) {
+      source.setFilter('stock_status', new Set([initialStockFilter]));
+    }
+    if (ls) source.setFilter('lifecycle_status', new Set(ls.split(',')));
+    if (ci) source.setFilter('category_id', new Set([ci]));
+    if (pg) source.page = Number(pg);
   }
+
+  $effect(() => {
+    const params = new URLSearchParams();
+    if (searchValue) params.set('q', searchValue);
+    const ss = [...(source.filters.get('stock_status') ?? [])];
+    if (ss.length) params.set('stock_status', ss.join(','));
+    const ls = [...(source.filters.get('lifecycle_status') ?? [])];
+    if (ls.length) params.set('lifecycle_status', ls.join(','));
+    if (categoryFilter != null) params.set('category_id', String(categoryFilter));
+    if (Object.keys(paramFilters).length) params.set('pf', JSON.stringify(paramFilters));
+    if (source.page > 1) params.set('page', String(source.page));
+    const hash = params.toString();
+    history.replaceState(null, '', window.location.pathname + (hash ? '#' + hash : ''));
+  });
 
   function clearParamFilters() {
     paramFilters = {};
@@ -213,6 +246,7 @@
 >
   {#snippet toolbarLeft()}
     <SearchInput
+      value={searchValue}
       placeholder="Search MPN, description, manufacturer…"
       onchange={(v) => { searchValue = v; }}
     />

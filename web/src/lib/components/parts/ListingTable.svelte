@@ -65,25 +65,22 @@
     if (!teamId) return;
     refreshingAll = true;
     try {
-      const { job_ids } = await refreshAllListings(partId, teamId);
-      const total = job_ids.length;
-      if (total === 0) return;
+      const { job_id, listing_count } = await refreshAllListings(partId, teamId);
+      if (listing_count === 0) return;
       let completed = 0;
       let failed = 0;
-      for (const jobId of job_ids) {
-        const unsub = subscribeSSE(teamId, jobId, (ev) => {
-          if ((ev.data.status as string) === 'error') failed++;
-          completed++;
+      const unsub = subscribeSSE(teamId, job_id, (ev) => {
+        if ((ev.data.status as string) === 'error') failed++;
+        completed++;
+        if (completed >= listing_count) {
           unsub();
-          if (completed === total) {
-            if (failed > 0) {
-              pushToast('warning', 'Stock refresh incomplete', `${failed} of ${total} listing${total !== 1 ? 's' : ''} failed`);
-            } else {
-              pushToast('success', 'Stock refreshed', `${total} listing${total !== 1 ? 's' : ''} updated`);
-            }
+          if (failed > 0) {
+            pushToast('warning', 'Stock refresh incomplete', `${failed} of ${listing_count} listing${listing_count !== 1 ? 's' : ''} failed`);
+          } else {
+            pushToast('success', 'Stock refreshed', `${listing_count} listing${listing_count !== 1 ? 's' : ''} updated`);
           }
-        });
-      }
+        }
+      });
     } catch (e: any) {
       pushToast('error', 'Refresh failed', e.message);
     } finally {

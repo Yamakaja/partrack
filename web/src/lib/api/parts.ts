@@ -96,7 +96,7 @@ export function refreshListing(partId: string, listingId: string, teamId: string
 }
 
 export function refreshAllListings(partId: string, teamId: string) {
-  return request<{ job_ids: string[] }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/listings/refresh`);
+  return request<{ job_id: string; listing_count: number }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/listings/refresh`);
 }
 
 export function reenrichAllParts(teamId: string) {

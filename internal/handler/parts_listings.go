@@ -200,16 +200,14 @@ func (h *Handler) RefreshAllListings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := chi.URLParam(r, "teamId")
-	userID := userIDFromContext(r)
-	jobIDs := make([]string, 0, len(listings))
-	for _, l := range listings {
-		jobID := h.Worker.Enqueue(worker.JobListingRefresh, teamID, worker.ListingRefreshPayload{
-			ListingID: l.ID.String(),
-			PartID:    l.PartID.String(),
-			UserID:    userID,
-		})
-		jobIDs = append(jobIDs, jobID)
+	listingIDs := make([]string, len(listings))
+	for i, l := range listings {
+		listingIDs[i] = l.ID.String()
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_ids": jobIDs})
+	teamID := chi.URLParam(r, "teamId")
+	jobID := h.Worker.Enqueue(worker.JobListingRefresh, teamID, worker.ListingRefreshPayload{
+		ListingIDs: listingIDs,
+		UserID:     userIDFromContext(r),
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "listing_count": len(listings)})
 }
