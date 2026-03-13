@@ -46,20 +46,29 @@ func (q *Queue) handleBOMImport(job Job) {
 		}
 	}
 
-	items, err := queries.ListBOMLineItems(ctx, revID)
-	if err != nil {
-		q.publishError(job, "failed to list BOM line items: "+err.Error())
-		return
-	}
-
 	projectID, err := queries.GetRevisionProjectID(ctx, revID)
 	if err != nil {
 		q.publishError(job, "failed to get revision project: "+err.Error())
 		return
 	}
 
+	// Pre-fetch the immediately prior revision for substitute inheritance.
+	var priorRevID pgtype.UUID
+	if id, err := queries.GetImmediatelyPriorRevision(ctx, dbgen.GetImmediatelyPriorRevisionParams{
+		ProjectID:         projectID,
+		CurrentRevisionID: revID,
+	}); err == nil {
+		priorRevID = id
+	}
+
+	items, err := queries.ListBOMLineItems(ctx, revID)
+	if err != nil {
+		q.publishError(job, "failed to list BOM line items: "+err.Error())
+		return
+	}
+
 	// Count items already resolved before this run.
-	resolvedSKU, resolvedMPN, resolvedPrior, resolvedDistributor, ambiguousCount := 0, 0, 0, 0, 0
+	resolvedSKU, resolvedMPN, resolvedPrior, resolvedDistributor, ambiguousCount, substitutesImportedCount := 0, 0, 0, 0, 0, 0
 	for _, it := range items {
 		switch {
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
@@ -86,6 +95,7 @@ func (q *Queue) handleBOMImport(job Job) {
 		"no_match":                0,
 		"total":                   len(items),
 		"job_id":                  job.ID,
+		"substitutes_copied":      substitutesImportedCount,
 	})
 
 	strPtr := func(s string) *string { return &s }
@@ -105,6 +115,7 @@ func (q *Queue) handleBOMImport(job Job) {
 			"no_match":                noMatchCount,
 			"total":                   len(items),
 			"job_id":                  job.ID,
+			"substitutes_copied":      substitutesImportedCount,
 		})
 	}
 
@@ -251,6 +262,16 @@ func (q *Queue) handleBOMImport(job Job) {
 						TeamID: teamID,
 						PartID: resolvedPartID,
 					})
+				}
+
+				// Inherit substitutes from the immediately prior revision (if one exists).
+				if priorRevID.Valid {
+					if n, err := queries.ImportSubstitutesFromRevision(ctx, dbgen.ImportSubstitutesFromRevisionParams{
+						BomLineItemID: item.ID,
+						BomRevisionID: priorRevID,
+					}); err == nil {
+						substitutesImportedCount += int(n)
+					}
 				}
 			}
 		}

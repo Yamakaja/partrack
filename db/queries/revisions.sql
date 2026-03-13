@@ -127,6 +127,15 @@ WHERE br.project_id              = @project_id
 ORDER BY br.imported_at DESC
 LIMIT 1;
 
+-- name: GetImmediatelyPriorRevision :one
+-- Returns the most recently imported revision in the same project, excluding the current one.
+-- Used to determine which revision's substitutes to inherit during BOM import.
+SELECT id FROM bom_revisions
+WHERE project_id = @project_id
+  AND id != @current_revision_id
+ORDER BY imported_at DESC
+LIMIT 1;
+
 -- name: GetInventoryQuantitiesForRevision :many
 SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
 FROM inventory_entries ie

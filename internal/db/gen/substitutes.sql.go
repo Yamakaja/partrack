@@ -81,7 +81,7 @@ func (q *Queries) GetBuildSubstituteSelections(ctx context.Context, buildID pgty
 	return items, nil
 }
 
-const importSubstitutesFromRevision = `-- name: ImportSubstitutesFromRevision :exec
+const importSubstitutesFromRevision = `-- name: ImportSubstitutesFromRevision :execrows
 WITH source_line_item AS (
   SELECT bli2.id FROM bom_line_items bli2
   WHERE bli2.bom_revision_id = $2
@@ -113,9 +113,12 @@ type ImportSubstitutesFromRevisionParams struct {
 
 // Copy substitutes from source revision's line item (matched by resolved_part_id)
 // into the target line item, appending after existing priorities. Skips duplicates.
-func (q *Queries) ImportSubstitutesFromRevision(ctx context.Context, arg ImportSubstitutesFromRevisionParams) error {
-	_, err := q.db.Exec(ctx, importSubstitutesFromRevision, arg.BomLineItemID, arg.BomRevisionID)
-	return err
+func (q *Queries) ImportSubstitutesFromRevision(ctx context.Context, arg ImportSubstitutesFromRevisionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, importSubstitutesFromRevision, arg.BomLineItemID, arg.BomRevisionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const isBuildSelectionStale = `-- name: IsBuildSelectionStale :one

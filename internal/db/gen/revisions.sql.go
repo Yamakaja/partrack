@@ -131,6 +131,28 @@ func (q *Queries) GetBOMLineItem(ctx context.Context, arg GetBOMLineItemParams) 
 	return i, err
 }
 
+const getImmediatelyPriorRevision = `-- name: GetImmediatelyPriorRevision :one
+SELECT id FROM bom_revisions
+WHERE project_id = $1
+  AND id != $2
+ORDER BY imported_at DESC
+LIMIT 1
+`
+
+type GetImmediatelyPriorRevisionParams struct {
+	ProjectID         pgtype.UUID `json:"project_id"`
+	CurrentRevisionID pgtype.UUID `json:"current_revision_id"`
+}
+
+// Returns the most recently imported revision in the same project, excluding the current one.
+// Used to determine which revision's substitutes to inherit during BOM import.
+func (q *Queries) GetImmediatelyPriorRevision(ctx context.Context, arg GetImmediatelyPriorRevisionParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getImmediatelyPriorRevision, arg.ProjectID, arg.CurrentRevisionID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getInventoryQuantitiesForRevision = `-- name: GetInventoryQuantitiesForRevision :many
 SELECT ie.part_id, ie.quantity_on_hand, ie.minimum_stock_quantity, ie.reorder_quantity
 FROM inventory_entries ie

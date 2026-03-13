@@ -34,7 +34,7 @@ FROM (
 ) AS ord
 WHERE s.bom_line_item_id = $1 AND s.part_id = ord.part_id;
 
--- name: ImportSubstitutesFromRevision :exec
+-- name: ImportSubstitutesFromRevision :execrows
 -- Copy substitutes from source revision's line item (matched by resolved_part_id)
 -- into the target line item, appending after existing priorities. Skips duplicates.
 WITH source_line_item AS (

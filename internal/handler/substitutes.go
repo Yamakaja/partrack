@@ -156,7 +156,7 @@ func (h *Handler) ImportSubstitutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.ImportSubstitutesFromRevision(r.Context(), dbgen.ImportSubstitutesFromRevisionParams{
+	if _, err := h.Queries.ImportSubstitutesFromRevision(r.Context(), dbgen.ImportSubstitutesFromRevisionParams{
 		BomLineItemID:  itemID,
 		BomRevisionID: sourceRevID,
 	}); err != nil {
