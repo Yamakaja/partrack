@@ -15,6 +15,12 @@ export interface ColumnSpec<T> {
   exportOnly?: boolean;
   render?: Snippet<[value: unknown, row: T]>;
   exportValue?: (row: T) => string;
+  /** Column group label for the column picker (e.g. 'Parameters'). */
+  group?: string;
+  /** Custom toolbar chip label formatter. Overrides the default filterLabel logic. */
+  filterFormatter?: (values: Set<string>) => string;
+  /** Plain-text cell value function. Called when no render snippet is set. */
+  cellText?: (value: unknown, row: T) => string;
 }
 
 export interface DataSource<T> {
@@ -70,6 +76,8 @@ export interface DataTableProps<T> {
   renderers?: Record<string, Snippet<[value: unknown, row: T]>>;
   /** Per-column custom header filter components, keyed by ColumnSpec.key. Replaces built-in filter UI. */
   headerFilters?: Record<string, Snippet>;
+  /** Single dispatcher snippet for custom column header filters. Receives the column and renders the appropriate UI. */
+  columnHeaderFilter?: Snippet<[col: ColumnSpec<T>]>;
   detailPanel?: Snippet<[row: T]>;
   detailPanelOpen?: (row: T) => boolean;
   actions?: Snippet<[row: T]>;

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/sync/errgroup"
 )
 
 // ListParts handles GET /api/v1/parts
@@ -112,36 +113,54 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 
 	if len(paramFilters) > 0 {
 		teamID := params.TeamID
-		// Collect matching part ID sets for each filter (AND semantics across filters)
-		var idSets []map[string]struct{}
+		// Fan out all parameter filter queries in parallel, then intersect results.
+		type indexedSet struct {
+			idx int
+			set map[string]struct{}
+		}
+		results := make([]indexedSet, len(paramFilters))
+		eg, egCtx := errgroup.WithContext(r.Context())
+		i := 0
 		for paramID, f := range paramFilters {
-			var uuids []pgtype.UUID
-			var queryErr error
-			if f.isNumeric {
-				pid := paramID
-				uuids, queryErr = h.Queries.FindPartIDsByParameterRange(r.Context(), dbgen.FindPartIDsByParameterRangeParams{
-					ParameterID:    &pid,
-					NumericValue:   &f.min,
-					NumericValue_2: &f.max,
-					TeamID:         teamID,
-				})
-			} else if len(f.values) > 0 {
-				pid := paramID
-				uuids, queryErr = h.Queries.FindPartIDsByParameterValues(r.Context(), dbgen.FindPartIDsByParameterValuesParams{
-					ParameterID: &pid,
-					Column2:     f.values,
-					TeamID:      teamID,
-				})
-			}
-			if queryErr != nil {
-				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-				return
-			}
-			set := make(map[string]struct{}, len(uuids))
-			for _, u := range uuids {
-				set[u.String()] = struct{}{}
-			}
-			idSets = append(idSets, set)
+			idx := i
+			pid := paramID
+			f := f
+			i++
+			eg.Go(func() error {
+				var uuids []pgtype.UUID
+				var queryErr error
+				if f.isNumeric {
+					uuids, queryErr = h.Queries.FindPartIDsByParameterRange(egCtx, dbgen.FindPartIDsByParameterRangeParams{
+						ParameterID:    &pid,
+						NumericValue:   &f.min,
+						NumericValue_2: &f.max,
+						TeamID:         teamID,
+					})
+				} else if len(f.values) > 0 {
+					uuids, queryErr = h.Queries.FindPartIDsByParameterValues(egCtx, dbgen.FindPartIDsByParameterValuesParams{
+						ParameterID: &pid,
+						Column2:     f.values,
+						TeamID:      teamID,
+					})
+				}
+				if queryErr != nil {
+					return queryErr
+				}
+				set := make(map[string]struct{}, len(uuids))
+				for _, u := range uuids {
+					set[u.String()] = struct{}{}
+				}
+				results[idx] = indexedSet{idx: idx, set: set}
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		var idSets []map[string]struct{}
+		for _, res := range results {
+			idSets = append(idSets, res.set)
 		}
 
 		// Intersect all sets
@@ -190,23 +209,24 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type item struct {
-		ID                   string  `json:"id"`
-		Scope                string  `json:"scope"`
-		Mpn                  *string `json:"mpn"`
-		Manufacturer         *string `json:"manufacturer"`
-		Description          *string `json:"description"`
-		ShortDescription     *string `json:"short_description"`
-		Category             *string `json:"category"`
-		CategoryID           *int32  `json:"category_id"`
-		CategoryName         *string `json:"category_name"`
-		CategorySource       string  `json:"category_source"`
-		Package              *string `json:"package"`
-		LifecycleStatus      string  `json:"lifecycle_status"`
-		InventoryEntryID     *string `json:"inventory_entry_id"`
-		QuantityOnHand       *int32  `json:"quantity_on_hand"`
-		MinimumStockQuantity *int32  `json:"minimum_stock_quantity"`
-		ReorderQuantity      *int32  `json:"reorder_quantity"`
-		StorageLocationLabel *string `json:"storage_location_label"`
+		ID                   string         `json:"id"`
+		Scope                string         `json:"scope"`
+		Mpn                  *string        `json:"mpn"`
+		Manufacturer         *string        `json:"manufacturer"`
+		Description          *string        `json:"description"`
+		ShortDescription     *string        `json:"short_description"`
+		Category             *string        `json:"category"`
+		CategoryID           *int32         `json:"category_id"`
+		CategoryName         *string        `json:"category_name"`
+		CategorySource       string         `json:"category_source"`
+		Package              *string        `json:"package"`
+		LifecycleStatus      string         `json:"lifecycle_status"`
+		InventoryEntryID     *string        `json:"inventory_entry_id"`
+		QuantityOnHand       *int32         `json:"quantity_on_hand"`
+		MinimumStockQuantity *int32         `json:"minimum_stock_quantity"`
+		ReorderQuantity      *int32         `json:"reorder_quantity"`
+		StorageLocationLabel *string        `json:"storage_location_label"`
+		Parameters           map[string]any `json:"parameters,omitempty"`
 	}
 	items := make([]item, len(parts))
 	for i, p := range parts {
@@ -234,6 +254,40 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		}
 		items[i] = it
 	}
+
+	// When a category filter is active, fetch parameter values for the current page.
+	if params.CategoryID != nil && len(parts) > 0 {
+		partUUIDs := make([]pgtype.UUID, len(parts))
+		for i, p := range parts {
+			partUUIDs[i] = p.ID
+		}
+		paramRows, err := h.Queries.GetParametersByPartIDs(r.Context(), partUUIDs)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		// Build map: partID → slug → value
+		paramMap := make(map[string]map[string]any, len(parts))
+		for _, row := range paramRows {
+			partID := row.PartID.String()
+			if _, ok := paramMap[partID]; !ok {
+				paramMap[partID] = make(map[string]any)
+			}
+			if row.NumericValue != nil && row.NumericValueMax != nil && *row.NumericValue != *row.NumericValueMax {
+				paramMap[partID][row.Slug] = map[string]any{"min": *row.NumericValue, "max": *row.NumericValueMax}
+			} else if row.NumericValue != nil {
+				paramMap[partID][row.Slug] = *row.NumericValue
+			} else if row.Value != "" {
+				paramMap[partID][row.Slug] = row.Value
+			}
+		}
+		for i := range items {
+			if pm, ok := paramMap[items[i].ID]; ok {
+				items[i].Parameters = pm
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"total": total, "limit": limit, "offset": offset, "items": items,
 	})

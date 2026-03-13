@@ -13,6 +13,7 @@
     getRowKey,
     renderers,
     headerFilters,
+    columnHeaderFilter,
     detailPanel,
     detailPanelOpen,
     actions,
@@ -31,8 +32,9 @@
 <div class="flex flex-col gap-2">
   <DataTableToolbar {source} {title} {toolbarLeft} {toolbarRight} {showColumnPicker} {exportFilename} />
 
+  <div class="overflow-x-auto">
   <Table>
-    <DataTableHeader {source} {actions} {detailPanel} {stickyHeader} {headerFilters} />
+    <DataTableHeader {source} {actions} {detailPanel} {stickyHeader} {headerFilters} {columnHeaderFilter} />
     <DataTableBody
       {source}
       {getRowKey}
@@ -47,6 +49,7 @@
       {emptyIcon}
     />
   </Table>
+  </div>
 
   <DataTablePagination {source} />
 </div>

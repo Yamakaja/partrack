@@ -69,6 +69,7 @@
 
   function defaultCellValue(col: ColumnSpec<T>, row: T): string {
     const val = getCellValue(row, col.key);
+    if (col.cellText) return col.cellText(val, row);
     if (val === null || val === undefined) return '—';
     switch (col.type) {
       case 'numeric':

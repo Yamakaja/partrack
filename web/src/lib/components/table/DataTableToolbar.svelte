@@ -32,6 +32,7 @@
 
   function filterLabel(key: string, values: Set<string>): string {
     const col = source.columns.find((c) => c.key === key);
+    if (col?.filterFormatter) return col.filterFormatter(values);
     const name = col?.header ?? key;
 
     if (col?.type === 'date') {
@@ -109,19 +110,33 @@
             align="end"
             class="z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
           >
-            {#each source.columns.filter((c) => !c.exportOnly) as col (col.key)}
-              <DropdownMenuPrimitive.Item
-                class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground outline-none select-none"
-                onSelect={() => source.setColumnHidden?.(col.key, !col.hidden)}
-              >
-                <span
-                  class={cn(
-                    'h-3.5 w-3.5 rounded-sm border border-primary flex-shrink-0',
-                    !col.hidden && 'bg-primary',
-                  )}
-                ></span>
-                {col.header || '(unnamed)'}
-              </DropdownMenuPrimitive.Item>
+            {#each (() => {
+                const cols = source.columns.filter((c) => !c.exportOnly);
+                const groups: { label: string | undefined; cols: typeof cols }[] = [];
+                for (const col of cols) {
+                  const last = groups[groups.length - 1];
+                  if (last && last.label === col.group) { last.cols.push(col); }
+                  else { groups.push({ label: col.group, cols: [col] }); }
+                }
+                return groups;
+              })() as grp (grp.label ?? '__base__')}
+              {#if grp.label}
+                <div class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">{grp.label}</div>
+              {/if}
+              {#each grp.cols as col (col.key)}
+                <DropdownMenuPrimitive.Item
+                  class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground outline-none select-none"
+                  onSelect={() => source.setColumnHidden?.(col.key, !col.hidden)}
+                >
+                  <span
+                    class={cn(
+                      'h-3.5 w-3.5 rounded-sm border border-primary flex-shrink-0',
+                      !col.hidden && 'bg-primary',
+                    )}
+                  ></span>
+                  {col.header || '(unnamed)'}
+                </DropdownMenuPrimitive.Item>
+              {/each}
             {/each}
           </DropdownMenuPrimitive.Content>
         </DropdownMenuPrimitive.Root>

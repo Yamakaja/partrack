@@ -127,6 +127,17 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   AND (sqlc.narg('part_id_filter')::text IS NULL
        OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]));
 
+-- name: GetParametersByPartIDs :many
+-- Returns one resolved row per (part, parameter) pair, preferring user-specified
+-- over distributor-sourced values. Used to populate parameter columns in the list view.
+SELECT DISTINCT ON (pp.part_id, pp.parameter_id)
+    pp.part_id, pd.slug, pp.value, pp.numeric_value, pp.numeric_value_max
+FROM part_parameters pp
+JOIN parameter_definitions pd ON pd.id = pp.parameter_id
+WHERE pp.part_id = ANY(sqlc.arg('part_ids')::uuid[])
+  AND pp.parameter_id IS NOT NULL
+ORDER BY pp.part_id, pp.parameter_id, (pp.source_type = 'user') DESC, pp.id;
+
 -- name: GetPart :one
 SELECT * FROM parts WHERE id = $1;
 

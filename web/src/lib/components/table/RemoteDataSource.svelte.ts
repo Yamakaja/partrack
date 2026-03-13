@@ -13,8 +13,9 @@ export class RemoteDataSource<T> implements DataSource<T> {
   // Private fields declared first so $derived can reference them
   #fetchFn: (params: RemoteFetchParams) => Promise<{ items: T[]; total: number }>;
   #getExtraParams: (() => Record<string, unknown>) | undefined;
-  #rawColumns: ColumnSpec<T>[] = [];
+  #rawColumns = $state<ColumnSpec<T>[]>([]);
   #hiddenOverrides = $state<Record<string, boolean>>({});
+  #onColumnHiddenCb: ((key: string, hidden: boolean) => void) | undefined;
   #lastExtra: string = '';
 
   // Derived + reactive public fields
@@ -41,11 +42,12 @@ export class RemoteDataSource<T> implements DataSource<T> {
     columns: ColumnSpec<T>[],
     fetchFn: (params: RemoteFetchParams) => Promise<{ items: T[]; total: number }>,
     getExtraParams?: () => Record<string, unknown>,
-    options?: { pageSize?: number },
+    options?: { pageSize?: number; onColumnHidden?: (key: string, hidden: boolean) => void },
   ) {
     this.#rawColumns = columns;
     this.#fetchFn = fetchFn;
     this.#getExtraParams = getExtraParams;
+    this.#onColumnHiddenCb = options?.onColumnHidden;
     if (options?.pageSize) this.pageSize = options.pageSize;
 
     $effect(() => {
@@ -88,8 +90,13 @@ export class RemoteDataSource<T> implements DataSource<T> {
     }
   }
 
+  setColumns(columns: ColumnSpec<T>[]): void {
+    this.#rawColumns = columns;
+  }
+
   setColumnHidden(key: string, hidden: boolean): void {
     this.#hiddenOverrides[key] = hidden;
+    this.#onColumnHiddenCb?.(key, hidden);
   }
 
   setPage(page: number): void {

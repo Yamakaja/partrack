@@ -331,6 +331,52 @@ func (q *Queries) GetListingsForRefreshBatch(ctx context.Context, dollar_1 []pgt
 	return items, nil
 }
 
+const getParametersByPartIDs = `-- name: GetParametersByPartIDs :many
+SELECT DISTINCT ON (pp.part_id, pp.parameter_id)
+    pp.part_id, pd.slug, pp.value, pp.numeric_value, pp.numeric_value_max
+FROM part_parameters pp
+JOIN parameter_definitions pd ON pd.id = pp.parameter_id
+WHERE pp.part_id = ANY($1::uuid[])
+  AND pp.parameter_id IS NOT NULL
+ORDER BY pp.part_id, pp.parameter_id, (pp.source_type = 'user') DESC, pp.id
+`
+
+type GetParametersByPartIDsRow struct {
+	PartID          pgtype.UUID `json:"part_id"`
+	Slug            string      `json:"slug"`
+	Value           string      `json:"value"`
+	NumericValue    *float64    `json:"numeric_value"`
+	NumericValueMax *float64    `json:"numeric_value_max"`
+}
+
+// Returns one resolved row per (part, parameter) pair, preferring user-specified
+// over distributor-sourced values. Used to populate parameter columns in the list view.
+func (q *Queries) GetParametersByPartIDs(ctx context.Context, partIds []pgtype.UUID) ([]GetParametersByPartIDsRow, error) {
+	rows, err := q.db.Query(ctx, getParametersByPartIDs, partIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetParametersByPartIDsRow
+	for rows.Next() {
+		var i GetParametersByPartIDsRow
+		if err := rows.Scan(
+			&i.PartID,
+			&i.Slug,
+			&i.Value,
+			&i.NumericValue,
+			&i.NumericValueMax,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPart = `-- name: GetPart :one
 SELECT id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source FROM parts WHERE id = $1
 `
