@@ -50,26 +50,27 @@ SELECT DISTINCT pp.part_id
 FROM part_parameters pp
 JOIN parts p ON p.id = pp.part_id
 WHERE pp.parameter_id = $1
-  AND pp.numeric_value >= $2
-  AND pp.numeric_value <= $3
-  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $4))
+  AND ($3::float8 IS NULL OR pp.numeric_value >= $3)
+  AND ($4::float8 IS NULL OR pp.numeric_value <= $4)
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $2))
 `
 
 type FindPartIDsByParameterRangeParams struct {
-	ParameterID    *int32      `json:"parameter_id"`
-	NumericValue   *float64    `json:"numeric_value"`
-	NumericValue_2 *float64    `json:"numeric_value_2"`
-	TeamID         pgtype.UUID `json:"team_id"`
+	ParameterID *int32      `json:"parameter_id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+	MinVal      *float64    `json:"min_val"`
+	MaxVal      *float64    `json:"max_val"`
 }
 
 // Returns distinct part IDs where a specific parameter falls within a numeric range.
 // Used to pre-filter parts for parameter-based search. Both bounds are inclusive.
+// Pass NULL for either bound to omit that constraint (open-ended range).
 func (q *Queries) FindPartIDsByParameterRange(ctx context.Context, arg FindPartIDsByParameterRangeParams) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, findPartIDsByParameterRange,
 		arg.ParameterID,
-		arg.NumericValue,
-		arg.NumericValue_2,
 		arg.TeamID,
+		arg.MinVal,
+		arg.MaxVal,
 	)
 	if err != nil {
 		return nil, err

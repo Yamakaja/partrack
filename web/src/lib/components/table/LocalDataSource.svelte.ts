@@ -31,6 +31,7 @@ function compareValues(
 export class LocalDataSource<T> implements DataSource<T> {
   // Private reactive state
   #getData: () => T[];
+  #internalData = $state<T[]>([]);
   #rawColumns: ColumnSpec<T>[] = [];
   #hiddenOverrides = $state<Record<string, boolean>>({});
   #getValue: (row: T, key: string) => unknown = (row, key) => getNestedValue(row, key);
@@ -115,14 +116,26 @@ export class LocalDataSource<T> implements DataSource<T> {
   hasPagination = false;
   exportEnabled = true;
 
+  constructor(getData: () => T[], columns: ColumnSpec<T>[], getValue?: (row: T, key: string) => unknown);
+  constructor(columns: ColumnSpec<T>[], initialData: T[], getValue?: (row: T, key: string) => unknown);
   constructor(
-    getData: () => T[],
-    columns: ColumnSpec<T>[],
+    getDataOrColumns: (() => T[]) | ColumnSpec<T>[],
+    columnsOrInitialData: ColumnSpec<T>[] | T[],
     getValue?: (row: T, key: string) => unknown,
   ) {
-    this.#getData = getData;
-    this.#rawColumns = columns;
+    if (typeof getDataOrColumns === 'function') {
+      this.#getData = getDataOrColumns as () => T[];
+      this.#rawColumns = columnsOrInitialData as ColumnSpec<T>[];
+    } else {
+      this.#rawColumns = getDataOrColumns as ColumnSpec<T>[];
+      this.#internalData = columnsOrInitialData as T[];
+      this.#getData = () => this.#internalData;
+    }
     if (getValue) this.#getValue = getValue;
+  }
+
+  setData(rows: T[]): void {
+    this.#internalData = rows;
   }
 
   getValue(row: T, key: string): unknown {

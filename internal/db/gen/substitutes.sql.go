@@ -189,22 +189,36 @@ func (q *Queries) ListRevisionsWithSubstitutesForPart(ctx context.Context, arg L
 }
 
 const listSubstitutesForLineItem = `-- name: ListSubstitutesForLineItem :many
-SELECT s.part_id, p.mpn AS part_mpn, s.priority
+SELECT s.part_id, p.mpn AS part_mpn, s.priority,
+       p.manufacturer,
+       COALESCE(p.short_description, p.description) AS description,
+       p.lifecycle_status,
+       ie.quantity_on_hand
 FROM bom_line_item_substitutes s
 JOIN parts p ON p.id = s.part_id
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $2
 WHERE s.bom_line_item_id = $1
 ORDER BY s.priority ASC
 `
 
+type ListSubstitutesForLineItemParams struct {
+	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
+	TeamID        pgtype.UUID `json:"team_id"`
+}
+
 type ListSubstitutesForLineItemRow struct {
-	PartID   pgtype.UUID `json:"part_id"`
-	PartMpn  *string     `json:"part_mpn"`
-	Priority int32       `json:"priority"`
+	PartID          pgtype.UUID         `json:"part_id"`
+	PartMpn         *string             `json:"part_mpn"`
+	Priority        int32               `json:"priority"`
+	Manufacturer    *string             `json:"manufacturer"`
+	Description     *string             `json:"description"`
+	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+	QuantityOnHand  *int32              `json:"quantity_on_hand"`
 }
 
 // Returns substitutes ordered by priority (0 = highest)
-func (q *Queries) ListSubstitutesForLineItem(ctx context.Context, bomLineItemID pgtype.UUID) ([]ListSubstitutesForLineItemRow, error) {
-	rows, err := q.db.Query(ctx, listSubstitutesForLineItem, bomLineItemID)
+func (q *Queries) ListSubstitutesForLineItem(ctx context.Context, arg ListSubstitutesForLineItemParams) ([]ListSubstitutesForLineItemRow, error) {
+	rows, err := q.db.Query(ctx, listSubstitutesForLineItem, arg.BomLineItemID, arg.TeamID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +226,15 @@ func (q *Queries) ListSubstitutesForLineItem(ctx context.Context, bomLineItemID 
 	var items []ListSubstitutesForLineItemRow
 	for rows.Next() {
 		var i ListSubstitutesForLineItemRow
-		if err := rows.Scan(&i.PartID, &i.PartMpn, &i.Priority); err != nil {
+		if err := rows.Scan(
+			&i.PartID,
+			&i.PartMpn,
+			&i.Priority,
+			&i.Manufacturer,
+			&i.Description,
+			&i.LifecycleStatus,
+			&i.QuantityOnHand,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

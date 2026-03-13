@@ -1,8 +1,13 @@
 -- name: ListSubstitutesForLineItem :many
 -- Returns substitutes ordered by priority (0 = highest)
-SELECT s.part_id, p.mpn AS part_mpn, s.priority
+SELECT s.part_id, p.mpn AS part_mpn, s.priority,
+       p.manufacturer,
+       COALESCE(p.short_description, p.description) AS description,
+       p.lifecycle_status,
+       ie.quantity_on_hand
 FROM bom_line_item_substitutes s
 JOIN parts p ON p.id = s.part_id
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $2
 WHERE s.bom_line_item_id = $1
 ORDER BY s.priority ASC;
 

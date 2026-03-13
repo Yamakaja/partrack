@@ -119,7 +119,7 @@
                   else { groups.push({ label: col.group, cols: [col] }); }
                 }
                 return groups;
-              })() as grp (grp.label ?? '__base__')}
+              })() as grp (grp.label ?? grp.cols[0].key)}
               {#if grp.label}
                 <div class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">{grp.label}</div>
               {/if}

@@ -14,29 +14,45 @@ import (
 // ListLineItemSubstitutes handles GET .../items/{itemId}/substitutes
 // Returns substitutes ordered by priority for a single line item.
 func (h *Handler) ListLineItemSubstitutes(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
 	var itemID pgtype.UUID
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
 		return
 	}
 
-	rows, err := h.Queries.ListSubstitutesForLineItem(r.Context(), itemID)
+	rows, err := h.Queries.ListSubstitutesForLineItem(r.Context(), dbgen.ListSubstitutesForLineItemParams{
+		BomLineItemID: itemID,
+		TeamID:        teamID,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
 	type subItem struct {
-		PartID   string  `json:"part_id"`
-		PartMPN  *string `json:"part_mpn"`
-		Priority int32   `json:"priority"`
+		PartID          string  `json:"part_id"`
+		PartMPN         *string `json:"part_mpn"`
+		Priority        int32   `json:"priority"`
+		Manufacturer    *string `json:"manufacturer"`
+		Description     *string `json:"description"`
+		LifecycleStatus string  `json:"lifecycle_status"`
+		QuantityOnHand  *int32  `json:"quantity_on_hand"`
 	}
 	items := make([]subItem, len(rows))
 	for i, row := range rows {
 		items[i] = subItem{
-			PartID:   row.PartID.String(),
-			PartMPN:  row.PartMpn,
-			Priority: row.Priority,
+			PartID:          row.PartID.String(),
+			PartMPN:         row.PartMpn,
+			Priority:        row.Priority,
+			Manufacturer:    row.Manufacturer,
+			Description:     row.Description,
+			LifecycleStatus: string(row.LifecycleStatus),
+			QuantityOnHand:  row.QuantityOnHand,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})

@@ -779,7 +779,10 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 		}
 		var orphans []orphanResp
 		for _, sel := range storedSels {
-			subs, err := qtx.ListSubstitutesForLineItem(r.Context(), sel.BomLineItemID)
+			subs, err := qtx.ListSubstitutesForLineItem(r.Context(), dbgen.ListSubstitutesForLineItemParams{
+				BomLineItemID: sel.BomLineItemID,
+				TeamID:        teamID,
+			})
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return

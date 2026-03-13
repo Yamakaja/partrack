@@ -92,13 +92,14 @@ ORDER BY pp.numeric_value;
 -- name: FindPartIDsByParameterRange :many
 -- Returns distinct part IDs where a specific parameter falls within a numeric range.
 -- Used to pre-filter parts for parameter-based search. Both bounds are inclusive.
+-- Pass NULL for either bound to omit that constraint (open-ended range).
 SELECT DISTINCT pp.part_id
 FROM part_parameters pp
 JOIN parts p ON p.id = pp.part_id
 WHERE pp.parameter_id = $1
-  AND pp.numeric_value >= $2
-  AND pp.numeric_value <= $3
-  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $4));
+  AND (sqlc.narg('min_val')::float8 IS NULL OR pp.numeric_value >= sqlc.narg('min_val'))
+  AND (sqlc.narg('max_val')::float8 IS NULL OR pp.numeric_value <= sqlc.narg('max_val'))
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $2));
 
 -- name: FindPartIDsByParameterValues :many
 -- Returns distinct part IDs where a specific parameter matches any of the given values.

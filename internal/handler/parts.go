@@ -69,7 +69,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	// Parameter filters: param_{id}_min, param_{id}_max (numeric) and param_{id}_values (enum/text)
 	type paramFilter struct {
 		isNumeric bool
-		min, max  float64
+		min, max  *float64 // nil = no bound
 		values    []string
 	}
 	paramFilters := map[int32]*paramFilter{}
@@ -99,12 +99,12 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		case "min":
 			if v, err := strconv.ParseFloat(vals[0], 64); err == nil {
 				f.isNumeric = true
-				f.min = v
+				f.min = &v
 			}
 		case "max":
 			if v, err := strconv.ParseFloat(vals[0], 64); err == nil {
 				f.isNumeric = true
-				f.max = v
+				f.max = &v
 			}
 		case "values":
 			f.values = vals // repeated query params: param_{id}_values=A&param_{id}_values=B
@@ -131,10 +131,10 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 				var queryErr error
 				if f.isNumeric {
 					uuids, queryErr = h.Queries.FindPartIDsByParameterRange(egCtx, dbgen.FindPartIDsByParameterRangeParams{
-						ParameterID:    &pid,
-						NumericValue:   &f.min,
-						NumericValue_2: &f.max,
-						TeamID:         teamID,
+						ParameterID: &pid,
+						MinVal:      f.min,
+						MaxVal:      f.max,
+						TeamID:      teamID,
 					})
 				} else if len(f.values) > 0 {
 					uuids, queryErr = h.Queries.FindPartIDsByParameterValues(egCtx, dbgen.FindPartIDsByParameterValuesParams{
@@ -512,33 +512,46 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	aliases := make([]string, len(aliasRows))
 	copy(aliases, aliasRows)
 
+	type paramBase struct {
+		ID                   string   `json:"id"`
+		Name                 string   `json:"name"`
+		Value                string   `json:"value"`
+		Unit                 *string  `json:"unit"`
+		ParameterID          *int32   `json:"parameter_id"`
+		ParameterSlug        *string  `json:"parameter_slug"`
+		ParameterDisplayName *string  `json:"parameter_display_name"`
+		ParameterUnitSymbol  *string  `json:"parameter_unit_symbol"`
+		NumericValue         *float64 `json:"numeric_value"`
+		NumericValueMax      *float64 `json:"numeric_value_max"`
+	}
 	type userParam struct {
-		ID    string  `json:"id"`
-		Name  string  `json:"name"`
-		Value string  `json:"value"`
-		Unit  *string `json:"unit"`
+		paramBase
 	}
 	type distParam struct {
-		ID                    string  `json:"id"`
-		Name                  string  `json:"name"`
-		Value                 string  `json:"value"`
-		Unit                  *string `json:"unit"`
+		paramBase
 		SourceDistributorID   string  `json:"source_distributor_id"`
 		SourceDistributorName *string `json:"source_distributor_name"`
 	}
 	userParams := []userParam{}
 	distParams := []distParam{}
 	for _, p := range params {
+		base := paramBase{
+			ID:                   p.ID.String(),
+			Name:                 p.Name,
+			Value:                p.Value,
+			Unit:                 p.Unit,
+			ParameterID:          p.ParameterID,
+			ParameterSlug:        p.ParameterSlug,
+			ParameterDisplayName: p.ParameterDisplayName,
+			ParameterUnitSymbol:  p.ParameterUnitSymbol,
+			NumericValue:         p.NumericValue,
+			NumericValueMax:      p.NumericValueMax,
+		}
 		if p.SourceType == dbgen.ParameterSourceTypeUser {
-			userParams = append(userParams, userParam{
-				ID: p.ID.String(), Name: p.Name, Value: p.Value, Unit: p.Unit,
-			})
+			userParams = append(userParams, userParam{paramBase: base})
 		} else {
 			distParams = append(distParams, distParam{
-				ID:                    p.ID.String(),
-				Name:                  p.Name,
-				Value:                 p.Value,
-				Unit:                  p.Unit,
+				paramBase:             base,
 				SourceDistributorID:   p.SourceDistributorID.String(),
 				SourceDistributorName: p.SourceDistributorName,
 			})

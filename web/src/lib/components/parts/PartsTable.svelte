@@ -262,6 +262,15 @@
   export function refresh() {
     source.refresh();
   }
+
+  export function setFilter(key: string, values: Set<string>) {
+    source.setFilter(key, values);
+  }
+
+  export function setCategoryFilter(id: number | null) {
+    categoryFilter = id;
+    source.setFilter('category_id', id != null ? new Set([String(id)]) : new Set());
+  }
 </script>
 
 {#snippet renderMpn(value: unknown, _row: PartSummary)}

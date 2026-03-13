@@ -1,13 +1,18 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+  import { untrack } from 'svelte';
   import { Dialog } from 'bits-ui';
   import { Tabs, TabsList, TabsTrigger, TabsContent } from '$lib/components/ui/tabs/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { ArrowUp, ArrowDown, Trash2, Download, X } from 'lucide-svelte';
   import PartsTable from '$lib/components/parts/PartsTable.svelte';
+  import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
+  import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
+  import type { ColumnSpec } from '$lib/components/table/index.js';
   import type { BOMLineItem } from '$lib/types/projects.js';
   import type { PartSummary } from '$lib/types/parts.js';
+  import type { LineItemSubstituteItem } from '$lib/api/revisions.js';
   import {
     listLineItemSubstitutes,
     addSubstitute,
@@ -16,7 +21,10 @@
     importSubstitutes,
     listPreviousRevisionsWithSubstitutes,
   } from '$lib/api/revisions.js';
+  import { getPart } from '$lib/api/parts.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { formatSI } from '$lib/utils/si.js';
+  import { cn } from '$lib/utils/cn.js';
 
   let {
     teamId,
@@ -46,10 +54,53 @@
     enabled: open,
   }));
 
+  const primaryPartQuery = createQuery(() => ({
+    queryKey: ['part', lineItem.resolved_part_id, teamId],
+    queryFn: () => getPart(lineItem.resolved_part_id!, teamId),
+    enabled: open && !!lineItem.resolved_part_id,
+    staleTime: 5 * 60 * 1000,
+  }));
+
   let selectedImportRevId = $state('');
   let importing = $state(false);
   let removing = $state<Record<string, boolean>>({});
   let reordering = $state(false);
+  let partsTableRef = $state<{ setFilter: (k: string, v: Set<string>) => void; setCategoryFilter: (id: number | null) => void } | null>(null);
+  let chipModes = $state<Record<string, 'eq' | 'gte' | 'lte' | 'tol' | null>>({});
+
+  // --- Substitutes DataTable source ---
+  const subColumns: ColumnSpec<LineItemSubstituteItem>[] = [
+    { key: 'priority',        header: '#',            type: 'numeric', sortable: false, align: 'right',
+      cellText: (value) => String((value as number) + 1) },
+    { key: 'part_mpn',        header: 'MPN',          type: 'text',    sortable: false },
+    { key: 'manufacturer',    header: 'Manufacturer', type: 'text',    sortable: false },
+    { key: 'description',     header: 'Description',  type: 'text',    sortable: false },
+    { key: 'lifecycle_status',header: 'Status',       type: 'text',    sortable: false },
+    { key: 'quantity_on_hand',header: 'Qty',          type: 'numeric', sortable: false, align: 'right' },
+    { key: '_actions',        header: '',             type: 'text',    sortable: false, exportOnly: false },
+  ];
+
+  const subSource = new LocalDataSource<LineItemSubstituteItem>(subColumns, []);
+  subSource.exportEnabled = false;
+
+  $effect(() => {
+    if (substitutesQuery.data) {
+      subSource.setData(substitutesQuery.data.items);
+    }
+  });
+
+  // --- Category pre-select ---
+  $effect(() => {
+    const cat = primaryPartQuery.data?.category_id;
+    if (cat != null) {
+      untrack(() => partsTableRef?.setCategoryFilter(cat));
+    }
+  });
+
+  // --- Reset chip state on close ---
+  $effect(() => {
+    if (!open) chipModes = {};
+  });
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['revision', revisionId, 'item', lineItem.id, 'substitutes'] });
@@ -77,10 +128,13 @@
 
   async function handleRemove(partId: string) {
     removing[partId] = true;
+    const prev = subSource.rows.slice();
+    subSource.setData(prev.filter(s => s.part_id !== partId));
     try {
       await removeSubstitute(teamId, projectId, revisionId, lineItem.id, partId);
       invalidate();
     } catch (err: any) {
+      subSource.setData(prev);
       pushToast('error', 'Failed to remove substitute.', err?.message);
     } finally {
       removing[partId] = false;
@@ -88,18 +142,20 @@
   }
 
   async function handleMove(partId: string, direction: 'up' | 'down') {
-    const items = substitutesQuery.data?.items ?? [];
+    const items = subSource.rows.slice();
     const idx = items.findIndex(s => s.part_id === partId);
     if (idx === -1) return;
-    const newItems = [...items];
     const swapWith = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapWith < 0 || swapWith >= newItems.length) return;
+    if (swapWith < 0 || swapWith >= items.length) return;
+    const newItems = [...items];
     [newItems[idx], newItems[swapWith]] = [newItems[swapWith], newItems[idx]];
     reordering = true;
+    subSource.setData(newItems);
     try {
       await reorderSubstitutes(teamId, projectId, revisionId, lineItem.id, newItems.map(s => s.part_id));
       invalidate();
     } catch (err: any) {
+      subSource.setData(items);
       pushToast('error', 'Failed to reorder substitutes.', err?.message);
     } finally {
       reordering = false;
@@ -119,7 +175,119 @@
       importing = false;
     }
   }
+
+  // --- Suggested filters ---
+  type SuggestedFilter = {
+    slug: string;
+    displayName: string;
+    unitSymbol: string | null;
+    type: 'numeric' | 'enum';
+    value: number | string;
+  };
+
+  const suggestedFilters = $derived.by((): SuggestedFilter[] => {
+    const part = primaryPartQuery.data;
+    if (!part) return [];
+    const all = [
+      ...(part.parameters?.user_specified ?? []),
+      ...(part.parameters?.distributor_sourced ?? []),
+    ];
+    const seen = new Set<string>();
+    const result: SuggestedFilter[] = [];
+    for (const p of all) {
+      if (!p.parameter_slug || p.parameter_id == null || seen.has(p.parameter_slug)) continue;
+      seen.add(p.parameter_slug);
+      if (p.numeric_value != null) {
+        result.push({
+          slug: p.parameter_slug,
+          displayName: p.parameter_display_name ?? p.name,
+          unitSymbol: p.parameter_unit_symbol ?? null,
+          type: 'numeric',
+          value: p.numeric_value,
+        });
+      } else if (p.value) {
+        result.push({
+          slug: p.parameter_slug,
+          displayName: p.parameter_display_name ?? p.name,
+          unitSymbol: null,
+          type: 'enum',
+          value: p.value,
+        });
+      }
+    }
+    return result;
+  });
+
+  function formatFilterValue(sf: SuggestedFilter): string {
+    if (sf.type === 'numeric') {
+      return sf.unitSymbol ? formatSI(sf.value as number, sf.unitSymbol) : String(sf.value);
+    }
+    return String(sf.value);
+  }
+
+  function encodeFilter(sf: SuggestedFilter, mode: 'eq' | 'gte' | 'lte' | 'tol'): string {
+    const v = sf.value as number;
+    if (mode === 'eq')  return `=${v}`;
+    if (mode === 'gte') return `>=${v}`;
+    if (mode === 'lte') return `<=${v}`;
+    // tol: ±20%
+    return `${v * 0.8}|${v * 1.2}`;
+  }
+
+  function toggleMode(sf: SuggestedFilter, mode: 'eq' | 'gte' | 'lte' | 'tol') {
+    if (chipModes[sf.slug] === mode) {
+      chipModes = { ...chipModes, [sf.slug]: null };
+      partsTableRef?.setFilter(`param_${sf.slug}`, new Set());
+    } else {
+      chipModes = { ...chipModes, [sf.slug]: mode };
+      partsTableRef?.setFilter(`param_${sf.slug}`, new Set([encodeFilter(sf, mode)]));
+    }
+  }
+
+  function toggleEnum(sf: SuggestedFilter) {
+    if (chipModes[sf.slug] === 'eq') {
+      chipModes = { ...chipModes, [sf.slug]: null };
+      partsTableRef?.setFilter(`param_${sf.slug}`, new Set());
+    } else {
+      chipModes = { ...chipModes, [sf.slug]: 'eq' };
+      partsTableRef?.setFilter(`param_${sf.slug}`, new Set([String(sf.value)]));
+    }
+  }
 </script>
+
+{#snippet renderMpn(value: unknown)}
+  <span class="font-mono text-sm">{value ?? '—'}</span>
+{/snippet}
+
+{#snippet renderLifecycle(value: unknown)}
+  <LifecycleBadge status={value as string} />
+{/snippet}
+
+{#snippet renderQty(_value: unknown, row: LineItemSubstituteItem)}
+  <span class="tabular-nums">{row.quantity_on_hand != null ? row.quantity_on_hand : '—'}</span>
+{/snippet}
+
+{#snippet renderActions(_value: unknown, row: LineItemSubstituteItem)}
+  {@const items = subSource.rows}
+  {@const idx = items.findIndex(s => s.part_id === row.part_id)}
+  {@const isFirst = idx === 0}
+  {@const isLast = idx === items.length - 1}
+  <div class="flex items-center gap-1 justify-end">
+    <Button variant="ghost" size="icon" class="h-7 w-7" disabled={isFirst || reordering}
+      onclick={() => handleMove(row.part_id, 'up')} title="Move up">
+      <ArrowUp class="h-3.5 w-3.5" />
+    </Button>
+    <Button variant="ghost" size="icon" class="h-7 w-7" disabled={isLast || reordering}
+      onclick={() => handleMove(row.part_id, 'down')} title="Move down">
+      <ArrowDown class="h-3.5 w-3.5" />
+    </Button>
+    <Button variant="ghost" size="icon" class="h-7 w-7 text-destructive hover:text-destructive"
+      disabled={removing[row.part_id]}
+      onclick={() => handleRemove(row.part_id)} title="Remove">
+      <Trash2 class="h-3.5 w-3.5" />
+    </Button>
+  </div>
+{/snippet}
 
 <Dialog.Root bind:open>
   <Dialog.Portal>
@@ -166,52 +334,21 @@
             <p class="text-sm text-muted-foreground">Loading…</p>
           {:else if substitutesQuery.isError}
             <p class="text-sm text-destructive">Failed to load substitutes.</p>
-          {:else if substitutesQuery.data.items.length === 0}
+          {:else if subSource.rows.length === 0}
             <p class="text-sm text-muted-foreground py-6 text-center">No substitutes configured. Use the other tabs to add some.</p>
           {:else}
             <p class="text-xs text-muted-foreground mb-3">Substitutes are tried in order — the first with sufficient free stock is used.</p>
-            <div class="border border-border rounded-md divide-y divide-border">
-              {#each substitutesQuery.data.items as sub, i (sub.part_id)}
-                {@const isFirst = i === 0}
-                {@const isLast = i === substitutesQuery.data.items.length - 1}
-                <div class="flex items-center gap-3 px-3 py-2.5">
-                  <span class="text-xs text-muted-foreground tabular-nums w-4 shrink-0">{i + 1}</span>
-                  <span class="font-mono text-sm flex-1">{sub.part_mpn ?? sub.part_id}</span>
-                  <div class="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      class="h-7 w-7"
-                      disabled={isFirst || reordering}
-                      onclick={() => handleMove(sub.part_id, 'up')}
-                      title="Move up"
-                    >
-                      <ArrowUp class="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      class="h-7 w-7"
-                      disabled={isLast || reordering}
-                      onclick={() => handleMove(sub.part_id, 'down')}
-                      title="Move down"
-                    >
-                      <ArrowDown class="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      class="h-7 w-7 text-destructive hover:text-destructive"
-                      disabled={removing[sub.part_id]}
-                      onclick={() => handleRemove(sub.part_id)}
-                      title="Remove"
-                    >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              {/each}
-            </div>
+            <DataTable
+              source={subSource}
+              getRowKey={(r) => r.part_id}
+              renderers={{
+                part_mpn: renderMpn,
+                lifecycle_status: renderLifecycle,
+                quantity_on_hand: renderQty,
+                _actions: renderActions,
+              }}
+              emptyMessage="No substitutes"
+            />
           {/if}
         </TabsContent>
 
@@ -259,8 +396,48 @@
 
         <!-- Tab 3: Add from catalog -->
         <TabsContent value="catalog" class="mt-0 flex-1 min-h-0 overflow-auto px-6 pt-3 pb-6">
+          {#if suggestedFilters.length > 0}
+            <div class="flex flex-wrap items-center gap-1.5 mb-3">
+              <span class="text-xs text-muted-foreground shrink-0">Match primary part:</span>
+              {#each suggestedFilters as sf (sf.slug)}
+                {@const activeMode = chipModes[sf.slug] ?? null}
+                {@const isActive = activeMode != null}
+                {#if sf.type === 'numeric'}
+                  <div class={cn(
+                    'group inline-flex items-center gap-1 rounded-full border text-xs px-2 py-0.5 transition-colors cursor-default',
+                    isActive ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground',
+                  )}>
+                    <span>{sf.displayName}: {formatFilterValue(sf)}</span>
+                    <span class="hidden group-hover:inline-flex items-center gap-0.5 ml-1">
+                      {#each (['eq', 'gte', 'lte', 'tol'] as const) as mode}
+                        <button
+                          class={cn(
+                            'rounded px-1 text-[10px] leading-none border transition-colors',
+                            activeMode === mode
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border hover:border-foreground/40',
+                          )}
+                          onclick={() => toggleMode(sf, mode)}
+                          title={{ eq: 'Exact', gte: 'At least', lte: 'At most', tol: '±20%' }[mode]}
+                        >{{ eq: '=', gte: '≥', lte: '≤', tol: '~' }[mode]}</button>
+                      {/each}
+                    </span>
+                  </div>
+                {:else}
+                  <button
+                    class={cn(
+                      'inline-flex items-center rounded-full border text-xs px-2 py-0.5 transition-colors',
+                      isActive ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-foreground/40',
+                    )}
+                    onclick={() => toggleEnum(sf)}
+                  >{sf.displayName}: {sf.value}</button>
+                {/if}
+              {/each}
+            </div>
+          {/if}
           <p class="text-xs text-muted-foreground mb-3">Click a part to add it as a substitute.</p>
           <PartsTable
+            bind:this={partsTableRef}
             {teamId}
             onRowClick={handleAddPart}
             syncUrl={false}

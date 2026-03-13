@@ -87,6 +87,10 @@ export interface LineItemSubstituteItem {
   part_id: string;
   part_mpn: string | null;
   priority: number;
+  manufacturer: string | null;
+  description: string | null;
+  lifecycle_status: string;
+  quantity_on_hand: number | null;
 }
 
 export interface PreviousRevisionItem {
