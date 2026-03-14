@@ -1,0 +1,170 @@
+{
+  "ProductPricings": [
+    {
+      "ManufacturerProductNumber": "AC0402FR-0716KL",
+      "Manufacturer": {
+        "Id": 13,
+        "Name": "YAGEO"
+      },
+      "Description": {
+        "ProductDescription": "RES SMD 16K OHM 1% 1/16W 0402",
+        "DetailedDescription": "16 kOhms ±1% 0.063W, 1/16W Chip Resistor 0402 (1005 Metric) Automotive AEC-Q200, Moisture Resistant Thick Film"
+      },
+      "QuantityAvailable": 83254,
+      "ProductUrl": "https://www.digikey.com/en/products/detail/yageo/AC0402FR-0716KL/5895100",
+      "IsDiscontinued": false,
+      "NormallyStocking": true,
+      "IsObsolete": false,
+      "ManufacturerLeadWeeks": "18",
+      "ManufacturerPublicQuantity": 0,
+      "StandardPackage": 10000,
+      "ExportControlClassNumber": "EAR99",
+      "HtsusCode": "8533.21.0030",
+      "MoistureSensitivityLevel": "1  (Unlimited)",
+      "IsBoNotAllowed": false,
+      "IsNcnr": false,
+      "Categories": [
+        {
+          "CategoryId": 2,
+          "Level": 0,
+          "Name": "Resistors"
+        },
+        {
+          "CategoryId": 52,
+          "Level": 1,
+          "Name": "Chip Resistor - Surface Mount"
+        }
+      ],
+      "ContainsLithium": false,
+      "ContainsMercury": false,
+      "IsEndOfLife": false,
+      "OtherNames": [
+        "YAG5263CT",
+        "AC0402FR-0716KL-ND",
+        "YAG5263TR",
+        "YAG5263DKR"
+      ],
+      "ProductVariations": [
+        {
+          "DigiKeyProductNumber": "YAG5263DKR-ND",
+          "QuantityAvailableforPackageType": 83254,
+          "MinimumOrderQuantity": 1,
+          "MaxQuantityForDistribution": null,
+          "PackageType": {
+            "Id": 243,
+            "Name": "Digi-Reel®"
+          },
+          "MarketPlace": false,
+          "StandardPricing": [
+            {
+              "BreakQuantity": 1,
+              "UnitPrice": 0.09,
+              "TotalPrice": 0.09
+            },
+            {
+              "BreakQuantity": 10,
+              "UnitPrice": 0.005,
+              "TotalPrice": 0.050
+            },
+            {
+              "BreakQuantity": 25,
+              "UnitPrice": 0.0048,
+              "TotalPrice": 0.1200
+            },
+            {
+              "BreakQuantity": 50,
+              "UnitPrice": 0.0044,
+              "TotalPrice": 0.2200
+            },
+            {
+              "BreakQuantity": 100,
+              "UnitPrice": 0.0035,
+              "TotalPrice": 0.3500
+            }
+          ],
+          "MyPricing": [],
+          "IsTariffActive": false,
+          "DigiReelingFee": 5.5
+        },
+        {
+          "DigiKeyProductNumber": "YAG5263TR-ND",
+          "QuantityAvailableforPackageType": 80000,
+          "MinimumOrderQuantity": 10000,
+          "MaxQuantityForDistribution": null,
+          "PackageType": {
+            "Id": 1,
+            "Name": "Tape & Reel (TR)"
+          },
+          "MarketPlace": false,
+          "StandardPricing": [
+            {
+              "BreakQuantity": 10000,
+              "UnitPrice": 0.00175,
+              "TotalPrice": 17.50000
+            }
+          ],
+          "MyPricing": [],
+          "IsTariffActive": false,
+          "DigiReelingFee": 0.0
+        },
+        {
+          "DigiKeyProductNumber": "YAG5263CT-ND",
+          "QuantityAvailableforPackageType": 83254,
+          "MinimumOrderQuantity": 0,
+          "MaxQuantityForDistribution": null,
+          "PackageType": {
+            "Id": 2,
+            "Name": "Cut Tape (CT)"
+          },
+          "MarketPlace": false,
+          "StandardPricing": [
+            {
+              "BreakQuantity": 1,
+              "UnitPrice": 0.09,
+              "TotalPrice": 0.09
+            },
+            {
+              "BreakQuantity": 10,
+              "UnitPrice": 0.005,
+              "TotalPrice": 0.050
+            },
+            {
+              "BreakQuantity": 25,
+              "UnitPrice": 0.0048,
+              "TotalPrice": 0.1200
+            },
+            {
+              "BreakQuantity": 50,
+              "UnitPrice": 0.0044,
+              "TotalPrice": 0.2200
+            },
+            {
+              "BreakQuantity": 100,
+              "UnitPrice": 0.0035,
+              "TotalPrice": 0.3500
+            }
+          ],
+          "MyPricing": [],
+          "IsTariffActive": false,
+          "DigiReelingFee": 0.0
+        }
+      ]
+    }
+  ],
+  "ProductsCount": 1,
+  "SettingsUsed": {
+    "CustomerId": 0,
+    "SearchLocale": {
+      "Site": "DE",
+      "Language": "en",
+      "Currency": "EUR"
+    },
+    "Filters": {
+      "IsInStock": false,
+      "ExcludeMarketplace": true,
+      "ExcludeTariff": false
+    }
+  },
+  "AccountIdUsed": 0,
+  "CustomerIdUsed": 0
+}
