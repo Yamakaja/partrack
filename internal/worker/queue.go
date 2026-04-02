@@ -35,11 +35,12 @@ type Job struct {
 
 // Event is a progress notification sent to SSE subscribers.
 type Event struct {
-	Type   string          `json:"event"`
-	Data   json.RawMessage `json:"data"`
-	JobID  string          `json:"job_id,omitempty"`
-	TeamID string          `json:"-"` // routing only; not serialised
-	UserID string          `json:"-"` // skip delivery to this user's channel; empty = send to all
+	Type         string          `json:"event"`
+	Data         json.RawMessage `json:"data"`
+	JobID        string          `json:"job_id,omitempty"`
+	TeamID       string          `json:"-"` // routing only; not serialised
+	UserID       string          `json:"-"` // skip delivery to this user's channel; empty = send to all
+	TargetUserID string          `json:"-"` // deliver ONLY to this user; takes precedence over UserID
 }
 
 // subscription pairs an SSE channel with the user who owns the connection.
@@ -115,15 +116,23 @@ func (q *Queue) Subscribe(teamID, userID string) (<-chan Event, func()) {
 	return ch, cancel
 }
 
-// Publish sends an event to all SSE subscribers of the event's team.
-// If ev.UserID is non-empty, the subscriber whose userID matches is skipped
-// (the acting user's own mutations are handled by client-side cache invalidation).
+// Publish sends an event to SSE subscribers of the event's team.
+//
+// Routing rules (evaluated in order):
+//  1. If ev.TargetUserID is set, deliver ONLY to subscribers with that userID.
+//  2. Otherwise, if ev.UserID is set, skip the subscriber with that userID
+//     (the acting user's own mutations are handled by client-side cache invalidation).
+//  3. Otherwise, deliver to all team subscribers.
 func (q *Queue) Publish(ev Event) {
 	q.mu.RLock()
 	subs := q.subscribers[ev.TeamID]
 	q.mu.RUnlock()
 	for _, sub := range subs {
-		if ev.UserID != "" && sub.userID == ev.UserID {
+		if ev.TargetUserID != "" {
+			if sub.userID != ev.TargetUserID {
+				continue
+			}
+		} else if ev.UserID != "" && sub.userID == ev.UserID {
 			continue
 		}
 		select {

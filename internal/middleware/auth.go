@@ -161,10 +161,31 @@ func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error)
 		m.cache.TouchAPIToken(hash)
 		return user, nil
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil //nolint:nilnil // not found is not an error
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
 	}
-	return nil, err
+
+	// Cache miss — try scan session token via DB (prefix: "scan_").
+	// Scan session tokens are short-lived and low-frequency; we don't cache them.
+	if strings.HasPrefix(raw, "scan_") {
+		scanRow, err := m.q.GetScanSessionByTokenHash(ctx, hash)
+		if err == nil {
+			user := &User{
+				ID:          scanRow.UserID.String(),
+				DisplayName: scanRow.DisplayName,
+				Email:       scanRow.Email,
+				IsActive:    scanRow.IsActive,
+				IsAdmin:     scanRow.IsAdmin,
+			}
+			return user, nil
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil //nolint:nilnil // not found is not an error
+		}
+		return nil, err
+	}
+
+	return nil, nil //nolint:nilnil // not found is not an error
 }
 
 // SessionID returns the session ID if the user was authenticated via a session.

@@ -15,7 +15,8 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Pencil, Copy, Package } from 'lucide-svelte';
+  import { Pencil, Copy, Package, ScanLine } from 'lucide-svelte';
+  import ScanModal from '$lib/components/scanner/ScanModal.svelte';
   import { getTrackingUrl } from '$lib/utils/tracking.js';
   import type { OrderStatus, OrderLineItem, DigiKeyStatusLineItem, BuildStatus } from '$lib/types/orders.js';
 
@@ -243,6 +244,8 @@
     orderQuery.data?.status === 'partially_received'
   );
 
+  let scanOpen = $state(false);
+
   // Show a toast if returning from DigiKey OAuth flow.
   $effect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -391,6 +394,10 @@
           {/if}
         {/if}
         {#if canReceive}
+          <Button variant="outline" size="sm" onclick={() => { scanOpen = true; }}>
+            <ScanLine class="mr-1.5 h-4 w-4" />
+            Scan
+          </Button>
           <Button
             size="sm"
             onclick={() => { receivingMode = !receivingMode; }}
@@ -400,6 +407,12 @@
         {/if}
       {/snippet}
     </Topbar>
+
+    <ScanModal
+      {teamId}
+      orderId={order.id}
+      bind:open={scanOpen}
+    />
 
     <div class="flex-1 overflow-auto p-6 space-y-4">
       <MetadataCard title={order.id.slice(0, 8)}>

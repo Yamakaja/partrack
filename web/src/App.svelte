@@ -38,6 +38,7 @@
   import AdminUsers from './routes/admin/Users.svelte';
   import AdminParameters from './routes/admin/Parameters.svelte';
   import ResetPassword from './routes/admin/ResetPassword.svelte';
+  import Scan from './routes/Scan.svelte';
 
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -51,6 +52,7 @@
   const ROUTES = [
     { pattern: '/login',                                                                  component: Login },
     { pattern: '/reset-password',                                                         component: ResetPassword },
+    { pattern: '/scan',                                                                   component: Scan },
     { pattern: '/admin/parameters',                                                       component: AdminParameters },
     { pattern: '/admin/users',                                                            component: AdminUsers },
     { pattern: '/admin',                                                                  component: AdminUsers },
@@ -107,7 +109,7 @@
       deactivateTeamInvalidation();
     }
 
-    const publicPaths = ['/login', '/reset-password'];
+    const publicPaths = ['/login', '/reset-password', '/scan'];
     if (!authStore.loading && !authStore.user && !publicPaths.includes(route.path)) {
       navigate('/login', true);
     }
@@ -121,7 +123,7 @@
   });
 
   let resolved = $derived(resolve(currentRoute().path));
-  let isShellless = $derived(['/login', '/reset-password'].includes(currentRoute().path));
+  let isShellless = $derived(['/login', '/reset-password', '/scan'].includes(currentRoute().path));
 </script>
 
 <QueryClientProvider client={queryClient}>

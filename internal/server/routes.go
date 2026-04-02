@@ -24,6 +24,15 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/categories", h.ListCategories)
 		r.Get("/parameter-definitions", h.ListParameterDefinitions)
 
+		// ── Phone scan endpoints (scan token auth, no team role) ─────────────
+		r.Group(func(r chi.Router) {
+			r.Use(mw.Authenticate)
+			r.Get("/scan/session", h.GetScanSession)
+			r.Post("/scan/scans", h.SubmitScan)
+			r.Post("/scan/confirm", h.ConfirmScan)
+			r.Post("/scan/skip", h.SkipScan)
+		})
+
 		// ── Authenticated-only routes ────────────────────────────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)
@@ -198,6 +207,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				// Purchaser+
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireTeamRole("purchaser"))
+
+					// Scan session management
+					r.Post("/scan-sessions", h.CreateScanSession)
+					r.Delete("/scan-sessions/{sessionId}", h.DeleteScanSession)
 
 					// Cart
 					r.Get("/cart/count", h.GetCartCount)
