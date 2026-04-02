@@ -261,3 +261,7 @@ LEFT JOIN users u ON u.id = b.created_by
 WHERE b.team_id = $1
   AND b.status NOT IN ('assembled', 'cancelled')
 ORDER BY b.created_at DESC;
+
+
+-- name: DeleteBuildOrderLink :exec
+DELETE FROM build_orders WHERE build_id = @build_id AND order_id = @order_id;

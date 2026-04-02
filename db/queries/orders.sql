@@ -89,7 +89,7 @@ SET external_reference     = sqlc.arg('external_reference'),
     external_ref_linked_at = NOW(),
     status                 = 'placed'
 WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
-  AND status IN ('draft', 'exported', 'submitted')
+  AND status IN ('draft', 'exported', 'submitted', 'placed')
 RETURNING id, status, external_reference, external_ref_linked_at;
 
 -- name: TransitionOrderToExported :exec
@@ -233,3 +233,12 @@ INSERT INTO order_line_items (
     external_unit_price, external_qty_ordered, external_qty_shipped, external_qty_backordered
 ) VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8)
 RETURNING *;
+
+-- name: SetOrderLineItemQuantityOrdered :exec
+UPDATE order_line_items SET quantity_ordered = @quantity_ordered WHERE id = @id;
+
+-- name: GetOrderLineItemsWithPartID :many
+SELECT oli.id, dl.sku, oli.quantity_ordered, oli.quantity_received, dl.part_id
+FROM order_line_items oli
+JOIN distributor_listings dl ON dl.id = oli.listing_id
+WHERE oli.order_id = @order_id;

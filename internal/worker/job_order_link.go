@@ -18,6 +18,11 @@ type orderLinkPayload struct {
 	OrderID       string `json:"order_id"`
 	DistributorID string `json:"distributor_id"`
 	UserID        string `json:"user_id"`
+	// SkipReconcile is set by the LinkCommit handler for Path B (allocation conflicts
+	// resolved interactively). Line item qty updates were already done synchronously;
+	// this job only needs to enrich extra DigiKey SKUs not in partrack, and skip
+	// the LinkOrderExternalReference call (also already done).
+	SkipReconcile bool `json:"skip_reconcile"`
 }
 
 func (q *Queue) handleOrderLink(job Job) {
@@ -130,15 +135,30 @@ func (q *Queue) handleOrderLink(job Job) {
 		qtyBackorder := dkItem.QuantityBackOrder
 
 		if ptItem, matched := skuToItem[dkItem.SKU]; matched {
-			// Update existing partrack line item with DigiKey data.
-			_ = queries.UpdateOrderLineItemExternalData(ctx, dbgen.UpdateOrderLineItemExternalDataParams{
-				ID:                     ptItem.ID,
-				UnitPriceSnapshot:      priceNum,
-				ExternalUnitPrice:      priceNum,
-				ExternalQtyOrdered:     &qtyOrdered,
-				ExternalQtyShipped:     &qtyShipped,
-				ExternalQtyBackordered: &qtyBackorder,
-			})
+			if !p.SkipReconcile {
+				// Path A: update line item quantities and external data from DigiKey.
+				_ = queries.UpdateOrderLineItemExternalData(ctx, dbgen.UpdateOrderLineItemExternalDataParams{
+					ID:                     ptItem.ID,
+					UnitPriceSnapshot:      priceNum,
+					ExternalUnitPrice:      priceNum,
+					ExternalQtyOrdered:     &qtyOrdered,
+					ExternalQtyShipped:     &qtyShipped,
+					ExternalQtyBackordered: &qtyBackorder,
+				})
+				// Sync quantity_ordered to DigiKey's confirmed value.
+				effectiveQty := qtyOrdered
+				if effectiveQty < ptItem.QuantityReceived {
+					effectiveQty = ptItem.QuantityReceived
+				}
+				if effectiveQty < 1 {
+					effectiveQty = 1
+				}
+				_ = queries.SetOrderLineItemQuantityOrdered(ctx, dbgen.SetOrderLineItemQuantityOrderedParams{
+					QuantityOrdered: effectiveQty,
+					ID:              ptItem.ID,
+				})
+			}
+			// Path B (skip_reconcile): qty updates were done synchronously in LinkCommit.
 		} else {
 			// Extra item from DigiKey not in partrack order — try to enrich and add.
 			var listingID pgtype.UUID
@@ -202,23 +222,33 @@ func (q *Queue) handleOrderLink(job Job) {
 		}
 	}
 
-	// Transition order to placed.
-	if _, err := queries.LinkOrderExternalReference(ctx, dbgen.LinkOrderExternalReferenceParams{
-		ExternalReference: &p.SalesOrderID,
-		ID:                orderID,
-		TeamID:            teamID,
-	}); err != nil {
-		q.publishError(job, "failed to link external reference: "+err.Error())
-		return
-	}
-
-	// Set purchase order number if DigiKey provided one.
-	if orderStatus.PurchaseOrder != "" {
-		_, _ = queries.UpdateOrderPurchaseOrderNumber(ctx, dbgen.UpdateOrderPurchaseOrderNumberParams{
-			PurchaseOrderNumber: &orderStatus.PurchaseOrder,
-			ID:                  orderID,
-			TeamID:              teamID,
-		})
+	if !p.SkipReconcile {
+		// Path A: transition order to placed and set purchase order number.
+		if _, err := queries.LinkOrderExternalReference(ctx, dbgen.LinkOrderExternalReferenceParams{
+			ExternalReference: &p.SalesOrderID,
+			ID:                orderID,
+			TeamID:            teamID,
+		}); err != nil {
+			q.publishError(job, "failed to link external reference: "+err.Error())
+			return
+		}
+		if orderStatus.PurchaseOrder != "" {
+			_, _ = queries.UpdateOrderPurchaseOrderNumber(ctx, dbgen.UpdateOrderPurchaseOrderNumberParams{
+				PurchaseOrderNumber: &orderStatus.PurchaseOrder,
+				ID:                  orderID,
+				TeamID:              teamID,
+			})
+		}
+	} else {
+		// Path B: order was already linked synchronously in LinkCommit.
+		// Still update purchase order number if DigiKey provided one.
+		if orderStatus.PurchaseOrder != "" {
+			_, _ = queries.UpdateOrderPurchaseOrderNumber(ctx, dbgen.UpdateOrderPurchaseOrderNumberParams{
+				PurchaseOrderNumber: &orderStatus.PurchaseOrder,
+				ID:                  orderID,
+				TeamID:              teamID,
+			})
+		}
 	}
 
 	q.publishProgress(job, "order_import_progress", map[string]any{

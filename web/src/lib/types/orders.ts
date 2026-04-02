@@ -239,3 +239,24 @@ export interface CheckoutItem {
   quantity: number;
   inventory_entry_id: string;
 }
+
+export interface PartShortfall {
+  part_id: string;
+  mpn: string;
+  description: string;
+  quantity_from_order_before: number;
+  actual_qty: number;
+}
+
+export interface AffectedBuild {
+  build_id: string;
+  project_name: string;
+  build_quantity: number;
+  status: string;
+  suggested_keep: boolean;
+  parts_short: PartShortfall[];
+}
+
+export interface AllocationConflicts {
+  affected_builds: AffectedBuild[];
+}

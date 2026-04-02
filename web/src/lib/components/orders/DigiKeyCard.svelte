@@ -12,6 +12,7 @@
   import { ExternalLink, Copy } from 'lucide-svelte';
   import { getTrackingUrl } from '$lib/utils/tracking.js';
   import type { Order } from '$lib/types/orders.js';
+  import LinkDigiKeyOrderDialog from './LinkDigiKeyOrderDialog.svelte';
 
   interface Props {
     teamId: string;
@@ -28,6 +29,7 @@
   let pushing = $state(false);
   let quoting = $state(false);
   let checkingStatus = $state(false);
+  let showLinkDialog = $state(false);
   const dk = $derived(order.integrations?.digikey ?? {});
 
   const canPush = $derived(
@@ -39,6 +41,10 @@
   const canCheckStatus = $derived(
     !!order.external_reference &&
     (order.status === 'placed' || order.status === 'partially_received' || order.status === 'received')
+  );
+  const canLink = $derived(
+    !order.external_reference &&
+    (order.status === 'draft' || order.status === 'exported' || order.status === 'submitted' || order.status === 'placed')
   );
 
   // Derive unique shipment groups by tracking number (fallback: invoice_id).
@@ -147,9 +153,21 @@
   }
 </script>
 
+<LinkDigiKeyOrderDialog
+  {teamId}
+  {orderId}
+  bind:open={showLinkDialog}
+  onSuccess={() => qc.invalidateQueries({ queryKey: ['order', orderId] })}
+/>
+
 <MetadataCard title="DigiKey">
   {#snippet right()}
     <div class="flex items-center gap-2 flex-wrap justify-end">
+      {#if canLink}
+        <Button variant="outline" size="sm" onclick={() => { showLinkDialog = true; }}>
+          Link DigiKey Order
+        </Button>
+      {/if}
       {#if canPush}
         <Button variant="outline" size="sm" onclick={handlePush} disabled={pushing}>
           {pushing ? 'Pushing…' : dk.list_id ? 'Re-push List' : 'Push to DigiKey List'}

@@ -7,7 +7,6 @@
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import DigiKeyCard from '$lib/components/orders/DigiKeyCard.svelte';
-  import LinkDigiKeyOrderDialog from '$lib/components/orders/LinkDigiKeyOrderDialog.svelte';
   import { DataTable, LocalDataSource, getNestedValue } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Dialog } from '$lib/components/ui/dialog/index.js';
@@ -70,8 +69,6 @@
       default:          return status;
     }
   }
-
-  let showLinkDialog = $state(false);
 
   let receivingMode = $state(false);
   let receiveQtys = $state<Record<string, string>>({});
@@ -336,18 +333,6 @@
   }
 </script>
 
-{#if orderQuery.data}
-  <LinkDigiKeyOrderDialog
-    {teamId}
-    orderId={orderQuery.data.id}
-    bind:open={showLinkDialog}
-    onSuccess={() => {
-      qc.invalidateQueries({ queryKey: ['order', orderId] });
-      qc.invalidateQueries({ queryKey: ['orders', teamId] });
-    }}
-  />
-{/if}
-
 <div class="flex flex-col h-full">
   {#if orderQuery.data}
     {@const order = orderQuery.data}
@@ -366,11 +351,6 @@
         {#if order.status !== 'received'}
           <Button variant="outline" size="sm" onclick={handleExportCSV}>
             {order.status === 'exported' ? 'Re-export CSV' : 'Export CSV'}
-          </Button>
-        {/if}
-        {#if (order.status === 'draft' || order.status === 'exported' || order.status === 'submitted') && order.distributor_api_type === 'digikey'}
-          <Button size="sm" variant="outline" onclick={() => { showLinkDialog = true; }}>
-            Link DigiKey Order
           </Button>
         {/if}
         {#if order.status === 'draft' || order.status === 'exported' || order.status === 'submitted'}

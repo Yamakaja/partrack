@@ -85,3 +85,16 @@ export function importOrder(
 ) {
   return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/orders/import`, body);
 }
+
+export function commitLinkOrder(
+  teamId: string,
+  orderId: string,
+  token: string,
+  buildPriorities: { build_id: string; keep: boolean }[],
+) {
+  return request<{ job_id: string }>(
+    'POST',
+    `/api/v1/teams/${teamId}/orders/${orderId}/link-commit`,
+    { token, build_priorities: buildPriorities },
+  );
+}

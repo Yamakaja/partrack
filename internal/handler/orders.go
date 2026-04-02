@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -1168,6 +1169,45 @@ func (h *Handler) importOrderNew(w http.ResponseWriter, r *http.Request, teamID 
 	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})
 }
 
+// linkTokenPayload is the signed data carried by the client between the
+// conflict-detection preflight and the commit endpoint.
+type linkTokenPayload struct {
+	OrderID      string          `json:"order_id"`
+	TeamID       string          `json:"team_id"`
+	SalesOrderID string          `json:"sales_order_id"`
+	ExpiresAt    time.Time       `json:"expires_at"`
+	LineItems    []linkTokenItem `json:"line_items"`
+}
+
+type linkTokenItem struct {
+	LineItemID      string `json:"line_item_id"`
+	SKU             string `json:"sku"`
+	PlannedQty      int32  `json:"planned_qty"`
+	ActualQty       int32  `json:"actual_qty"`
+	ActualPrice     string `json:"actual_price"`
+	ActualShipped   int32  `json:"actual_shipped"`
+	ActualBackorder int32  `json:"actual_backorder"`
+}
+
+// partShortfallInfo describes a single part where a build loses order coverage.
+type partShortfallInfo struct {
+	PartID                  string `json:"part_id"`
+	MPN                     string `json:"mpn"`
+	Description             string `json:"description"`
+	QuantityFromOrderBefore int32  `json:"quantity_from_order_before"`
+	ActualQty               int32  `json:"actual_qty"`
+}
+
+// affectedBuildInfo describes a build affected by a quantity reduction.
+type affectedBuildInfo struct {
+	BuildID       string              `json:"build_id"`
+	ProjectName   string              `json:"project_name"`
+	BuildQuantity int32               `json:"build_quantity"`
+	Status        string              `json:"status"`
+	SuggestedKeep bool                `json:"suggested_keep"`
+	PartsShort    []partShortfallInfo `json:"parts_short"`
+}
+
 func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID pgtype.UUID, user *middleware.User, salesOrderID, existingOrderIDStr string, force bool) {
 	ctx := r.Context()
 
@@ -1188,9 +1228,13 @@ func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID
 		writeError(w, http.StatusUnprocessableEntity, "order distributor is not DigiKey", "WRONG_DISTRIBUTOR")
 		return
 	}
-	validStatuses := map[string]bool{"draft": true, "exported": true, "submitted": true}
+	validStatuses := map[string]bool{"draft": true, "exported": true, "submitted": true, "placed": true}
 	if !validStatuses[string(order.Status)] {
 		writeError(w, http.StatusUnprocessableEntity, "order is not in a linkable status", "WRONG_STATUS")
+		return
+	}
+	if order.ExternalReference != nil {
+		writeError(w, http.StatusUnprocessableEntity, "order is already linked to an external reference", "ALREADY_LINKED")
 		return
 	}
 
@@ -1216,33 +1260,43 @@ func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID
 		return
 	}
 
+	// Build DigiKey qty/price map by SKU.
+	type dkItem struct {
+		qty       int32
+		price     string
+		shipped   int32
+		backorder int32
+	}
+	dkBySKU := make(map[string]dkItem, len(dkOrder.LineItems))
+	for _, li := range dkOrder.LineItems {
+		dkBySKU[li.SKU] = dkItem{
+			qty:       li.QuantityOrdered,
+			price:     fmt.Sprintf("%.4f", li.UnitPrice),
+			shipped:   li.QuantityShipped,
+			backorder: li.QuantityBackOrder,
+		}
+	}
+
+	// Fetch partrack line items with part IDs.
+	ptItems, err := h.Queries.GetOrderLineItemsWithPartID(ctx, orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get line items", "INTERNAL")
+		return
+	}
+
 	if !force {
-		// Build set of DigiKey SKUs.
-		dkSKUs := make(map[string]int32, len(dkOrder.LineItems))
-		for _, li := range dkOrder.LineItems {
-			dkSKUs[li.SKU] = li.QuantityOrdered
-		}
-
-		// Check how many partrack SKUs / qty are missing from DigiKey.
-		lineItems, err := h.Queries.GetOrderLineItems(ctx, orderID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to get line items", "INTERNAL")
-			return
-		}
-
+		// Check for order_mismatch: >10% of SKUs or qty completely absent from DigiKey.
 		var missingSKUs []string
 		var totalQty, missingQty int32
-		for _, li := range lineItems {
+		for _, li := range ptItems {
 			totalQty += li.QuantityOrdered
-			if _, found := dkSKUs[li.Sku]; !found {
+			if _, found := dkBySKU[li.Sku]; !found {
 				missingSKUs = append(missingSKUs, li.Sku)
 				missingQty += li.QuantityOrdered
 			}
 		}
-
-		// Warn if >10% of SKUs or qty are missing.
-		if len(lineItems) > 0 && len(missingSKUs) > 0 {
-			skuPct := float64(len(missingSKUs)) / float64(len(lineItems)) * 100
+		if len(ptItems) > 0 && len(missingSKUs) > 0 {
+			skuPct := float64(len(missingSKUs)) / float64(len(ptItems)) * 100
 			qtyPct := float64(0)
 			if totalQty > 0 {
 				qtyPct = float64(missingQty) / float64(totalQty) * 100
@@ -1259,12 +1313,425 @@ func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID
 		}
 	}
 
-	jobID := h.Worker.Enqueue(worker.JobOrderLink, teamID.String(), map[string]string{
-		"sales_order_id": salesOrderID,
-		"order_id":       existingOrderIDStr,
+	// Collect token items (all items where DigiKey qty differs from planned).
+	var tokenItems []linkTokenItem
+	for _, li := range ptItems {
+		dk := dkBySKU[li.Sku] // zero value if absent → actualQty = 0
+		if dk.qty != li.QuantityOrdered {
+			tokenItems = append(tokenItems, linkTokenItem{
+				LineItemID:      li.ID.String(),
+				SKU:             li.Sku,
+				PlannedQty:      li.QuantityOrdered,
+				ActualQty:       dk.qty,
+				ActualPrice:     dk.price,
+				ActualShipped:   dk.shipped,
+				ActualBackorder: dk.backorder,
+			})
+		}
+	}
+
+	// Check for allocation conflicts: any part where qty decreased and build claims exceed new qty.
+	// Build a map: partID → {actualQty, []allocation}
+	type partConflict struct {
+		actualQty   int32
+		allocations []dbgen.GetLinkedBuildAllocationsForOrderPartRow
+	}
+	partConflicts := make(map[string]partConflict)
+
+	for _, li := range ptItems {
+		dk := dkBySKU[li.Sku]
+		if dk.qty >= li.QuantityOrdered {
+			continue // no reduction for this part
+		}
+		allocs, err := h.Queries.GetLinkedBuildAllocationsForOrderPart(ctx, dbgen.GetLinkedBuildAllocationsForOrderPartParams{
+			OrderID: orderID,
+			PartID:  li.PartID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get build allocations", "INTERNAL")
+			return
+		}
+		var totalClaims int32
+		for _, a := range allocs {
+			claim := a.QuantityNeeded - a.QuantityReserved - a.QuantityReceived
+			if claim < 0 {
+				claim = 0
+			}
+			totalClaims += claim
+		}
+		if totalClaims > dk.qty {
+			partConflicts[li.PartID.String()] = partConflict{actualQty: dk.qty, allocations: allocs}
+		}
+	}
+
+	if len(partConflicts) > 0 {
+		// Fetch build details for all linked builds.
+		linkedBuilds, err := h.Queries.GetLinkedBuildsForOrder(ctx, orderID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get linked builds", "INTERNAL")
+			return
+		}
+
+		// Index allocations by buildID+partID.
+		type buildPartKey struct{ buildID, partID string }
+		allocByBuildPart := make(map[buildPartKey]int32)
+		for _, pc := range partConflicts {
+			for _, a := range pc.allocations {
+				claim := a.QuantityNeeded - a.QuantityReserved - a.QuantityReceived
+				if claim < 0 {
+					claim = 0
+				}
+				allocByBuildPart[buildPartKey{a.BuildID.String(), a.PartID.String()}] = claim
+			}
+		}
+
+		// Build affected builds list — only builds with at least one conflicting part claim.
+		// Also fetch part details for mpn/description.
+		type buildEntry struct {
+			build      dbgen.GetLinkedBuildsForOrderRow
+			partsShort []partShortfallInfo
+		}
+		var affected []buildEntry
+		for _, b := range linkedBuilds {
+			if b.Status != "ordered" && b.Status != "ready" {
+				continue
+			}
+			var parts []partShortfallInfo
+			for partIDStr, pc := range partConflicts {
+				claim := allocByBuildPart[buildPartKey{b.ID.String(), partIDStr}]
+				if claim == 0 {
+					continue
+				}
+				// Fetch part info for mpn/description.
+				var partID pgtype.UUID
+				_ = partID.Scan(partIDStr)
+				part, err := h.Queries.GetPart(ctx, partID)
+				mpn := ""
+				desc := ""
+				if err == nil {
+					if part.Mpn != nil {
+						mpn = *part.Mpn
+					}
+					if part.Description != nil {
+						desc = *part.Description
+					}
+				}
+				parts = append(parts, partShortfallInfo{
+					PartID:                  partIDStr,
+					MPN:                     mpn,
+					Description:             desc,
+					QuantityFromOrderBefore: claim,
+					ActualQty:               pc.actualQty,
+				})
+			}
+			if len(parts) > 0 {
+				affected = append(affected, buildEntry{build: b, partsShort: parts})
+			}
+		}
+
+		// Greedy suggested_keep: sort by created_at ascending, assign claims until exhausted.
+		sort.Slice(affected, func(i, j int) bool {
+			return affected[i].build.CreatedAt.Time.Before(affected[j].build.CreatedAt.Time)
+		})
+		remainingByPart := make(map[string]int32)
+		for partIDStr, pc := range partConflicts {
+			remainingByPart[partIDStr] = pc.actualQty
+		}
+		suggestedKeep := make(map[string]bool, len(affected))
+		for _, ae := range affected {
+			fits := true
+			for _, ps := range ae.partsShort {
+				if ps.QuantityFromOrderBefore > remainingByPart[ps.PartID] {
+					fits = false
+					break
+				}
+			}
+			if fits {
+				suggestedKeep[ae.build.ID.String()] = true
+				for _, ps := range ae.partsShort {
+					remainingByPart[ps.PartID] -= ps.QuantityFromOrderBefore
+				}
+			}
+		}
+
+		// Build response.
+		affectedBuilds := make([]affectedBuildInfo, 0, len(affected))
+		for _, ae := range affected {
+			affectedBuilds = append(affectedBuilds, affectedBuildInfo{
+				BuildID:       ae.build.ID.String(),
+				ProjectName:   ae.build.ProjectName,
+				BuildQuantity: ae.build.Quantity,
+				Status:        ae.build.Status,
+				SuggestedKeep: suggestedKeep[ae.build.ID.String()],
+				PartsShort:    ae.partsShort,
+			})
+		}
+
+		// Sign token with all differing line items.
+		token, err := signLinkToken(linkTokenPayload{
+			OrderID:      existingOrderIDStr,
+			TeamID:       teamID.String(),
+			SalesOrderID: salesOrderID,
+			ExpiresAt:    time.Now().Add(10 * time.Minute),
+			LineItems:    tokenItems,
+		}, h.Config.Auth.SessionSecret)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to sign token", "INTERNAL")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"code":  "allocation_conflicts",
+			"token": token,
+			"conflicts": map[string]any{
+				"affected_builds": affectedBuilds,
+			},
+		})
+		return
+	}
+
+	jobID := h.Worker.Enqueue(worker.JobOrderLink, teamID.String(), map[string]any{
+		"sales_order_id":  salesOrderID,
+		"order_id":        existingOrderIDStr,
+		"distributor_id":  order.DistributorID.String(),
+		"user_id":         user.ID,
+		"skip_reconcile":  false,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})
+}
+
+// LinkCommit handles POST /orders/{orderId}/link-commit.
+// The client submits a signed token (from the allocation_conflicts preflight) plus
+// build priority decisions. The handler atomically updates line item quantities,
+// reverts deselected builds to pending, recomputes shortfalls, and links the order.
+func (h *Handler) LinkCommit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	orderIDStr := chi.URLParam(r, "orderId")
+	var orderID pgtype.UUID
+	if err := orderID.Scan(orderIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order id", "BAD_REQUEST")
+		return
+	}
+	user := middleware.UserFromContext(ctx)
+
+	// Fetch the order to get the distributor ID (needed for job enqueue after commit).
+	order, err := h.Queries.GetOrder(ctx, dbgen.GetOrderParams{ID: orderID, TeamID: teamID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+		return
+	}
+
+	var body struct {
+		Token           string `json:"token"`
+		BuildPriorities []struct {
+			BuildID string `json:"build_id"`
+			Keep    bool   `json:"keep"`
+		} `json:"build_priorities"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+
+	var payload linkTokenPayload
+	if err := verifyLinkToken(body.Token, h.Config.Auth.SessionSecret, &payload); err != nil {
+		if errors.Is(err, errTokenExpired) {
+			writeError(w, http.StatusUnprocessableEntity, "link token has expired", "TOKEN_EXPIRED")
+		} else {
+			writeError(w, http.StatusUnprocessableEntity, "invalid link token", "INVALID_TOKEN")
+		}
+		return
+	}
+
+	if payload.OrderID != orderIDStr || payload.TeamID != teamID.String() {
+		writeError(w, http.StatusForbidden, "token does not match this order", "TOKEN_MISMATCH")
+		return
+	}
+
+	// Build keep set from request.
+	keepSet := make(map[string]bool, len(body.BuildPriorities))
+	for _, bp := range body.BuildPriorities {
+		keepSet[bp.BuildID] = bp.Keep
+	}
+
+	// Validate priorities: for each conflicting part, sum claims of kept builds <= actualQty.
+	// Build a map of lineItemID → actualQty from the token, and partID → actualQty from allocations.
+	// We need to re-derive partID → actualQty from the token + current DB state.
+	// Fetch current line items to get partID for each token item.
+	ptItems, err := h.Queries.GetOrderLineItemsWithPartID(ctx, orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get line items", "INTERNAL")
+		return
+	}
+	itemsByID := make(map[string]dbgen.GetOrderLineItemsWithPartIDRow, len(ptItems))
+	for _, li := range ptItems {
+		itemsByID[li.ID.String()] = li
+	}
+
+	// Build partID → actualQty from token items that are reductions.
+	partActualQty := make(map[string]int32)
+	for _, ti := range payload.LineItems {
+		li, ok := itemsByID[ti.LineItemID]
+		if !ok {
+			continue
+		}
+		if ti.ActualQty < ti.PlannedQty {
+			partActualQty[li.PartID.String()] = ti.ActualQty
+		}
+	}
+
+	// For each reduced part, sum claims of kept builds.
+	for partIDStr, actualQty := range partActualQty {
+		var partID pgtype.UUID
+		_ = partID.Scan(partIDStr)
+		allocs, err := h.Queries.GetLinkedBuildAllocationsForOrderPart(ctx, dbgen.GetLinkedBuildAllocationsForOrderPartParams{
+			OrderID: orderID,
+			PartID:  partID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to validate priorities", "INTERNAL")
+			return
+		}
+		var claimedByKept int32
+		for _, a := range allocs {
+			if keepSet[a.BuildID.String()] {
+				claim := a.QuantityNeeded - a.QuantityReserved - a.QuantityReceived
+				if claim < 0 {
+					claim = 0
+				}
+				claimedByKept += claim
+			}
+		}
+		if claimedByKept > actualQty {
+			writeError(w, http.StatusUnprocessableEntity, "kept builds exceed available quantity", "INVALID_PRIORITIES")
+			return
+		}
+	}
+
+	// Begin transaction.
+	tx, err := h.DB.Begin(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	// Update line item quantities from token.
+	for _, ti := range payload.LineItems {
+		li, ok := itemsByID[ti.LineItemID]
+		if !ok {
+			continue
+		}
+		effectiveQty := ti.ActualQty
+		if effectiveQty < li.QuantityReceived {
+			effectiveQty = li.QuantityReceived
+		}
+		if effectiveQty < 1 {
+			effectiveQty = 1 // quantity_ordered > 0 constraint
+		}
+		if err := qtx.SetOrderLineItemQuantityOrdered(ctx, dbgen.SetOrderLineItemQuantityOrderedParams{
+			QuantityOrdered: effectiveQty,
+			ID:              li.ID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update line item qty", "INTERNAL_ERROR")
+			return
+		}
+		var priceNum pgtype.Numeric
+		_ = priceNum.Scan(ti.ActualPrice)
+		if err := qtx.UpdateOrderLineItemExternalData(ctx, dbgen.UpdateOrderLineItemExternalDataParams{
+			ID:                     li.ID,
+			UnitPriceSnapshot:      priceNum,
+			ExternalUnitPrice:      priceNum,
+			ExternalQtyOrdered:     &ti.ActualQty,
+			ExternalQtyShipped:     &ti.ActualShipped,
+			ExternalQtyBackordered: &ti.ActualBackorder,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update external data", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	// Revert deselected builds to pending and remove their build_orders links.
+	linkedBuildIDs, err := qtx.GetLinkedBuildIDsForOrder(ctx, orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get linked builds", "INTERNAL_ERROR")
+		return
+	}
+	linkedSet := make(map[string]bool, len(linkedBuildIDs))
+	for _, bid := range linkedBuildIDs {
+		linkedSet[bid.String()] = true
+	}
+
+	for _, bp := range body.BuildPriorities {
+		if bp.Keep || !linkedSet[bp.BuildID] {
+			continue
+		}
+		var buildID pgtype.UUID
+		if err := buildID.Scan(bp.BuildID); err != nil {
+			continue
+		}
+		// Only revert ordered/ready builds.
+		if err := qtx.UpdateBuildStatus(ctx, dbgen.UpdateBuildStatusParams{
+			ID:     buildID,
+			Status: "pending",
+			TeamID: teamID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to revert build", "INTERNAL_ERROR")
+			return
+		}
+		if err := qtx.DeleteBuildOrderLink(ctx, dbgen.DeleteBuildOrderLinkParams{
+			BuildID: buildID,
+			OrderID: orderID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to unlink build from order", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	// Recompute cart shortfalls.
+	cart, err := qtx.GetOrCreateCart(ctx, teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get cart", "INTERNAL_ERROR")
+		return
+	}
+	if _, err := h.recomputeBomShortfalls(ctx, qtx, cart.ID, teamID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to recompute shortfalls", "INTERNAL_ERROR")
+		return
+	}
+
+	// Link order to DigiKey reference.
+	if _, err := qtx.LinkOrderExternalReference(ctx, dbgen.LinkOrderExternalReferenceParams{
+		ExternalReference: &payload.SalesOrderID,
+		ID:                orderID,
+		TeamID:            teamID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to link order", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// Enqueue trimmed job to handle extra DigiKey SKUs not in partrack.
+	jobID := h.Worker.Enqueue(worker.JobOrderLink, teamID.String(), map[string]any{
+		"sales_order_id": payload.SalesOrderID,
+		"order_id":       orderIDStr,
 		"distributor_id": order.DistributorID.String(),
 		"user_id":        user.ID,
+		"skip_reconcile": true,
 	})
+
+	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderIDStr})
 
 	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})
 }

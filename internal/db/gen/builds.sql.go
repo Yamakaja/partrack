@@ -251,6 +251,20 @@ func (q *Queries) DecrementBuildQuantity(ctx context.Context, arg DecrementBuild
 	return i, err
 }
 
+const deleteBuildOrderLink = `-- name: DeleteBuildOrderLink :exec
+DELETE FROM build_orders WHERE build_id = $1 AND order_id = $2
+`
+
+type DeleteBuildOrderLinkParams struct {
+	BuildID pgtype.UUID `json:"build_id"`
+	OrderID pgtype.UUID `json:"order_id"`
+}
+
+func (q *Queries) DeleteBuildOrderLink(ctx context.Context, arg DeleteBuildOrderLinkParams) error {
+	_, err := q.db.Exec(ctx, deleteBuildOrderLink, arg.BuildID, arg.OrderID)
+	return err
+}
+
 const deleteBuildPartAllocations = `-- name: DeleteBuildPartAllocations :exec
 DELETE FROM build_part_allocations WHERE build_id = $1
 `

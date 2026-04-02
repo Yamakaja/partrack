@@ -469,6 +469,47 @@ func (q *Queries) GetOrderLineItems(ctx context.Context, orderID pgtype.UUID) ([
 	return items, nil
 }
 
+const getOrderLineItemsWithPartID = `-- name: GetOrderLineItemsWithPartID :many
+SELECT oli.id, dl.sku, oli.quantity_ordered, oli.quantity_received, dl.part_id
+FROM order_line_items oli
+JOIN distributor_listings dl ON dl.id = oli.listing_id
+WHERE oli.order_id = $1
+`
+
+type GetOrderLineItemsWithPartIDRow struct {
+	ID               pgtype.UUID `json:"id"`
+	Sku              string      `json:"sku"`
+	QuantityOrdered  int32       `json:"quantity_ordered"`
+	QuantityReceived int32       `json:"quantity_received"`
+	PartID           pgtype.UUID `json:"part_id"`
+}
+
+func (q *Queries) GetOrderLineItemsWithPartID(ctx context.Context, orderID pgtype.UUID) ([]GetOrderLineItemsWithPartIDRow, error) {
+	rows, err := q.db.Query(ctx, getOrderLineItemsWithPartID, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOrderLineItemsWithPartIDRow
+	for rows.Next() {
+		var i GetOrderLineItemsWithPartIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sku,
+			&i.QuantityOrdered,
+			&i.QuantityReceived,
+			&i.PartID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOrderReceiptStatus = `-- name: GetOrderReceiptStatus :one
 SELECT
     COUNT(*) AS total,
@@ -618,7 +659,7 @@ SET external_reference     = $1,
     external_ref_linked_at = NOW(),
     status                 = 'placed'
 WHERE id = $2 AND team_id = $3
-  AND status IN ('draft', 'exported', 'submitted')
+  AND status IN ('draft', 'exported', 'submitted', 'placed')
 RETURNING id, status, external_reference, external_ref_linked_at
 `
 
@@ -751,6 +792,20 @@ func (q *Queries) ReceiveOrderLineItem(ctx context.Context, arg ReceiveOrderLine
 		&i.QuantityReceived,
 	)
 	return i, err
+}
+
+const setOrderLineItemQuantityOrdered = `-- name: SetOrderLineItemQuantityOrdered :exec
+UPDATE order_line_items SET quantity_ordered = $1 WHERE id = $2
+`
+
+type SetOrderLineItemQuantityOrderedParams struct {
+	QuantityOrdered int32       `json:"quantity_ordered"`
+	ID              pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) SetOrderLineItemQuantityOrdered(ctx context.Context, arg SetOrderLineItemQuantityOrderedParams) error {
+	_, err := q.db.Exec(ctx, setOrderLineItemQuantityOrdered, arg.QuantityOrdered, arg.ID)
+	return err
 }
 
 const transitionOrderStatus = `-- name: TransitionOrderStatus :exec
