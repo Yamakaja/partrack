@@ -89,10 +89,10 @@ func (q *Queue) handleOrderImport(job Job) {
 
 	total := len(orderStatus.LineItems)
 
-	publishProgress := func(status string, resolved int, unresolvedSKUs []string) {
-		skus := unresolvedSKUs
-		if skus == nil {
-			skus = []string{}
+	publishProgress := func(status string, resolved int, items []UnresolvedImportItem) {
+		skus := make([]string, len(items))
+		for i, u := range items {
+			skus[i] = u.SKU
 		}
 		q.publishProgress(job, "order_import_progress", map[string]any{
 			"status":          status,
@@ -116,7 +116,7 @@ func (q *Queue) handleOrderImport(job Job) {
 	}
 
 	var resolved []resolvedItem
-	var unresolvedSKUs []string
+	var unresolvedItems []UnresolvedImportItem
 	lastPublish := time.Now()
 
 	for _, li := range orderStatus.LineItems {
@@ -132,11 +132,12 @@ func (q *Queue) handleOrderImport(job Job) {
 			partID = row.PartID
 		}
 
-		// Enrich if not found.
+		// Enrich if not found — capture reason separately.
 		if !listingID.Valid {
-			if result, err := client.EnrichPart(ctx, li.SKU, json.RawMessage(cfg.ApiCredentials)); err == nil && result != nil {
+			enrichResult, enrichErr := client.EnrichPart(ctx, li.SKU, json.RawMessage(cfg.ApiCredentials))
+			if enrichErr == nil && enrichResult != nil {
 				mpn := li.MPN
-				if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, distributorID, result, &mpn, nil); err == nil && pid.Valid {
+				if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, distributorID, enrichResult, &mpn, nil); err == nil && pid.Valid {
 					if row, err := queries.GetListingBySKUAndDistributorID(ctx, dbgen.GetListingBySKUAndDistributorIDParams{
 						Sku:           li.SKU,
 						DistributorID: distributorID,
@@ -146,11 +147,27 @@ func (q *Queue) handleOrderImport(job Job) {
 					}
 				}
 			}
+
+			if !listingID.Valid {
+				reason := "listing_not_found"
+				if enrichErr != nil {
+					reason = "enrichment_failed"
+				} else if enrichResult == nil {
+					reason = "enrichment_nil"
+				}
+				unresolvedItems = append(unresolvedItems, UnresolvedImportItem{
+					SKU:               li.SKU,
+					MPN:               li.MPN,
+					UnitPrice:         li.UnitPrice,
+					QuantityOrdered:   li.QuantityOrdered,
+					QuantityShipped:   li.QuantityShipped,
+					QuantityBackorder: li.QuantityBackOrder,
+					FailureReason:     reason,
+				})
+			}
 		}
 
-		if !listingID.Valid {
-			unresolvedSKUs = append(unresolvedSKUs, li.SKU)
-		} else {
+		if listingID.Valid {
 			resolved = append(resolved, resolvedItem{
 				listingID:    listingID,
 				partID:       partID,
@@ -162,7 +179,7 @@ func (q *Queue) handleOrderImport(job Job) {
 		}
 
 		if time.Since(lastPublish) >= 100*time.Millisecond {
-			publishProgress("progress", len(resolved), unresolvedSKUs)
+			publishProgress("progress", len(resolved), unresolvedItems)
 			lastPublish = time.Now()
 		}
 	}
@@ -247,13 +264,27 @@ func (q *Queue) handleOrderImport(job Job) {
 		}
 	}
 
+	// Persist unresolved items so the user can retry later.
+	if len(unresolvedItems) > 0 {
+		itemsJSON, _ := json.Marshal(unresolvedItems)
+		_ = queries.SetOrderUnresolvedItems(ctx, dbgen.SetOrderUnresolvedItemsParams{
+			ID:              order.ID,
+			TeamID:          teamID,
+			UnresolvedItems: itemsJSON,
+		})
+	}
+
+	skus := make([]string, len(unresolvedItems))
+	for i, u := range unresolvedItems {
+		skus[i] = u.SKU
+	}
 	q.publishProgress(job, "order_import_progress", map[string]any{
 		"status":          "complete",
 		"job_id":          job.ID,
 		"order_id":        order.ID.String(),
 		"total":           total,
 		"resolved":        len(resolved),
-		"unresolved_skus": unresolvedSKUs,
+		"unresolved_skus": skus,
 	})
 
 	orderData, _ := json.Marshal(map[string]string{"order_id": order.ID.String()})

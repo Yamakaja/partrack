@@ -17,12 +17,13 @@ import (
 type JobType string
 
 const (
-	JobBOMImport                  JobType = "bom_import"
-	JobPartEnrich                 JobType = "part_enrich"
-	JobListingRefresh             JobType = "listing_refresh"
-	JobOrderImport                JobType = "order_import"
-	JobOrderLink                  JobType = "order_link"
-	JobBuildSubstituteSelections  JobType = "build_substitute_selections"
+	JobBOMImport                 JobType = "bom_import"
+	JobPartEnrich                JobType = "part_enrich"
+	JobListingRefresh            JobType = "listing_refresh"
+	JobOrderImport               JobType = "order_import"
+	JobOrderLink                 JobType = "order_link"
+	JobBuildSubstituteSelections JobType = "build_substitute_selections"
+	JobRetryUnresolved           JobType = "retry_unresolved"
 )
 
 // Job is a unit of work submitted to the Queue.
@@ -166,6 +167,8 @@ func (q *Queue) process(job Job) {
 		handler = q.handleOrderLink
 	case JobBuildSubstituteSelections:
 		handler = q.handleBuildSubstituteSelections
+	case JobRetryUnresolved:
+		handler = q.handleRetryUnresolved
 	default:
 		handler = q.handleUnknown
 	}

@@ -37,7 +37,10 @@ WHERE o.id = $1 AND o.team_id = $2;
 -- name: GetOrderLineItems :many
 SELECT
     oli.id, oli.listing_id,
+    dl.part_id,
     p.mpn AS part_mpn,
+    p.manufacturer AS part_manufacturer,
+    COALESCE(p.short_description, p.description) AS part_description,
     dl.sku, dl.packaging_type,
     oli.quantity_ordered, oli.quantity_received,
     oli.unit_price_snapshot, oli.fixed_order_cost_snapshot
@@ -211,6 +214,16 @@ UPDATE orders
 SET integrations = $3
 WHERE id = $1 AND team_id = $2
 RETURNING id, integrations;
+
+-- name: SetOrderUnresolvedItems :exec
+UPDATE orders
+SET integrations = jsonb_set(
+        COALESCE(integrations, '{}'::jsonb),
+        '{digikey,unresolved_items}',
+        @unresolved_items,
+        true
+    )
+WHERE id = @id AND team_id = @team_id;
 
 -- name: GetOrderByExternalReference :one
 SELECT id FROM orders

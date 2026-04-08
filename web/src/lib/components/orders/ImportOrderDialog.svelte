@@ -155,6 +155,11 @@
           <p class="text-sm">Order successfully imported and set to placed status.</p>
         </div>
         <UnresolvedSkuList skus={resultUnresolved} />
+        {#if resultUnresolved.length > 0}
+          <p class="text-xs text-muted-foreground mt-1.5">
+            These items were saved to the order. Use the "Retry unresolved" button in the DigiKey card to re-attempt enrichment.
+          </p>
+        {/if}
         <div class="flex justify-end gap-2 mt-5">
           <Button variant="outline" onclick={() => { open = false; }}>Close</Button>
           {#if resultOrderId}

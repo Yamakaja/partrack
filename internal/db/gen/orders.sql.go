@@ -416,7 +416,10 @@ func (q *Queries) GetOrderLineItem(ctx context.Context, arg GetOrderLineItemPara
 const getOrderLineItems = `-- name: GetOrderLineItems :many
 SELECT
     oli.id, oli.listing_id,
+    dl.part_id,
     p.mpn AS part_mpn,
+    p.manufacturer AS part_manufacturer,
+    COALESCE(p.short_description, p.description) AS part_description,
     dl.sku, dl.packaging_type,
     oli.quantity_ordered, oli.quantity_received,
     oli.unit_price_snapshot, oli.fixed_order_cost_snapshot
@@ -430,7 +433,10 @@ ORDER BY oli.id
 type GetOrderLineItemsRow struct {
 	ID                     pgtype.UUID    `json:"id"`
 	ListingID              pgtype.UUID    `json:"listing_id"`
+	PartID                 pgtype.UUID    `json:"part_id"`
 	PartMpn                *string        `json:"part_mpn"`
+	PartManufacturer       *string        `json:"part_manufacturer"`
+	PartDescription        *string        `json:"part_description"`
 	Sku                    string         `json:"sku"`
 	PackagingType          string         `json:"packaging_type"`
 	QuantityOrdered        int32          `json:"quantity_ordered"`
@@ -451,7 +457,10 @@ func (q *Queries) GetOrderLineItems(ctx context.Context, orderID pgtype.UUID) ([
 		if err := rows.Scan(
 			&i.ID,
 			&i.ListingID,
+			&i.PartID,
 			&i.PartMpn,
+			&i.PartManufacturer,
+			&i.PartDescription,
 			&i.Sku,
 			&i.PackagingType,
 			&i.QuantityOrdered,
@@ -805,6 +814,28 @@ type SetOrderLineItemQuantityOrderedParams struct {
 
 func (q *Queries) SetOrderLineItemQuantityOrdered(ctx context.Context, arg SetOrderLineItemQuantityOrderedParams) error {
 	_, err := q.db.Exec(ctx, setOrderLineItemQuantityOrdered, arg.QuantityOrdered, arg.ID)
+	return err
+}
+
+const setOrderUnresolvedItems = `-- name: SetOrderUnresolvedItems :exec
+UPDATE orders
+SET integrations = jsonb_set(
+        COALESCE(integrations, '{}'::jsonb),
+        '{digikey,unresolved_items}',
+        $1,
+        true
+    )
+WHERE id = $2 AND team_id = $3
+`
+
+type SetOrderUnresolvedItemsParams struct {
+	UnresolvedItems []byte      `json:"unresolved_items"`
+	ID              pgtype.UUID `json:"id"`
+	TeamID          pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) SetOrderUnresolvedItems(ctx context.Context, arg SetOrderUnresolvedItemsParams) error {
+	_, err := q.db.Exec(ctx, setOrderUnresolvedItems, arg.UnresolvedItems, arg.ID, arg.TeamID)
 	return err
 }
 

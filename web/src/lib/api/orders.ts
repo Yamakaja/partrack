@@ -67,6 +67,13 @@ export function getDistributorStatus(teamId: string, orderId: string) {
   );
 }
 
+export function retryUnresolvedItems(teamId: string, orderId: string) {
+  return request<{ job_id: string }>(
+    'POST',
+    `/api/v1/teams/${teamId}/orders/${orderId}/retry-unresolved`,
+  );
+}
+
 export interface ImportOrderProgress {
   status: 'progress' | 'complete' | 'error';
   job_id: string;
@@ -74,6 +81,7 @@ export interface ImportOrderProgress {
   total: number;
   resolved?: number;
   processed?: number;
+  attempted?: number;
   unresolved_skus: string[];
   extra_items_added?: number;
   error?: string;

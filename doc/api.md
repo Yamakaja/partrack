@@ -247,6 +247,7 @@ Higher roles inherit all permissions of lower roles.
 | POST | `/orders/{orderId}/items/{itemId}/receive` | purchaser | `{quantity_received}` → `{line_item_id, quantity_ordered, quantity_received, order_status, new_quantity_on_hand, allocation_breakdown}`. Allocates to linked builds first, remainder to general inventory. Auto-transitions order status. Returns 409 if order not in receivable status. |
 | POST | `/orders/{orderId}/push-to-distributor` | purchaser | Push order as parts list on distributor platform → `{list_id, list_url}`. Transitions to `exported_via_api`. Returns 401 if OAuth required; 422 if no ordering support. |
 | POST | `/orders/{orderId}/request-quote` | purchaser | Request confirmed pricing quote from distributor → `{quote_id, quote_name, items}`. Returns 422 if no ordering support. |
+| POST | `/orders/{orderId}/retry-unresolved` | purchaser | Re-attempt enrichment for unresolved import items → `{job_id}`. Requires `external_reference` set and order not cancelled. Returns 400 `NOT_LINKED` or 409 `ORDER_CANCELLED`. SSE: `order_import_progress` with `{status, job_id, order_id, total, attempted, resolved, unresolved_skus}`, then `order_changed`. |
 
 ### OAuth (distributor)
 

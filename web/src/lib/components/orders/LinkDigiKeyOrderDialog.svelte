@@ -407,6 +407,9 @@
               {/if}
             </ul>
           </div>
+          <p class="text-xs text-muted-foreground mt-1.5">
+            These items were saved to the order. Use the "Retry unresolved" button in the DigiKey card to re-attempt enrichment.
+          </p>
         {/if}
         <div class="flex justify-end mt-5">
           <Button onclick={() => { open = false; }}>Done</Button>

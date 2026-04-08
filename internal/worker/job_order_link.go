@@ -102,25 +102,25 @@ func (q *Queue) handleOrderLink(job Job) {
 	}
 
 	total := len(orderStatus.LineItems)
-	publishProgress := func(status string, processed int, unresolvedSKUs []string, extraAdded int) {
-		skus := unresolvedSKUs
-		if skus == nil {
-			skus = []string{}
+	publishProgress := func(status string, processed int, items []UnresolvedImportItem, extraAdded int) {
+		skus := make([]string, len(items))
+		for i, u := range items {
+			skus[i] = u.SKU
 		}
 		q.publishProgress(job, "order_import_progress", map[string]any{
-			"status":           status,
-			"job_id":           job.ID,
-			"order_id":         p.OrderID,
-			"total":            total,
-			"processed":        processed,
-			"unresolved_skus":  skus,
+			"status":            status,
+			"job_id":            job.ID,
+			"order_id":          p.OrderID,
+			"total":             total,
+			"processed":         processed,
+			"unresolved_skus":   skus,
 			"extra_items_added": extraAdded,
 		})
 	}
 
 	publishProgress("progress", 0, nil, 0)
 
-	var unresolvedSKUs []string
+	var unresolvedItems []UnresolvedImportItem
 	extraAdded := 0
 	processed := 0
 	lastPublish := time.Now()
@@ -173,9 +173,10 @@ func (q *Queue) handleOrderLink(job Job) {
 			}
 
 			if !listingID.Valid {
-				if result, err := client.EnrichPart(ctx, dkItem.SKU, json.RawMessage(cfg.ApiCredentials)); err == nil && result != nil {
+				enrichResult, enrichErr := client.EnrichPart(ctx, dkItem.SKU, json.RawMessage(cfg.ApiCredentials))
+				if enrichErr == nil && enrichResult != nil {
 					mpn := dkItem.MPN
-					if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, distributorID, result, &mpn, nil); err == nil && pid.Valid {
+					if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, distributorID, enrichResult, &mpn, nil); err == nil && pid.Valid {
 						if row, err := queries.GetListingBySKUAndDistributorID(ctx, dbgen.GetListingBySKUAndDistributorIDParams{
 							Sku:           dkItem.SKU,
 							DistributorID: distributorID,
@@ -185,11 +186,27 @@ func (q *Queue) handleOrderLink(job Job) {
 						}
 					}
 				}
+
+				if !listingID.Valid {
+					reason := "listing_not_found"
+					if enrichErr != nil {
+						reason = "enrichment_failed"
+					} else if enrichResult == nil {
+						reason = "enrichment_nil"
+					}
+					unresolvedItems = append(unresolvedItems, UnresolvedImportItem{
+						SKU:               dkItem.SKU,
+						MPN:               dkItem.MPN,
+						UnitPrice:         dkItem.UnitPrice,
+						QuantityOrdered:   dkItem.QuantityOrdered,
+						QuantityShipped:   dkItem.QuantityShipped,
+						QuantityBackorder: dkItem.QuantityBackOrder,
+						FailureReason:     reason,
+					})
+				}
 			}
 
-			if !listingID.Valid {
-				unresolvedSKUs = append(unresolvedSKUs, dkItem.SKU)
-			} else {
+			if listingID.Valid {
 				if _, err := queries.CreateOrderLineItemForImport(ctx, dbgen.CreateOrderLineItemForImportParams{
 					OrderID:                orderID,
 					ListingID:              listingID,
@@ -217,7 +234,7 @@ func (q *Queue) handleOrderLink(job Job) {
 
 		processed++
 		if time.Since(lastPublish) >= 100*time.Millisecond {
-			publishProgress("progress", processed, unresolvedSKUs, extraAdded)
+			publishProgress("progress", processed, unresolvedItems, extraAdded)
 			lastPublish = time.Now()
 		}
 	}
@@ -251,13 +268,27 @@ func (q *Queue) handleOrderLink(job Job) {
 		}
 	}
 
+	// Persist unresolved items so the user can retry later.
+	if len(unresolvedItems) > 0 {
+		itemsJSON, _ := json.Marshal(unresolvedItems)
+		_ = queries.SetOrderUnresolvedItems(ctx, dbgen.SetOrderUnresolvedItemsParams{
+			ID:              orderID,
+			TeamID:          teamID,
+			UnresolvedItems: itemsJSON,
+		})
+	}
+
+	skus := make([]string, len(unresolvedItems))
+	for i, u := range unresolvedItems {
+		skus[i] = u.SKU
+	}
 	q.publishProgress(job, "order_import_progress", map[string]any{
 		"status":            "complete",
 		"job_id":            job.ID,
 		"order_id":          p.OrderID,
 		"total":             total,
 		"processed":         processed,
-		"unresolved_skus":   unresolvedSKUs,
+		"unresolved_skus":   skus,
 		"extra_items_added": extraAdded,
 	})
 

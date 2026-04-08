@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useQueryClient } from '@tanstack/svelte-query';
-  import { pushToDistributor, requestQuote, getDistributorStatus } from '$lib/api/orders.js';
+  import { pushToDistributor, requestQuote, getDistributorStatus, retryUnresolvedItems } from '$lib/api/orders.js';
+  import { subscribeSSE } from '$lib/api/sse.js';
   import { getDigiKeyAuthURL } from '$lib/api/oauth.js';
   import { ApiError } from '$lib/api/client.js';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
@@ -31,6 +32,12 @@
   let checkingStatus = $state(false);
   let showLinkDialog = $state(false);
   const dk = $derived(order.integrations?.digikey ?? {});
+  const unresolvedItems = $derived(dk.unresolved_items ?? []);
+  const canRetry = $derived(
+    unresolvedItems.length > 0 &&
+    !!order.external_reference &&
+    order.status !== 'cancelled'
+  );
 
   const canPush = $derived(
     order.status !== 'cancelled' && order.status !== 'received'
@@ -46,6 +53,56 @@
     !order.external_reference &&
     (order.status === 'draft' || order.status === 'exported' || order.status === 'submitted' || order.status === 'placed')
   );
+
+  let retrying = $state(false);
+  let retryJobId = $state('');
+  let retryAttempted = $state(0);
+  let retryTotal = $state(0);
+  let retryError = $state('');
+
+  async function handleRetry() {
+    if (retrying) return;
+    retrying = true;
+    retryError = '';
+    retryAttempted = 0;
+    retryTotal = unresolvedItems.length;
+    try {
+      const result = await retryUnresolvedItems(teamId, orderId);
+      retryJobId = result.job_id;
+    } catch (err: any) {
+      retryError = err.message ?? 'Failed to start retry.';
+      retrying = false;
+    }
+  }
+
+  $effect(() => {
+    if (!retryJobId) return;
+    const unsub = subscribeSSE(teamId, retryJobId, (event) => {
+      const d = event.data as any;
+      if (d.total !== undefined) retryTotal = d.total;
+      if (d.attempted !== undefined) retryAttempted = d.attempted;
+      if (d.status === 'complete') {
+        retrying = false;
+        retryJobId = '';
+        const resolved = d.resolved ?? 0;
+        const stillUnresolved = (d.unresolved_skus ?? []).length;
+        if (stillUnresolved === 0) {
+          pushToast('success', `All ${resolved} item${resolved !== 1 ? 's' : ''} resolved`);
+        } else if (resolved > 0) {
+          pushToast('success', `${resolved} resolved, ${stillUnresolved} still unresolved`);
+        } else {
+          pushToast('error', `Retry complete — ${stillUnresolved} item${stillUnresolved !== 1 ? 's' : ''} still unresolved`);
+        }
+        qc.invalidateQueries({ queryKey: ['order', orderId] });
+      } else if (d.status === 'error') {
+        retrying = false;
+        retryJobId = '';
+        retryError = d.error ?? 'Retry failed.';
+        pushToast('error', 'Retry failed', retryError);
+      }
+    });
+    return unsub;
+  });
 
   // Derive unique shipment groups by tracking number (fallback: invoice_id).
   const shipmentGroups = $derived.by(() => {
@@ -181,6 +238,11 @@
       {#if canCheckStatus}
         <Button variant="outline" size="sm" onclick={handleCheckStatus} disabled={checkingStatus}>
           {checkingStatus ? 'Checking…' : 'Check Order Status'}
+        </Button>
+      {/if}
+      {#if canRetry}
+        <Button variant="outline" size="sm" onclick={handleRetry} disabled={retrying}>
+          {retrying ? `Retrying ${retryAttempted}/${retryTotal}…` : `Retry ${unresolvedItems.length} unresolved`}
         </Button>
       {/if}
     </div>
@@ -393,7 +455,44 @@
 
     {/if}
 
-    {#if !dk.list_id && !dk.quote_id && !dk.last_status}
+    {#if unresolvedItems.length > 0}
+      <div class="space-y-1.5">
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Unresolved Import Items</h3>
+        <div class="rounded border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 overflow-hidden">
+          <table class="w-full text-xs">
+            <thead class="bg-amber-100/50 dark:bg-amber-900/30">
+              <tr>
+                <th class="text-left px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">SKU</th>
+                <th class="text-left px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">MPN</th>
+                <th class="text-right px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">Qty</th>
+                <th class="text-right px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">Unit Price</th>
+                <th class="text-left px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">Reason</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-amber-200 dark:divide-amber-900">
+              {#each unresolvedItems as item}
+                <tr>
+                  <td class="px-3 py-1.5 font-mono text-amber-800 dark:text-amber-300">{item.sku}</td>
+                  <td class="px-3 py-1.5 font-mono text-amber-700 dark:text-amber-400">{item.mpn || '—'}</td>
+                  <td class="px-3 py-1.5 text-right tabular-nums text-amber-700 dark:text-amber-400">{item.quantity_ordered}</td>
+                  <td class="px-3 py-1.5 text-right tabular-nums text-amber-700 dark:text-amber-400">
+                    {item.unit_price != null ? `$${item.unit_price.toFixed(4)}` : '—'}
+                  </td>
+                  <td class="px-3 py-1.5 text-amber-600 dark:text-amber-500">
+                    {#if item.failure_reason === 'enrichment_failed'}API error{:else if item.failure_reason === 'enrichment_nil'}Not in catalog{:else}Not found{/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if retryError}
+          <p class="text-xs text-destructive">{retryError}</p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if !dk.list_id && !dk.quote_id && !dk.last_status && unresolvedItems.length === 0}
       <p class="text-muted-foreground text-xs">
         No DigiKey API actions taken yet. Use the buttons above to push this order to a DigiKey List or request a quote.
       </p>

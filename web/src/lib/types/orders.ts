@@ -115,6 +115,16 @@ export interface DigiKeyContact {
   email?: string;
 }
 
+export interface UnresolvedImportItem {
+  sku: string;
+  mpn?: string;
+  unit_price?: number;
+  quantity_ordered: number;
+  quantity_shipped: number;
+  quantity_backordered: number;
+  failure_reason?: 'enrichment_failed' | 'enrichment_nil' | 'listing_not_found';
+}
+
 export interface DigiKeyIntegration {
   list_id?: string;
   list_url?: string;
@@ -131,6 +141,7 @@ export interface DigiKeyIntegration {
   last_status_shipping_address?: DigiKeyAddress;
   last_status_contact?: DigiKeyContact;
   last_status_line_items?: DigiKeyStatusLineItem[];
+  unresolved_items?: UnresolvedImportItem[];
 }
 
 export interface OrderIntegrations {
@@ -163,6 +174,8 @@ export interface OrderLineItem {
   listing_id: string;
   part_id: string;
   part_mpn: string | null;
+  part_manufacturer: string | null;
+  part_description: string | null;
   distributor_name: string;
   sku: string;
   packaging_type: string | null;

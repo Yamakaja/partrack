@@ -61,7 +61,10 @@ func orderLineItemResponse(li dbgen.GetOrderLineItemsRow) map[string]any {
 	return map[string]any{
 		"id":                        li.ID.String(),
 		"listing_id":                li.ListingID.String(),
+		"part_id":                   li.PartID.String(),
 		"part_mpn":                  li.PartMpn,
+		"part_manufacturer":         li.PartManufacturer,
+		"part_description":          li.PartDescription,
 		"sku":                       li.Sku,
 		"packaging_type":            li.PackagingType,
 		"quantity_ordered":          li.QuantityOrdered,
@@ -1094,6 +1097,49 @@ func (h *Handler) GetDistributorStatus(w http.ResponseWriter, r *http.Request) {
 		"contact":          statusResult.Contact,
 		"line_items":       statusResult.LineItems,
 	})
+}
+
+// RetryUnresolvedItems handles POST /orders/{orderId}/retry-unresolved.
+// Enqueues a job to re-attempt DigiKey enrichment for unresolved import items.
+// Requires: order linked to DigiKey (external_reference set) and not cancelled.
+// Role: purchaser+
+func (h *Handler) RetryUnresolvedItems(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var orderID pgtype.UUID
+	if err := orderID.Scan(chi.URLParam(r, "orderId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order id", "BAD_REQUEST")
+		return
+	}
+	user := middleware.UserFromContext(ctx)
+
+	order, err := h.Queries.GetOrder(ctx, dbgen.GetOrderParams{ID: orderID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if order.ExternalReference == nil {
+		writeError(w, http.StatusBadRequest, "order not linked to DigiKey", "NOT_LINKED")
+		return
+	}
+	if order.Status == "cancelled" {
+		writeError(w, http.StatusConflict, "order is cancelled", "ORDER_CANCELLED")
+		return
+	}
+
+	jobID := h.Worker.Enqueue(worker.JobRetryUnresolved, teamID.String(), map[string]string{
+		"order_id": orderID.String(),
+		"user_id":  user.ID,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})
 }
 
 // ImportOrder handles POST /orders/import.

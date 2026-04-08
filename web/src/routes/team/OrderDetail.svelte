@@ -280,9 +280,11 @@
   });
 
   const columns: ColumnSpec<OrderLineItem>[] = [
-    { key: 'sku',                 header: 'SKU',           type: 'text',     filterable: true },
-    { key: 'part_mpn',            header: 'Part MPN',      type: 'text',     filterable: true },
-    { key: 'packaging_type',      header: 'Packaging',     type: 'enum',     filterable: true },
+    { key: 'sku',                 header: 'SKU',              type: 'text',     filterable: true },
+    { key: 'part_mpn',            header: 'Part MPN',         type: 'text',     filterable: true },
+    { key: 'part_manufacturer',   header: 'Manufacturer',     type: 'text',     filterable: true },
+    { key: 'part_description',    header: 'Description',      type: 'text' },
+    { key: 'packaging_type',      header: 'Packaging',        type: 'enum',     filterable: true },
     { key: 'unit_price_snapshot', header: 'Unit Price',    type: 'currency', align: 'right' },
     { key: '_quoted_price',       header: 'Quoted Price',  type: 'currency', align: 'right', hidden: true },
     { key: '_total',              header: 'Total',         type: 'currency', align: 'right' },
