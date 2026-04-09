@@ -25,12 +25,12 @@ func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.
 	cache.StartFlusher(context.Background(), db, 5*time.Minute)
 
 	h := handler.New(db, cfg, q, cache, reg)
-	mw := middleware.New(db, cache)
+	mw := middleware.New(db, cache, cfg.Server.TrustedProxies)
 	r := chi.NewRouter()
 
 	// Global middleware
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
+	r.Use(mw.RealIP) // trust X-Real-IP/X-Forwarded-For only from configured proxy CIDRs
 	r.Use(timing.Middleware)
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)

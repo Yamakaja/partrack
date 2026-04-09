@@ -2,55 +2,96 @@
   import { onDestroy } from 'svelte';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { request, ApiError } from '$lib/api/client.js';
+  import { request } from '$lib/api/client.js';
   import { subscribeSSEType } from '$lib/api/sse.js';
   import { setScanSession, clearScanSession } from '$lib/stores/scanSession.svelte.js';
   import QRCode from 'qrcode';
 
   let {
     teamId,
-    orderId,
+    orderId = '',
     open = $bindable(false),
     onOpenChange,
   }: {
     teamId: string;
-    orderId: string;
+    orderId?: string;
     open?: boolean;
     onOpenChange?: (v: boolean) => void;
   } = $props();
 
   // ── State ────────────────────────────────────────────────────────────────
 
-  type ModalState = 'idle' | 'conflict' | 'loading' | 'waiting' | 'connected';
+  type ModalState = 'idle' | 'checking' | 'loading' | 'waiting' | 'pushing_context' | 'connected';
 
   let modalState = $state<ModalState>('idle');
   let sessionId = $state('');
   let qrSvg = $state('');
-  let existingSessionId = $state('');
   let unsubSSE: (() => void) | null = null;
 
   // ── Session management ───────────────────────────────────────────────────
 
+  async function start() {
+    modalState = 'checking';
+    try {
+      // Check for existing active session. Returns undefined on 204 (no session).
+      const existing = await request<{
+        id: string;
+        phone_connected: boolean;
+        context_order_id: string | null;
+        context_order_ref: string | null;
+      } | undefined>('GET', `/api/v1/teams/${teamId}/scan-sessions/active`);
+
+      if (!existing) {
+        // No session — create fresh.
+        await createSession();
+        return;
+      }
+
+      if (existing.phone_connected) {
+        if (orderId) {
+          // Phone is live and we have an order to push.
+          await pushContext(existing.id);
+        } else {
+          // Already connected, nothing to do — just close.
+          onPhoneConnected();
+        }
+        return;
+      }
+
+      // Session exists but phone is not live — delete it and start fresh.
+      try {
+        await request('DELETE', `/api/v1/teams/${teamId}/scan-sessions/${existing.id}`);
+      } catch {}
+      clearScanSession();
+      await createSession();
+    } catch {
+      modalState = 'idle';
+    }
+  }
+
   async function createSession() {
     modalState = 'loading';
     try {
+      const body: Record<string, string> = {};
+      if (orderId) body.order_id = orderId;
+
       const data = await request<{ id: string; token: string; expires_at: string }>(
         'POST',
         `/api/v1/teams/${teamId}/scan-sessions`,
-        { order_id: orderId },
+        body,
       );
       sessionId = data.id;
       const qrUrl = `${window.location.origin}/scan?token=${encodeURIComponent(data.token)}`;
       qrSvg = await QRCode.toString(qrUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 1 });
 
-      // Record session in store so other components can read it.
       setScanSession({
         id: data.id,
         teamId,
-        orderId,
-        orderRef: '',  // will be updated on phone connect
+        orderId: orderId,
+        orderRef: '',
         token: data.token,
         connected: false,
+        liveConnected: false,
       });
 
       // Subscribe to scan_session_changed SSE to detect phone connect.
@@ -61,38 +102,32 @@
       });
 
       modalState = 'waiting';
-    } catch (e) {
-      if (e instanceof ApiError && e.code === 'SCAN_SESSION_EXISTS') {
-        existingSessionId = (e.data.existing_session_id as string) ?? '';
-        modalState = 'conflict';
-      } else {
-        modalState = 'idle';
-      }
+    } catch {
+      modalState = 'idle';
     }
   }
 
-  async function replaceSession() {
-    if (existingSessionId) {
-      try {
-        await request('DELETE', `/api/v1/teams/${teamId}/scan-sessions/${existingSessionId}`);
-      } catch {}
-      clearScanSession();
+  async function pushContext(existingSessionId: string) {
+    modalState = 'pushing_context';
+    try {
+      await request(
+        'PATCH',
+        `/api/v1/teams/${teamId}/scan-sessions/${existingSessionId}/context`,
+        { order_id: orderId },
+      );
+      onPhoneConnected();
+    } catch {
+      modalState = 'idle';
     }
-    existingSessionId = '';
-    await createSession();
   }
 
   function onPhoneConnected() {
     modalState = 'connected';
-    // Auto-close the modal after a brief moment so the user sees the confirmation.
-    setTimeout(() => {
-      closeModal(true);
-    }, 800);
+    setTimeout(() => closeModal(true), 800);
   }
 
   function closeModal(connected = false) {
     if (!connected && sessionId) {
-      // User closed manually — revoke the session.
       request('DELETE', `/api/v1/teams/${teamId}/scan-sessions/${sessionId}`).catch(() => {});
       clearScanSession();
     }
@@ -113,7 +148,7 @@
 
   $effect(() => {
     if (open && modalState === 'idle') {
-      createSession();
+      start();
     }
     if (!open && modalState !== 'idle') {
       cleanup();
@@ -142,36 +177,29 @@
         Mobile Scanner
       </DialogPrimitive.Title>
 
-      <!-- Conflict: existing session -->
-      {#if modalState === 'conflict'}
-        <div class="space-y-4">
-          <p class="text-sm text-muted-foreground">
-            You already have an active scanner session. Starting a new one will disconnect the previous phone.
-          </p>
-          <div class="flex justify-end gap-2">
-            <Button variant="outline" onclick={() => closeModal(false)}>Cancel</Button>
-            <Button variant="destructive" onclick={replaceSession}>Replace</Button>
-          </div>
-        </div>
-
-      <!-- Loading QR -->
-      {:else if modalState === 'loading'}
+      <!-- Checking / loading spinner -->
+      {#if modalState === 'checking' || modalState === 'loading'}
         <div class="flex items-center justify-center py-12">
           <div class="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-foreground"></div>
+        </div>
+
+      <!-- Pushing context to already-connected phone -->
+      {:else if modalState === 'pushing_context'}
+        <div class="flex flex-col items-center gap-3 py-8 text-center">
+          <div class="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-foreground"></div>
+          <p class="text-sm text-muted-foreground">Sending order to phone…</p>
         </div>
 
       <!-- Waiting for phone -->
       {:else if modalState === 'waiting'}
         <div class="space-y-4">
           <p class="text-sm text-muted-foreground text-center">
-            Scan this QR code with your phone to start scanning parts.
+            Scan this QR code with your phone to connect.
           </p>
-          <!-- QR code -->
           <div class="flex justify-center rounded-lg border border-border bg-white p-3">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             {@html qrSvg}
           </div>
-          <!-- Status badge -->
           <div class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400"></span>
             Waiting for phone…

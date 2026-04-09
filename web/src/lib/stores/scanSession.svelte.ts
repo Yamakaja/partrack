@@ -4,7 +4,8 @@ export interface ScanSessionState {
   orderId: string;
   orderRef: string;
   token: string;
-  connected: boolean;
+  connected: boolean;   // was ever connected (phone_connected in DB)
+  liveConnected: boolean; // SSE connection currently open (from scan_session_changed events)
 }
 
 export const scanSessionStore = $state<{ current: ScanSessionState | null }>({ current: null });
@@ -15,7 +16,13 @@ export function setScanSession(s: ScanSessionState): void {
 
 export function markScanSessionConnected(): void {
   if (scanSessionStore.current) {
-    scanSessionStore.current = { ...scanSessionStore.current, connected: true };
+    scanSessionStore.current = { ...scanSessionStore.current, connected: true, liveConnected: true };
+  }
+}
+
+export function markScanSessionDisconnected(): void {
+  if (scanSessionStore.current) {
+    scanSessionStore.current = { ...scanSessionStore.current, liveConnected: false };
   }
 }
 

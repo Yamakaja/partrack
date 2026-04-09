@@ -772,6 +772,53 @@ func (q *Queries) ListOrders(ctx context.Context, arg ListOrdersParams) ([]ListO
 	return items, nil
 }
 
+const listReceivableOrdersForTeam = `-- name: ListReceivableOrdersForTeam :many
+SELECT o.id, o.status, o.external_reference, o.purchase_order_number,
+       d.name AS distributor_name, COUNT(oli.id)::int AS item_count
+FROM orders o
+JOIN distributors d ON d.id = o.distributor_id
+LEFT JOIN order_line_items oli ON oli.order_id = o.id
+WHERE o.team_id = $1 AND o.status IN ('placed', 'partially_received')
+GROUP BY o.id, d.name
+ORDER BY o.created_at DESC LIMIT 50
+`
+
+type ListReceivableOrdersForTeamRow struct {
+	ID                  pgtype.UUID `json:"id"`
+	Status              OrderStatus `json:"status"`
+	ExternalReference   *string     `json:"external_reference"`
+	PurchaseOrderNumber *string     `json:"purchase_order_number"`
+	DistributorName     string      `json:"distributor_name"`
+	ItemCount           int32       `json:"item_count"`
+}
+
+func (q *Queries) ListReceivableOrdersForTeam(ctx context.Context, teamID pgtype.UUID) ([]ListReceivableOrdersForTeamRow, error) {
+	rows, err := q.db.Query(ctx, listReceivableOrdersForTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReceivableOrdersForTeamRow
+	for rows.Next() {
+		var i ListReceivableOrdersForTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.ExternalReference,
+			&i.PurchaseOrderNumber,
+			&i.DistributorName,
+			&i.ItemCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const receiveOrderLineItem = `-- name: ReceiveOrderLineItem :one
 UPDATE order_line_items
 SET quantity_received = quantity_received + $2

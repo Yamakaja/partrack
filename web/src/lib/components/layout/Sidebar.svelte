@@ -10,9 +10,13 @@
   import { Sun, Moon } from 'lucide-svelte';
   import TeamSwitcher from './TeamSwitcher.svelte';
   import CommandPalette from './CommandPalette.svelte';
+  import ScanModal from '$lib/components/scanner/ScanModal.svelte';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
   import { createQuery } from '@tanstack/svelte-query';
   import { getCartCount } from '$lib/api/cart.js';
+  import { Popover } from 'bits-ui';
+  import { scanSessionStore, clearScanSession } from '$lib/stores/scanSession.svelte.js';
+  import { request } from '$lib/api/client.js';
 
   function handleKeydown(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -56,6 +60,21 @@
   }));
 
   const cartCount = $derived(cartCountQuery.data?.count ?? 0);
+
+  const session = $derived(scanSessionStore.current);
+  const teamId = $derived(activeTeam?.teamId ?? '');
+  let badgeOpen = $state(false);
+  let scanModalOpen = $state(false);
+
+  async function disconnect() {
+    const sess = scanSessionStore.current;
+    if (!sess) return;
+    badgeOpen = false;
+    try {
+      await request('DELETE', `/api/v1/teams/${sess.teamId}/scan-sessions/${sess.id}`);
+    } catch {}
+    clearScanSession();
+  }
 </script>
 
 <aside class="flex h-full w-60 shrink-0 flex-col border-r border-border bg-card">
@@ -165,6 +184,73 @@
     </div>
   {/if}
 
+  <!-- Scanner badge -->
+  {#if teamId}
+    <div class="border-t border-border px-2 py-1.5">
+      {#if !session}
+        <button
+          onclick={() => { scanModalOpen = true; }}
+          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+        >
+          <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          Connect Phone
+        </button>
+
+      {:else}
+        <Popover.Root open={badgeOpen} onOpenChange={(v) => { badgeOpen = v; }}>
+          <Popover.Trigger>
+            <button class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50 transition-colors
+              {session.liveConnected ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}">
+              <span class="h-2 w-2 shrink-0 rounded-full {session.liveConnected ? 'bg-green-500' : 'bg-zinc-400'}"></span>
+              <span class="truncate">{session.liveConnected ? 'Scanner connected' : 'Scanner disconnected'}</span>
+            </button>
+          </Popover.Trigger>
+          <Popover.Content
+            class="z-50 w-56 rounded-md border border-border bg-background p-3 shadow-md"
+            sideOffset={6}
+            side="right"
+            align="end"
+          >
+            <div class="space-y-2">
+              {#if session.liveConnected}
+                <p class="text-sm font-medium">Scanner connected</p>
+                {#if session.orderRef}
+                  <p class="text-xs text-muted-foreground">Receiving {session.orderRef}</p>
+                {/if}
+                <button
+                  onclick={disconnect}
+                  class="w-full rounded-md bg-destructive px-2 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Disconnect
+                </button>
+              {:else}
+                <p class="text-sm font-medium">Scanner disconnected</p>
+                <p class="text-xs text-muted-foreground">Reconnect by scanning a new QR code.</p>
+                <div class="flex gap-2">
+                  <button
+                    onclick={() => { badgeOpen = false; scanModalOpen = true; }}
+                    class="flex-1 rounded-md border border-border px-2 py-1.5 text-xs font-medium hover:bg-accent/50"
+                  >
+                    Reconnect
+                  </button>
+                  <button
+                    onclick={disconnect}
+                    class="flex-1 rounded-md bg-destructive px-2 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              {/if}
+            </div>
+          </Popover.Content>
+        </Popover.Root>
+      {/if}
+    </div>
+  {/if}
+
   <!-- User footer -->
   <div class="border-t border-border px-3 py-2 flex items-center gap-2">
     <div class="flex-1 min-w-0">
@@ -187,3 +273,7 @@
 </aside>
 
 <CommandPalette />
+
+{#if scanModalOpen && teamId}
+  <ScanModal {teamId} bind:open={scanModalOpen} />
+{/if}

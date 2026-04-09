@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 
@@ -46,13 +47,29 @@ type TeamMembership struct {
 
 // Middleware holds shared DB access and the auth cache for all authentication middleware.
 type Middleware struct {
-	q     *dbgen.Queries
-	cache *AuthCache
+	q            *dbgen.Queries
+	cache        *AuthCache
+	trustedNets  []*net.IPNet // parsed from config.Server.TrustedProxies
 }
 
 // New creates a Middleware backed by the given pool and cache.
-func New(db *pgxpool.Pool, cache *AuthCache) *Middleware {
-	return &Middleware{q: dbgen.New(db), cache: cache}
+// trustedProxies is an optional list of CIDR strings (or bare IPs) whose
+// X-Real-IP / X-Forwarded-For headers will be honoured by RealIP middleware.
+func New(db *pgxpool.Pool, cache *AuthCache, trustedProxies []string) *Middleware {
+	var nets []*net.IPNet
+	for _, s := range trustedProxies {
+		if !strings.Contains(s, "/") {
+			if strings.Contains(s, ":") {
+				s += "/128"
+			} else {
+				s += "/32"
+			}
+		}
+		if _, n, err := net.ParseCIDR(s); err == nil {
+			nets = append(nets, n)
+		}
+	}
+	return &Middleware{q: dbgen.New(db), cache: cache, trustedNets: nets}
 }
 
 // UserFromContext retrieves the authenticated User from a request context.

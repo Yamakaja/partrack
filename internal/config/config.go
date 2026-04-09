@@ -18,7 +18,8 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	ListenAddr string `yaml:"listen_addr"`
+	ListenAddr     string   `yaml:"listen_addr"`
+	TrustedProxies []string `yaml:"trusted_proxies"` // CIDRs or IPs, e.g. ["127.0.0.1/8", "10.0.0.0/8"]
 }
 
 type DatabaseConfig struct {

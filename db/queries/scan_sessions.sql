@@ -48,6 +48,16 @@ DELETE FROM scan_sessions WHERE id = $1 AND team_id = $2;
 -- name: DeleteExpiredScanSessions :exec
 DELETE FROM scan_sessions WHERE expires_at < NOW();
 
+-- name: SetScanSessionPhoneDisconnected :exec
+UPDATE scan_sessions SET phone_connected = FALSE WHERE id = $1;
+
+-- name: UpdateScanSessionContext :one
+UPDATE scan_sessions
+SET context_type = $2, context_order_id = $3, context_order_ref = $4,
+    pending_scan = NULL
+WHERE id = $1
+RETURNING id, context_type, context_order_id, context_order_ref;
+
 -- name: GetScanSessionByUserID :one
 SELECT id, token_hash, user_id, team_id, phone_connected, context_type, context_order_id, context_order_ref, pending_scan, created_at, expires_at
 FROM scan_sessions

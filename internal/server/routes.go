@@ -25,12 +25,19 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		r.Get("/parameter-definitions", h.ListParameterDefinitions)
 
 		// ── Phone scan endpoints (scan token auth, no team role) ─────────────
+		// StreamScanSession reads the token from ?token= query param directly;
+		// it bypasses Authenticate middleware because EventSource can't set headers.
+		r.Get("/scan/stream", h.StreamScanSession)
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)
 			r.Get("/scan/session", h.GetScanSession)
 			r.Post("/scan/scans", h.SubmitScan)
 			r.Post("/scan/confirm", h.ConfirmScan)
 			r.Post("/scan/skip", h.SkipScan)
+			r.Post("/scan/context", h.SetScanContext)
+			r.Get("/scan/orders", h.ListScanOrders)
+			r.Get("/scan/parts", h.SearchScanParts)
+			r.Post("/scan/stock-adjustment", h.CreateScanStockAdjustment)
 		})
 
 		// ── Authenticated-only routes ────────────────────────────────────────
@@ -202,15 +209,19 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// Checkouts
 					r.Post("/checkouts", h.CreateCheckout)
+
+					// Scan sessions (member+) — literal path before wildcard
+					r.Post("/scan-sessions", h.CreateScanSession)
+					r.Get("/scan-sessions/active", h.GetActiveScanSession)
 				})
 
 				// Purchaser+
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireTeamRole("purchaser"))
 
-					// Scan session management
-					r.Post("/scan-sessions", h.CreateScanSession)
+					// Scan session management (purchaser can delete + push context)
 					r.Delete("/scan-sessions/{sessionId}", h.DeleteScanSession)
+					r.Patch("/scan-sessions/{sessionId}/context", h.PushScanContext)
 
 					// Cart
 					r.Get("/cart/count", h.GetCartCount)

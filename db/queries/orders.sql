@@ -1,3 +1,13 @@
+-- name: ListReceivableOrdersForTeam :many
+SELECT o.id, o.status, o.external_reference, o.purchase_order_number,
+       d.name AS distributor_name, COUNT(oli.id)::int AS item_count
+FROM orders o
+JOIN distributors d ON d.id = o.distributor_id
+LEFT JOIN order_line_items oli ON oli.order_id = o.id
+WHERE o.team_id = $1 AND o.status IN ('placed', 'partially_received')
+GROUP BY o.id, d.name
+ORDER BY o.created_at DESC LIMIT 50;
+
 -- name: ListOrders :many
 SELECT
     o.id, o.distributor_id, d.name AS distributor_name,

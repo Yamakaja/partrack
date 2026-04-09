@@ -274,6 +274,37 @@ Higher roles inherit all permissions of lower roles.
 
 ---
 
+## Mobile Scanner
+
+### Desktop-facing (session cookie / API token auth)
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| POST | `/teams/{teamId}/scan-sessions` | member+ | Create scan session. Body: `{order_id?: string}`. Returns `{id, token, expires_at}`. Token is 30-day TTL. |
+| GET | `/teams/{teamId}/scan-sessions/active` | member+ | Get current user's active scan session. Returns `{id, phone_connected, context_type, context_order_id, context_order_ref, phone_ip, phone_ua}` or 204 if none. |
+| DELETE | `/teams/{teamId}/scan-sessions/{sessionId}` | purchaser+ | Delete scan session. |
+| PATCH | `/teams/{teamId}/scan-sessions/{sessionId}/context` | purchaser+ | Push order context to phone. Body: `{order_id}`. Returns `{ok, context_order_ref}`. Sends SSE to connected phone immediately. |
+
+### Phone-facing (scan token auth — `Authorization: Bearer scan_...`)
+
+Phone endpoints accept the scan token either as `Authorization: Bearer` header (fetch) or `?token=` query param (EventSource).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/scan/stream` | SSE stream for phone. Token via `?token=`. Server publishes `scan_context_changed` events when desktop pushes context. Marks phone connected on open, disconnected on close. |
+| GET | `/scan/session` | Fallback poll — returns `{session_id, context_type, context_order_id, context_order_ref, pending_scan}`. Returns 410 when session expired. |
+| POST | `/scan/context` | Phone sets own context. Body: `{order_id}`. |
+| GET | `/scan/orders` | List receivable orders (status `placed` or `partially_received`). Returns `{orders: [{id, ref, status, distributor_name, item_count}]}`. |
+| GET | `/scan/parts?q=` | Search parts catalog (global + team). Returns `{parts: [{id, mpn, description, inventory_entry_id, quantity_on_hand, storage_location}]}`. |
+| POST | `/scan/scans` | Submit barcode. Body: `{barcode}`. Matches to order line item. Returns `{status: matched|no_match|parse_error, ...}`. Requires active order context. |
+| POST | `/scan/confirm` | Confirm pending scan (apply receive). Body: `{qty?}`. Returns `{ok, new_quantity_received, new_quantity_on_hand, order_status}`. |
+| POST | `/scan/skip` | Discard pending scan. |
+| POST | `/scan/stock-adjustment` | Apply stock delta. Body: `{inventory_entry_id, delta, reason?}`. Member+ only. Returns `{ok, new_quantity_on_hand}`. |
+
+SSE events from scan session changes are published to the owning user's desktop channel as `scan_session_changed` with `{session_id, phone_connected, context_order_ref?}`.
+
+---
+
 ## Standard Responses
 
 **List:** `{total, limit, offset, items: [...]}`

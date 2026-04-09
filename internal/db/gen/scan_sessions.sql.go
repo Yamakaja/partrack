@@ -327,3 +327,51 @@ func (q *Queries) SetScanSessionPhoneConnected(ctx context.Context, id pgtype.UU
 	)
 	return i, err
 }
+
+const setScanSessionPhoneDisconnected = `-- name: SetScanSessionPhoneDisconnected :exec
+UPDATE scan_sessions SET phone_connected = FALSE WHERE id = $1
+`
+
+func (q *Queries) SetScanSessionPhoneDisconnected(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, setScanSessionPhoneDisconnected, id)
+	return err
+}
+
+const updateScanSessionContext = `-- name: UpdateScanSessionContext :one
+UPDATE scan_sessions
+SET context_type = $2, context_order_id = $3, context_order_ref = $4,
+    pending_scan = NULL
+WHERE id = $1
+RETURNING id, context_type, context_order_id, context_order_ref
+`
+
+type UpdateScanSessionContextParams struct {
+	ID              pgtype.UUID `json:"id"`
+	ContextType     *string     `json:"context_type"`
+	ContextOrderID  pgtype.UUID `json:"context_order_id"`
+	ContextOrderRef *string     `json:"context_order_ref"`
+}
+
+type UpdateScanSessionContextRow struct {
+	ID              pgtype.UUID `json:"id"`
+	ContextType     *string     `json:"context_type"`
+	ContextOrderID  pgtype.UUID `json:"context_order_id"`
+	ContextOrderRef *string     `json:"context_order_ref"`
+}
+
+func (q *Queries) UpdateScanSessionContext(ctx context.Context, arg UpdateScanSessionContextParams) (UpdateScanSessionContextRow, error) {
+	row := q.db.QueryRow(ctx, updateScanSessionContext,
+		arg.ID,
+		arg.ContextType,
+		arg.ContextOrderID,
+		arg.ContextOrderRef,
+	)
+	var i UpdateScanSessionContextRow
+	err := row.Scan(
+		&i.ID,
+		&i.ContextType,
+		&i.ContextOrderID,
+		&i.ContextOrderRef,
+	)
+	return i, err
+}

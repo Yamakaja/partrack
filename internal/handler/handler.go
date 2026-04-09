@@ -30,6 +30,7 @@ type Handler struct {
 	Cache        *middleware.AuthCache
 	Distributors distributor.Registry
 	CartResolver *CartResolver
+	ScanHub      *ScanHub
 	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
 	refreshGroup singleflight.Group    // deduplicates concurrent credential enrichment per (team, distributor)
 }
@@ -89,6 +90,7 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 		Cache:        cache,
 		Distributors: reg,
 		CartResolver: NewCartResolver(),
+		ScanHub:      NewScanHub(),
 	}
 	h.initOIDC()
 	return h
