@@ -37,8 +37,6 @@
       const existing = await request<{
         id: string;
         phone_connected: boolean;
-        context_order_id: string | null;
-        context_order_ref: string | null;
       } | undefined>('GET', `/api/v1/teams/${teamId}/scan-sessions/active`);
 
       if (!existing) {
@@ -72,13 +70,9 @@
   async function createSession() {
     modalState = 'loading';
     try {
-      const body: Record<string, string> = {};
-      if (orderId) body.order_id = orderId;
-
       const data = await request<{ id: string; token: string; expires_at: string }>(
         'POST',
         `/api/v1/teams/${teamId}/scan-sessions`,
-        body,
       );
       sessionId = data.id;
       const qrUrl = `${window.location.origin}/scan?token=${encodeURIComponent(data.token)}`;
@@ -87,17 +81,20 @@
       setScanSession({
         id: data.id,
         teamId,
-        orderId: orderId,
-        orderRef: '',
         token: data.token,
         connected: false,
         liveConnected: false,
       });
 
       // Subscribe to scan_session_changed SSE to detect phone connect.
+      // If an orderId was passed, push context immediately after phone connects.
       unsubSSE = subscribeSSEType(teamId, 'scan_session_changed', (ev) => {
         if (ev.data.session_id === sessionId && ev.data.phone_connected) {
-          onPhoneConnected();
+          if (orderId) {
+            pushContext(sessionId);
+          } else {
+            onPhoneConnected();
+          }
         }
       });
 

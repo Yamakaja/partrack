@@ -659,17 +659,14 @@ type Project struct {
 }
 
 type ScanSession struct {
-	ID              pgtype.UUID        `json:"id"`
-	TokenHash       string             `json:"token_hash"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	TeamID          pgtype.UUID        `json:"team_id"`
-	PhoneConnected  bool               `json:"phone_connected"`
-	ContextType     *string            `json:"context_type"`
-	ContextOrderID  pgtype.UUID        `json:"context_order_id"`
-	ContextOrderRef *string            `json:"context_order_ref"`
-	PendingScan     []byte             `json:"pending_scan"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	ID             pgtype.UUID        `json:"id"`
+	TokenHash      string             `json:"token_hash"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	TeamID         pgtype.UUID        `json:"team_id"`
+	PhoneConnected bool               `json:"phone_connected"`
+	PendingScan    []byte             `json:"pending_scan"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
 }
 
 type Session struct {

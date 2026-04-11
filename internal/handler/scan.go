@@ -49,17 +49,14 @@ func (h *Handler) scanSessionFromScanToken(r *http.Request) (*dbgen.ScanSession,
 		return nil, err
 	}
 	sess := dbgen.ScanSession{
-		ID:              row.ID,
-		TokenHash:       row.TokenHash,
-		UserID:          row.UserID,
-		TeamID:          row.TeamID,
-		PhoneConnected:  row.PhoneConnected,
-		ContextType:     row.ContextType,
-		ContextOrderID:  row.ContextOrderID,
-		ContextOrderRef: row.ContextOrderRef,
-		PendingScan:     row.PendingScan,
-		CreatedAt:       row.CreatedAt,
-		ExpiresAt:       row.ExpiresAt,
+		ID:             row.ID,
+		TokenHash:      row.TokenHash,
+		UserID:         row.UserID,
+		TeamID:         row.TeamID,
+		PhoneConnected: row.PhoneConnected,
+		PendingScan:    row.PendingScan,
+		CreatedAt:      row.CreatedAt,
+		ExpiresAt:      row.ExpiresAt,
 	}
 	return &sess, nil
 }
@@ -94,7 +91,6 @@ func generateScanToken() (string, error) {
 	}
 	return "scan_" + hex.EncodeToString(b), nil
 }
-
 
 // buildOrderRef returns a short human-readable reference for an order.
 func buildOrderRef(id pgtype.UUID, purchaseOrderNumber, externalReference *string) string {
@@ -131,12 +127,6 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		OrderID string `json:"order_id"`
-	}
-	// Ignore decode error — body is optional.
-	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
-
 	// Check for an existing active session for this user.
 	existing, err := h.Queries.GetActiveScanSessionForUser(r.Context(), userID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -152,34 +142,6 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally resolve the order for a display reference.
-	var orderID pgtype.UUID
-	var contextType *string
-	var orderRef *string
-
-	if body.OrderID != "" {
-		if err := orderID.Scan(body.OrderID); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid order_id", "BAD_REQUEST")
-			return
-		}
-		order, err := h.Queries.GetOrder(r.Context(), dbgen.GetOrderParams{
-			ID:     orderID,
-			TeamID: teamID,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		ref := buildOrderRef(order.ID, order.PurchaseOrderNumber, order.ExternalReference)
-		ct := "receive_order"
-		contextType = &ct
-		orderRef = &ref
-	}
-
 	rawToken, err := generateScanToken()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -191,13 +153,10 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 	expiresAt.Scan(time.Now().Add(scanSessionTTL)) //nolint:errcheck
 
 	sess, err := h.Queries.CreateScanSession(r.Context(), dbgen.CreateScanSessionParams{
-		TokenHash:       tokenHash,
-		UserID:          userID,
-		TeamID:          teamID,
-		ContextType:     contextType,
-		ContextOrderID:  orderID,
-		ContextOrderRef: orderRef,
-		ExpiresAt:       expiresAt,
+		TokenHash: tokenHash,
+		UserID:    userID,
+		TeamID:    teamID,
+		ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -211,6 +170,7 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// TODO: Scan sessions are user bound. A user should be able to delete their own sessions!
 // DeleteScanSession handles DELETE /api/v1/teams/{teamId}/scan-sessions/{sessionId}.
 func (h *Handler) DeleteScanSession(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
@@ -262,22 +222,12 @@ func (h *Handler) GetActiveScanSession(w http.ResponseWriter, r *http.Request) {
 	liveConnected := h.ScanHub.IsConnected(sessionIDStr)
 	ip, ua := h.ScanHub.PhoneInfo(sessionIDStr)
 
-	resp := map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"id":              sessionIDStr,
 		"phone_connected": sess.PhoneConnected && liveConnected,
-		"context_type":    sess.ContextType,
-		"context_order_id":  nil,
-		"context_order_ref": nil,
 		"phone_ip":        ip,
 		"phone_ua":        ua,
-	}
-	if sess.ContextOrderID.Valid {
-		resp["context_order_id"] = sess.ContextOrderID.String()
-	}
-	if sess.ContextOrderRef != nil {
-		resp["context_order_ref"] = *sess.ContextOrderRef
-	}
-	writeJSON(w, http.StatusOK, resp)
+	})
 }
 
 // PushScanContext handles PATCH /api/v1/teams/{teamId}/scan-sessions/{sessionId}/context.
@@ -321,27 +271,11 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ref := buildOrderRef(order.ID, order.PurchaseOrderNumber, order.ExternalReference)
-	ct := "receive_order"
 
-	updated, err := h.Queries.UpdateScanSessionContext(r.Context(), dbgen.UpdateScanSessionContextParams{
-		ID:              sessionID,
-		ContextType:     &ct,
-		ContextOrderID:  orderID,
-		ContextOrderRef: &ref,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "session not found", "NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	// Push to phone over SSE.
+	// Push to phone over SSE — no DB write, context is ephemeral.
 	msg, _ := json.Marshal(map[string]any{
 		"type":              "scan_context_changed",
-		"context_order_id":  updated.ContextOrderID.String(),
+		"context_order_id":  order.ID.String(),
 		"context_order_ref": ref,
 	})
 	h.ScanHub.Send(sessionID.String(), msg)
@@ -469,93 +403,13 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"session_id":        sess.ID.String(),
-		"context_type":      sess.ContextType,
-		"context_order_id":  nil,
-		"context_order_ref": nil,
-		"pending_scan":      nil,
-	}
-	if sess.ContextOrderID.Valid {
-		resp["context_order_id"] = sess.ContextOrderID.String()
-	}
-	if sess.ContextOrderRef != nil {
-		resp["context_order_ref"] = *sess.ContextOrderRef
+		"session_id":   sess.ID.String(),
+		"pending_scan": nil,
 	}
 	if len(sess.PendingScan) > 0 {
 		resp["pending_scan"] = json.RawMessage(sess.PendingScan)
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-// SetScanContext handles POST /api/v1/scan/context.
-// Phone sets its own order context autonomously.
-func (h *Handler) SetScanContext(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.scanSessionFromScanToken(r)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	if sess == nil {
-		w.WriteHeader(http.StatusGone)
-		return
-	}
-
-	var body struct {
-		OrderID string `json:"order_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.OrderID == "" {
-		writeError(w, http.StatusBadRequest, "order_id is required", "BAD_REQUEST")
-		return
-	}
-	var orderID pgtype.UUID
-	if err := orderID.Scan(body.OrderID); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid order_id", "BAD_REQUEST")
-		return
-	}
-
-	order, err := h.Queries.GetOrder(r.Context(), dbgen.GetOrderParams{
-		ID:     orderID,
-		TeamID: sess.TeamID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	ref := buildOrderRef(order.ID, order.PurchaseOrderNumber, order.ExternalReference)
-	ct := "receive_order"
-
-	if _, err := h.Queries.UpdateScanSessionContext(r.Context(), dbgen.UpdateScanSessionContextParams{
-		ID:              sess.ID,
-		ContextType:     &ct,
-		ContextOrderID:  orderID,
-		ContextOrderRef: &ref,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	// Notify desktop that context changed.
-	data, _ := json.Marshal(map[string]any{
-		"session_id":        sess.ID.String(),
-		"phone_connected":   true,
-		"context_order_ref": ref,
-	})
-	h.Worker.Publish(worker.Event{
-		Type:         "scan_session_changed",
-		TeamID:       sess.TeamID.String(),
-		TargetUserID: sess.UserID.String(),
-		Data:         data,
-	})
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                true,
-		"context_order_ref": ref,
-	})
 }
 
 // ListScanOrders handles GET /api/v1/scan/orders.
@@ -637,9 +491,9 @@ func (h *Handler) SearchScanParts(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]partItem, len(parts))
 	for i, p := range parts {
-		desc := p.ShortDescription
+		desc := p.Description
 		if desc == nil {
-			desc = p.Description
+			desc = p.ShortDescription
 		}
 		item := partItem{
 			ID:          p.ID.String(),
@@ -771,13 +625,140 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 	h.Worker.Publish(worker.Event{Type: "inventory_changed", TeamID: sess.TeamID.String(), Data: d})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                 true,
+		"ok":                   true,
 		"new_quantity_on_hand": newQty,
 	})
 }
 
+// LookupScanBarcode handles POST /api/v1/scan/lookup.
+// Parses a bag barcode and looks up the part by SKU (scoped to identified
+// distributor when possible) or MPN. Returns the part with inventory info,
+// or the parsed barcode fields when the part is not found.
+func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	var body struct {
+		Barcode string `json:"barcode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Barcode) == "" {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+
+	parsed, parseErr := scanner.Parse(body.Barcode)
+	if parseErr != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status": "parse_error",
+			"raw":    body.Barcode,
+		})
+		return
+	}
+
+	// Try SKU lookup — prefer distributor-scoped when we identified the source.
+	if parsed.SKU != "" {
+		if parsed.Distributor != "" {
+			row, err := h.Queries.GetPartBySKUAndDistributorWithInventory(r.Context(), dbgen.GetPartBySKUAndDistributorWithInventoryParams{
+				Sku:             parsed.SKU,
+				TeamID:          sess.TeamID,
+				DistributorName: parsed.Distributor,
+			})
+			if err == nil {
+				writeLookupFound(w, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+					&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+				return
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+		}
+
+		// Fallback: SKU across all distributors.
+		row, err := h.Queries.GetPartBySKUWithInventory(r.Context(), dbgen.GetPartBySKUWithInventoryParams{
+			Sku:    parsed.SKU,
+			TeamID: sess.TeamID,
+		})
+		if err == nil {
+			writeLookupFound(w, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+				&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+			return
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	// Fallback: MPN lookup.
+	if parsed.MPN != "" {
+		row, err := h.Queries.GetPartByMPNWithInventory(r.Context(), dbgen.GetPartByMPNWithInventoryParams{
+			Mpn:    &parsed.MPN,
+			TeamID: sess.TeamID,
+		})
+		if err == nil {
+			writeLookupFound(w, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+				nil, nil, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+			return
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	// Not found.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":             "not_found",
+		"parsed_mpn":         parsed.MPN,
+		"parsed_sku":         parsed.SKU,
+		"parsed_distributor": parsed.Distributor,
+		"parsed_qty":         parsed.Quantity,
+		"parsed_lot":         parsed.Lot,
+	})
+}
+
+// writeLookupFound writes the standard "found" response for LookupScanBarcode.
+func writeLookupFound(w http.ResponseWriter, id pgtype.UUID, mpn, manufacturer, desc, shortDesc *string,
+	sku, distributorName *string, invEntryID pgtype.UUID, qoh *int32, storageLabel *string, parsed *scanner.ParsedBarcode) {
+
+	d := desc
+	if d == nil {
+		d = shortDesc
+	}
+	resp := map[string]any{
+		"status":       "found",
+		"id":           id.String(),
+		"mpn":          mpn,
+		"manufacturer": manufacturer,
+		"description":  d,
+		"barcode_qty":  parsed.Quantity,
+		"distributor":  parsed.Distributor,
+	}
+	if sku != nil {
+		resp["sku"] = *sku
+	}
+	if distributorName != nil {
+		resp["distributor_name"] = *distributorName
+	}
+	if invEntryID.Valid {
+		resp["inventory_entry_id"] = invEntryID.String()
+		resp["quantity_on_hand"] = qoh
+		resp["storage_location"] = storageLabel
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // pendingScan is the JSON shape stored in scan_sessions.pending_scan.
 type pendingScan struct {
+	OrderID         string `json:"order_id"`
 	LineItemID      string `json:"line_item_id"`
 	PartName        string `json:"part_name"`
 	MPN             string `json:"mpn"`
@@ -801,19 +782,18 @@ func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusGone)
 		return
 	}
-	if sess.ContextType == nil || *sess.ContextType != "receive_order" || !sess.ContextOrderID.Valid {
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "no active context",
-			"code":  "NO_CONTEXT",
-		})
+	var body struct {
+		OrderID string `json:"order_id"`
+		Barcode string `json:"barcode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Barcode) == "" || body.OrderID == "" {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
 		return
 	}
 
-	var body struct {
-		Barcode string `json:"barcode"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Barcode) == "" {
-		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+	var orderID pgtype.UUID
+	if err := orderID.Scan(body.OrderID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid order_id", "BAD_REQUEST")
 		return
 	}
 
@@ -832,7 +812,7 @@ func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch all line items for the order to match against.
-	items, err := h.Queries.GetOrderLineItemsForScan(r.Context(), sess.ContextOrderID)
+	items, err := h.Queries.GetOrderLineItemsForScan(r.Context(), orderID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -891,6 +871,7 @@ func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ps := pendingScan{
+		OrderID:         body.OrderID,
 		LineItemID:      matched.ID.String(),
 		PartName:        partName,
 		MPN:             partMPN,
@@ -973,8 +954,12 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	var orderID pgtype.UUID
+	if err := orderID.Scan(ps.OrderID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
 	teamID := sess.TeamID
-	orderID := sess.ContextOrderID
 
 	user := middleware.UserFromContext(r.Context())
 	if user == nil {

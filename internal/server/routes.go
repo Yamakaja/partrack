@@ -34,10 +34,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Post("/scan/scans", h.SubmitScan)
 			r.Post("/scan/confirm", h.ConfirmScan)
 			r.Post("/scan/skip", h.SkipScan)
-			r.Post("/scan/context", h.SetScanContext)
 			r.Get("/scan/orders", h.ListScanOrders)
 			r.Get("/scan/parts", h.SearchScanParts)
 			r.Post("/scan/stock-adjustment", h.CreateScanStockAdjustment)
+			r.Post("/scan/lookup", h.LookupScanBarcode)
 		})
 
 		// ── Authenticated-only routes ────────────────────────────────────────

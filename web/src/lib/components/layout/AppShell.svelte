@@ -26,16 +26,12 @@
     request<{
       id: string;
       phone_connected: boolean;
-      context_order_id: string | null;
-      context_order_ref: string | null;
     } | undefined>('GET', `/api/v1/teams/${tid}/scan-sessions/active`)
       .then((data) => {
         if (!data) return;
         setScanSession({
           id: data.id,
           teamId: tid,
-          orderId: data.context_order_id ?? '',
-          orderRef: data.context_order_ref ?? '',
           token: '',
           connected: data.phone_connected,
           liveConnected: data.phone_connected,

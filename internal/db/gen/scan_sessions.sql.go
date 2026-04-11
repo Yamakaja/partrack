@@ -25,19 +25,16 @@ func (q *Queries) ClearScanSessionPendingScan(ctx context.Context, id pgtype.UUI
 }
 
 const createScanSession = `-- name: CreateScanSession :one
-INSERT INTO scan_sessions (token_hash, user_id, team_id, context_type, context_order_id, context_order_ref, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, token_hash, user_id, team_id, phone_connected, context_type, context_order_id, context_order_ref, pending_scan, created_at, expires_at
+INSERT INTO scan_sessions (token_hash, user_id, team_id, expires_at)
+VALUES ($1, $2, $3, $4)
+RETURNING id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at
 `
 
 type CreateScanSessionParams struct {
-	TokenHash       string             `json:"token_hash"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	TeamID          pgtype.UUID        `json:"team_id"`
-	ContextType     *string            `json:"context_type"`
-	ContextOrderID  pgtype.UUID        `json:"context_order_id"`
-	ContextOrderRef *string            `json:"context_order_ref"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	TokenHash string             `json:"token_hash"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	TeamID    pgtype.UUID        `json:"team_id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
 func (q *Queries) CreateScanSession(ctx context.Context, arg CreateScanSessionParams) (ScanSession, error) {
@@ -45,9 +42,6 @@ func (q *Queries) CreateScanSession(ctx context.Context, arg CreateScanSessionPa
 		arg.TokenHash,
 		arg.UserID,
 		arg.TeamID,
-		arg.ContextType,
-		arg.ContextOrderID,
-		arg.ContextOrderRef,
 		arg.ExpiresAt,
 	)
 	var i ScanSession
@@ -57,9 +51,6 @@ func (q *Queries) CreateScanSession(ctx context.Context, arg CreateScanSessionPa
 		&i.UserID,
 		&i.TeamID,
 		&i.PhoneConnected,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
 		&i.PendingScan,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -91,7 +82,7 @@ func (q *Queries) DeleteScanSession(ctx context.Context, arg DeleteScanSessionPa
 }
 
 const getActiveScanSessionForUser = `-- name: GetActiveScanSessionForUser :one
-SELECT id, token_hash, user_id, team_id, phone_connected, context_type, context_order_id, context_order_ref, pending_scan, created_at, expires_at
+SELECT id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at
 FROM scan_sessions
 WHERE user_id = $1 AND expires_at > NOW()
 LIMIT 1
@@ -106,9 +97,6 @@ func (q *Queries) GetActiveScanSessionForUser(ctx context.Context, userID pgtype
 		&i.UserID,
 		&i.TeamID,
 		&i.PhoneConnected,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
 		&i.PendingScan,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -167,8 +155,168 @@ func (q *Queries) GetOrderLineItemsForScan(ctx context.Context, orderID pgtype.U
 	return items, nil
 }
 
+const getPartByMPNWithInventory = `-- name: GetPartByMPNWithInventory :one
+SELECT
+    p.id, p.mpn, p.manufacturer, p.description, p.short_description,
+    ie.id AS inventory_entry_id,
+    ie.quantity_on_hand,
+    sl.label AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $2
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE p.mpn = $1
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $2))
+ORDER BY p.scope DESC
+LIMIT 1
+`
+
+type GetPartByMPNWithInventoryParams struct {
+	Mpn    *string     `json:"mpn"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetPartByMPNWithInventoryRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	Mpn                  *string     `json:"mpn"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Description          *string     `json:"description"`
+	ShortDescription     *string     `json:"short_description"`
+	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
+	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationLabel *string     `json:"storage_location_label"`
+}
+
+// Looks up a part by MPN, returning part info and the team's inventory entry (if any).
+func (q *Queries) GetPartByMPNWithInventory(ctx context.Context, arg GetPartByMPNWithInventoryParams) (GetPartByMPNWithInventoryRow, error) {
+	row := q.db.QueryRow(ctx, getPartByMPNWithInventory, arg.Mpn, arg.TeamID)
+	var i GetPartByMPNWithInventoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Mpn,
+		&i.Manufacturer,
+		&i.Description,
+		&i.ShortDescription,
+		&i.InventoryEntryID,
+		&i.QuantityOnHand,
+		&i.StorageLocationLabel,
+	)
+	return i, err
+}
+
+const getPartBySKUAndDistributorWithInventory = `-- name: GetPartBySKUAndDistributorWithInventory :one
+SELECT
+    p.id, p.mpn, p.manufacturer, p.description, p.short_description,
+    dl.sku, d.name AS distributor_name,
+    ie.id AS inventory_entry_id,
+    ie.quantity_on_hand,
+    sl.label AS storage_location_label
+FROM distributor_listings dl
+JOIN parts p ON p.id = dl.part_id
+JOIN distributors d ON d.id = dl.distributor_id
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $2
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE dl.sku = $1
+  AND d.name ILIKE $3
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $2))
+LIMIT 1
+`
+
+type GetPartBySKUAndDistributorWithInventoryParams struct {
+	Sku             string      `json:"sku"`
+	TeamID          pgtype.UUID `json:"team_id"`
+	DistributorName string      `json:"distributor_name"`
+}
+
+type GetPartBySKUAndDistributorWithInventoryRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	Mpn                  *string     `json:"mpn"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Description          *string     `json:"description"`
+	ShortDescription     *string     `json:"short_description"`
+	Sku                  string      `json:"sku"`
+	DistributorName      string      `json:"distributor_name"`
+	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
+	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationLabel *string     `json:"storage_location_label"`
+}
+
+// Looks up a part via distributor_listings.sku scoped to a specific distributor,
+// returning part info and the team's inventory entry (if any).
+func (q *Queries) GetPartBySKUAndDistributorWithInventory(ctx context.Context, arg GetPartBySKUAndDistributorWithInventoryParams) (GetPartBySKUAndDistributorWithInventoryRow, error) {
+	row := q.db.QueryRow(ctx, getPartBySKUAndDistributorWithInventory, arg.Sku, arg.TeamID, arg.DistributorName)
+	var i GetPartBySKUAndDistributorWithInventoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Mpn,
+		&i.Manufacturer,
+		&i.Description,
+		&i.ShortDescription,
+		&i.Sku,
+		&i.DistributorName,
+		&i.InventoryEntryID,
+		&i.QuantityOnHand,
+		&i.StorageLocationLabel,
+	)
+	return i, err
+}
+
+const getPartBySKUWithInventory = `-- name: GetPartBySKUWithInventory :one
+SELECT
+    p.id, p.mpn, p.manufacturer, p.description, p.short_description,
+    dl.sku, d.name AS distributor_name,
+    ie.id AS inventory_entry_id,
+    ie.quantity_on_hand,
+    sl.label AS storage_location_label
+FROM distributor_listings dl
+JOIN parts p ON p.id = dl.part_id
+JOIN distributors d ON d.id = dl.distributor_id
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $2
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE dl.sku = $1
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $2))
+LIMIT 1
+`
+
+type GetPartBySKUWithInventoryParams struct {
+	Sku    string      `json:"sku"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetPartBySKUWithInventoryRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	Mpn                  *string     `json:"mpn"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Description          *string     `json:"description"`
+	ShortDescription     *string     `json:"short_description"`
+	Sku                  string      `json:"sku"`
+	DistributorName      string      `json:"distributor_name"`
+	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
+	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationLabel *string     `json:"storage_location_label"`
+}
+
+// Looks up a part via distributor_listings.sku across all distributors,
+// returning part info and the team's inventory entry (if any).
+func (q *Queries) GetPartBySKUWithInventory(ctx context.Context, arg GetPartBySKUWithInventoryParams) (GetPartBySKUWithInventoryRow, error) {
+	row := q.db.QueryRow(ctx, getPartBySKUWithInventory, arg.Sku, arg.TeamID)
+	var i GetPartBySKUWithInventoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Mpn,
+		&i.Manufacturer,
+		&i.Description,
+		&i.ShortDescription,
+		&i.Sku,
+		&i.DistributorName,
+		&i.InventoryEntryID,
+		&i.QuantityOnHand,
+		&i.StorageLocationLabel,
+	)
+	return i, err
+}
+
 const getScanSession = `-- name: GetScanSession :one
-SELECT id, token_hash, user_id, team_id, phone_connected, context_type, context_order_id, context_order_ref, pending_scan, created_at, expires_at
+SELECT id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at
 FROM scan_sessions
 WHERE id = $1 AND team_id = $2
 `
@@ -187,9 +335,6 @@ func (q *Queries) GetScanSession(ctx context.Context, arg GetScanSessionParams) 
 		&i.UserID,
 		&i.TeamID,
 		&i.PhoneConnected,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
 		&i.PendingScan,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -200,7 +345,7 @@ func (q *Queries) GetScanSession(ctx context.Context, arg GetScanSessionParams) 
 const getScanSessionByTokenHash = `-- name: GetScanSessionByTokenHash :one
 SELECT
     ss.id, ss.token_hash, ss.user_id, ss.team_id,
-    ss.phone_connected, ss.context_type, ss.context_order_id, ss.context_order_ref,
+    ss.phone_connected,
     ss.pending_scan, ss.created_at, ss.expires_at,
     u.display_name, u.email, u.is_active, u.is_admin
 FROM scan_sessions ss
@@ -209,21 +354,18 @@ WHERE ss.token_hash = $1 AND ss.expires_at > NOW()
 `
 
 type GetScanSessionByTokenHashRow struct {
-	ID              pgtype.UUID        `json:"id"`
-	TokenHash       string             `json:"token_hash"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	TeamID          pgtype.UUID        `json:"team_id"`
-	PhoneConnected  bool               `json:"phone_connected"`
-	ContextType     *string            `json:"context_type"`
-	ContextOrderID  pgtype.UUID        `json:"context_order_id"`
-	ContextOrderRef *string            `json:"context_order_ref"`
-	PendingScan     []byte             `json:"pending_scan"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	DisplayName     string             `json:"display_name"`
-	Email           string             `json:"email"`
-	IsActive        bool               `json:"is_active"`
-	IsAdmin         bool               `json:"is_admin"`
+	ID             pgtype.UUID        `json:"id"`
+	TokenHash      string             `json:"token_hash"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	TeamID         pgtype.UUID        `json:"team_id"`
+	PhoneConnected bool               `json:"phone_connected"`
+	PendingScan    []byte             `json:"pending_scan"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	DisplayName    string             `json:"display_name"`
+	Email          string             `json:"email"`
+	IsActive       bool               `json:"is_active"`
+	IsAdmin        bool               `json:"is_admin"`
 }
 
 func (q *Queries) GetScanSessionByTokenHash(ctx context.Context, tokenHash string) (GetScanSessionByTokenHashRow, error) {
@@ -235,9 +377,6 @@ func (q *Queries) GetScanSessionByTokenHash(ctx context.Context, tokenHash strin
 		&i.UserID,
 		&i.TeamID,
 		&i.PhoneConnected,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
 		&i.PendingScan,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -250,7 +389,7 @@ func (q *Queries) GetScanSessionByTokenHash(ctx context.Context, tokenHash strin
 }
 
 const getScanSessionByUserID = `-- name: GetScanSessionByUserID :one
-SELECT id, token_hash, user_id, team_id, phone_connected, context_type, context_order_id, context_order_ref, pending_scan, created_at, expires_at
+SELECT id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at
 FROM scan_sessions
 WHERE id = $1 AND user_id = $2
 `
@@ -269,9 +408,6 @@ func (q *Queries) GetScanSessionByUserID(ctx context.Context, arg GetScanSession
 		&i.UserID,
 		&i.TeamID,
 		&i.PhoneConnected,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
 		&i.PendingScan,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -302,29 +438,19 @@ const setScanSessionPhoneConnected = `-- name: SetScanSessionPhoneConnected :one
 UPDATE scan_sessions
 SET phone_connected = TRUE
 WHERE id = $1
-RETURNING id, phone_connected, context_type, context_order_id, context_order_ref, pending_scan
+RETURNING id, phone_connected, pending_scan
 `
 
 type SetScanSessionPhoneConnectedRow struct {
-	ID              pgtype.UUID `json:"id"`
-	PhoneConnected  bool        `json:"phone_connected"`
-	ContextType     *string     `json:"context_type"`
-	ContextOrderID  pgtype.UUID `json:"context_order_id"`
-	ContextOrderRef *string     `json:"context_order_ref"`
-	PendingScan     []byte      `json:"pending_scan"`
+	ID             pgtype.UUID `json:"id"`
+	PhoneConnected bool        `json:"phone_connected"`
+	PendingScan    []byte      `json:"pending_scan"`
 }
 
 func (q *Queries) SetScanSessionPhoneConnected(ctx context.Context, id pgtype.UUID) (SetScanSessionPhoneConnectedRow, error) {
 	row := q.db.QueryRow(ctx, setScanSessionPhoneConnected, id)
 	var i SetScanSessionPhoneConnectedRow
-	err := row.Scan(
-		&i.ID,
-		&i.PhoneConnected,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
-		&i.PendingScan,
-	)
+	err := row.Scan(&i.ID, &i.PhoneConnected, &i.PendingScan)
 	return i, err
 }
 
@@ -335,43 +461,4 @@ UPDATE scan_sessions SET phone_connected = FALSE WHERE id = $1
 func (q *Queries) SetScanSessionPhoneDisconnected(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, setScanSessionPhoneDisconnected, id)
 	return err
-}
-
-const updateScanSessionContext = `-- name: UpdateScanSessionContext :one
-UPDATE scan_sessions
-SET context_type = $2, context_order_id = $3, context_order_ref = $4,
-    pending_scan = NULL
-WHERE id = $1
-RETURNING id, context_type, context_order_id, context_order_ref
-`
-
-type UpdateScanSessionContextParams struct {
-	ID              pgtype.UUID `json:"id"`
-	ContextType     *string     `json:"context_type"`
-	ContextOrderID  pgtype.UUID `json:"context_order_id"`
-	ContextOrderRef *string     `json:"context_order_ref"`
-}
-
-type UpdateScanSessionContextRow struct {
-	ID              pgtype.UUID `json:"id"`
-	ContextType     *string     `json:"context_type"`
-	ContextOrderID  pgtype.UUID `json:"context_order_id"`
-	ContextOrderRef *string     `json:"context_order_ref"`
-}
-
-func (q *Queries) UpdateScanSessionContext(ctx context.Context, arg UpdateScanSessionContextParams) (UpdateScanSessionContextRow, error) {
-	row := q.db.QueryRow(ctx, updateScanSessionContext,
-		arg.ID,
-		arg.ContextType,
-		arg.ContextOrderID,
-		arg.ContextOrderRef,
-	)
-	var i UpdateScanSessionContextRow
-	err := row.Scan(
-		&i.ID,
-		&i.ContextType,
-		&i.ContextOrderID,
-		&i.ContextOrderRef,
-	)
-	return i, err
 }

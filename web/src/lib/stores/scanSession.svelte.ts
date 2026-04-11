@@ -1,8 +1,6 @@
 export interface ScanSessionState {
   id: string;
   teamId: string;
-  orderId: string;
-  orderRef: string;
   token: string;
   connected: boolean;   // was ever connected (phone_connected in DB)
   liveConnected: boolean; // SSE connection currently open (from scan_session_changed events)

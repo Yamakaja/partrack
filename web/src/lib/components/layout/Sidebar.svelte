@@ -217,9 +217,6 @@
             <div class="space-y-2">
               {#if session.liveConnected}
                 <p class="text-sm font-medium">Scanner connected</p>
-                {#if session.orderRef}
-                  <p class="text-xs text-muted-foreground">Receiving {session.orderRef}</p>
-                {/if}
                 <button
                   onclick={disconnect}
                   class="w-full rounded-md bg-destructive px-2 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
