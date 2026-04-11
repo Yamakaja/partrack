@@ -1,36 +1,38 @@
 <script lang="ts">
   import { createScanner } from './scanner.svelte.js';
-  import type { BagLookupResult, ScanPart } from './types.js';
+  import type { ScanPart } from './types.js';
 
   let {
     token,
     onBack,
-    onAdjustStock,
+    onPartFound,
     onSearchCatalog,
     onExpired,
   }: {
     token: string;
     onBack: () => void;
-    onAdjustStock: (part: ScanPart) => void;
+    onPartFound: (part: ScanPart, bagQty: number, newEntry: boolean) => void;
     onSearchCatalog: (query: string) => void;
     onExpired: () => void;
   } = $props();
 
   // ── Internal screen state ─────────────────────────────────────────────────
 
-  type Screen = 'scanning' | 'found' | 'not_found';
+  type Screen = 'scanning' | 'scan_result' | 'not_found_in_db';
   let screen = $state<Screen>('scanning');
 
   // ── State ─────────────────────────────────────────────────────────────────
 
-  let bagPart = $state<BagLookupResult | null>(null);
-  let bagParsedMPN = $state('');
-  let bagParsedSKU = $state('');
-  let bagParsedDistributor = $state('');
-  let bagParsedQty = $state<number | null>(null);
-  let bagParsedLot = $state('');
-  let bagParseError = $state(false);
-  let bagRaw = $state('');
+  // scan_result state
+  let parseError = $state(false);   // true = format unrecognised; false = parsed but no fields
+  let rawBarcode = $state('');
+  let parsedMPN = $state('');
+  let parsedSKU = $state('');
+  let parsedDistributor = $state('');
+  let parsedQty = $state<number | null>(null);
+  let parsedLot = $state('');
+
+  // not_found_in_db state (reuses parsed* variables above)
 
   // ── Camera ────────────────────────────────────────────────────────────────
 
@@ -73,52 +75,55 @@
     const data = await apiJSON<Record<string, unknown>>('POST', '/api/v1/scan/lookup', { barcode: raw });
 
     if (data.status === 'found') {
-      bagPart = {
-        id: data.id as string,
-        mpn: (data.mpn as string) ?? null,
-        manufacturer: (data.manufacturer as string) ?? null,
-        description: (data.description as string) ?? null,
-        sku: (data.sku as string) ?? null,
-        distributor_name: (data.distributor_name as string) ?? null,
-        distributor: (data.distributor as string) ?? null,
-        barcode_qty: (data.barcode_qty as number) ?? 0,
-        inventory_entry_id: (data.inventory_entry_id as string) ?? null,
-        quantity_on_hand: (data.quantity_on_hand as number) ?? null,
-        storage_location: (data.storage_location as string) ?? null,
-      };
-      screen = 'found';
-    } else if (data.status === 'not_found') {
-      bagParseError = false;
-      bagParsedMPN = (data.parsed_mpn as string) || '';
-      bagParsedSKU = (data.parsed_sku as string) || '';
-      bagParsedDistributor = (data.parsed_distributor as string) || '';
-      bagParsedQty = (data.parsed_qty as number) || null;
-      bagParsedLot = (data.parsed_lot as string) || '';
-      bagRaw = '';
-      screen = 'not_found';
+      onPartFound(
+        {
+          id: data.id as string,
+          mpn: (data.mpn as string) ?? null,
+          description: (data.description as string) ?? null,
+          inventory_entry_id: (data.inventory_entry_id as string) ?? null,
+          quantity_on_hand: (data.quantity_on_hand as number) ?? null,
+          storage_location: (data.storage_location as string) ?? null,
+          manufacturer: (data.manufacturer as string) ?? null,
+          sku: (data.sku as string) ?? null,
+          distributor_name: (data.distributor_name as string) ?? null,
+          distributor: (data.distributor as string) ?? null,
+          barcode_qty: (data.barcode_qty as number) ?? 0,
+        },
+        (data.bag_qty as number) ?? 0,
+        (data.inventory_entry_newly_created as boolean) ?? false,
+      );
+      // Screen stays 'scanning' — parent pushes the next screen onto the nav stack.
+
+    } else if (data.status === 'not_found_in_db') {
+      parseError = false;
+      parsedMPN = (data.parsed_mpn as string) || '';
+      parsedSKU = (data.parsed_sku as string) || '';
+      parsedDistributor = (data.parsed_distributor as string) || '';
+      parsedQty = (data.parsed_qty as number) || null;
+      parsedLot = (data.parsed_lot as string) || '';
+      screen = 'not_found_in_db';
+
+    } else if (data.status === 'no_fields') {
+      parseError = false;
+      parsedMPN = (data.parsed_mpn as string) || '';
+      parsedSKU = (data.parsed_sku as string) || '';
+      parsedDistributor = (data.parsed_distributor as string) || '';
+      parsedQty = (data.parsed_qty as number) || null;
+      parsedLot = (data.parsed_lot as string) || '';
+      rawBarcode = '';
+      screen = 'scan_result';
+
     } else {
       // parse_error — barcode format not recognised
-      bagParseError = true;
-      bagParsedMPN = '';
-      bagParsedSKU = '';
-      bagParsedDistributor = '';
-      bagParsedQty = null;
-      bagParsedLot = '';
-      bagRaw = (data.raw as string) || '';
-      screen = 'not_found';
+      parseError = true;
+      parsedMPN = '';
+      parsedSKU = '';
+      parsedDistributor = '';
+      parsedQty = null;
+      parsedLot = '';
+      rawBarcode = (data.raw as string) || '';
+      screen = 'scan_result';
     }
-  }
-
-  function handleAdjustStock() {
-    if (!bagPart) return;
-    onAdjustStock({
-      id: bagPart.id,
-      mpn: bagPart.mpn,
-      description: bagPart.description,
-      inventory_entry_id: bagPart.inventory_entry_id,
-      quantity_on_hand: bagPart.quantity_on_hand ?? null,
-      storage_location: bagPart.storage_location ?? null,
-    });
   }
 </script>
 
@@ -169,8 +174,8 @@
     {/if}
   </div>
 
-<!-- ── BAG FOUND ──────────────────────────────────────────────────────────── -->
-{:else if screen === 'found' && bagPart}
+<!-- ── SCAN RESULT (parse_error / no_fields) ─────────────────────────────── -->
+{:else if screen === 'scan_result'}
   <div class="flex flex-1 flex-col">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={() => { screen = 'scanning'; }} aria-label="Back" class="text-zinc-400 active:text-white">
@@ -178,78 +183,53 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-      <p class="font-medium">Part Found</p>
+      <p class="font-medium">{parseError ? 'Unrecognised barcode' : 'No part info found'}</p>
     </div>
 
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
-        <p class="text-lg font-semibold">{bagPart.mpn ?? '—'}</p>
-        {#if bagPart.manufacturer}
-          <p class="text-xs text-zinc-500">{bagPart.manufacturer}</p>
-        {/if}
-        {#if bagPart.description}
-          <p class="text-sm text-zinc-400">{bagPart.description}</p>
-        {/if}
-      </div>
-
-      {#if bagPart.sku || bagPart.distributor_name}
-        <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
-          {#if bagPart.distributor_name}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">Distributor</span>
-              <span class="font-medium">{bagPart.distributor_name}</span>
-            </div>
-          {/if}
-          {#if bagPart.sku}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">SKU</span>
-              <span class="font-medium font-mono text-xs">{bagPart.sku}</span>
-            </div>
-          {/if}
-          {#if bagPart.barcode_qty > 0}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">Bag Qty</span>
-              <span class="font-medium">{bagPart.barcode_qty}</span>
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
-        <div class="flex justify-between text-sm">
-          <span class="text-zinc-400">Stock</span>
-          <span class="font-medium">{bagPart.inventory_entry_id ? (bagPart.quantity_on_hand ?? 0) : 'Not tracked'}</span>
-        </div>
-        {#if bagPart.storage_location}
-          <div class="flex justify-between text-sm">
-            <span class="text-zinc-400">Location</span>
-            <span class="font-medium">{bagPart.storage_location}</span>
+      {#if parseError}
+        <p class="text-sm text-zinc-400">
+          The barcode was scanned successfully but its format is not supported. Only DigiKey and Mouser bag labels are supported.
+        </p>
+        {#if rawBarcode}
+          <div class="rounded-xl bg-zinc-900 p-4">
+            <p class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Raw barcode</p>
+            <p class="text-xs font-mono text-zinc-300 break-all select-text">{rawBarcode}</p>
           </div>
         {/if}
-      </div>
-
-      {#if bagPart.inventory_entry_id}
-        <button
-          onclick={handleAdjustStock}
-          class="w-full rounded-xl bg-orange-500/20 border border-orange-500/30 py-3 text-orange-300 font-medium active:bg-orange-500/30"
-        >
-          Adjust Stock
-        </button>
       {:else}
-        <p class="text-center text-xs text-zinc-500">Part not tracked in inventory</p>
+        <p class="text-sm text-zinc-400">
+          The barcode was parsed but no SKU or MPN could be extracted to identify a part.
+        </p>
+        {#if parsedDistributor || parsedLot}
+          <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
+            {#if parsedDistributor}
+              <div class="flex justify-between text-sm">
+                <span class="text-zinc-400">Distributor</span>
+                <span class="font-medium">{parsedDistributor}</span>
+              </div>
+            {/if}
+            {#if parsedLot}
+              <div class="flex justify-between text-sm">
+                <span class="text-zinc-400">Lot / Date code</span>
+                <span class="font-medium font-mono text-xs">{parsedLot}</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
       {/if}
 
       <button
         onclick={() => { screen = 'scanning'; }}
-        class="w-full rounded-xl border border-zinc-700 py-3 text-zinc-300 font-medium active:bg-zinc-800"
+        class="w-full rounded-lg border border-zinc-700 py-3 text-base font-semibold text-zinc-300 active:bg-zinc-800"
       >
-        Scan Another
+        Try Again
       </button>
     </div>
   </div>
 
-<!-- ── BAG NOT FOUND ──────────────────────────────────────────────────────── -->
-{:else if screen === 'not_found'}
+<!-- ── NOT FOUND IN DB (part info found but not in catalog) ──────────────── -->
+{:else if screen === 'not_found_in_db'}
   <div class="flex flex-1 flex-col">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={() => { screen = 'scanning'; }} aria-label="Back" class="text-zinc-400 active:text-white">
@@ -257,65 +237,51 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-      <p class="font-medium">{bagParseError ? 'Unrecognised barcode' : 'Part not found'}</p>
+      <p class="font-medium">Part not found</p>
     </div>
 
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      {#if bagParseError}
-        <p class="text-sm text-zinc-400">
-          The barcode was scanned successfully but its format is not supported. Only DigiKey and Mouser bag labels are supported.
-        </p>
-        {#if bagRaw}
-          <div class="rounded-xl bg-zinc-900 p-4">
-            <p class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Raw barcode</p>
-            <p class="text-xs font-mono text-zinc-300 break-all select-text">{bagRaw}</p>
+      <p class="text-sm text-zinc-400">
+        This part isn't in your catalog yet. Import functionality is coming soon.
+      </p>
+
+      <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
+        {#if parsedDistributor}
+          <div class="flex justify-between text-sm">
+            <span class="text-zinc-400">Distributor</span>
+            <span class="font-medium">{parsedDistributor}</span>
           </div>
         {/if}
-      {:else}
-        <p class="text-sm text-zinc-400">
-          The barcode was parsed but no matching part was found in your catalog. Fields read from the label:
-        </p>
-        <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
-          {#if bagParsedDistributor}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">Distributor</span>
-              <span class="font-medium">{bagParsedDistributor}</span>
-            </div>
-          {/if}
-          {#if bagParsedSKU}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">SKU</span>
-              <span class="font-medium font-mono text-xs">{bagParsedSKU}</span>
-            </div>
-          {/if}
-          {#if bagParsedMPN}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">MPN</span>
-              <span class="font-medium font-mono text-xs">{bagParsedMPN}</span>
-            </div>
-          {/if}
-          {#if bagParsedQty}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">Qty</span>
-              <span class="font-medium">{bagParsedQty}</span>
-            </div>
-          {/if}
-          {#if bagParsedLot}
-            <div class="flex justify-between text-sm">
-              <span class="text-zinc-400">Lot / Date code</span>
-              <span class="font-medium font-mono text-xs">{bagParsedLot}</span>
-            </div>
-          {/if}
-          {#if !bagParsedDistributor && !bagParsedSKU && !bagParsedMPN}
-            <p class="text-xs text-zinc-500">No fields could be extracted.</p>
-          {/if}
-        </div>
-      {/if}
+        {#if parsedSKU}
+          <div class="flex justify-between text-sm">
+            <span class="text-zinc-400">SKU</span>
+            <span class="font-medium font-mono text-xs">{parsedSKU}</span>
+          </div>
+        {/if}
+        {#if parsedMPN}
+          <div class="flex justify-between text-sm">
+            <span class="text-zinc-400">MPN</span>
+            <span class="font-medium font-mono text-xs">{parsedMPN}</span>
+          </div>
+        {/if}
+        {#if parsedQty}
+          <div class="flex justify-between text-sm">
+            <span class="text-zinc-400">Qty</span>
+            <span class="font-medium">{parsedQty}</span>
+          </div>
+        {/if}
+        {#if parsedLot}
+          <div class="flex justify-between text-sm">
+            <span class="text-zinc-400">Lot / Date code</span>
+            <span class="font-medium font-mono text-xs">{parsedLot}</span>
+          </div>
+        {/if}
+      </div>
 
       <div class="flex flex-col gap-3">
-        {#if !bagParseError && (bagParsedMPN || bagParsedSKU)}
+        {#if parsedMPN || parsedSKU}
           <button
-            onclick={() => onSearchCatalog(bagParsedMPN || bagParsedSKU)}
+            onclick={() => onSearchCatalog(parsedMPN || parsedSKU)}
             class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
           >
             Search Catalog
@@ -325,7 +291,7 @@
           onclick={() => { screen = 'scanning'; }}
           class="w-full rounded-lg border border-zinc-700 py-3 text-base font-semibold text-zinc-300 active:bg-zinc-800"
         >
-          Scan Another
+          Try Again
         </button>
       </div>
     </div>

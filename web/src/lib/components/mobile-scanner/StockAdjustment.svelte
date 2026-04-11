@@ -1,31 +1,33 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { ScanPart } from './types.js';
 
   let {
     token,
-    initialPart = null,
+    part,
+    mode = 'adjust',
+    initialValue,
     onBack,
+    onDone,
     onExpired,
   }: {
     token: string;
-    initialPart?: ScanPart | null;
+    part: ScanPart;
+    mode?: 'set' | 'adjust';
+    initialValue?: number;
     onBack: () => void;
+    onDone: () => void;
     onExpired: () => void;
   } = $props();
 
   // ── Internal screen state ─────────────────────────────────────────────────
 
-  type Screen = 'search' | 'qty' | 'done';
-  let screen = $state<Screen>(initialPart ? 'qty' : 'search');
+  type Screen = 'qty' | 'done';
+  let screen = $state<Screen>('qty');
 
   // ── State ─────────────────────────────────────────────────────────────────
 
-  let adjPart = $state<ScanPart | null>(initialPart ?? null);
-  let adjSearchQ = $state('');
-  let adjResults = $state<ScanPart[]>([]);
-  let adjSearchLoading = $state(false);
-  let adjSearchDebounce: ReturnType<typeof setTimeout> | null = null;
-  let adjDelta = $state('-1');
+  let adjValue = $state(untrack(() => String(initialValue ?? (mode === 'set' ? 0 : -1))));
   let adjReason = $state('');
   let adjSubmitting = $state(false);
   let adjNewQty = $state<number | null>(null);
@@ -53,44 +55,23 @@
     return res.json();
   }
 
-  // ── Search ────────────────────────────────────────────────────────────────
-
-  function searchAdjParts(q: string) {
-    if (adjSearchDebounce) clearTimeout(adjSearchDebounce);
-    adjSearchDebounce = setTimeout(async () => {
-      if (!q.trim()) { adjResults = []; return; }
-      adjSearchLoading = true;
-      try {
-        const data = await apiJSON<{ parts: ScanPart[] }>('GET', `/api/v1/scan/parts?q=${encodeURIComponent(q)}`);
-        adjResults = data.parts;
-      } catch {
-        adjResults = [];
-      } finally {
-        adjSearchLoading = false;
-      }
-    }, 300);
-  }
-
-  function selectAdjPart(p: ScanPart) {
-    adjPart = p;
-    adjDelta = '-1';
-    adjReason = '';
-    screen = 'qty';
-  }
-
   // ── Submit ────────────────────────────────────────────────────────────────
 
   async function submitAdj() {
-    if (!adjPart?.inventory_entry_id || adjSubmitting) return;
-    const delta = parseInt(adjDelta, 10);
-    if (isNaN(delta) || delta === 0) return;
+    if (!part.inventory_entry_id || adjSubmitting) return;
+    const parsed = parseInt(adjValue, 10);
+    if (isNaN(parsed)) return;
+    const delta = mode === 'set'
+      ? parsed - (part.quantity_on_hand ?? 0)
+      : parsed;
+    if (delta === 0) return;
     adjSubmitting = true;
     try {
       const data = await apiJSON<{ ok: boolean; new_quantity_on_hand: number }>(
         'POST',
         '/api/v1/scan/stock-adjustment',
         {
-          inventory_entry_id: adjPart.inventory_entry_id,
+          inventory_entry_id: part.inventory_entry_id,
           delta,
           reason: adjReason || undefined,
         },
@@ -103,59 +84,20 @@
       adjSubmitting = false;
     }
   }
+
+  function isSubmitDisabled(): boolean {
+    const parsed = parseInt(adjValue, 10);
+    if (isNaN(parsed) || adjSubmitting) return true;
+    const delta = mode === 'set' ? parsed - (part.quantity_on_hand ?? 0) : parsed;
+    return delta === 0;
+  }
 </script>
 
-<!-- ── STOCK ADJ SEARCH ──────────────────────────────────────────────────── -->
-{#if screen === 'search'}
-  <div class="flex flex-1 flex-col">
-    <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
-      <button onclick={onBack} aria-label="Back" class="text-zinc-400 active:text-white shrink-0">
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        type="search"
-        placeholder="Search parts to adjust…"
-        bind:value={adjSearchQ}
-        oninput={() => searchAdjParts(adjSearchQ)}
-        autofocus
-        class="flex-1 bg-transparent text-white placeholder-zinc-500 focus:outline-none text-sm"
-      />
-      {#if adjSearchLoading}
-        <div class="h-4 w-4 animate-spin rounded-full border border-zinc-600 border-t-white shrink-0"></div>
-      {/if}
-    </div>
-
-    <div class="flex-1 overflow-y-auto divide-y divide-zinc-800">
-      {#if adjResults.length === 0 && adjSearchQ.trim()}
-        <div class="py-12 text-center text-zinc-400 text-sm">No parts found</div>
-      {:else}
-        {#each adjResults as part}
-          <button
-            onclick={() => part.inventory_entry_id ? selectAdjPart(part) : null}
-            class="w-full px-4 py-3 text-left {part.inventory_entry_id ? 'active:bg-zinc-900' : 'opacity-50'}"
-            disabled={!part.inventory_entry_id}
-          >
-            <p class="font-medium text-sm">{part.mpn ?? '—'}</p>
-            {#if part.description}
-              <p class="text-xs text-zinc-400 mt-0.5 line-clamp-1">{part.description}</p>
-            {/if}
-            <p class="text-xs text-zinc-500 mt-0.5">
-              {part.inventory_entry_id ? `Stock: ${part.quantity_on_hand ?? 0}` : 'Not tracked'}
-            </p>
-          </button>
-        {/each}
-      {/if}
-    </div>
-  </div>
-
 <!-- ── STOCK ADJ QTY ─────────────────────────────────────────────────────── -->
-{:else if screen === 'qty' && adjPart}
+{#if screen === 'qty'}
   <div class="flex flex-1 flex-col">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
-      <button onclick={() => screen = 'search'} aria-label="Back" class="text-zinc-400 active:text-white">
+      <button onclick={onBack} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
@@ -165,26 +107,30 @@
 
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
       <div class="rounded-xl bg-zinc-900 p-4">
-        <p class="font-medium">{adjPart.mpn ?? '—'}</p>
-        <p class="text-xs text-zinc-400 mt-0.5">Current stock: {adjPart.quantity_on_hand ?? 0}</p>
+        <p class="font-medium">{part.mpn ?? '—'}</p>
+        <p class="text-xs text-zinc-400 mt-0.5">Current stock: {part.quantity_on_hand ?? 0}</p>
       </div>
 
       <div class="space-y-3">
         <div>
-          <p class="mb-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">Delta (negative = remove)</p>
+          {#if mode === 'set'}
+            <p class="mb-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">Quantity</p>
+          {:else}
+            <p class="mb-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">Delta (negative = remove)</p>
+          {/if}
           <div class="flex items-center gap-3">
             <button
-              onclick={() => { const v = parseInt(adjDelta, 10) || 0; adjDelta = String(v - 1); }}
+              onclick={() => { const v = parseInt(adjValue, 10) || 0; adjValue = String(v - 1); }}
               class="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 text-lg active:bg-zinc-800"
             >−</button>
             <input
               type="number"
-              bind:value={adjDelta}
+              bind:value={adjValue}
               inputmode="numeric"
               class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-lg font-mono text-white text-center focus:outline-none focus:ring-2 focus:ring-white/30"
             />
             <button
-              onclick={() => { const v = parseInt(adjDelta, 10) || 0; adjDelta = String(v + 1); }}
+              onclick={() => { const v = parseInt(adjValue, 10) || 0; adjValue = String(v + 1); }}
               class="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 text-lg active:bg-zinc-800"
             >+</button>
           </div>
@@ -203,7 +149,7 @@
 
       <button
         onclick={submitAdj}
-        disabled={adjSubmitting || adjDelta === '0' || adjDelta === ''}
+        disabled={isSubmitDisabled()}
         class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200 disabled:opacity-50"
       >
         {adjSubmitting ? 'Saving…' : 'Confirm'}
@@ -226,7 +172,7 @@
       {/if}
     </div>
     <button
-      onclick={onBack}
+      onclick={onDone}
       class="rounded-lg bg-white px-8 py-3 text-base font-semibold text-black active:bg-zinc-200"
     >
       Back to Menu

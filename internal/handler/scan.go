@@ -662,6 +662,19 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// no_fields: barcode parsed but no identifiable part information.
+	if parsed.SKU == "" && parsed.MPN == "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":             "no_fields",
+			"parsed_mpn":         parsed.MPN,
+			"parsed_sku":         parsed.SKU,
+			"parsed_distributor": parsed.Distributor,
+			"parsed_qty":         parsed.Quantity,
+			"parsed_lot":         parsed.Lot,
+		})
+		return
+	}
+
 	// Try SKU lookup — prefer distributor-scoped when we identified the source.
 	if parsed.SKU != "" {
 		if parsed.Distributor != "" {
@@ -671,7 +684,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 				DistributorName: parsed.Distributor,
 			})
 			if err == nil {
-				writeLookupFound(w, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+				h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 					&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
 				return
 			}
@@ -687,7 +700,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 			TeamID: sess.TeamID,
 		})
 		if err == nil {
-			writeLookupFound(w, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+			h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 				&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
 			return
 		}
@@ -704,7 +717,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 			TeamID: sess.TeamID,
 		})
 		if err == nil {
-			writeLookupFound(w, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+			h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 				nil, nil, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
 			return
 		}
@@ -714,9 +727,9 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Not found.
+	// not_found_in_db: part info extracted but not in catalog.
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":             "not_found",
+		"status":             "not_found_in_db",
 		"parsed_mpn":         parsed.MPN,
 		"parsed_sku":         parsed.SKU,
 		"parsed_distributor": parsed.Distributor,
@@ -725,33 +738,57 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// writeLookupFound writes the standard "found" response for LookupScanBarcode.
-func writeLookupFound(w http.ResponseWriter, id pgtype.UUID, mpn, manufacturer, desc, shortDesc *string,
-	sku, distributorName *string, invEntryID pgtype.UUID, qoh *int32, storageLabel *string, parsed *scanner.ParsedBarcode) {
+// writeLookupFound writes the "found" response for LookupScanBarcode,
+// auto-creating the team's inventory entry at quantity 0 if one does not exist.
+func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
+	teamID pgtype.UUID, partID pgtype.UUID, mpn, manufacturer, desc, shortDesc *string,
+	sku, distributorName *string, invEntryID pgtype.UUID, qoh *int32, storageLabel *string,
+	parsed *scanner.ParsedBarcode) {
+
+	newlyCreated := false
+	finalEntryID := invEntryID
+	finalQoh := qoh
+	finalStorageLabel := storageLabel
+
+	if !invEntryID.Valid {
+		entry, err := h.Queries.CreateInventoryEntry(r.Context(), dbgen.CreateInventoryEntryParams{
+			TeamID: teamID,
+			PartID: partID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		finalEntryID = entry.ID
+		var zero int32 = 0
+		finalQoh = &zero
+		finalStorageLabel = nil
+		newlyCreated = true
+	}
 
 	d := desc
 	if d == nil {
 		d = shortDesc
 	}
 	resp := map[string]any{
-		"status":       "found",
-		"id":           id.String(),
-		"mpn":          mpn,
-		"manufacturer": manufacturer,
-		"description":  d,
-		"barcode_qty":  parsed.Quantity,
-		"distributor":  parsed.Distributor,
+		"status":                        "found",
+		"id":                            partID.String(),
+		"mpn":                           mpn,
+		"manufacturer":                  manufacturer,
+		"description":                   d,
+		"barcode_qty":                   parsed.Quantity,
+		"distributor":                   parsed.Distributor,
+		"inventory_entry_id":            finalEntryID.String(),
+		"quantity_on_hand":              finalQoh,
+		"storage_location":              finalStorageLabel,
+		"inventory_entry_newly_created": newlyCreated,
+		"bag_qty":                       parsed.Quantity,
 	}
 	if sku != nil {
 		resp["sku"] = *sku
 	}
 	if distributorName != nil {
 		resp["distributor_name"] = *distributorName
-	}
-	if invEntryID.Valid {
-		resp["inventory_entry_id"] = invEntryID.String()
-		resp["quantity_on_hand"] = qoh
-		resp["storage_location"] = storageLabel
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1178,6 +1215,131 @@ func (h *Handler) SkipScan(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Queries.ClearScanSessionPendingScan(r.Context(), sess.ID) //nolint:errcheck
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// GetScanPartDetail handles GET /api/v1/scan/parts/{partId}.
+// Returns comprehensive part detail (identity, inventory, listings, parameters)
+// for the phone's PartDetail screen.
+func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	partIDStr := chi.URLParam(r, "partId")
+	var partID pgtype.UUID
+	if err := partID.Scan(partIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part id", "BAD_REQUEST")
+		return
+	}
+
+	ctx := r.Context()
+
+	part, err := h.Queries.GetPartWithInventory(ctx, dbgen.GetPartWithInventoryParams{
+		ID:     partID,
+		TeamID: pgtype.UUID{Bytes: sess.TeamID.Bytes, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	listings, err := h.Queries.ListListings(ctx, partID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	rawParams, err := h.Queries.ListParameters(ctx, partID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// Deduplicate parameters by name, preferring user-specified over distributor-sourced.
+	type paramItem struct {
+		Name  string  `json:"name"`
+		Value string  `json:"value"`
+		Unit  *string `json:"unit,omitempty"`
+	}
+	seen := map[string]bool{}
+	params := []paramItem{}
+	// ListParameters is ordered source_type ASC — 'distributor' < 'user', so iterate
+	// twice: first collect user params, then fill in distributor params not yet seen.
+	for _, p := range rawParams {
+		if p.SourceType == "user" {
+			seen[p.Name] = true
+			params = append(params, paramItem{Name: p.Name, Value: p.Value, Unit: p.Unit})
+		}
+	}
+	for _, p := range rawParams {
+		if p.SourceType != "user" && !seen[p.Name] {
+			seen[p.Name] = true
+			params = append(params, paramItem{Name: p.Name, Value: p.Value, Unit: p.Unit})
+		}
+	}
+
+	type listingItem struct {
+		ID              string  `json:"id"`
+		DistributorName string  `json:"distributor_name"`
+		SKU             string  `json:"sku"`
+		PackagingType   string  `json:"packaging_type"`
+		UnitPrice       *string `json:"unit_price,omitempty"`
+		StockAvailable  *int32  `json:"stock_available,omitempty"`
+		MOQ             int32   `json:"moq"`
+	}
+	listingItems := make([]listingItem, len(listings))
+	for i, l := range listings {
+		listingItems[i] = listingItem{
+			ID:              l.ID.String(),
+			DistributorName: l.DistributorName,
+			SKU:             l.Sku,
+			PackagingType:   l.PackagingType,
+			UnitPrice:       numericString(l.UnitPrice),
+			StockAvailable:  l.StockAvailable,
+			MOQ:             l.Moq,
+		}
+	}
+
+	desc := part.Description
+	if desc == nil {
+		desc = part.ShortDescription
+	}
+
+	var invEntryID *string
+	if part.InventoryEntryID.Valid {
+		s := part.InventoryEntryID.String()
+		invEntryID = &s
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":                     part.ID.String(),
+		"mpn":                    part.Mpn,
+		"manufacturer":           part.Manufacturer,
+		"description":            desc,
+		"package":                part.Package,
+		"lifecycle_status":       string(part.LifecycleStatus),
+		"datasheet_url":          part.DatasheetUrl,
+		"product_url":            part.ProductUrl,
+		"image_url":              part.ImageUrl,
+		"category_name":          part.CategoryName,
+		"inventory_entry_id":     invEntryID,
+		"quantity_on_hand":       part.QuantityOnHand,
+		"storage_location":       part.StorageLocationLabel,
+		"minimum_stock_quantity": part.MinimumStockQuantity,
+		"reorder_quantity":       part.ReorderQuantity,
+		"listings":               listingItems,
+		"parameters":             params,
+	})
 }
 
 // roleAtLeast returns true if role meets the minimum required role level.

@@ -4,13 +4,11 @@
     onReceiveOrder,
     onBagScan,
     onFindPart,
-    onStockAdj,
   }: {
     contextOrderRef: string | null;
     onReceiveOrder: () => void;
     onBagScan: () => void;
     onFindPart: () => void;
-    onStockAdj: () => void;
   } = $props();
 </script>
 
@@ -79,20 +77,5 @@
       </div>
     </button>
 
-    <button
-      onclick={onStockAdj}
-      class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
-    >
-      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500/20 text-orange-400">
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
-      </div>
-      <div>
-        <p class="font-medium">Stock Adjustment</p>
-        <p class="text-xs text-zinc-400">Adjust inventory quantity</p>
-      </div>
-    </button>
   </div>
 </div>

@@ -1,16 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import type { ScanPart } from '$lib/components/mobile-scanner/types.js';
+  import type { NavEntry, ScanPart } from '$lib/components/mobile-scanner/types.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
   import ReceiveOrder from '$lib/components/mobile-scanner/ReceiveOrder.svelte';
   import FindPart from '$lib/components/mobile-scanner/FindPart.svelte';
+  import PartDetail from '$lib/components/mobile-scanner/PartDetail.svelte';
   import StockAdjustment from '$lib/components/mobile-scanner/StockAdjustment.svelte';
   import BagScan from '$lib/components/mobile-scanner/BagScan.svelte';
-
-  // ── Top-level screen state machine ────────────────────────────────────────
-
-  type Screen = 'loading' | 'expired' | 'menu' | 'receive_order' | 'find_part' | 'stock_adjustment' | 'bag_scan';
-  let screen = $state<Screen>('loading');
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -34,7 +30,31 @@
     stopPolling();
     phoneES?.close();
     phoneES = null;
-    screen = 'expired';
+    topLevel = 'expired';
+  }
+
+  // ── Top-level state (outside the nav stack) ───────────────────────────────
+
+  type TopLevel = 'loading' | 'expired';
+  let topLevel = $state<TopLevel | null>('loading');
+
+  // ── Navigation stack ──────────────────────────────────────────────────────
+
+  let navStack = $state<NavEntry[]>([{ screen: 'menu' }]);
+  let current = $derived(navStack[navStack.length - 1]);
+
+  function goTo(entry: NavEntry) {
+    navStack = [...navStack, entry];
+  }
+
+  function goBack() {
+    if (navStack.length > 1) navStack = navStack.slice(0, -1);
+  }
+
+  function goToMenu() {
+    navStack = [{ screen: 'menu' }];
+    contextOrderId = null;
+    contextOrderRef = null;
   }
 
   // ── Session state ─────────────────────────────────────────────────────────
@@ -42,10 +62,15 @@
   let contextOrderId = $state<string | null>(null);
   let contextOrderRef = $state<string | null>(null);
 
-  // ── Cross-flow handoff state ──────────────────────────────────────────────
+  // ── BagScan part-found handler ────────────────────────────────────────────
 
-  let pendingAdjPart = $state<ScanPart | null>(null);
-  let findPartInitialQuery = $state('');
+  function handlePartFound(part: ScanPart, bagQty: number, newEntry: boolean) {
+    if (newEntry) {
+      goTo({ screen: 'stock_adjustment', part, mode: 'set', initialValue: bagQty });
+    } else {
+      goTo({ screen: 'part_detail', part });
+    }
+  }
 
   // ── Phone SSE ─────────────────────────────────────────────────────────────
 
@@ -60,8 +85,8 @@
         if (msg.type === 'scan_context_changed') {
           contextOrderId = (msg.context_order_id as string) ?? null;
           contextOrderRef = (msg.context_order_ref as string) ?? null;
-          if (contextOrderId && screen === 'menu') {
-            goToReceiveOrder();
+          if (contextOrderId && current.screen === 'menu') {
+            goTo({ screen: 'receive_order' });
           }
         }
       } catch {}
@@ -82,8 +107,8 @@
       }
       if (!res.ok) return;
       await res.json();
-      if (screen === 'loading') {
-        screen = 'menu';
+      if (topLevel === 'loading') {
+        topLevel = null;
       }
     } catch {
       // network error — keep polling
@@ -142,7 +167,7 @@
       t = localStorage.getItem(TOKEN_KEY) ?? '';
     }
     if (!t) {
-      screen = 'expired';
+      topLevel = 'expired';
       return;
     }
     token = t;
@@ -161,48 +186,19 @@
     phoneES?.close();
     phoneES = null;
   });
-
-  // ── Navigation helpers ────────────────────────────────────────────────────
-
-  function goToMenu() {
-    screen = 'menu';
-    contextOrderId = null;
-    contextOrderRef = null;
-  }
-
-  function goToReceiveOrder() {
-    if (!contextOrderId) {
-      // No context — ReceiveOrder will show order list
-    }
-    screen = 'receive_order';
-  }
-
-  function goToBagScan() {
-    screen = 'bag_scan';
-  }
-
-  function goToFindPart(query = '') {
-    findPartInitialQuery = query;
-    screen = 'find_part';
-  }
-
-  function goToStockAdj(part: ScanPart | null = null) {
-    pendingAdjPart = part;
-    screen = 'stock_adjustment';
-  }
 </script>
 
 <div class="flex h-dvh flex-col bg-black text-white overflow-hidden select-none touch-manipulation">
 
   <!-- ── LOADING ──────────────────────────────────────────────────────────── -->
-  {#if screen === 'loading'}
+  {#if topLevel === 'loading'}
     <div class="flex flex-1 flex-col items-center justify-center gap-3">
       <div class="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-white"></div>
       <p class="text-sm text-zinc-400">Connecting…</p>
     </div>
 
   <!-- ── EXPIRED ──────────────────────────────────────────────────────────── -->
-  {:else if screen === 'expired'}
+  {:else if topLevel === 'expired'}
     <div class="flex flex-1 flex-col items-center justify-center gap-6 px-8 text-center">
       <div class="text-5xl">⏱</div>
       <div>
@@ -214,52 +210,63 @@
     </div>
 
   <!-- ── MENU ─────────────────────────────────────────────────────────────── -->
-  {:else if screen === 'menu'}
+  {:else if current.screen === 'menu'}
     <ScanMenu
       {contextOrderRef}
-      onReceiveOrder={goToReceiveOrder}
-      onBagScan={goToBagScan}
-      onFindPart={() => goToFindPart()}
-      onStockAdj={() => goToStockAdj()}
+      onReceiveOrder={() => goTo({ screen: 'receive_order' })}
+      onBagScan={() => goTo({ screen: 'bag_scan' })}
+      onFindPart={() => goTo({ screen: 'find_part', initialQuery: '' })}
     />
 
   <!-- ── RECEIVE ORDER ─────────────────────────────────────────────────────── -->
-  {:else if screen === 'receive_order'}
+  {:else if current.screen === 'receive_order'}
     <ReceiveOrder
       {token}
       {contextOrderId}
       {contextOrderRef}
-      onBack={goToMenu}
+      onBack={goBack}
       onContextChange={(id, ref) => { contextOrderId = id; contextOrderRef = ref; }}
       onExpired={handleExpired}
     />
 
+  <!-- ── BAG SCAN ──────────────────────────────────────────────────────────── -->
+  {:else if current.screen === 'bag_scan'}
+    <BagScan
+      {token}
+      onBack={goBack}
+      onPartFound={handlePartFound}
+      onSearchCatalog={(q) => goTo({ screen: 'find_part', initialQuery: q })}
+      onExpired={handleExpired}
+    />
+
   <!-- ── FIND PART ─────────────────────────────────────────────────────────── -->
-  {:else if screen === 'find_part'}
+  {:else if current.screen === 'find_part'}
     <FindPart
       {token}
-      initialQuery={findPartInitialQuery}
-      onBack={goToMenu}
-      onAdjustStock={(part) => goToStockAdj(part)}
+      initialQuery={current.initialQuery}
+      onBack={goBack}
+      onSelectPart={(part) => goTo({ screen: 'part_detail', part })}
       onExpired={handleExpired}
+    />
+
+  <!-- ── PART DETAIL ───────────────────────────────────────────────────────── -->
+  {:else if current.screen === 'part_detail'}
+    <PartDetail
+      {token}
+      part={current.part}
+      onBack={goBack}
+      onAdjustStock={(part) => goTo({ screen: 'stock_adjustment', part, mode: 'adjust' })}
     />
 
   <!-- ── STOCK ADJUSTMENT ──────────────────────────────────────────────────── -->
-  {:else if screen === 'stock_adjustment'}
+  {:else if current.screen === 'stock_adjustment'}
     <StockAdjustment
       {token}
-      initialPart={pendingAdjPart}
-      onBack={goToMenu}
-      onExpired={handleExpired}
-    />
-
-  <!-- ── BAG SCAN ──────────────────────────────────────────────────────────── -->
-  {:else if screen === 'bag_scan'}
-    <BagScan
-      {token}
-      onBack={goToMenu}
-      onAdjustStock={(part) => goToStockAdj(part)}
-      onSearchCatalog={(q) => goToFindPart(q)}
+      part={current.part}
+      mode={current.mode}
+      initialValue={current.initialValue}
+      onBack={goBack}
+      onDone={goToMenu}
       onExpired={handleExpired}
     />
   {/if}
