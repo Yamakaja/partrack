@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { createScanner } from './scanner.svelte.js';
+  import ScannerCamera from './ScannerCamera.svelte';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import type { ScanOrder } from './types.js';
 
   let {
@@ -30,7 +31,7 @@
     | 'error_no_match'
     | 'error_parse';
 
-  let screen = $state<Screen>(untrack(() => initialContextOrderId ? 'scanning' : 'order_list'));
+  let screen = $state<Screen>('order_list');
   let currentOrderId = $state<string>(untrack(() => initialContextOrderId ?? ''));
 
   // ── Order list ────────────────────────────────────────────────────────────
@@ -54,18 +55,6 @@
   let submitting = $state(false);
   let errorMPN = $state('');
   let errorSKU = $state('');
-
-  // ── Camera ────────────────────────────────────────────────────────────────
-
-  let videoEl = $state<HTMLVideoElement | null>(null);
-  const scanner = createScanner(() => videoEl);
-
-  $effect(() => {
-    if (screen === 'scanning' && videoEl) {
-      scanner.startCamera();
-      return () => scanner.stopCamera();
-    }
-  });
 
   // ── API ───────────────────────────────────────────────────────────────────
 
@@ -106,7 +95,7 @@
 
   function selectOrder(order: ScanOrder) {
     currentOrderId = order.id;
-    onContextChange(order.id, order.ref);
+    onContextChange(order.id, order.title);
     screen = 'scanning';
   }
 
@@ -167,7 +156,7 @@
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
-  untrack(() => { if (!initialContextOrderId) loadOrders(); });
+  untrack(() => { loadOrders(); });
 </script>
 
 <!-- ── ORDER LIST ──────────────────────────────────────────────────────────── -->
@@ -191,12 +180,54 @@
         <div class="py-12 text-center text-zinc-400 text-sm">No receivable orders</div>
       {:else}
         {#each orders as order}
+          {@const isContext = order.id === currentOrderId}
+          {@const receivedItems = order.items_fully_received}
+          {@const totalItems = order.item_count}
+          {@const allReceived = receivedItems === totalItems}
           <button
             onclick={() => selectOrder(order)}
-            class="w-full rounded-xl bg-zinc-900 px-4 py-3 text-left active:bg-zinc-800"
+            class="w-full rounded-xl px-4 py-3 text-left active:bg-zinc-800 {isContext ? 'bg-zinc-700 ring-1 ring-white/20' : 'bg-zinc-900'}"
           >
-            <p class="font-medium">{order.ref}</p>
-            <p class="text-xs text-zinc-400 mt-0.5">{order.distributor_name} · {order.item_count} items</p>
+            <!-- Row 1: title + creator badge -->
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 min-w-0">
+                {#if order.title_is_fallback}
+                  <span class="shrink-0 text-xs text-zinc-600 font-medium">ID</span>
+                {/if}
+                <p class="font-medium font-mono text-sm truncate {order.title_is_fallback ? 'text-zinc-500' : 'text-white'}">{order.title}</p>
+              </div>
+              {#if order.created_by_me}
+                <span class="shrink-0 text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">You</span>
+              {:else}
+                <span class="shrink-0 text-xs text-zinc-500 truncate max-w-[8rem]">{order.created_by_name}</span>
+              {/if}
+            </div>
+
+            <!-- Row 1b: external ref (when present) -->
+            {#if order.external_ref}
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="text-xs text-zinc-600 font-medium">Ext</span>
+                <span class="text-xs font-mono text-zinc-400 truncate">{order.external_ref}</span>
+              </div>
+            {/if}
+
+            <!-- Row 2: distributor + date -->
+            <div class="flex items-center justify-between mt-0.5">
+              <p class="text-xs text-zinc-400">{order.distributor_name}</p>
+              <p class="text-xs text-zinc-500">{new Date(order.created_at).toLocaleDateString()}</p>
+            </div>
+
+            <!-- Row 3: receipt progress + value -->
+            <div class="flex items-center justify-between mt-1.5">
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs {allReceived ? 'text-green-400' : 'text-zinc-400'}">
+                  {receivedItems}/{totalItems} items
+                </span>
+              </div>
+              {#if order.total_value}
+                <PriceDisplay value={order.total_value} decimals={2} class="text-xs text-zinc-400" />
+              {/if}
+            </div>
           </button>
         {/each}
       {/if}
@@ -205,62 +236,15 @@
 
 <!-- ── SCANNING ──────────────────────────────────────────────────────────── -->
 {:else if screen === 'scanning'}
-  <div class="relative flex-1 overflow-hidden">
-    <button
-      onclick={onBack}
-      aria-label="Back"
-      class="absolute top-3 left-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white"
-    >
-      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-      </svg>
-    </button>
-
-    {#if contextOrderRef}
-      <div class="absolute top-3 left-0 right-0 z-10 text-center">
-        <span class="rounded-full bg-black/60 px-3 py-1 text-xs text-zinc-300">
-          {contextOrderRef}
-        </span>
-      </div>
-    {/if}
-
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={videoEl} autoplay playsinline muted class="h-full w-full object-cover"></video>
-
-    {#if scanner.cameraError}
-      <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/90 px-8 text-center">
-        <svg class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-            d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-          <line x1="3" y1="3" x2="21" y2="21" stroke-width="1.5" stroke-linecap="round" />
-        </svg>
-        <p class="text-sm text-zinc-300">{scanner.cameraError}</p>
-      </div>
-    {:else}
-      <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div class="h-56 w-56 rounded-lg border-2 border-white/60 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"></div>
-      </div>
-      <div class="absolute bottom-0 left-0 right-0 flex justify-center pb-14">
-        <button
-          onclick={() => scanner.triggerScan(handleScanResult)}
-          disabled={scanner.scanState === 'decoding'}
-          class="px-14 py-5 rounded-full bg-white text-black font-semibold text-lg active:bg-zinc-200 disabled:opacity-60"
-        >
-          {#if scanner.scanState === 'decoding'}
-            Scanning…
-          {:else if scanner.scanState === 'no_barcode'}
-            Not found — try again
-          {:else}
-            Scan
-          {/if}
-        </button>
-      </div>
-    {/if}
-  </div>
+  <ScannerCamera
+    onBack={() => { screen = 'order_list'; }}
+    onScan={handleScanResult}
+    label={contextOrderRef}
+  />
 
 <!-- ── CONFIRMING ────────────────────────────────────────────────────────── -->
 {:else if screen === 'confirming' || screen === 'confirming_over_receive'}
-  <div class="flex flex-1 flex-col justify-end">
+  <div class="relative flex flex-1 flex-col justify-end">
     <button
       onclick={() => { confirmData = null; screen = 'scanning'; }}
       aria-label="Back"

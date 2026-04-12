@@ -774,22 +774,37 @@ func (q *Queries) ListOrders(ctx context.Context, arg ListOrdersParams) ([]ListO
 
 const listReceivableOrdersForTeam = `-- name: ListReceivableOrdersForTeam :many
 SELECT o.id, o.status, o.external_reference, o.purchase_order_number,
-       d.name AS distributor_name, COUNT(oli.id)::int AS item_count
+       d.name AS distributor_name,
+       COUNT(oli.id)::int                                                             AS item_count,
+       COALESCE(SUM(oli.quantity_ordered), 0)::int                                   AS total_qty_ordered,
+       COALESCE(SUM(oli.quantity_received), 0)::int                                  AS total_qty_received,
+       COUNT(CASE WHEN oli.quantity_received >= oli.quantity_ordered THEN 1 END)::int AS items_fully_received,
+       COALESCE(SUM(oli.quantity_ordered * oli.unit_price_snapshot
+                    + oli.fixed_order_cost_snapshot), 0)::numeric                    AS total_value,
+       o.created_by, u.display_name AS created_by_name, o.created_at
 FROM orders o
 JOIN distributors d ON d.id = o.distributor_id
+JOIN users u ON u.id = o.created_by
 LEFT JOIN order_line_items oli ON oli.order_id = o.id
 WHERE o.team_id = $1 AND o.status IN ('placed', 'partially_received')
-GROUP BY o.id, d.name
+GROUP BY o.id, d.name, o.created_by, u.display_name, o.created_at
 ORDER BY o.created_at DESC LIMIT 50
 `
 
 type ListReceivableOrdersForTeamRow struct {
-	ID                  pgtype.UUID `json:"id"`
-	Status              OrderStatus `json:"status"`
-	ExternalReference   *string     `json:"external_reference"`
-	PurchaseOrderNumber *string     `json:"purchase_order_number"`
-	DistributorName     string      `json:"distributor_name"`
-	ItemCount           int32       `json:"item_count"`
+	ID                  pgtype.UUID        `json:"id"`
+	Status              OrderStatus        `json:"status"`
+	ExternalReference   *string            `json:"external_reference"`
+	PurchaseOrderNumber *string            `json:"purchase_order_number"`
+	DistributorName     string             `json:"distributor_name"`
+	ItemCount           int32              `json:"item_count"`
+	TotalQtyOrdered     int32              `json:"total_qty_ordered"`
+	TotalQtyReceived    int32              `json:"total_qty_received"`
+	ItemsFullyReceived  int32              `json:"items_fully_received"`
+	TotalValue          pgtype.Numeric     `json:"total_value"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	CreatedByName       string             `json:"created_by_name"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) ListReceivableOrdersForTeam(ctx context.Context, teamID pgtype.UUID) ([]ListReceivableOrdersForTeamRow, error) {
@@ -808,6 +823,13 @@ func (q *Queries) ListReceivableOrdersForTeam(ctx context.Context, teamID pgtype
 			&i.PurchaseOrderNumber,
 			&i.DistributorName,
 			&i.ItemCount,
+			&i.TotalQtyOrdered,
+			&i.TotalQtyReceived,
+			&i.ItemsFullyReceived,
+			&i.TotalValue,
+			&i.CreatedBy,
+			&i.CreatedByName,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

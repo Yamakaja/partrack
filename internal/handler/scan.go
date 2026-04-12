@@ -433,20 +433,48 @@ func (h *Handler) ListScanOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type orderItem struct {
-		ID              string `json:"id"`
-		Ref             string `json:"ref"`
-		Status          string `json:"status"`
-		DistributorName string `json:"distributor_name"`
-		ItemCount       int32  `json:"item_count"`
+		ID                 string  `json:"id"`
+		Title              string  `json:"title"`               // PO number, or UUID prefix as fallback
+		TitleIsFallback    bool    `json:"title_is_fallback"`   // true when showing UUID prefix
+		ExternalRef        *string `json:"external_ref"`        // distributor order ID, if any
+		Status             string  `json:"status"`
+		DistributorName    string  `json:"distributor_name"`
+		ItemCount          int32   `json:"item_count"`
+		ItemsFullyReceived int32   `json:"items_fully_received"`
+		TotalQtyOrdered    int32   `json:"total_qty_ordered"`
+		TotalQtyReceived   int32   `json:"total_qty_received"`
+		TotalValue         *string `json:"total_value"`
+		CreatedByName      string  `json:"created_by_name"`
+		CreatedByMe        bool    `json:"created_by_me"`
+		CreatedAt          string  `json:"created_at"`
 	}
 	items := make([]orderItem, len(orders))
 	for i, o := range orders {
+		title := o.ID.String()[:8]
+		isFallback := true
+		if o.PurchaseOrderNumber != nil && *o.PurchaseOrderNumber != "" {
+			title = *o.PurchaseOrderNumber
+			isFallback = false
+		}
+		var extRef *string
+		if o.ExternalReference != nil && *o.ExternalReference != "" {
+			extRef = o.ExternalReference
+		}
 		items[i] = orderItem{
-			ID:              o.ID.String(),
-			Ref:             buildOrderRef(o.ID, o.PurchaseOrderNumber, o.ExternalReference),
-			Status:          string(o.Status),
-			DistributorName: o.DistributorName,
-			ItemCount:       o.ItemCount,
+			ID:                 o.ID.String(),
+			Title:              title,
+			TitleIsFallback:    isFallback,
+			ExternalRef:        extRef,
+			Status:             string(o.Status),
+			DistributorName:    o.DistributorName,
+			ItemCount:          o.ItemCount,
+			ItemsFullyReceived: o.ItemsFullyReceived,
+			TotalQtyOrdered:    o.TotalQtyOrdered,
+			TotalQtyReceived:   o.TotalQtyReceived,
+			TotalValue:         numericString(o.TotalValue),
+			CreatedByName:      o.CreatedByName,
+			CreatedByMe:        o.CreatedBy == sess.UserID,
+			CreatedAt:          o.CreatedAt.Time.UTC().Format(time.RFC3339),
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orders": items})

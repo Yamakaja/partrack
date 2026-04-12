@@ -15,10 +15,19 @@ export interface ScanPart {
 
 export interface ScanOrder {
   id: string;
-  ref: string;
+  title: string;
+  title_is_fallback: boolean;
+  external_ref: string | null;
   status: string;
   distributor_name: string;
   item_count: number;
+  items_fully_received: number;
+  total_qty_ordered: number;
+  total_qty_received: number;
+  total_value: string | null;
+  created_by_name: string;
+  created_by_me: boolean;
+  created_at: string;
 }
 
 export type NavEntry =
