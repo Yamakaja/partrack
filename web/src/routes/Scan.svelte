@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
   import type { NavEntry, ScanPart } from '$lib/components/mobile-scanner/types.js';
+  import type { ScanHistoryEntry } from '$lib/stores/scannerHistory.svelte.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
   import ReceiveOrder from '$lib/components/mobile-scanner/ReceiveOrder.svelte';
   import FindPart from '$lib/components/mobile-scanner/FindPart.svelte';
@@ -66,6 +67,21 @@
 
   let contextOrderId = $state<string | null>(null);
   let contextOrderRef = $state<string | null>(null);
+
+  // ── History part-select handler ───────────────────────────────────────────
+
+  function handleHistoryPartSelect(entry: ScanHistoryEntry) {
+    const part: ScanPart = {
+      id: entry.partId,
+      mpn: entry.mpn,
+      description: entry.description,
+      manufacturer: entry.manufacturer,
+      inventory_entry_id: entry.inventoryEntryId,
+      quantity_on_hand: entry.quantityOnHand,
+      storage_location: entry.storageLocation,
+    };
+    goTo({ screen: 'part_detail', part });
+  }
 
   // ── BagScan part-found handler ────────────────────────────────────────────
 
@@ -221,6 +237,7 @@
       onReceiveOrder={() => goTo({ screen: 'receive_order' })}
       onBagScan={() => goTo({ screen: 'bag_scan' })}
       onFindPart={() => goTo({ screen: 'find_part', initialQuery: '' })}
+      onPartSelect={handleHistoryPartSelect}
     />
 
   <!-- ── RECEIVE ORDER ─────────────────────────────────────────────────────── -->

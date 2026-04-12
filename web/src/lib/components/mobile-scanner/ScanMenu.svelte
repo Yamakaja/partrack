@@ -1,20 +1,32 @@
 <script lang="ts">
+  import { scanHistory, type ScanHistoryEntry } from '$lib/stores/scannerHistory.svelte.js';
+
   let {
     contextOrderRef,
     onReceiveOrder,
     onBagScan,
     onFindPart,
+    onPartSelect,
   }: {
     contextOrderRef: string | null;
     onReceiveOrder: () => void;
     onBagScan: () => void;
     onFindPart: () => void;
+    onPartSelect: (entry: ScanHistoryEntry) => void;
   } = $props();
+
+  function relativeTime(ts: number): string {
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60) return '< 1 min';
+    if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
 </script>
 
-<div class="flex flex-1 flex-col">
+<div class="flex flex-1 flex-col overflow-hidden">
   <!-- Header -->
-  <div class="px-4 py-4 border-b border-zinc-800">
+  <div class="px-4 py-4 border-b border-zinc-800 shrink-0">
     <p class="text-lg font-semibold">Scanner</p>
     {#if contextOrderRef}
       <p class="text-xs text-zinc-400 mt-0.5">
@@ -24,7 +36,7 @@
   </div>
 
   <!-- Menu items -->
-  <div class="flex flex-col gap-2 p-4">
+  <div class="flex flex-col gap-2 p-4 shrink-0">
     <button
       onclick={onReceiveOrder}
       class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
@@ -76,6 +88,45 @@
         <p class="text-xs text-zinc-400">Search catalog and check stock</p>
       </div>
     </button>
-
   </div>
+
+  <!-- Recent parts -->
+  {#if scanHistory.length > 0}
+    <div class="flex flex-col flex-1 overflow-hidden border-t border-zinc-800">
+      <p class="px-4 pt-3 pb-2 text-xs font-medium text-zinc-500 uppercase tracking-wide shrink-0">Recent</p>
+      <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+        {#each scanHistory as entry (entry.partId)}
+          <button
+            onclick={() => onPartSelect(entry)}
+            class="w-full flex items-center gap-3 rounded-xl bg-zinc-900 px-3 py-2.5 text-left active:bg-zinc-800"
+          >
+            <!-- Thumbnail -->
+            <div class="h-10 w-10 shrink-0 rounded-lg overflow-hidden bg-zinc-800 flex items-center justify-center">
+              {#if entry.imageUrl}
+                <img src={entry.imageUrl} alt={entry.mpn ?? ''} class="h-full w-full object-contain p-1" />
+              {:else}
+                <svg class="h-5 w-5 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+                </svg>
+              {/if}
+            </div>
+            <!-- Info -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <p class="font-mono text-sm font-medium truncate">{entry.mpn ?? '—'}</p>
+                <span class="shrink-0 text-xs text-zinc-600">{relativeTime(entry.timestamp)}</span>
+              </div>
+              {#if entry.description}
+                <p class="text-xs text-zinc-400 truncate">{entry.description}</p>
+              {/if}
+              {#if entry.storageLocation}
+                <p class="text-xs text-zinc-500 truncate">{entry.storageLocation}</p>
+              {/if}
+            </div>
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
