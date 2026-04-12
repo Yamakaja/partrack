@@ -156,11 +156,21 @@
           {/if}
         </div>
 
-        <!-- Manufacturer · Package -->
+        <!-- Manufacturer + Package -->
         {#if (detail?.manufacturer ?? part.manufacturer) || detail?.package}
-          <p class="text-xs text-zinc-500">
-            {#if detail?.manufacturer ?? part.manufacturer}{detail?.manufacturer ?? part.manufacturer}{/if}{#if (detail?.manufacturer ?? part.manufacturer) && detail?.package} · {/if}{#if detail?.package}{detail.package}{/if}
-          </p>
+          <div class="flex items-baseline justify-between gap-2">
+            {#if detail?.manufacturer ?? part.manufacturer}
+              <p class="text-xs text-zinc-500">{detail?.manufacturer ?? part.manufacturer}</p>
+            {/if}
+            {#if detail?.package}
+              <p class="text-xs font-mono text-zinc-500 ml-auto">{detail.package}</p>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- Category -->
+        {#if detail?.category_name}
+          <p class="text-xs text-zinc-500">{detail.category_name}</p>
         {/if}
 
         <!-- Description -->
