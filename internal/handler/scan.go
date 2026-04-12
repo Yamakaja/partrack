@@ -437,6 +437,7 @@ func (h *Handler) ListScanOrders(w http.ResponseWriter, r *http.Request) {
 		Title              string  `json:"title"`               // PO number, or UUID prefix as fallback
 		TitleIsFallback    bool    `json:"title_is_fallback"`   // true when showing UUID prefix
 		ExternalRef        *string `json:"external_ref"`        // distributor order ID, if any
+		Notes              *string `json:"notes"`
 		Status             string  `json:"status"`
 		DistributorName    string  `json:"distributor_name"`
 		ItemCount          int32   `json:"item_count"`
@@ -460,11 +461,16 @@ func (h *Handler) ListScanOrders(w http.ResponseWriter, r *http.Request) {
 		if o.ExternalReference != nil && *o.ExternalReference != "" {
 			extRef = o.ExternalReference
 		}
+		var notes *string
+		if o.Notes != nil && *o.Notes != "" {
+			notes = o.Notes
+		}
 		items[i] = orderItem{
 			ID:                 o.ID.String(),
 			Title:              title,
 			TitleIsFallback:    isFallback,
 			ExternalRef:        extRef,
+			Notes:              notes,
 			Status:             string(o.Status),
 			DistributorName:    o.DistributorName,
 			ItemCount:          o.ItemCount,

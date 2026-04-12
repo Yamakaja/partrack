@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { ScanPart } from './types.js';
+  import { searchDistributor, importScanPart, ScanExpiredError, type DistributorSearchItem } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -22,43 +23,9 @@
     onExpired: () => void;
   } = $props();
 
-  // ── API ───────────────────────────────────────────────────────────────────
-
-  async function apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
-    return fetch(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  async function apiJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await apiFetch(method, path, body);
-    if (res.status === 401 || res.status === 410) {
-      onExpired();
-      throw new Error('expired');
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
   // ── State ─────────────────────────────────────────────────────────────────
 
-  interface SearchItem {
-    mpn: string;
-    manufacturer: string;
-    description: string;
-    category: string;
-    primary_sku: string;
-    package: string;
-    unit_price: string;
-    stock_available: number | null;
-  }
-
-  let results = $state<SearchItem[]>([]);
+  let results = $state<DistributorSearchItem[]>([]);
   let searchLoading = $state(true);
   let searchError = $state('');
   let importingIdx = $state<number | null>(null);
@@ -68,13 +35,11 @@
 
   onMount(async () => {
     try {
-      const params = new URLSearchParams({ distributor_id: distributorId, q: initialQuery });
-      const data = await apiJSON<{ items: SearchItem[] }>('GET', `/api/v1/scan/distributor-search?${params}`);
+      const data = await searchDistributor(token, distributorId, initialQuery);
       results = data.items ?? [];
     } catch (e) {
-      if ((e as Error).message !== 'expired') {
-        searchError = 'Search failed. Go back and try again.';
-      }
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      searchError = 'Search failed. Go back and try again.';
     } finally {
       searchLoading = false;
     }
@@ -82,14 +47,11 @@
 
   // ── Import on select ──────────────────────────────────────────────────────
 
-  async function selectResult(idx: number, item: SearchItem) {
+  async function selectResult(idx: number, item: DistributorSearchItem) {
     importingIdx = idx;
     importError = '';
     try {
-      const data = await apiJSON<{ part_id: string }>('POST', '/api/v1/scan/parts/import', {
-        distributor_id: distributorId,
-        sku: item.primary_sku,
-      });
+      const data = await importScanPart(token, { distributor_id: distributorId, sku: item.primary_sku });
       const part: ScanPart = {
         id: data.part_id,
         mpn: item.mpn || null,
@@ -103,9 +65,8 @@
       };
       onImportDone(part, parsedQty ?? 0);
     } catch (e) {
-      if ((e as Error).message !== 'expired') {
-        importError = 'Import failed. Try another result or go back.';
-      }
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      importError = 'Import failed. Try another result or go back.';
     } finally {
       importingIdx = null;
     }

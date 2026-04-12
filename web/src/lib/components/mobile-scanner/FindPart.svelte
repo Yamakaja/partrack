@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { ScanPart } from './types.js';
+  import { searchParts, ScanExpiredError } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -23,40 +24,18 @@
   let partSearchLoading = $state(false);
   let partSearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
-  // ── API ───────────────────────────────────────────────────────────────────
-
-  async function apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
-    return fetch(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  async function apiJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await apiFetch(method, path, body);
-    if (res.status === 401 || res.status === 410) {
-      onExpired();
-      throw new Error('expired');
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
   // ── Search ────────────────────────────────────────────────────────────────
 
-  function searchParts(q: string) {
+  function doSearch(q: string) {
     if (partSearchDebounce) clearTimeout(partSearchDebounce);
     partSearchDebounce = setTimeout(async () => {
       if (!q.trim()) { partResults = []; return; }
       partSearchLoading = true;
       try {
-        const data = await apiJSON<{ parts: ScanPart[] }>('GET', `/api/v1/scan/parts?q=${encodeURIComponent(q)}`);
+        const data = await searchParts(token, q);
         partResults = data.parts;
-      } catch {
+      } catch (e) {
+        if (e instanceof ScanExpiredError) { onExpired(); return; }
         partResults = [];
       } finally {
         partSearchLoading = false;
@@ -66,7 +45,7 @@
 
   // Kick off search if we arrived with a pre-filled query.
   untrack(() => {
-    if (initialQuery) searchParts(initialQuery);
+    if (initialQuery) doSearch(initialQuery);
   });
 </script>
 
@@ -83,7 +62,7 @@
       type="search"
       placeholder="Search parts…"
       bind:value={partSearchQ}
-      oninput={() => searchParts(partSearchQ)}
+      oninput={() => doSearch(partSearchQ)}
       autofocus
       class="flex-1 bg-transparent text-white placeholder-zinc-500 focus:outline-none text-sm"
     />

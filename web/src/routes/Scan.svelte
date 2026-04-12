@@ -3,6 +3,7 @@
   import Toaster from '$lib/components/common/Toaster.svelte';
   import type { NavEntry, ScanPart } from '$lib/components/mobile-scanner/types.js';
   import type { ScanHistoryEntry } from '$lib/stores/scannerHistory.svelte.js';
+  import { checkSession, ScanExpiredError } from '$lib/api/scanner.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
   import ReceiveOrder from '$lib/components/mobile-scanner/ReceiveOrder.svelte';
   import FindPart from '$lib/components/mobile-scanner/FindPart.svelte';
@@ -15,17 +16,6 @@
 
   const TOKEN_KEY = 'scan_token';
   let token = $state('');
-
-  async function apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
-    return fetch(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
 
   function handleExpired() {
     localStorage.removeItem(TOKEN_KEY);
@@ -121,17 +111,10 @@
   async function pollSession() {
     if (!token) return;
     try {
-      const res = await apiFetch('GET', '/api/v1/scan/session');
-      if (res.status === 401 || res.status === 410) {
-        handleExpired();
-        return;
-      }
-      if (!res.ok) return;
-      await res.json();
-      if (topLevel === 'loading') {
-        topLevel = null;
-      }
-    } catch {
+      await checkSession(token);
+      if (topLevel === 'loading') topLevel = null;
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { handleExpired(); return; }
       // network error — keep polling
     }
   }
@@ -309,6 +292,7 @@
         initialValue: adjust?.value,
         initialReason: adjust?.reason,
       })}
+      onExpired={handleExpired}
     />
 
   <!-- ── STOCK ADJUSTMENT ──────────────────────────────────────────────────── -->

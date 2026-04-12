@@ -1,5 +1,5 @@
 -- name: ListReceivableOrdersForTeam :many
-SELECT o.id, o.status, o.external_reference, o.purchase_order_number,
+SELECT o.id, o.status, o.external_reference, o.purchase_order_number, o.notes,
        d.name AS distributor_name,
        COUNT(oli.id)::int                                                             AS item_count,
        COALESCE(SUM(oli.quantity_ordered), 0)::int                                   AS total_qty_ordered,

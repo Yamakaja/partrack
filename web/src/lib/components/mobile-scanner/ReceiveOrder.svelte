@@ -3,6 +3,10 @@
   import ScannerCamera from './ScannerCamera.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import type { ScanOrder } from './types.js';
+  import {
+    listOrders, scanBarcode, confirmReceipt, skipItem,
+    ScanExpiredError, type ScanMatchedResponse,
+  } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -56,37 +60,15 @@
   let errorMPN = $state('');
   let errorSKU = $state('');
 
-  // ── API ───────────────────────────────────────────────────────────────────
-
-  async function apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
-    return fetch(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  async function apiJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await apiFetch(method, path, body);
-    if (res.status === 401 || res.status === 410) {
-      onExpired();
-      throw new Error('expired');
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
   // ── Order list ────────────────────────────────────────────────────────────
 
   async function loadOrders() {
     ordersLoading = true;
     try {
-      const data = await apiJSON<{ orders: ScanOrder[] }>('GET', '/api/v1/scan/orders');
+      const data = await listOrders(token);
       orders = data.orders;
-    } catch {
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
       orders = [];
     } finally {
       ordersLoading = false;
@@ -102,29 +84,33 @@
   // ── Scan handling ─────────────────────────────────────────────────────────
 
   async function handleScanResult(raw: string) {
-    const data = await apiJSON<Record<string, unknown>>('POST', '/api/v1/scan/scans', { order_id: currentOrderId, barcode: raw });
-
-    if (data.status === 'matched') {
-      applyPendingScan(data);
-    } else if (data.status === 'no_match') {
-      screen = 'error_no_match';
-      errorMPN = (data.parsed_mpn as string) || '';
-      errorSKU = (data.parsed_sku as string) || '';
-    } else {
+    try {
+      const data = await scanBarcode(token, { order_id: currentOrderId, barcode: raw });
+      if (data.status === 'matched') {
+        applyPendingScan(data);
+      } else if (data.status === 'no_match') {
+        screen = 'error_no_match';
+        errorMPN = data.parsed_mpn || '';
+        errorSKU = data.parsed_sku || '';
+      } else {
+        screen = 'error_parse';
+      }
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
       screen = 'error_parse';
     }
   }
 
-  function applyPendingScan(data: Record<string, unknown>) {
+  function applyPendingScan(data: ScanMatchedResponse) {
     confirmData = {
-      lineItemId: data.line_item_id as string,
-      partName: data.part_name as string,
-      mpn: data.mpn as string,
-      sku: data.sku as string,
-      barcodeQty: data.barcode_qty as number,
-      quantityOrdered: data.quantity_ordered as number,
-      alreadyReceived: data.already_received as number,
-      overReceive: data.over_receive as boolean,
+      lineItemId: data.line_item_id,
+      partName: data.part_name,
+      mpn: data.mpn,
+      sku: data.sku,
+      barcodeQty: data.barcode_qty,
+      quantityOrdered: data.quantity_ordered,
+      alreadyReceived: data.already_received,
+      overReceive: data.over_receive,
     };
     confirmQty = String(data.barcode_qty || '');
     screen = data.over_receive ? 'confirming_over_receive' : 'confirming';
@@ -136,20 +122,19 @@
     if (isNaN(qty) || qty <= 0) return;
     submitting = true;
     try {
-      const data = await apiJSON<Record<string, unknown>>('POST', '/api/v1/scan/confirm', { qty });
+      const data = await confirmReceipt(token, qty);
       confirmData = null;
       screen = data.order_status === 'received' ? 'order_complete' : 'scanning';
     } catch (e) {
-      if ((e as Error).message !== 'expired') {
-        // keep state for retry
-      }
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      // keep state for retry
     } finally {
       submitting = false;
     }
   }
 
   async function skip() {
-    apiFetch('POST', '/api/v1/scan/skip').catch(() => {});
+    skipItem(token).catch(() => {});
     confirmData = null;
     screen = 'scanning';
   }
@@ -205,17 +190,16 @@
 
             <!-- Row 1b: external ref (when present) -->
             {#if order.external_ref}
-              <div class="flex items-center gap-1.5 mt-0.5">
-                <span class="text-xs text-zinc-600 font-medium">Ext</span>
-                <span class="text-xs font-mono text-zinc-400 truncate">{order.external_ref}</span>
+              <div class="flex items-center justify-between mt-0.5">
+                <span class="text-xs text-zinc-400">{order.distributor_name ?? "EXT"}: {order.external_ref}</span>
+                <span class="text-xs text-zinc-500">{new Date(order.created_at).toLocaleDateString()}</span>
               </div>
             {/if}
 
-            <!-- Row 2: distributor + date -->
-            <div class="flex items-center justify-between mt-0.5">
-              <p class="text-xs text-zinc-400">{order.distributor_name}</p>
-              <p class="text-xs text-zinc-500">{new Date(order.created_at).toLocaleDateString()}</p>
-            </div>
+            <!-- Row 1c: notes (when present) -->
+            {#if order.notes}
+              <p class="text-xs text-zinc-400 mt-0.5 line-clamp-2">{order.notes}</p>
+            {/if}
 
             <!-- Row 3: receipt progress + value -->
             <div class="flex items-center justify-between mt-1.5">

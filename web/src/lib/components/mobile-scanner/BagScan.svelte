@@ -1,6 +1,7 @@
 <script lang="ts">
   import ScannerCamera from './ScannerCamera.svelte';
   import type { ScanPart } from './types.js';
+  import { lookupBag, importScanPart, ScanExpiredError } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -50,10 +51,7 @@
     let cancelled = false;
     (async () => {
       try {
-        const data = await apiJSON<{ part_id: string }>('POST', '/api/v1/scan/parts/import', {
-          distributor_id: parsedDistributorId,
-          sku: parsedSKU,
-        });
+        const data = await importScanPart(token, { distributor_id: parsedDistributorId, sku: parsedSKU });
         if (cancelled) return;
         const part: ScanPart = {
           id: data.part_id,
@@ -67,11 +65,11 @@
           distributor_name: parsedDistributor || null,
         };
         onPartImported(part, parsedQty ?? 0);
-      } catch {
-        if (!cancelled) {
-          importError = 'Import failed. Try again.';
-          screen = 'not_found_in_db';
-        }
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof ScanExpiredError) { onExpired(); return; }
+        importError = 'Import failed. Try again.';
+        screen = 'not_found_in_db';
       }
     })();
     return () => { cancelled = true; };
@@ -86,88 +84,69 @@
     onSearchDistributor(distId, distName, query, parsedQty);
   }
 
-  // ── API ───────────────────────────────────────────────────────────────────
-
-  async function apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
-    return fetch(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  async function apiJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await apiFetch(method, path, body);
-    if (res.status === 401 || res.status === 410) {
-      onExpired();
-      throw new Error('expired');
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
   // ── Scan handling ─────────────────────────────────────────────────────────
 
   async function handleBagScanResult(raw: string) {
-    const data = await apiJSON<Record<string, unknown>>('POST', '/api/v1/scan/lookup', { barcode: raw });
+    try {
+      const data = await lookupBag(token, raw);
 
-    if (data.status === 'found') {
-      onPartFound(
-        {
-          id: data.id as string,
-          mpn: (data.mpn as string) ?? null,
-          description: (data.description as string) ?? null,
-          inventory_entry_id: (data.inventory_entry_id as string) ?? null,
-          quantity_on_hand: (data.quantity_on_hand as number) ?? null,
-          storage_location: (data.storage_location as string) ?? null,
-          manufacturer: (data.manufacturer as string) ?? null,
-          sku: (data.sku as string) ?? null,
-          distributor_name: (data.distributor_name as string) ?? null,
-          distributor: (data.distributor as string) ?? null,
-          barcode_qty: (data.barcode_qty as number) ?? 0,
-        },
-        (data.bag_qty as number) ?? 0,
-        (data.inventory_entry_newly_created as boolean) ?? false,
-      );
-      // Screen stays 'scanning' — parent pushes the next screen onto the nav stack.
+      if (data.status === 'found') {
+        onPartFound(
+          {
+            id: data.id,
+            mpn: data.mpn,
+            description: data.description,
+            inventory_entry_id: data.inventory_entry_id,
+            quantity_on_hand: data.quantity_on_hand,
+            storage_location: data.storage_location,
+            manufacturer: data.manufacturer,
+            sku: data.sku,
+            distributor_name: data.distributor_name,
+            distributor: data.distributor,
+            barcode_qty: data.barcode_qty,
+          },
+          data.bag_qty,
+          data.inventory_entry_newly_created,
+        );
+        // Screen stays 'scanning' — parent pushes the next screen onto the nav stack.
 
-    } else if (data.status === 'not_found_in_db') {
-      parseError = false;
-      parsedMPN = (data.parsed_mpn as string) || '';
-      parsedManufacturer = (data.parsed_manufacturer as string) || '';
-      parsedSKU = (data.parsed_sku as string) || '';
-      parsedDistributor = (data.parsed_distributor as string) || '';
-      parsedDistributorId = (data.parsed_distributor_id as string) || '';
-      preferredDistributorId = (data.preferred_distributor_id as string) || '';
-      preferredDistributorName = (data.preferred_distributor_name as string) || '';
-      parsedQty = (data.parsed_qty as number) || null;
-      parsedLot = (data.parsed_lot as string) || '';
-      importError = '';
-      screen = data.can_auto_import ? 'importing' : 'not_found_in_db';
+      } else if (data.status === 'not_found_in_db') {
+        parseError = false;
+        parsedMPN = data.parsed_mpn;
+        parsedManufacturer = data.parsed_manufacturer;
+        parsedSKU = data.parsed_sku;
+        parsedDistributor = data.parsed_distributor;
+        parsedDistributorId = data.parsed_distributor_id;
+        preferredDistributorId = data.preferred_distributor_id;
+        preferredDistributorName = data.preferred_distributor_name;
+        parsedQty = data.parsed_qty;
+        parsedLot = data.parsed_lot;
+        importError = '';
+        screen = data.can_auto_import ? 'importing' : 'not_found_in_db';
 
-    } else if (data.status === 'no_fields') {
-      parseError = false;
-      parsedMPN = (data.parsed_mpn as string) || '';
-      parsedSKU = (data.parsed_sku as string) || '';
-      parsedDistributor = (data.parsed_distributor as string) || '';
-      parsedQty = (data.parsed_qty as number) || null;
-      parsedLot = (data.parsed_lot as string) || '';
-      rawBarcode = '';
-      screen = 'scan_result';
+      } else if (data.status === 'no_fields') {
+        parseError = false;
+        parsedMPN = data.parsed_mpn;
+        parsedSKU = data.parsed_sku;
+        parsedDistributor = data.parsed_distributor;
+        parsedQty = data.parsed_qty;
+        parsedLot = data.parsed_lot;
+        rawBarcode = '';
+        screen = 'scan_result';
 
-    } else {
-      // parse_error — barcode format not recognised
-      parseError = true;
-      parsedMPN = '';
-      parsedSKU = '';
-      parsedDistributor = '';
-      parsedQty = null;
-      parsedLot = '';
-      rawBarcode = (data.raw as string) || '';
-      screen = 'scan_result';
+      } else {
+        // parse_error — barcode format not recognised
+        parseError = true;
+        parsedMPN = '';
+        parsedSKU = '';
+        parsedDistributor = '';
+        parsedQty = null;
+        parsedLot = '';
+        rawBarcode = data.raw || '';
+        screen = 'scan_result';
+      }
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
     }
   }
 </script>
@@ -297,7 +276,7 @@
           {@const distName = parsedDistributorId ? parsedDistributor : preferredDistributorName}
           <button
             onclick={openDistributorSearch}
-            class="w-full rounded-xl bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
+            class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
           >
             Search {distName} for {parsedMPN}
           </button>

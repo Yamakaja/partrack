@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { ScanPart } from './types.js';
+  import { stockAdjustment, ScanExpiredError } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -29,29 +30,6 @@
   let adjReason = $state(untrack(() => initialReason ?? ''));
   let adjSubmitting = $state(false);
 
-  // ── API ───────────────────────────────────────────────────────────────────
-
-  async function apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
-    return fetch(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  async function apiJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await apiFetch(method, path, body);
-    if (res.status === 401 || res.status === 410) {
-      onExpired();
-      throw new Error('expired');
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
   // ── Submit ────────────────────────────────────────────────────────────────
 
   async function submitAdj() {
@@ -64,18 +42,15 @@
     if (delta === 0) return;
     adjSubmitting = true;
     try {
-      const data = await apiJSON<{ ok: boolean; new_quantity_on_hand: number }>(
-        'POST',
-        '/api/v1/scan/stock-adjustment',
-        {
-          inventory_entry_id: part.inventory_entry_id,
-          delta,
-          reason: adjReason || undefined,
-        },
-      );
+      const data = await stockAdjustment(token, {
+        inventory_entry_id: part.inventory_entry_id,
+        delta,
+        reason: adjReason || undefined,
+      });
       pushToast('success', 'Adjustment saved', `New quantity: ${data.new_quantity_on_hand}`);
       onDone();
-    } catch {
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
       // keep state for retry
     } finally {
       adjSubmitting = false;

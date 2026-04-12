@@ -18,6 +18,7 @@ export interface ScanOrder {
   title: string;
   title_is_fallback: boolean;
   external_ref: string | null;
+  notes: string | null;
   status: string;
   distributor_name: string;
   item_count: number;

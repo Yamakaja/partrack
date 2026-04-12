@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { ScanPart } from './types.js';
   import { recordVisit } from '$lib/stores/scannerHistory.svelte.js';
+  import { getPartDetail, ScanExpiredError } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -9,12 +10,14 @@
     initialAdjust,
     onBack,
     onAdjustStock,
+    onExpired,
   }: {
     token: string;
     part: ScanPart;
     initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string };
     onBack: () => void;
     onAdjustStock: (part: ScanPart, adjust?: { value?: number; mode?: 'set' | 'adjust'; reason?: string }) => void;
+    onExpired: () => void;
   } = $props();
 
   // ── Detail data ───────────────────────────────────────────────────────────
@@ -60,27 +63,24 @@
 
   onMount(async () => {
     try {
-      const res = await fetch(`/api/v1/scan/parts/${part.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        detail = await res.json();
-        if (detail) {
-          recordVisit({
-            partId: part.id,
-            mpn: detail.mpn,
-            manufacturer: detail.manufacturer,
-            description: detail.description,
-            imageUrl: detail.image_url,
-            storageLocation: detail.storage_location,
-            quantityOnHand: detail.quantity_on_hand,
-            inventoryEntryId: detail.inventory_entry_id,
-          });
-        }
-        if (initialAdjust && detail?.inventory_entry_id) {
-          adjustStock();
-        }
+      detail = await getPartDetail(token, part.id);
+      if (detail) {
+        recordVisit({
+          partId: part.id,
+          mpn: detail.mpn,
+          manufacturer: detail.manufacturer,
+          description: detail.description,
+          imageUrl: detail.image_url,
+          storageLocation: detail.storage_location,
+          quantityOnHand: detail.quantity_on_hand,
+          inventoryEntryId: detail.inventory_entry_id,
+        });
       }
+      if (initialAdjust && detail?.inventory_entry_id) {
+        adjustStock();
+      }
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
     } finally {
       loading = false;
     }
