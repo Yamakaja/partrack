@@ -782,8 +782,27 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback: MPN lookup.
+	// Fallback: MPN lookup. When a manufacturer is also present (e.g. from a
+	// partrack part-level QR), try the narrower MPN+manufacturer query first to
+	// avoid false matches on shared MPNs across manufacturers.
 	if parsed.MPN != "" {
+		if parsed.Manufacturer != "" {
+			row, err := h.Queries.GetPartByMPNAndManufacturerWithInventory(r.Context(), dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
+				Mpn:          &parsed.MPN,
+				Manufacturer: &parsed.Manufacturer,
+				TeamID:       sess.TeamID,
+			})
+			if err == nil {
+				h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+					nil, nil, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+				return
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+		}
+
 		row, err := h.Queries.GetPartByMPNWithInventory(r.Context(), dbgen.GetPartByMPNWithInventoryParams{
 			Mpn:    &parsed.MPN,
 			TeamID: sess.TeamID,

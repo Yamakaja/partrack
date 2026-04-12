@@ -8,6 +8,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/db"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/distributor/digikey"
+	"github.com/Yamakaja/partrack/internal/distributor/mouser"
 	"github.com/Yamakaja/partrack/internal/distributor/testclient"
 	"github.com/Yamakaja/partrack/internal/server"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -28,6 +29,7 @@ func main() {
 		dk.SetDebug(true)
 	}
 	reg.Register("digikey", dk)
+	reg.Register("mouser", mouser.New())
 
 	q := worker.New(4, pool, reg)
 

@@ -151,6 +151,82 @@ func TestParse_Mouser_Format12(t *testing.T) {
 	}
 }
 
+// Partrack-generated listing QR — DigiKey (XD + 30P, no quantity).
+func TestParse_PartrackerQR_DigiKey(t *testing.T) {
+	raw := "[)>\x1e06\x1d" +
+		"1PLM358DR\x1d" +
+		"1VTexas Instruments\x1d" +
+		"XDDigiKey\x1d" +
+		"30P296-1395-5-ND\x04"
+
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.SKU != "296-1395-5-ND" {
+		t.Errorf("SKU: got %q, want %q", got.SKU, "296-1395-5-ND")
+	}
+	if got.MPN != "LM358DR" {
+		t.Errorf("MPN: got %q, want %q", got.MPN, "LM358DR")
+	}
+	if got.Manufacturer != "Texas Instruments" {
+		t.Errorf("Manufacturer: got %q, want %q", got.Manufacturer, "Texas Instruments")
+	}
+	if got.Distributor != "DigiKey" {
+		t.Errorf("Distributor: got %q, want %q", got.Distributor, "DigiKey")
+	}
+	if got.Quantity != 0 {
+		t.Errorf("Quantity: got %d, want 0", got.Quantity)
+	}
+}
+
+// Partrack-generated listing QR — Mouser (XD + P, no quantity).
+func TestParse_PartrackerQR_Mouser(t *testing.T) {
+	raw := "[)>\x1e06\x1d" +
+		"1PLM358DR\x1d" +
+		"1VTexas Instruments\x1d" +
+		"XDMouser\x1d" +
+		"P595-LM358DR\x04"
+
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.SKU != "595-LM358DR" {
+		t.Errorf("SKU: got %q, want %q", got.SKU, "595-LM358DR")
+	}
+	if got.Distributor != "Mouser" {
+		t.Errorf("Distributor: got %q, want %q", got.Distributor, "Mouser")
+	}
+	if got.Quantity != 0 {
+		t.Errorf("Quantity: got %d, want 0", got.Quantity)
+	}
+}
+
+// Partrack-generated part-level QR — MPN + manufacturer only, no SKU, no distributor.
+func TestParse_PartrackerQR_PartOnly(t *testing.T) {
+	raw := "[)>\x1e06\x1d" +
+		"1PLM358DR\x1d" +
+		"1VTexas Instruments\x04"
+
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.MPN != "LM358DR" {
+		t.Errorf("MPN: got %q, want %q", got.MPN, "LM358DR")
+	}
+	if got.Manufacturer != "Texas Instruments" {
+		t.Errorf("Manufacturer: got %q, want %q", got.Manufacturer, "Texas Instruments")
+	}
+	if got.SKU != "" {
+		t.Errorf("SKU: got %q, want empty", got.SKU)
+	}
+	if got.Distributor != "" {
+		t.Errorf("Distributor: got %q, want empty", got.Distributor)
+	}
+}
+
 func TestParse_UnknownFormat(t *testing.T) {
 	_, err := Parse("BC847")
 	if !errors.Is(err, ErrUnknownFormat) {

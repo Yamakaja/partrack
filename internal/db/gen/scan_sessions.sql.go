@@ -155,6 +155,57 @@ func (q *Queries) GetOrderLineItemsForScan(ctx context.Context, orderID pgtype.U
 	return items, nil
 }
 
+const getPartByMPNAndManufacturerWithInventory = `-- name: GetPartByMPNAndManufacturerWithInventory :one
+SELECT
+    p.id, p.mpn, p.manufacturer, p.description, p.short_description,
+    ie.id AS inventory_entry_id,
+    ie.quantity_on_hand,
+    sl.label AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $3
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE p.mpn = $1
+  AND p.manufacturer ILIKE $2
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $3))
+ORDER BY p.scope DESC
+LIMIT 1
+`
+
+type GetPartByMPNAndManufacturerWithInventoryParams struct {
+	Mpn          *string     `json:"mpn"`
+	Manufacturer *string     `json:"manufacturer"`
+	TeamID       pgtype.UUID `json:"team_id"`
+}
+
+type GetPartByMPNAndManufacturerWithInventoryRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	Mpn                  *string     `json:"mpn"`
+	Manufacturer         *string     `json:"manufacturer"`
+	Description          *string     `json:"description"`
+	ShortDescription     *string     `json:"short_description"`
+	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
+	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationLabel *string     `json:"storage_location_label"`
+}
+
+// Looks up a part by MPN + manufacturer (case-insensitive), preferring team-scoped.
+// Used for part-only QR codes where manufacturer disambiguates identical MPNs.
+func (q *Queries) GetPartByMPNAndManufacturerWithInventory(ctx context.Context, arg GetPartByMPNAndManufacturerWithInventoryParams) (GetPartByMPNAndManufacturerWithInventoryRow, error) {
+	row := q.db.QueryRow(ctx, getPartByMPNAndManufacturerWithInventory, arg.Mpn, arg.Manufacturer, arg.TeamID)
+	var i GetPartByMPNAndManufacturerWithInventoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Mpn,
+		&i.Manufacturer,
+		&i.Description,
+		&i.ShortDescription,
+		&i.InventoryEntryID,
+		&i.QuantityOnHand,
+		&i.StorageLocationLabel,
+	)
+	return i, err
+}
+
 const getPartByMPNWithInventory = `-- name: GetPartByMPNWithInventory :one
 SELECT
     p.id, p.mpn, p.manufacturer, p.description, p.short_description,

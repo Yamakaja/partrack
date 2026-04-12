@@ -121,3 +121,20 @@ WHERE p.mpn = $1
   AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = @team_id))
 ORDER BY p.scope DESC
 LIMIT 1;
+
+-- name: GetPartByMPNAndManufacturerWithInventory :one
+-- Looks up a part by MPN + manufacturer (case-insensitive), preferring team-scoped.
+-- Used for part-only QR codes where manufacturer disambiguates identical MPNs.
+SELECT
+    p.id, p.mpn, p.manufacturer, p.description, p.short_description,
+    ie.id AS inventory_entry_id,
+    ie.quantity_on_hand,
+    sl.label AS storage_location_label
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = @team_id
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE p.mpn = $1
+  AND p.manufacturer ILIKE $2
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = @team_id))
+ORDER BY p.scope DESC
+LIMIT 1;

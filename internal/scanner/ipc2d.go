@@ -4,7 +4,6 @@ package scanner
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -80,13 +79,13 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	// Intermediate vars for fields whose semantic meaning depends on the
 	// distributor, resolved after all fields are extracted.
 	var (
-		has30P    bool   // 30P is DigiKey-specific; definitive DigiKey signal
-		digikeySO string // 1K = DigiKey sales order number
-		mouserInv string // 11K = Mouser invoice number (same field ID is DigiKey packing list)
+		has30P              bool   // 30P is DigiKey-specific; definitive DigiKey signal
+		digikeySO           string // 1K = DigiKey sales order number
+		mouserInv           string // 11K = Mouser invoice number (same field ID is DigiKey packing list)
+		explicitDistributor string // XD = explicit distributor name (partrack-generated QR codes)
 	)
 
 	for _, field := range fields[1:] {
-		fmt.Println(field)
 		// Strip any RS characters that may appear within a field.
 		field = strings.ReplaceAll(field, rs, "")
 		field = strings.TrimSpace(field)
@@ -110,6 +109,10 @@ func Parse(raw string) (*ParsedBarcode, error) {
 		case strings.HasPrefix(field, "1V"):
 			// Manufacturer name — present on Mouser labels.
 			result.Manufacturer = strings.TrimPrefix(field, "1V")
+
+		case strings.HasPrefix(field, "XD"):
+			// Explicit distributor name (partrack-generated QR codes).
+			explicitDistributor = strings.TrimPrefix(field, "XD")
 
 		case strings.HasPrefix(field, "14K"):
 			// Mouser order line position — not mapped to a semantic field.
@@ -155,14 +158,19 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	// --- Distributor heuristics ---
 	// Applied after full field extraction. Note that both DigiKey and Mouser
 	// use format ID "06", so format ID alone cannot identify the distributor.
+	// XD is an explicit distributor name (partrack-generated QR codes) and takes
+	// precedence over all heuristic signals.
 	switch {
+	case explicitDistributor != "":
+		// XD is an explicit distributor name — takes precedence over all heuristics.
+		result.Distributor = explicitDistributor
 	case has30P:
 		// 30P is DigiKey-specific — definitive.
 		result.Distributor = "DigiKey"
-	case result.Manufacturer != "" || mouserInv != "":
-		// 1V (manufacturer name) and 11K (invoice) are Mouser-specific.
-		result.Distributor = "Mouser"
-	case fmtID == "12":
+	case mouserInv != "" || fmtID == "12":
+		// 11K (invoice number) and format-12 are definitive Mouser signals.
+		// 1V (manufacturer name) is intentionally NOT used as a Mouser heuristic
+		// because partrack-generated part-level QR codes also emit 1V.
 		result.Distributor = "Mouser"
 	case digikeySO != "":
 		// 1K (DigiKey sales order) is not present on Mouser labels.

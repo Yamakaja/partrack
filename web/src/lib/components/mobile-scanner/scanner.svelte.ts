@@ -83,7 +83,7 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
         tryHarder: true,
         maxNumberOfSymbols: 1,
         textMode: 'Plain',
-        formats: ["DataMatrix"]
+        formats: ["DataMatrix", "QRCode"]
       });
       const valid = results.filter(r => r.isValid);
       if (valid.length === 0) {
