@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/scanner"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -728,13 +729,42 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// not_found_in_db: part info extracted but not in catalog.
+	// Resolve distributor UUIDs from team's enabled configs so the frontend
+	// knows whether it can auto-import or search a distributor.
+	configs, _ := h.Queries.ListEnabledDistributorConfigsForTeam(r.Context(), sess.TeamID)
+	var parsedDistributorID, preferredDistributorID, preferredDistributorName *string
+	for _, c := range configs {
+		cCopy := c
+		if cCopy.Preferred && preferredDistributorID == nil {
+			id := cCopy.DistributorID.String()
+			preferredDistributorID = &id
+			name := cCopy.DistributorName
+			preferredDistributorName = &name
+		}
+		if parsed.Distributor != "" && parsedDistributorID == nil {
+			lo := strings.ToLower(cCopy.DistributorName)
+			lp := strings.ToLower(parsed.Distributor)
+			if strings.Contains(lo, lp) || strings.Contains(lp, lo) {
+				id := cCopy.DistributorID.String()
+				parsedDistributorID = &id
+			}
+		}
+	}
+
+	canAutoImport := parsedDistributorID != nil && parsed.SKU != ""
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":             "not_found_in_db",
-		"parsed_mpn":         parsed.MPN,
-		"parsed_sku":         parsed.SKU,
-		"parsed_distributor": parsed.Distributor,
-		"parsed_qty":         parsed.Quantity,
-		"parsed_lot":         parsed.Lot,
+		"status":                   "not_found_in_db",
+		"parsed_mpn":               parsed.MPN,
+		"parsed_manufacturer":      parsed.Manufacturer,
+		"parsed_sku":               parsed.SKU,
+		"parsed_distributor":       parsed.Distributor,
+		"parsed_distributor_id":    parsedDistributorID,
+		"preferred_distributor_id": preferredDistributorID,
+		"preferred_distributor_name": preferredDistributorName,
+		"parsed_qty":               parsed.Quantity,
+		"parsed_lot":               parsed.Lot,
+		"can_auto_import":          canAutoImport,
 	})
 }
 
@@ -1346,4 +1376,154 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 func roleAtLeast(role, minRole string) bool {
 	order := map[string]int{"viewer": 0, "member": 1, "purchaser": 2, "admin": 3}
 	return order[role] >= order[minRole]
+}
+
+// SearchScanDistributor handles GET /api/v1/scan/distributor-search
+// Query params: distributor_id (required), q (required), limit (optional, default 20, max 50).
+// Proxies a live distributor catalog search using the team's API credentials.
+func (h *Handler) SearchScanDistributor(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	distributorIDStr := r.URL.Query().Get("distributor_id")
+	q := r.URL.Query().Get("q")
+	if distributorIDStr == "" || q == "" {
+		writeError(w, http.StatusBadRequest, "distributor_id and q are required", "BAD_REQUEST")
+		return
+	}
+
+	var distributorID pgtype.UUID
+	if err := distributorID.Scan(distributorIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid distributor_id", "BAD_REQUEST")
+		return
+	}
+
+	limit := int32(20)
+	if s := r.URL.Query().Get("limit"); s != "" {
+		var v int32
+		if _, err := fmt.Sscanf(s, "%d", &v); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	cfg, err := h.Queries.GetDistributorConfigForSearch(r.Context(), dbgen.GetDistributorConfigForSearchParams{
+		TeamID:        sess.TeamID,
+		DistributorID: distributorID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "distributor config not found or not enabled", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if cfg.ApiType == nil {
+		writeError(w, http.StatusUnprocessableEntity, "distributor has no API integration", "NO_API")
+		return
+	}
+
+	client := h.Distributors.Lookup(*cfg.ApiType)
+	if client == nil {
+		writeError(w, http.StatusInternalServerError, "no client registered for distributor api_type", "INTERNAL_ERROR")
+		return
+	}
+
+	result, err := client.SearchParts(r.Context(), distributor.SearchQuery{
+		Keywords: q,
+		Limit:    limit,
+	}, json.RawMessage(cfg.ApiCredentials))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "search failed: "+err.Error(), "SEARCH_ERROR")
+		return
+	}
+
+	type productResp struct {
+		MPN            string `json:"mpn"`
+		Manufacturer   string `json:"manufacturer"`
+		Description    string `json:"description"`
+		Category       string `json:"category"`
+		PrimarySKU     string `json:"primary_sku"`
+		Package        string `json:"package"`
+		UnitPrice      string `json:"unit_price"`
+		StockAvailable *int32 `json:"stock_available"`
+	}
+
+	if result == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items":               []productResp{},
+			"total":               0,
+			"exact_match_indices": []int{},
+		})
+		return
+	}
+
+	items := make([]productResp, len(result.Products))
+	for i, p := range result.Products {
+		items[i] = productResp{
+			MPN:            p.MPN,
+			Manufacturer:   p.Manufacturer,
+			Description:    p.Description,
+			Category:       p.Category,
+			PrimarySKU:     p.PrimarySKU,
+			Package:        p.Package,
+			UnitPrice:      p.UnitPrice,
+			StockAvailable: p.StockAvailable,
+		}
+	}
+
+	exactIndices := result.ExactMatchIndices
+	if exactIndices == nil {
+		exactIndices = []int{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":               items,
+		"total":               result.TotalCount,
+		"exact_match_indices": exactIndices,
+	})
+}
+
+// ImportScanPart handles POST /api/v1/scan/parts/import
+// Body: {distributor_id, sku} (both required). Returns 200 {part_id}.
+// Synchronously imports the part from the distributor API, finds or creates the
+// catalog entry, and ensures a team inventory entry exists.
+func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	var req struct {
+		DistributorID string `json:"distributor_id"`
+		SKU           string `json:"sku"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DistributorID == "" || req.SKU == "" {
+		writeError(w, http.StatusBadRequest, "distributor_id and sku are required", "BAD_REQUEST")
+		return
+	}
+
+	partID, err := h.importPartBySKU(r.Context(), sess.TeamID, req.DistributorID, req.SKU)
+	if err != nil {
+		h.writeImportError(w, "ImportScanPart", req.SKU, err)
+		return
+	}
+
+	h.publishEvent(r, "part_changed", sess.TeamID.String(), map[string]string{"part_id": partID.String()})
+	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
 }

@@ -7,6 +7,7 @@
     part,
     mode = 'adjust',
     initialValue,
+    initialReason,
     onBack,
     onDone,
     onExpired,
@@ -15,6 +16,7 @@
     part: ScanPart;
     mode?: 'set' | 'adjust';
     initialValue?: number;
+    initialReason?: string;
     onBack: () => void;
     onDone: () => void;
     onExpired: () => void;
@@ -28,7 +30,7 @@
   // ── State ─────────────────────────────────────────────────────────────────
 
   let adjValue = $state(untrack(() => String(initialValue ?? (mode === 'set' ? 0 : -1))));
-  let adjReason = $state('');
+  let adjReason = $state(untrack(() => initialReason ?? ''));
   let adjSubmitting = $state(false);
   let adjNewQty = $state<number | null>(null);
 

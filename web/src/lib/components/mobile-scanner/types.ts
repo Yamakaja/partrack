@@ -26,8 +26,9 @@ export type NavEntry =
   | { screen: 'receive_order' }
   | { screen: 'bag_scan' }
   | { screen: 'find_part'; initialQuery: string }
-  | { screen: 'part_detail'; part: ScanPart }
-  | { screen: 'stock_adjustment'; part: ScanPart; mode: 'set' | 'adjust'; initialValue?: number };
+  | { screen: 'part_detail'; part: ScanPart; initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string } }
+  | { screen: 'distributor_search'; distributorId: string; distributorName: string; initialQuery: string; parsedQty: number | null }
+  | { screen: 'stock_adjustment'; part: ScanPart; mode: 'set' | 'adjust'; initialValue?: number; initialReason?: string };
 
 export interface BagLookupResult {
   id: string;

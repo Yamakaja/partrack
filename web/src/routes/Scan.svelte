@@ -7,6 +7,7 @@
   import PartDetail from '$lib/components/mobile-scanner/PartDetail.svelte';
   import StockAdjustment from '$lib/components/mobile-scanner/StockAdjustment.svelte';
   import BagScan from '$lib/components/mobile-scanner/BagScan.svelte';
+  import DistributorSearch from '$lib/components/mobile-scanner/DistributorSearch.svelte';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -235,7 +236,32 @@
       {token}
       onBack={goBack}
       onPartFound={handlePartFound}
+      onPartImported={(part, qty) => goTo({
+        screen: 'part_detail', part,
+        initialAdjust: { value: qty, mode: 'set', reason: 'Initial Stock' },
+      })}
+      onSearchDistributor={(distId, distName, q, qty) => goTo({
+        screen: 'distributor_search',
+        distributorId: distId, distributorName: distName,
+        initialQuery: q, parsedQty: qty,
+      })}
       onSearchCatalog={(q) => goTo({ screen: 'find_part', initialQuery: q })}
+      onExpired={handleExpired}
+    />
+
+  <!-- ── DISTRIBUTOR SEARCH ────────────────────────────────────────────────── -->
+  {:else if current.screen === 'distributor_search'}
+    <DistributorSearch
+      {token}
+      distributorId={current.distributorId}
+      distributorName={current.distributorName}
+      initialQuery={current.initialQuery}
+      parsedQty={current.parsedQty}
+      onBack={goBack}
+      onImportDone={(part, qty) => goTo({
+        screen: 'part_detail', part,
+        initialAdjust: { value: qty, mode: 'set', reason: 'Initial Stock' },
+      })}
       onExpired={handleExpired}
     />
 
@@ -254,8 +280,14 @@
     <PartDetail
       {token}
       part={current.part}
+      initialAdjust={current.initialAdjust}
       onBack={goBack}
-      onAdjustStock={(part) => goTo({ screen: 'stock_adjustment', part, mode: 'adjust' })}
+      onAdjustStock={(part, adjust) => goTo({
+        screen: 'stock_adjustment', part,
+        mode: adjust?.mode ?? 'adjust',
+        initialValue: adjust?.value,
+        initialReason: adjust?.reason,
+      })}
     />
 
   <!-- ── STOCK ADJUSTMENT ──────────────────────────────────────────────────── -->
@@ -265,6 +297,7 @@
       part={current.part}
       mode={current.mode}
       initialValue={current.initialValue}
+      initialReason={current.initialReason}
       onBack={goBack}
       onDone={goToMenu}
       onExpired={handleExpired}

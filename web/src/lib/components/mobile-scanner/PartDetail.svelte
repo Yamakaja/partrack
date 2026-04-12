@@ -5,13 +5,15 @@
   let {
     token,
     part,
+    initialAdjust,
     onBack,
     onAdjustStock,
   }: {
     token: string;
     part: ScanPart;
+    initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string };
     onBack: () => void;
-    onAdjustStock: (part: ScanPart) => void;
+    onAdjustStock: (part: ScanPart, adjust?: { value?: number; mode?: 'set' | 'adjust'; reason?: string }) => void;
   } = $props();
 
   // ── Detail data ───────────────────────────────────────────────────────────
@@ -90,7 +92,7 @@
       quantity_on_hand:   detail?.quantity_on_hand   ?? part.quantity_on_hand,
       storage_location:   detail?.storage_location   ?? part.storage_location,
     };
-    onAdjustStock(merged);
+    onAdjustStock(merged, initialAdjust);
   }
 
   const inventoryEntryId = $derived(detail?.inventory_entry_id ?? part.inventory_entry_id);

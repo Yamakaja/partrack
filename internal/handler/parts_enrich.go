@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -13,6 +15,72 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// Sentinel errors returned by importPartBySKU; callers map these to HTTP statuses.
+var (
+	errDistributorNotConfigured = errors.New("distributor not configured or not enabled for this team")
+	errDistributorNoAPI         = errors.New("distributor has no API integration")
+	errDistributorNoClient      = errors.New("no client registered for this distributor")
+	errPartNotFoundAtDistributor = errors.New("part not found at distributor")
+)
+
+// importPartBySKU performs a synchronous distributor API import for the given
+// SKU, applies the enrichment result, and ensures the team has an inventory
+// entry for the resulting part. It returns the part UUID on success.
+//
+// Sentinel errors (errDistributor*, errPartNotFoundAtDistributor) should be
+// mapped to specific HTTP status codes by the caller; all other errors are
+// internal failures.
+func (h *Handler) importPartBySKU(ctx context.Context, teamID pgtype.UUID, distributorID string, sku string) (pgtype.UUID, error) {
+	configs, err := h.Queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	var cfg *dbgen.ListEnabledDistributorConfigsForTeamRow
+	for i := range configs {
+		if configs[i].DistributorID.String() == distributorID {
+			cfg = &configs[i]
+			break
+		}
+	}
+	if cfg == nil {
+		return pgtype.UUID{}, errDistributorNotConfigured
+	}
+	if cfg.ApiType == nil {
+		return pgtype.UUID{}, errDistributorNoAPI
+	}
+	client := h.Distributors.Lookup(*cfg.ApiType)
+	if client == nil {
+		return pgtype.UUID{}, errDistributorNoClient
+	}
+
+	result, err := client.EnrichPart(ctx, sku, json.RawMessage(cfg.ApiCredentials))
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("distributor API error: %w", err)
+	}
+	if result == nil {
+		return pgtype.UUID{}, errPartNotFoundAtDistributor
+	}
+
+	partID, err := worker.ApplyEnrichmentResult(ctx, h.DB, h.Queries, teamID, cfg.DistributorID, result, nil, nil)
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("apply enrichment: %w", err)
+	}
+
+	// Ensure the team has an inventory entry for this part.
+	_, err = h.Queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
+		TeamID: teamID,
+		PartID: partID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, _ = h.Queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+			TeamID: teamID,
+			PartID: partID,
+		})
+	}
+
+	return partID, nil
+}
 
 // EnrichPart handles POST /api/v1/teams/{teamId}/parts/{partId}/enrich
 // Triggers enrichment from a specific distributor SKU. Returns 202 with job_id.
@@ -111,64 +179,32 @@ func (h *Handler) ImportPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	configs, err := h.Queries.ListEnabledDistributorConfigsForTeam(r.Context(), teamID)
+	partID, err := h.importPartBySKU(r.Context(), teamID, req.DistributorID, req.SKU)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		h.writeImportError(w, "ImportPart", req.SKU, err)
 		return
-	}
-	var cfg *dbgen.ListEnabledDistributorConfigsForTeamRow
-	for i := range configs {
-		if configs[i].DistributorID.String() == req.DistributorID {
-			cfg = &configs[i]
-			break
-		}
-	}
-	if cfg == nil {
-		writeError(w, http.StatusBadRequest, "distributor not configured or not enabled for this team", "BAD_REQUEST")
-		return
-	}
-	if cfg.ApiType == nil {
-		writeError(w, http.StatusBadRequest, "distributor has no API integration", "BAD_REQUEST")
-		return
-	}
-	client := h.Distributors.Lookup(*cfg.ApiType)
-	if client == nil {
-		writeError(w, http.StatusInternalServerError, "no client registered for this distributor", "INTERNAL_ERROR")
-		return
-	}
-
-	result, err := client.EnrichPart(r.Context(), req.SKU, json.RawMessage(cfg.ApiCredentials))
-	if err != nil {
-		slog.Error("ImportPart: distributor API error", "sku", req.SKU, "err", err)
-		writeError(w, http.StatusBadGateway, "distributor API error: "+err.Error(), "DISTRIBUTOR_ERROR")
-		return
-	}
-	if result == nil {
-		writeError(w, http.StatusNotFound, "part not found at distributor", "NOT_FOUND")
-		return
-	}
-
-	partID, err := worker.ApplyEnrichmentResult(r.Context(), h.DB, h.Queries, teamID, cfg.DistributorID, result, nil, nil)
-	if err != nil {
-		slog.Error("ImportPart: apply enrichment failed", "sku", req.SKU, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to import part: "+err.Error(), "INTERNAL_ERROR")
-		return
-	}
-
-	// Ensure the team has an inventory entry for this part.
-	_, err = h.Queries.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
-		TeamID: teamID,
-		PartID: partID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		_, _ = h.Queries.CreateInventoryEntry(r.Context(), dbgen.CreateInventoryEntryParams{
-			TeamID: teamID,
-			PartID: partID,
-		})
 	}
 
 	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
 	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
+}
+
+// writeImportError maps importPartBySKU sentinel errors to appropriate HTTP
+// responses and logs unexpected failures.
+func (h *Handler) writeImportError(w http.ResponseWriter, op, sku string, err error) {
+	switch {
+	case errors.Is(err, errDistributorNotConfigured):
+		writeError(w, http.StatusBadRequest, err.Error(), "BAD_REQUEST")
+	case errors.Is(err, errDistributorNoAPI):
+		writeError(w, http.StatusBadRequest, err.Error(), "BAD_REQUEST")
+	case errors.Is(err, errDistributorNoClient):
+		writeError(w, http.StatusInternalServerError, "no client registered for this distributor", "INTERNAL_ERROR")
+	case errors.Is(err, errPartNotFoundAtDistributor):
+		writeError(w, http.StatusNotFound, "part not found at distributor", "NOT_FOUND")
+	default:
+		slog.Error(op+": import failed", "sku", sku, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to import part: "+err.Error(), "INTERNAL_ERROR")
+	}
 }
 
 // ListPartCategories handles GET /api/v1/teams/{teamId}/parts/categories

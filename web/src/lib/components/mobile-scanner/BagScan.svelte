@@ -6,19 +6,23 @@
     token,
     onBack,
     onPartFound,
+    onPartImported,
+    onSearchDistributor,
     onSearchCatalog,
     onExpired,
   }: {
     token: string;
     onBack: () => void;
     onPartFound: (part: ScanPart, bagQty: number, newEntry: boolean) => void;
+    onPartImported: (part: ScanPart, bagQty: number) => void;
+    onSearchDistributor: (distributorId: string, distributorName: string, query: string, parsedQty: number | null) => void;
     onSearchCatalog: (query: string) => void;
     onExpired: () => void;
   } = $props();
 
   // ── Internal screen state ─────────────────────────────────────────────────
 
-  type Screen = 'scanning' | 'scan_result' | 'not_found_in_db';
+  type Screen = 'scanning' | 'scan_result' | 'not_found_in_db' | 'importing';
   let screen = $state<Screen>('scanning');
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -32,7 +36,12 @@
   let parsedQty = $state<number | null>(null);
   let parsedLot = $state('');
 
-  // not_found_in_db state (reuses parsed* variables above)
+  // not_found_in_db / importing state (reuses parsed* variables above)
+  let parsedManufacturer = $state('');
+  let parsedDistributorId = $state('');
+  let preferredDistributorId = $state('');
+  let preferredDistributorName = $state('');
+  let importError = $state('');
 
   // ── Camera ────────────────────────────────────────────────────────────────
 
@@ -45,6 +54,49 @@
       return () => scanner.stopCamera();
     }
   });
+
+  // ── Auto-import effect (Case A: SKU + configured distributor) ─────────────
+
+  $effect(() => {
+    if (screen !== 'importing') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiJSON<{ part_id: string }>('POST', '/api/v1/scan/parts/import', {
+          distributor_id: parsedDistributorId,
+          sku: parsedSKU,
+        });
+        if (cancelled) return;
+        const part: ScanPart = {
+          id: data.part_id,
+          mpn: parsedMPN || null,
+          description: null,
+          inventory_entry_id: null,
+          quantity_on_hand: null,
+          storage_location: null,
+          manufacturer: parsedManufacturer || null,
+          sku: parsedSKU || null,
+          distributor_name: parsedDistributor || null,
+        };
+        onPartImported(part, parsedQty ?? 0);
+      } catch {
+        if (!cancelled) {
+          importError = 'Import failed. Try again.';
+          screen = 'not_found_in_db';
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  });
+
+  // ── Distributor search (Cases B/C/D) ──────────────────────────────────────
+
+  function openDistributorSearch() {
+    const distId   = parsedDistributorId || preferredDistributorId;
+    const distName = parsedDistributorId ? parsedDistributor : preferredDistributorName;
+    const query    = [parsedManufacturer, parsedMPN].filter(Boolean).join(' ') || parsedSKU;
+    onSearchDistributor(distId, distName, query, parsedQty);
+  }
 
   // ── API ───────────────────────────────────────────────────────────────────
 
@@ -97,11 +149,16 @@
     } else if (data.status === 'not_found_in_db') {
       parseError = false;
       parsedMPN = (data.parsed_mpn as string) || '';
+      parsedManufacturer = (data.parsed_manufacturer as string) || '';
       parsedSKU = (data.parsed_sku as string) || '';
       parsedDistributor = (data.parsed_distributor as string) || '';
+      parsedDistributorId = (data.parsed_distributor_id as string) || '';
+      preferredDistributorId = (data.preferred_distributor_id as string) || '';
+      preferredDistributorName = (data.preferred_distributor_name as string) || '';
       parsedQty = (data.parsed_qty as number) || null;
       parsedLot = (data.parsed_lot as string) || '';
-      screen = 'not_found_in_db';
+      importError = '';
+      screen = data.can_auto_import ? 'importing' : 'not_found_in_db';
 
     } else if (data.status === 'no_fields') {
       parseError = false;
@@ -242,9 +299,10 @@
 
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
       <p class="text-sm text-zinc-400">
-        This part isn't in your catalog yet. Import functionality is coming soon.
+        This part isn't in your catalog yet.
       </p>
 
+      <!-- Parsed barcode info -->
       <div class="rounded-xl bg-zinc-900 p-4 space-y-2">
         {#if parsedDistributor}
           <div class="flex justify-between text-sm">
@@ -264,6 +322,12 @@
             <span class="font-medium font-mono text-xs">{parsedMPN}</span>
           </div>
         {/if}
+        {#if parsedManufacturer}
+          <div class="flex justify-between text-sm">
+            <span class="text-zinc-400">Manufacturer</span>
+            <span class="font-medium text-xs">{parsedManufacturer}</span>
+          </div>
+        {/if}
         {#if parsedQty}
           <div class="flex justify-between text-sm">
             <span class="text-zinc-400">Qty</span>
@@ -278,7 +342,22 @@
         {/if}
       </div>
 
+      {#if importError}
+        <p class="text-xs text-red-400 text-center">{importError}</p>
+      {/if}
+
       <div class="flex flex-col gap-3">
+        <!-- Cases B/C/D: MPN available + a distributor to search -->
+        {#if parsedMPN && (parsedDistributorId || preferredDistributorId)}
+          {@const distName = parsedDistributorId ? parsedDistributor : preferredDistributorName}
+          <button
+            onclick={openDistributorSearch}
+            class="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white active:bg-blue-700"
+          >
+            Search {distName} for {parsedMPN}
+          </button>
+        {/if}
+
         {#if parsedMPN || parsedSKU}
           <button
             onclick={() => onSearchCatalog(parsedMPN || parsedSKU)}
@@ -293,6 +372,26 @@
         >
           Try Again
         </button>
+      </div>
+    </div>
+  </div>
+
+<!-- ── IMPORTING (Case A: auto-import in progress) ────────────────────────── -->
+{:else if screen === 'importing'}
+  <div class="flex flex-1 flex-col">
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
+      <button onclick={() => { screen = 'not_found_in_db'; }} aria-label="Cancel" class="text-zinc-400 active:text-white">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
+      <p class="font-medium">Importing Part</p>
+    </div>
+    <div class="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+      <div class="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-white"></div>
+      <div>
+        <p class="font-medium">Importing from {parsedDistributor || 'distributor'}…</p>
+        <p class="mt-1 text-sm text-zinc-400">This may take a few seconds.</p>
       </div>
     </div>
   </div>
