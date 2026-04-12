@@ -352,7 +352,7 @@
           {@const distName = parsedDistributorId ? parsedDistributor : preferredDistributorName}
           <button
             onclick={openDistributorSearch}
-            class="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white active:bg-blue-700"
+            class="w-full rounded-xl bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
           >
             Search {distName} for {parsedMPN}
           </button>

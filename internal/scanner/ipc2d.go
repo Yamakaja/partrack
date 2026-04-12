@@ -85,6 +85,7 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	)
 
 	for _, field := range fields[1:] {
+		// fmt.Println(field)
 		// Strip any RS characters that may appear within a field.
 		field = strings.ReplaceAll(field, rs, "")
 		field = strings.TrimSpace(field)

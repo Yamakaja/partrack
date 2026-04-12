@@ -1,11 +1,13 @@
 <script lang="ts">
   import { toasts, dismissToast } from '$lib/stores/toasts.svelte.js';
-  import { X, CheckCircle, AlertCircle, Info, TriangleAlert } from 'lucide-svelte';
+  import { X, CircleCheck, CircleAlert, Info, TriangleAlert } from 'lucide-svelte';
   import { cn } from '$lib/utils/cn.js';
 
+  let { position = 'bottom-right' }: { position?: 'top-right' | 'bottom-right' } = $props();
+
   const icons = {
-    success: CheckCircle,
-    error: AlertCircle,
+    success: CircleCheck,
+    error: CircleAlert,
     info: Info,
     warning: TriangleAlert,
   };
@@ -18,7 +20,7 @@
   };
 </script>
 
-<div class="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 w-80">
+<div class={cn('fixed right-4 z-[100] flex flex-col gap-2 w-80', position === 'top-right' ? 'top-4' : 'bottom-4')}>
   {#each toasts as toast (toast.id)}
     {@const Icon = icons[toast.type]}
     <div

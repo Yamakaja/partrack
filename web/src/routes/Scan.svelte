@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import Toaster from '$lib/components/common/Toaster.svelte';
   import type { NavEntry, ScanPart } from '$lib/components/mobile-scanner/types.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
   import ReceiveOrder from '$lib/components/mobile-scanner/ReceiveOrder.svelte';
@@ -48,15 +49,18 @@
     navStack = [...navStack, entry];
   }
 
+  function goReplace(entry: NavEntry) {
+    navStack = [...navStack.slice(0, -1), entry];
+  }
+
   function goBack() {
     if (navStack.length > 1) navStack = navStack.slice(0, -1);
   }
 
-  function goToMenu() {
-    navStack = [{ screen: 'menu' }];
-    contextOrderId = null;
-    contextOrderRef = null;
+  function goBack2() {
+    navStack = navStack.length > 2 ? navStack.slice(0, -2) : [{ screen: 'menu' }];
   }
+
 
   // ── Session state ─────────────────────────────────────────────────────────
 
@@ -258,7 +262,7 @@
       initialQuery={current.initialQuery}
       parsedQty={current.parsedQty}
       onBack={goBack}
-      onImportDone={(part, qty) => goTo({
+      onImportDone={(part, qty) => goReplace({
         screen: 'part_detail', part,
         initialAdjust: { value: qty, mode: 'set', reason: 'Initial Stock' },
       })}
@@ -299,9 +303,11 @@
       initialValue={current.initialValue}
       initialReason={current.initialReason}
       onBack={goBack}
-      onDone={goToMenu}
+      onDone={goBack2}
       onExpired={handleExpired}
     />
   {/if}
 
 </div>
+
+<Toaster position="top-right" />

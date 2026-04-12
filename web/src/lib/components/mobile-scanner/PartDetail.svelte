@@ -64,6 +64,9 @@
       });
       if (res.ok) {
         detail = await res.json();
+        if (initialAdjust && detail?.inventory_entry_id) {
+          adjustStock();
+        }
       }
     } finally {
       loading = false;
@@ -218,6 +221,18 @@
         {/if}
       </div>
 
+      <!-- Adjust Stock -->
+      {#if inventoryEntryId}
+        <button
+          onclick={adjustStock}
+          class="w-full rounded-xl bg-orange-500/20 border border-orange-500/30 py-3 text-orange-300 font-medium active:bg-orange-500/30"
+        >
+          Adjust Stock
+        </button>
+      {:else}
+        <p class="text-center text-xs text-zinc-500">Part not tracked in inventory</p>
+      {/if}
+
       <!-- Listings -->
       {#if detail?.listings && detail.listings.length > 0}
         <div class="space-y-2">
@@ -260,18 +275,6 @@
             {/each}
           </div>
         </div>
-      {/if}
-
-      <!-- Adjust Stock -->
-      {#if inventoryEntryId}
-        <button
-          onclick={adjustStock}
-          class="w-full rounded-xl bg-orange-500/20 border border-orange-500/30 py-3 text-orange-300 font-medium active:bg-orange-500/30"
-        >
-          Adjust Stock
-        </button>
-      {:else}
-        <p class="text-center text-xs text-zinc-500">Part not tracked in inventory</p>
       {/if}
 
     </div>

@@ -148,5 +148,5 @@
     </div>
   {/if}
 
-  <Toaster />
+  {#if !isShellless}<Toaster />{/if}
 </QueryClientProvider>
