@@ -29,6 +29,14 @@ type apiTokenEntry struct {
 	dirty     bool
 }
 
+// scanTokenEntry holds a cached scan session token lookup result.
+// No dirty flag — scan sessions have no last_seen_at to track.
+type scanTokenEntry struct {
+	user      *User
+	sessionID string // UUID string; used by EvictScanTokenBySessionID
+	expiresAt time.Time
+}
+
 // membershipEntry holds a cached team membership role.
 type membershipEntry struct {
 	role string
@@ -48,6 +56,10 @@ type AuthCache struct {
 	apiTokenByID   map[string]string         // tokenID → tokenHash
 	apiTokenByUser map[string][]string       // userID → []tokenHash
 
+	scanmu    sync.RWMutex
+	scanTokens map[string]*scanTokenEntry // tokenHash → entry
+	scanByID   map[string]string          // sessionID → tokenHash
+
 	membmu      sync.RWMutex
 	memberships map[string]membershipEntry // "teamID:userID" → entry
 	membsByUser map[string][]string        // userID → []"teamID:userID"
@@ -62,6 +74,8 @@ func NewAuthCache() *AuthCache {
 		apiTokens:      make(map[string]*apiTokenEntry),
 		apiTokenByID:   make(map[string]string),
 		apiTokenByUser: make(map[string][]string),
+		scanTokens:     make(map[string]*scanTokenEntry),
+		scanByID:       make(map[string]string),
 		memberships:    make(map[string]membershipEntry),
 		membsByUser:    make(map[string][]string),
 	}
@@ -230,6 +244,55 @@ func (c *AuthCache) evictAPITokenLocked(hash string) {
 	}
 }
 
+// ── Scan token cache ──────────────────────────────────────────────────────────
+
+// LookupScanToken returns the cached user for the token hash if present and not expired.
+func (c *AuthCache) LookupScanToken(hash string) (*User, bool) {
+	c.scanmu.RLock()
+	defer c.scanmu.RUnlock()
+	e, ok := c.scanTokens[hash]
+	if !ok || time.Now().After(e.expiresAt) {
+		return nil, false
+	}
+	return e.user, true
+}
+
+// StoreScanToken populates the scan token cache and the sessionID → hash index.
+func (c *AuthCache) StoreScanToken(hash, sessionID string, user *User, expiresAt time.Time) {
+	c.scanmu.Lock()
+	defer c.scanmu.Unlock()
+	if _, exists := c.scanTokens[hash]; !exists {
+		c.scanByID[sessionID] = hash
+	}
+	c.scanTokens[hash] = &scanTokenEntry{user: user, sessionID: sessionID, expiresAt: expiresAt}
+}
+
+// EvictScanToken removes a scan token entry by its token hash.
+func (c *AuthCache) EvictScanToken(hash string) {
+	c.scanmu.Lock()
+	c.evictScanTokenLocked(hash)
+	c.scanmu.Unlock()
+}
+
+// EvictScanTokenBySessionID removes a scan token entry by its session UUID.
+func (c *AuthCache) EvictScanTokenBySessionID(sessionID string) {
+	c.scanmu.Lock()
+	if hash, ok := c.scanByID[sessionID]; ok {
+		c.evictScanTokenLocked(hash)
+	}
+	c.scanmu.Unlock()
+}
+
+// evictScanTokenLocked must be called with scanmu write-locked.
+func (c *AuthCache) evictScanTokenLocked(hash string) {
+	e, ok := c.scanTokens[hash]
+	if !ok {
+		return
+	}
+	delete(c.scanTokens, hash)
+	delete(c.scanByID, e.sessionID)
+}
+
 // ── Membership cache ──────────────────────────────────────────────────────────
 
 func membershipKey(teamID, userID string) string { return teamID + ":" + userID }
@@ -351,6 +414,15 @@ func (c *AuthCache) flush(ctx context.Context, q *dbgen.Queries) {
 		}
 	}
 	c.apimu.Unlock()
+
+	// Evict expired scan session tokens.
+	c.scanmu.Lock()
+	for hash, e := range c.scanTokens {
+		if now.After(e.expiresAt) {
+			c.evictScanTokenLocked(hash)
+		}
+	}
+	c.scanmu.Unlock()
 
 	// Write to DB outside all locks.
 	for _, s := range sessions {

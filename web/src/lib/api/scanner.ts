@@ -62,6 +62,8 @@ export interface PartDetailResponse {
   category_name: string | null;
   inventory_entry_id: string | null;
   quantity_on_hand: number | null;
+  quantity_reserved: number;
+  quantity_available: number;
   storage_location: string | null;
   minimum_stock_quantity: number | null;
   reorder_quantity: number | null;

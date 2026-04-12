@@ -182,9 +182,12 @@ func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error)
 		return nil, err
 	}
 
-	// Cache miss — try scan session token via DB (prefix: "scan_").
-	// Scan session tokens are short-lived and low-frequency; we don't cache them.
+	// Cache hit — scan session token.
 	if strings.HasPrefix(raw, "scan_") {
+		if u, ok := m.cache.LookupScanToken(hash); ok {
+			return u, nil
+		}
+		// Cache miss — query DB.
 		scanRow, err := m.q.GetScanSessionByTokenHash(ctx, hash)
 		if err == nil {
 			user := &User{
@@ -194,6 +197,7 @@ func (m *Middleware) lookupToken(ctx context.Context, raw string) (*User, error)
 				IsActive:    scanRow.IsActive,
 				IsAdmin:     scanRow.IsAdmin,
 			}
+			m.cache.StoreScanToken(hash, scanRow.ID.String(), user, scanRow.ExpiresAt.Time)
 			return user, nil
 		}
 		if errors.Is(err, pgx.ErrNoRows) {

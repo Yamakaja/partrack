@@ -51,6 +51,8 @@
     category_name: string | null;
     inventory_entry_id: string | null;
     quantity_on_hand: number | null;
+    quantity_reserved: number;
+    quantity_available: number;
     storage_location: string | null;
     minimum_stock_quantity: number | null;
     reorder_quantity: number | null;
@@ -208,17 +210,29 @@
 
       <!-- Inventory -->
       <div class="rounded-xl bg-zinc-900 p-4 space-y-3">
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-3 gap-3">
           <div>
-            <p class="text-xs text-zinc-500 mb-0.5">Stock</p>
+            <p class="text-xs text-zinc-500 mb-0.5">In Stock</p>
             <p class="text-lg font-semibold tabular-nums">
               {detail?.quantity_on_hand ?? part.quantity_on_hand ?? 0}
             </p>
           </div>
           <div>
-            <p class="text-xs text-zinc-500 mb-0.5">Location</p>
-            <p class="text-sm font-medium">{detail?.storage_location ?? part.storage_location ?? '—'}</p>
+            <p class="text-xs text-zinc-500 mb-0.5">Reserved</p>
+            <p class="text-lg font-semibold tabular-nums {detail && detail.quantity_reserved > 0 ? 'text-amber-400' : 'text-zinc-400'}">
+              {detail?.quantity_reserved ?? 0}
+            </p>
           </div>
+          <div>
+            <p class="text-xs text-zinc-500 mb-0.5">Available</p>
+            <p class="text-lg font-semibold tabular-nums {detail && detail.quantity_available === 0 && (detail.quantity_on_hand ?? 0) > 0 ? 'text-red-400' : ''}">
+              {detail?.quantity_available ?? part.quantity_on_hand ?? 0}
+            </p>
+          </div>
+        </div>
+        <div class="pt-2 border-t border-zinc-800">
+          <p class="text-xs text-zinc-500 mb-0.5">Location</p>
+          <p class="text-sm font-medium">{detail?.storage_location ?? part.storage_location ?? '—'}</p>
         </div>
         {#if detail && (detail.minimum_stock_quantity != null || detail.reorder_quantity != null)}
           <div class="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800">

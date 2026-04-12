@@ -171,8 +171,8 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TODO: Scan sessions are user bound. A user should be able to delete their own sessions!
 // DeleteScanSession handles DELETE /api/v1/teams/{teamId}/scan-sessions/{sessionId}.
+// Purchasers may delete their own session; admins may delete any session in the team.
 func (h *Handler) DeleteScanSession(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -185,6 +185,42 @@ func (h *Handler) DeleteScanSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	sess, err := h.Queries.GetScanSession(r.Context(), dbgen.GetScanSessionParams{
+		ID:     sessionID,
+		TeamID: teamID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if sess.UserID != userID {
+		membership, err := h.checkTeamMembership(r.Context(), teamID, userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if membership == nil || !roleAtLeast(membership.Role, "admin") {
+			writeError(w, http.StatusForbidden, "can only delete your own scan session", "FORBIDDEN")
+			return
+		}
+	}
+
 	if err := h.Queries.DeleteScanSession(r.Context(), dbgen.DeleteScanSessionParams{
 		ID:     sessionID,
 		TeamID: teamID,
@@ -192,6 +228,7 @@ func (h *Handler) DeleteScanSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	h.Cache.EvictScanTokenBySessionID(sessionID.String())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1022,6 +1059,18 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusGone)
 		return
 	}
+
+	// Role enforcement: member+ required to confirm stock receipt.
+	membership, err := h.checkTeamMembership(r.Context(), sess.TeamID, sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if membership == nil || !roleAtLeast(membership.Role, "member") {
+		writeError(w, http.StatusForbidden, "member role required", "FORBIDDEN")
+		return
+	}
+
 	if len(sess.PendingScan) == 0 {
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error": "no pending scan",
@@ -1317,6 +1366,18 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var quantityReserved int32
+	if part.InventoryEntryID.Valid {
+		quantityReserved, err = h.Queries.SumReservedForPart(ctx, dbgen.SumReservedForPartParams{
+			PartID: partID,
+			TeamID: sess.TeamID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
 	listings, err := h.Queries.ListListings(ctx, partID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -1398,6 +1459,8 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 		"category_name":          part.CategoryName,
 		"inventory_entry_id":     invEntryID,
 		"quantity_on_hand":       part.QuantityOnHand,
+		"quantity_reserved":      quantityReserved,
+		"quantity_available":     max(int32(0), func() int32 { if part.QuantityOnHand != nil { return *part.QuantityOnHand }; return 0 }()-quantityReserved),
 		"storage_location":       part.StorageLocationLabel,
 		"minimum_stock_quantity": part.MinimumStockQuantity,
 		"reorder_quantity":       part.ReorderQuantity,
@@ -1540,6 +1603,17 @@ func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
 	}
 	if sess == nil {
 		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	// Role enforcement: member+ required to import parts.
+	membership, err := h.checkTeamMembership(r.Context(), sess.TeamID, sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if membership == nil || !roleAtLeast(membership.Role, "member") {
+		writeError(w, http.StatusForbidden, "member role required", "FORBIDDEN")
 		return
 	}
 
