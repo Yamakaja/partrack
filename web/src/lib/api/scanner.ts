@@ -102,6 +102,7 @@ export interface BagLookupNotFoundInDb {
   parsed_qty: number | null;
   parsed_lot: string;
   can_auto_import: boolean;
+  distributor_configs: Array<{ id: string; name: string }>;
 }
 
 export interface BagLookupNoFields {
@@ -193,6 +194,18 @@ export function importScanPart(
   body: { distributor_id: string; sku: string },
 ): Promise<{ part_id: string }> {
   return scanRequest(token, 'POST', '/api/v1/scan/parts/import', body);
+}
+
+export interface ImportMultiResult {
+  part_id: string;
+  failed: Array<{ distributor_id: string; sku: string; reason: string }>;
+}
+
+export function importScanPartMulti(
+  token: string,
+  body: { listings: Array<{ distributor_id: string; sku: string }> },
+): Promise<ImportMultiResult> {
+  return scanRequest(token, 'POST', '/api/v1/scan/parts/import-multi', body);
 }
 
 export function stockAdjustment(

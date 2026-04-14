@@ -1,6 +1,6 @@
 <script lang="ts">
   import ScannerCamera from './ScannerCamera.svelte';
-  import type { ScanPart } from './types.js';
+  import type { ScanPart, ScanImportContext } from './types.js';
   import { lookupBag, importScanPart, ScanExpiredError } from '$lib/api/scanner.js';
 
   let {
@@ -8,16 +8,14 @@
     onBack,
     onPartFound,
     onPartImported,
-    onSearchDistributor,
-    onSearchCatalog,
+    onStartImport,
     onExpired,
   }: {
     token: string;
     onBack: () => void;
     onPartFound: (part: ScanPart, bagQty: number, newEntry: boolean) => void;
     onPartImported: (part: ScanPart, bagQty: number) => void;
-    onSearchDistributor: (distributorId: string, distributorName: string, query: string, parsedQty: number | null) => void;
-    onSearchCatalog: (query: string) => void;
+    onStartImport: (context: ScanImportContext) => void;
     onExpired: () => void;
   } = $props();
 
@@ -42,9 +40,11 @@
   let parsedDistributorId = $state('');
   let preferredDistributorId = $state('');
   let preferredDistributorName = $state('');
+  let canAutoImport = $state(false);
+  let distributorConfigs = $state<Array<{ id: string; name: string }>>([]);
   let importError = $state('');
 
-  // ── Auto-import effect (Case A: SKU + configured distributor) ─────────────
+  // ── Auto-import effect (Case A: fast path) ────────────────────────────────
 
   $effect(() => {
     if (screen !== 'importing') return;
@@ -75,13 +75,21 @@
     return () => { cancelled = true; };
   });
 
-  // ── Distributor search (Cases B/C/D) ──────────────────────────────────────
+  // ── Start multi-listing import flow ───────────────────────────────────────
 
-  function openDistributorSearch() {
-    const distId   = parsedDistributorId || preferredDistributorId;
-    const distName = parsedDistributorId ? parsedDistributor : preferredDistributorName;
-    const query    = [parsedManufacturer, parsedMPN].filter(Boolean).join(' ') || parsedSKU;
-    onSearchDistributor(distId, distName, query, parsedQty);
+  function startImport() {
+    onStartImport({
+      parsedMPN,
+      parsedManufacturer,
+      parsedSKU,
+      parsedDistributorId,
+      parsedDistributorName: parsedDistributor,
+      preferredDistributorId,
+      preferredDistributorName,
+      parsedQty,
+      canAutoImport,
+      distributorConfigs,
+    });
   }
 
   // ── Scan handling ─────────────────────────────────────────────────────────
@@ -121,8 +129,14 @@
         preferredDistributorName = data.preferred_distributor_name;
         parsedQty = data.parsed_qty;
         parsedLot = data.parsed_lot;
+        canAutoImport = data.can_auto_import;
+        distributorConfigs = data.distributor_configs ?? [];
         importError = '';
-        screen = data.can_auto_import ? 'importing' : 'not_found_in_db';
+
+        // Fast path: SKU known and no second distributor to offer → auto-import immediately.
+        const isFastPath = data.can_auto_import &&
+          (!data.preferred_distributor_id || data.parsed_distributor_id === data.preferred_distributor_id);
+        screen = isFastPath ? 'importing' : 'not_found_in_db';
 
       } else if (data.status === 'no_fields') {
         parseError = false;
@@ -271,23 +285,12 @@
       {/if}
 
       <div class="flex flex-col gap-3">
-        <!-- Cases B/C/D: MPN available + a distributor to search -->
-        {#if parsedMPN && (parsedDistributorId || preferredDistributorId)}
-          {@const distName = parsedDistributorId ? parsedDistributor : preferredDistributorName}
-          <button
-            onclick={openDistributorSearch}
-            class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
-          >
-            Search {distName} for {parsedMPN}
-          </button>
-        {/if}
-
         {#if parsedMPN || parsedSKU}
           <button
-            onclick={() => onSearchCatalog(parsedMPN || parsedSKU)}
+            onclick={startImport}
             class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
           >
-            Search Catalog
+            Review & Import
           </button>
         {/if}
         <button
@@ -300,7 +303,7 @@
     </div>
   </div>
 
-<!-- ── IMPORTING (Case A: auto-import in progress) ────────────────────────── -->
+<!-- ── IMPORTING (Case A: fast-path auto-import in progress) ──────────────── -->
 {:else if screen === 'importing'}
   <div class="flex flex-1 flex-col">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">

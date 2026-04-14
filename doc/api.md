@@ -300,6 +300,11 @@ Phone endpoints accept the scan token either as `Authorization: Bearer` header (
 | POST | `/scan/confirm` | Confirm pending scan (apply receive). Body: `{qty?}`. Returns `{ok, new_quantity_received, new_quantity_on_hand, order_status}`. |
 | POST | `/scan/skip` | Discard pending scan. |
 | POST | `/scan/stock-adjustment` | Apply stock delta. Body: `{inventory_entry_id, delta, reason?}`. Member+ only. Returns `{ok, new_quantity_on_hand}`. |
+| POST | `/scan/lookup` | Parse a bag barcode and look up the part. Body: `{barcode}`. Returns discriminated union on `status`: `found` (part in catalog), `not_found_in_db` (parsed but unknown — includes `distributor_configs:[{id,name}]`, `can_auto_import`, `parsed_*` fields), `no_fields`, `parse_error`. |
+| GET | `/scan/parts/{partId}` | Full part detail for scanner. Returns part + inventory + listings + parameters. |
+| POST | `/scan/parts/import` | Import part from a single distributor SKU. Body: `{distributor_id, sku}`. Returns `{part_id}`. Member+ only. |
+| POST | `/scan/parts/import-multi` | Import part from multiple distributor listings (≥1). Body: `{listings:[{distributor_id,sku}]}`. Returns `{part_id, failed:[{distributor_id,sku,reason}]}`. All listings with the same MPN+manufacturer deduplicate to one part. Member+ only. |
+| GET | `/scan/distributor-search` | Search a configured distributor. Query: `distributor_id`, `q`, `limit?`. Returns `{items:[{mpn,manufacturer,description,category,primary_sku,package,unit_price,stock_available}], total, exact_match_indices}`. |
 
 SSE events from scan session changes are published to the owning user's desktop channel as `scan_session_changed` with `{session_id, phone_connected, context_order_ref?}`.
 

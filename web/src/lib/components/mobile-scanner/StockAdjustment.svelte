@@ -90,7 +90,7 @@
         {/if}
         <div class="flex items-center gap-3">
           <button
-            onclick={() => { const v = parseInt(adjValue, 10) || 0; adjValue = String(v - 1); }}
+            onclick={() => { const v = parseInt(adjValue, 10) || 0; const next = v - 1; adjValue = String(mode === 'adjust' && next === 0 ? -1 : next); }}
             class="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 text-lg active:bg-zinc-800"
           >−</button>
           <input
@@ -100,7 +100,7 @@
             class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-lg font-mono text-white text-center focus:outline-none focus:ring-2 focus:ring-white/30"
           />
           <button
-            onclick={() => { const v = parseInt(adjValue, 10) || 0; adjValue = String(v + 1); }}
+            onclick={() => { const v = parseInt(adjValue, 10) || 0; const next = v + 1; adjValue = String(mode === 'adjust' && next === 0 ? 1 : next); }}
             class="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 text-lg active:bg-zinc-800"
           >+</button>
         </div>

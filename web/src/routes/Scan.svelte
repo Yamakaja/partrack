@@ -10,7 +10,7 @@
   import PartDetail from '$lib/components/mobile-scanner/PartDetail.svelte';
   import StockAdjustment from '$lib/components/mobile-scanner/StockAdjustment.svelte';
   import BagScan from '$lib/components/mobile-scanner/BagScan.svelte';
-  import DistributorSearch from '$lib/components/mobile-scanner/DistributorSearch.svelte';
+  import ListingPicker from '$lib/components/mobile-scanner/ListingPicker.svelte';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -244,23 +244,15 @@
         screen: 'part_detail', part,
         initialAdjust: { value: qty, mode: 'set', reason: 'Initial Stock' },
       })}
-      onSearchDistributor={(distId, distName, q, qty) => goTo({
-        screen: 'distributor_search',
-        distributorId: distId, distributorName: distName,
-        initialQuery: q, parsedQty: qty,
-      })}
-      onSearchCatalog={(q) => goTo({ screen: 'find_part', initialQuery: q })}
+      onStartImport={(ctx) => goTo({ screen: 'listing_picker', context: ctx })}
       onExpired={handleExpired}
     />
 
-  <!-- ── DISTRIBUTOR SEARCH ────────────────────────────────────────────────── -->
-  {:else if current.screen === 'distributor_search'}
-    <DistributorSearch
+  <!-- ── LISTING PICKER ────────────────────────────────────────────────────── -->
+  {:else if current.screen === 'listing_picker'}
+    <ListingPicker
       {token}
-      distributorId={current.distributorId}
-      distributorName={current.distributorName}
-      initialQuery={current.initialQuery}
-      parsedQty={current.parsedQty}
+      context={current.context}
       onBack={goBack}
       onImportDone={(part, qty) => goReplace({
         screen: 'part_detail', part,

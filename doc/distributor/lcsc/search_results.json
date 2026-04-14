@@ -1,0 +1,409 @@
+{
+  "code": 200,
+  "data": {
+    "componentPageInfo": {
+      "total": 2,
+      "list": [
+        {
+          "componentId": 3390257,
+          "componentLibraryType": "expand",
+          "stockCount": 23362,
+          "componentTypeEn": "USB Converters",
+          "erpComponentName": "USB2.0芯片CH340",
+          "componentSource": "shop",
+          "lcscGoodsUrl": "https://www.lcsc.com/product-detail/usb-converters_wch-jiangsu-qin-heng-ch340n_C2977777.html",
+          "componentPrices": [
+            {
+              "startNumber": 1,
+              "endNumber": 9,
+              "productPrice": 0.5660
+            },
+            {
+              "startNumber": 10,
+              "endNumber": 29,
+              "productPrice": 0.4797
+            },
+            {
+              "startNumber": 30,
+              "endNumber": 99,
+              "productPrice": 0.4189
+            },
+            {
+              "startNumber": 100,
+              "endNumber": 499,
+              "productPrice": 0.3678
+            },
+            {
+              "startNumber": 500,
+              "endNumber": 999,
+              "productPrice": 0.3422
+            },
+            {
+              "startNumber": 1000,
+              "endNumber": -1,
+              "productPrice": 0.3326
+            }
+          ],
+          "buyComponentPrices": [
+            {
+              "startNumber": 30,
+              "endNumber": 99,
+              "productPrice": 0.4035
+            },
+            {
+              "startNumber": 1,
+              "endNumber": 9,
+              "productPrice": 0.5452
+            },
+            {
+              "startNumber": 500,
+              "endNumber": 999,
+              "productPrice": 0.3296
+            },
+            {
+              "startNumber": 100,
+              "endNumber": 499,
+              "productPrice": 0.3543
+            },
+            {
+              "startNumber": 10,
+              "endNumber": 29,
+              "productPrice": 0.4621
+            },
+            {
+              "startNumber": 1000,
+              "endNumber": -1,
+              "productPrice": 0.3204
+            }
+          ],
+          "firstSortAccessId": "2ade39b3eb5f47a0b806a0d0611c9b6c",
+          "secondSortAccessId": "930b236170024ab3a7643da4864da3c6",
+          "canPresaleNumber": 22289,
+          "componentProductType": 0,
+          "mergedComponentCode": null,
+          "urlSuffix": "WCH_Jiangsu_Qin_Heng-CH340N/C2977777",
+          "leastPatchNumber": 0,
+          "lossNumber": 0,
+          "isBuyComponent": "1",
+          "noBuyReason": null,
+          "componentAlternativesCode": null,
+          "replaceUrlSuffix": null,
+          "preferredComponentFlag": false,
+          "allowPostFlag": true,
+          "score": null,
+          "idleFlag": null,
+          "estimateDate": null,
+          "fullReelPrice": null,
+          "encapsulationNumber": 4000,
+          "shopCostPrice": null,
+          "preMinPurchaseNum": 19,
+          "minPurchaseNum": 1,
+          "initialPrice": 0.5660,
+          "componentCode": "C2977777",
+          "componentBrandEn": "WCH(Jiangsu Qin Heng)",
+          "componentModelEn": "CH340N",
+          "componentImageUrl": "",
+          "productBigImageAccessId": "8583656426929995776",
+          "productBigImageAccessIdUrl": null,
+          "dataManualUrl": "https://wmsc.lcsc.com/wmsc/upload/file/pdf/v2/lcsc/2403131131_WCH-Jiangsu-Qin-Heng-CH340N_C2977777.pdf",
+          "dataManualFileAccessId": "8618866904220258304",
+          "dataManualFileAccessIdUrl": null,
+          "dataManualOfficialLink": null,
+          "componentName": "WCH CH340N",
+          "minImage": "",
+          "minImageAccessId": "8583656427822571520",
+          "minImageAccessIdUrl": null,
+          "imageList": [
+            {
+              "productImage": null,
+              "productImageAccessId": null,
+              "productBigImage": null,
+              "productBigImageAccessId": null,
+              "fileType": null
+            },
+            {
+              "productImage": null,
+              "productImageAccessId": null,
+              "productBigImage": null,
+              "productBigImageAccessId": null,
+              "fileType": null
+            },
+            {
+              "productImage": null,
+              "productImageAccessId": null,
+              "productBigImage": null,
+              "productBigImageAccessId": null,
+              "fileType": null
+            }
+          ],
+          "manufacturerBlackFlag": null,
+          "componentNameEn": null,
+          "componentSpecificationEn": "SOP-8",
+          "describe": "-20℃~+70℃ 1 2Mbps 3.3V、5V USB 2.0 USB to serial SOP-8 USB Converters ROHS",
+          "attributes": [
+            {
+              "attribute_name_en": "Operating Temperature",
+              "attribute_value_name": "-20℃~+70℃"
+            },
+            {
+              "attribute_name_en": "Number of Channels",
+              "attribute_value_name": "1"
+            },
+            {
+              "attribute_name_en": "Data Rate",
+              "attribute_value_name": "2Mbps"
+            },
+            {
+              "attribute_name_en": "Applications Function",
+              "attribute_value_name": "USB to serial"
+            },
+            {
+              "attribute_name_en": "Voltage - Supply",
+              "attribute_value_name": "3.3V、5V"
+            },
+            {
+              "attribute_name_en": "USB Protocol",
+              "attribute_value_name": "USB 2.0"
+            }
+          ],
+          "rankScore": null,
+          "firstSortName": "USB Converters",
+          "secondSortName": "Interface",
+          "componentBrandHigh": null,
+          "remarkHigh": null,
+          "componentModelHigh": "<span class='lucene_highlight_class'>CH340N</span>",
+          "componentCodeHigh": null,
+          "componentSpecificationHigh": null,
+          "rohsFlag": null,
+          "shopShowPriceFlag": true,
+          "shopShowForeignPriceFlag": true,
+          "shopRealPriceFlag": true,
+          "assemblyComponentFlag": false
+        },
+        {
+          "componentId": 519976,
+          "componentLibraryType": "expand",
+          "stockCount": 0,
+          "componentTypeEn": "USB Converters",
+          "erpComponentName": "USB转串口芯片CH340",
+          "componentSource": "shop",
+          "lcscGoodsUrl": "https://www.lcsc.com/product-detail/usb-converters_wch-jiangsu-qin-heng-ch340n_C506813.html",
+          "componentPrices": [
+            {
+              "startNumber": 1,
+              "endNumber": 9,
+              "productPrice": 0.6427
+            },
+            {
+              "startNumber": 10,
+              "endNumber": 29,
+              "productPrice": 0.5164
+            },
+            {
+              "startNumber": 30,
+              "endNumber": 99,
+              "productPrice": 0.4525
+            },
+            {
+              "startNumber": 100,
+              "endNumber": 499,
+              "productPrice": 0.3678
+            },
+            {
+              "startNumber": 500,
+              "endNumber": 999,
+              "productPrice": 0.3310
+            },
+            {
+              "startNumber": 1000,
+              "endNumber": 1999,
+              "productPrice": 0.3118
+            },
+            {
+              "startNumber": 2000,
+              "endNumber": 3999,
+              "productPrice": 0.3070
+            },
+            {
+              "startNumber": 4000,
+              "endNumber": -1,
+              "productPrice": 0.3038
+            }
+          ],
+          "buyComponentPrices": [
+            {
+              "startNumber": 1,
+              "endNumber": 9,
+              "productPrice": 0.6191
+            },
+            {
+              "startNumber": 10,
+              "endNumber": 29,
+              "productPrice": 0.4975
+            },
+            {
+              "startNumber": 30,
+              "endNumber": 99,
+              "productPrice": 0.4359
+            },
+            {
+              "startNumber": 100,
+              "endNumber": 499,
+              "productPrice": 0.3543
+            },
+            {
+              "startNumber": 500,
+              "endNumber": 999,
+              "productPrice": 0.3188
+            },
+            {
+              "startNumber": 4000,
+              "endNumber": -1,
+              "productPrice": 0.2927
+            },
+            {
+              "startNumber": 2000,
+              "endNumber": 3999,
+              "productPrice": 0.2957
+            },
+            {
+              "startNumber": 1000,
+              "endNumber": 1999,
+              "productPrice": 0.3004
+            }
+          ],
+          "firstSortAccessId": "2ade39b3eb5f47a0b806a0d0611c9b6c",
+          "secondSortAccessId": "930b236170024ab3a7643da4864da3c6",
+          "canPresaleNumber": 0,
+          "componentProductType": 0,
+          "mergedComponentCode": null,
+          "urlSuffix": "WCH_Jiangsu_Qin_Heng-CH340N/C506813",
+          "leastPatchNumber": 0,
+          "lossNumber": 0,
+          "isBuyComponent": "1",
+          "noBuyReason": null,
+          "componentAlternativesCode": null,
+          "replaceUrlSuffix": null,
+          "preferredComponentFlag": false,
+          "allowPostFlag": true,
+          "score": null,
+          "idleFlag": null,
+          "estimateDate": null,
+          "fullReelPrice": null,
+          "encapsulationNumber": 100,
+          "shopCostPrice": null,
+          "preMinPurchaseNum": 18,
+          "minPurchaseNum": 18,
+          "initialPrice": 0.5164,
+          "componentCode": "C506813",
+          "componentBrandEn": "WCH(Jiangsu Qin Heng)",
+          "componentModelEn": "CH340N",
+          "componentImageUrl": "",
+          "productBigImageAccessId": "8583288104648388608",
+          "productBigImageAccessIdUrl": null,
+          "dataManualUrl": "https://www.lcsc.com/datasheet/lcsc_datasheet_2304140030_WCH-Jiangsu-Qin-Heng-CH340N_C506813.pdf",
+          "dataManualFileAccessId": "8618867371625107456",
+          "dataManualFileAccessIdUrl": null,
+          "dataManualOfficialLink": null,
+          "componentName": "WCH CH340N",
+          "minImage": "",
+          "minImageAccessId": "8583288105469661184",
+          "minImageAccessIdUrl": null,
+          "imageList": [
+            {
+              "productImage": null,
+              "productImageAccessId": null,
+              "productBigImage": null,
+              "productBigImageAccessId": null,
+              "fileType": null
+            },
+            {
+              "productImage": null,
+              "productImageAccessId": null,
+              "productBigImage": null,
+              "productBigImageAccessId": null,
+              "fileType": null
+            },
+            {
+              "productImage": null,
+              "productImageAccessId": null,
+              "productBigImage": null,
+              "productBigImageAccessId": null,
+              "fileType": null
+            }
+          ],
+          "manufacturerBlackFlag": null,
+          "componentNameEn": null,
+          "componentSpecificationEn": "SOP-8",
+          "describe": "-20℃~+70℃ 2Mbps 3.3V、5V USB 2.0 USB to serial SOP-8 USB Converters ROHS",
+          "attributes": [
+            {
+              "attribute_name_en": "Operating Temperature",
+              "attribute_value_name": "-20℃~+70℃"
+            },
+            {
+              "attribute_name_en": "Data Rate",
+              "attribute_value_name": "2Mbps"
+            },
+            {
+              "attribute_name_en": "Number of Channels",
+              "attribute_value_name": "-"
+            },
+            {
+              "attribute_name_en": "Applications Function",
+              "attribute_value_name": "USB to serial"
+            },
+            {
+              "attribute_name_en": "Voltage - Supply",
+              "attribute_value_name": "3.3V、5V"
+            },
+            {
+              "attribute_name_en": "USB Protocol",
+              "attribute_value_name": "USB 2.0"
+            }
+          ],
+          "rankScore": null,
+          "firstSortName": "USB Converters",
+          "secondSortName": "Interface",
+          "componentBrandHigh": null,
+          "remarkHigh": null,
+          "componentModelHigh": "<span class='lucene_highlight_class'>CH340N</span>",
+          "componentCodeHigh": null,
+          "componentSpecificationHigh": null,
+          "rohsFlag": null,
+          "shopShowPriceFlag": true,
+          "shopShowForeignPriceFlag": true,
+          "shopRealPriceFlag": true,
+          "assemblyComponentFlag": false
+        }
+      ],
+      "pageNum": 1,
+      "pageSize": 10,
+      "size": 0,
+      "startRow": 0,
+      "endRow": 0,
+      "pages": 1,
+      "prePage": 0,
+      "nextPage": 0,
+      "isFirstPage": false,
+      "isLastPage": false,
+      "hasPreviousPage": false,
+      "hasNextPage": false,
+      "navigatePages": 0,
+      "navigatepageNums": null,
+      "navigateFirstPage": 0,
+      "navigateLastPage": 0
+    },
+    "sortAndCountVoList": null,
+    "presaleTypeList": [],
+    "brandList": [],
+    "basePart": null,
+    "preferredPart": null,
+    "economicPart": null,
+    "standardPart": null,
+    "dataSheetPart": null,
+    "photo": null,
+    "queryString": "CH340N"
+  },
+  "message": null
+}

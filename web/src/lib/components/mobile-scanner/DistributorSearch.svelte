@@ -2,24 +2,31 @@
   import { onMount } from 'svelte';
   import type { ScanPart } from './types.js';
   import { searchDistributor, importScanPart, ScanExpiredError, type DistributorSearchItem } from '$lib/api/scanner.js';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
     token,
     distributorId,
     distributorName,
     initialQuery,
-    parsedQty,
+    parsedQty = null,
+    mode = 'single',
+    initialCheckedSkus = [],
     onBack,
     onImportDone,
+    onSelectListings,
     onExpired,
   }: {
     token: string;
     distributorId: string;
     distributorName: string;
     initialQuery: string;
-    parsedQty: number | null;
+    parsedQty?: number | null;
+    mode?: 'single' | 'multi';
+    initialCheckedSkus?: string[];
     onBack: () => void;
-    onImportDone: (part: ScanPart, bagQty: number) => void;
+    onImportDone?: (part: ScanPart, bagQty: number) => void;
+    onSelectListings?: (items: DistributorSearchItem[]) => void;
     onExpired: () => void;
   } = $props();
 
@@ -30,10 +37,14 @@
   let searchError = $state('');
   let importingIdx = $state<number | null>(null);
   let importError = $state('');
+  let checkedSkus = $state<Set<string>>(new Set());
 
   // ── Search on mount ───────────────────────────────────────────────────────
 
   onMount(async () => {
+    if (mode === 'multi' && initialCheckedSkus.length > 0) {
+      checkedSkus = new Set(initialCheckedSkus);
+    }
     try {
       const data = await searchDistributor(token, distributorId, initialQuery);
       results = data.items ?? [];
@@ -45,7 +56,7 @@
     }
   });
 
-  // ── Import on select ──────────────────────────────────────────────────────
+  // ── Single mode: import on select ─────────────────────────────────────────
 
   async function selectResult(idx: number, item: DistributorSearchItem) {
     importingIdx = idx;
@@ -63,13 +74,30 @@
         sku: item.primary_sku,
         distributor_name: distributorName,
       };
-      onImportDone(part, parsedQty ?? 0);
+      onImportDone?.(part, parsedQty ?? 0);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       importError = 'Import failed. Try another result or go back.';
     } finally {
       importingIdx = null;
     }
+  }
+
+  // ── Multi mode: toggle selection and confirm ──────────────────────────────
+
+  function toggleSku(sku: string) {
+    const next = new Set(checkedSkus);
+    if (next.has(sku)) {
+      next.delete(sku);
+    } else {
+      next.add(sku);
+    }
+    checkedSkus = next;
+  }
+
+  function confirmMultiSelect() {
+    const selected = results.filter(r => checkedSkus.has(r.primary_sku));
+    onSelectListings?.(selected);
   }
 </script>
 
@@ -117,36 +145,90 @@
       {:else}
         <div class="divide-y divide-zinc-800">
           {#each results as item, idx}
-            <button
-              onclick={() => selectResult(idx, item)}
-              disabled={importingIdx !== null}
-              class="relative w-full px-4 py-3 text-left active:bg-zinc-900 disabled:opacity-60"
-            >
-              <!-- Importing overlay for this row -->
-              {#if importingIdx === idx}
-                <div class="absolute inset-0 flex items-center justify-center bg-black/60 rounded">
-                  <div class="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-white"></div>
-                </div>
-              {/if}
-
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="font-medium text-sm font-mono">{item.mpn}</span>
-                {#if item.manufacturer}
-                  <span class="text-xs text-zinc-500 shrink-0">{item.manufacturer}</span>
+            {#if mode === 'single'}
+              <button
+                onclick={() => selectResult(idx, item)}
+                disabled={importingIdx !== null}
+                class="relative w-full px-4 py-3 text-left active:bg-zinc-900 disabled:opacity-60"
+              >
+                <!-- Importing overlay for this row -->
+                {#if importingIdx === idx}
+                  <div class="absolute inset-0 flex items-center justify-center bg-black/60 rounded">
+                    <div class="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-white"></div>
+                  </div>
                 {/if}
+
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-medium text-sm font-mono">{item.mpn}</span>
+                  {#if item.manufacturer}
+                    <span class="text-xs text-zinc-500 shrink-0">{item.manufacturer}</span>
+                  {/if}
+                </div>
+                {#if item.description}
+                  <p class="text-xs text-zinc-400 mt-0.5 line-clamp-1">{item.description}</p>
+                {/if}
+                {#if item.unit_price || item.stock_available != null}
+                  <p class="text-xs text-zinc-500 mt-0.5">
+                    {#if item.unit_price}<PriceDisplay value={item.unit_price} decimals={4} /> each{/if}{#if item.unit_price && item.stock_available != null} · {/if}{#if item.stock_available != null}{item.stock_available.toLocaleString()} in stock{/if}
+                  </p>
+                {/if}
+              </button>
+            {:else}
+              <!-- Multi-select row -->
+              {@const checked = checkedSkus.has(item.primary_sku)}
+              <div
+                role="checkbox"
+                aria-checked={checked}
+                tabindex="0"
+                onclick={() => toggleSku(item.primary_sku)}
+                onkeydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleSku(item.primary_sku); } }}
+                class="flex items-start gap-3 px-4 py-3 cursor-pointer active:bg-zinc-900 {checked ? 'bg-zinc-900' : ''}"
+              >
+                <div class="flex items-center mt-0.5 shrink-0">
+                  <input
+                    type="checkbox"
+                    {checked}
+                    tabindex="-1"
+                    class="h-4 w-4 rounded border-zinc-600 bg-zinc-800 accent-white pointer-events-none"
+                    readonly
+                  />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="font-medium text-sm font-mono">{item.mpn}</span>
+                    {#if item.manufacturer}
+                      <span class="text-xs text-zinc-500 shrink-0">{item.manufacturer}</span>
+                    {/if}
+                  </div>
+                  {#if item.description}
+                    <p class="text-xs text-zinc-400 mt-0.5 line-clamp-1">{item.description}</p>
+                  {/if}
+                  {#if item.unit_price || item.stock_available != null}
+                    <p class="text-xs text-zinc-500 mt-0.5">
+                      {#if item.unit_price}<PriceDisplay value={item.unit_price} decimals={4} /> each{/if}{#if item.unit_price && item.stock_available != null} · {/if}{#if item.stock_available != null}{item.stock_available.toLocaleString()} in stock{/if}
+                    </p>
+                  {/if}
+                  {#if item.package}
+                    <p class="text-xs text-zinc-500 mt-0.5">{item.package}</p>
+                  {/if}
+                </div>
               </div>
-              {#if item.description}
-                <p class="text-xs text-zinc-400 mt-0.5 line-clamp-1">{item.description}</p>
-              {/if}
-              {#if item.unit_price || item.stock_available != null}
-                <p class="text-xs text-zinc-500 mt-0.5">
-                  {#if item.unit_price}${item.unit_price} each{/if}{#if item.unit_price && item.stock_available != null} · {/if}{#if item.stock_available != null}{item.stock_available.toLocaleString()} in stock{/if}
-                </p>
-              {/if}
-            </button>
+            {/if}
           {/each}
         </div>
       {/if}
     </div>
+
+    <!-- Multi-select sticky footer -->
+    {#if mode === 'multi'}
+      <div class="shrink-0 border-t border-zinc-800 p-4">
+        <button
+          onclick={confirmMultiSelect}
+          class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
+        >
+          Done ({checkedSkus.size} selected)
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>

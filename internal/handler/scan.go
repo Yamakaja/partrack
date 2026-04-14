@@ -843,18 +843,31 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 
 	canAutoImport := parsedDistributorID != nil && parsed.SKU != ""
 
+	type distConfigItem struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	distConfigs := make([]distConfigItem, 0, len(configs))
+	for _, cfg := range configs {
+		distConfigs = append(distConfigs, distConfigItem{
+			ID:   cfg.DistributorID.String(),
+			Name: cfg.DistributorName,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":                   "not_found_in_db",
-		"parsed_mpn":               parsed.MPN,
-		"parsed_manufacturer":      parsed.Manufacturer,
-		"parsed_sku":               parsed.SKU,
-		"parsed_distributor":       parsed.Distributor,
-		"parsed_distributor_id":    parsedDistributorID,
-		"preferred_distributor_id": preferredDistributorID,
+		"status":                     "not_found_in_db",
+		"parsed_mpn":                 parsed.MPN,
+		"parsed_manufacturer":        parsed.Manufacturer,
+		"parsed_sku":                 parsed.SKU,
+		"parsed_distributor":         parsed.Distributor,
+		"parsed_distributor_id":      parsedDistributorID,
+		"preferred_distributor_id":   preferredDistributorID,
 		"preferred_distributor_name": preferredDistributorName,
-		"parsed_qty":               parsed.Quantity,
-		"parsed_lot":               parsed.Lot,
-		"can_auto_import":          canAutoImport,
+		"parsed_qty":                 parsed.Quantity,
+		"parsed_lot":                 parsed.Lot,
+		"can_auto_import":            canAutoImport,
+		"distributor_configs":        distConfigs,
 	})
 }
 
@@ -1653,4 +1666,82 @@ func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "part_changed", sess.TeamID.String(), map[string]string{"part_id": partID.String()})
 	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
+}
+
+// ImportScanPartMulti handles POST /api/v1/scan/parts/import-multi
+// Body: {"listings":[{"distributor_id":"uuid","sku":"SKU"}]} (≥1 required).
+// Returns 200 {"part_id":"uuid","failed":[...]} where failed is empty on full success.
+// All listings with the same MPN+manufacturer converge to the same part via deduplication.
+func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	membership, err := h.checkTeamMembership(r.Context(), sess.TeamID, sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if membership == nil || !roleAtLeast(membership.Role, "member") {
+		writeError(w, http.StatusForbidden, "member role required", "FORBIDDEN")
+		return
+	}
+
+	var req struct {
+		Listings []struct {
+			DistributorID string `json:"distributor_id"`
+			SKU           string `json:"sku"`
+		} `json:"listings"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Listings) == 0 {
+		writeError(w, http.StatusBadRequest, "listings array with at least one entry is required", "BAD_REQUEST")
+		return
+	}
+	for _, l := range req.Listings {
+		if l.DistributorID == "" || l.SKU == "" {
+			writeError(w, http.StatusBadRequest, "each listing must have distributor_id and sku", "BAD_REQUEST")
+			return
+		}
+	}
+
+	type failedListing struct {
+		DistributorID string `json:"distributor_id"`
+		SKU           string `json:"sku"`
+		Reason        string `json:"reason"`
+	}
+
+	var lastPartID pgtype.UUID
+	var anySuccess bool
+	failed := []failedListing{}
+
+	for _, listing := range req.Listings {
+		pid, err := h.importPartBySKU(r.Context(), sess.TeamID, listing.DistributorID, listing.SKU)
+		if err != nil {
+			if errors.Is(err, errPartNotFoundAtDistributor) {
+				failed = append(failed, failedListing{listing.DistributorID, listing.SKU, "not_found"})
+				continue
+			}
+			h.writeImportError(w, "ImportScanPartMulti", listing.SKU, err)
+			return
+		}
+		lastPartID = pid
+		anySuccess = true
+	}
+
+	if !anySuccess {
+		writeError(w, http.StatusNotFound, "no listings could be imported", "PART_NOT_FOUND")
+		return
+	}
+
+	h.publishEvent(r, "part_changed", sess.TeamID.String(), map[string]string{"part_id": lastPartID.String()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"part_id": lastPartID.String(),
+		"failed":  failed,
+	})
 }

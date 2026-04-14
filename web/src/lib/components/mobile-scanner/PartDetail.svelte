@@ -3,6 +3,7 @@
   import type { ScanPart } from './types.js';
   import { recordVisit } from '$lib/stores/scannerHistory.svelte.js';
   import { getPartDetail, ScanExpiredError } from '$lib/api/scanner.js';
+  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
     token,
@@ -282,7 +283,7 @@
               </div>
               <div class="flex gap-3 mt-1 text-xs text-zinc-400 flex-wrap">
                 {#if listing.unit_price}
-                  <span>${listing.unit_price} each</span>
+                  <PriceDisplay value={listing.unit_price} decimals={4} /> <span>each</span>
                 {/if}
                 {#if listing.stock_available != null}
                   <span>{listing.stock_available.toLocaleString()} in stock</span>

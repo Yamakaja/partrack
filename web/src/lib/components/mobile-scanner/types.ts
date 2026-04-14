@@ -37,8 +37,33 @@ export type NavEntry =
   | { screen: 'bag_scan' }
   | { screen: 'find_part'; initialQuery: string }
   | { screen: 'part_detail'; part: ScanPart; initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string } }
-  | { screen: 'distributor_search'; distributorId: string; distributorName: string; initialQuery: string; parsedQty: number | null }
+  | { screen: 'listing_picker'; context: ScanImportContext }
   | { screen: 'stock_adjustment'; part: ScanPart; mode: 'set' | 'adjust'; initialValue?: number; initialReason?: string };
+
+export interface SelectedListing {
+  distributor_id: string;
+  distributor_name: string;
+  sku: string;
+  mpn?: string;
+  manufacturer?: string;
+  description?: string;
+  packaging?: string;
+  unit_price?: string;
+  stock_available?: number | null;
+}
+
+export interface ScanImportContext {
+  parsedMPN: string;
+  parsedManufacturer: string;
+  parsedSKU: string;
+  parsedDistributorId: string;
+  parsedDistributorName: string;
+  preferredDistributorId: string;
+  preferredDistributorName: string;
+  parsedQty: number | null;
+  canAutoImport: boolean;
+  distributorConfigs: Array<{ id: string; name: string }>;
+}
 
 export interface BagLookupResult {
   id: string;
