@@ -187,3 +187,21 @@ func Parse(raw string) (*ParsedBarcode, error) {
 
 	return result, nil
 }
+
+// ParseAny attempts to parse raw using all known barcode formats.
+// It tries IPC-2D (DigiKey, Mouser) first, then LCSC's custom {key:value} format.
+// Returns ErrUnknownFormat if no format matches.
+func ParseAny(raw string) (*ParsedBarcode, error) {
+	b, err := Parse(raw)
+	if err == nil {
+		return b, nil
+	}
+	if !errors.Is(err, ErrUnknownFormat) {
+		// ErrParseFailure or unexpected error — propagate as-is.
+		return nil, err
+	}
+	if b := ParseLCSC(raw); b != nil {
+		return b, nil
+	}
+	return nil, ErrUnknownFormat
+}

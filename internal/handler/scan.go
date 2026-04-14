@@ -725,7 +725,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsed, parseErr := scanner.Parse(body.Barcode)
+	parsed, parseErr := scanner.ParseAny(body.Barcode)
 	if parseErr != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "parse_error",
@@ -968,7 +968,7 @@ func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse the barcode.
-	parsed, parseErr := scanner.Parse(body.Barcode)
+	parsed, parseErr := scanner.ParseAny(body.Barcode)
 	if parseErr != nil {
 		if errors.Is(parseErr, scanner.ErrUnknownFormat) || errors.Is(parseErr, scanner.ErrParseFailure) {
 			writeJSON(w, http.StatusOK, map[string]any{
