@@ -57,6 +57,11 @@ WITH RECURSIVE cat_tree AS (
   SELECT id FROM categories WHERE id = sqlc.narg('category_id')
   UNION ALL
   SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+),
+loc_tree AS (
+  SELECT id FROM storage_locations WHERE id = sqlc.narg('storage_location_id')::uuid
+  UNION ALL
+  SELECT sl.id FROM storage_locations sl JOIN loc_tree lt ON sl.parent_id = lt.id
 )
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
@@ -93,6 +98,10 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   )
   AND (sqlc.narg('part_id_filter')::text IS NULL
        OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]))
+  AND (sqlc.narg('storage_location_id')::uuid IS NULL
+       OR ie.storage_location_id IN (SELECT id FROM loc_tree))
+  AND (sqlc.narg('storage_cells')::text IS NULL
+       OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array(sqlc.narg('storage_cells'), '|')))
 ORDER BY p.mpn NULLS LAST, p.id
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -101,6 +110,11 @@ WITH RECURSIVE cat_tree AS (
   SELECT id FROM categories WHERE id = sqlc.narg('category_id')
   UNION ALL
   SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+),
+loc_tree AS (
+  SELECT id FROM storage_locations WHERE id = sqlc.narg('storage_location_id')::uuid
+  UNION ALL
+  SELECT sl.id FROM storage_locations sl JOIN loc_tree lt ON sl.parent_id = lt.id
 )
 SELECT COUNT(*) FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
@@ -125,7 +139,11 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
       OR ('not_tracked'  = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NULL)
   )
   AND (sqlc.narg('part_id_filter')::text IS NULL
-       OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]));
+       OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]))
+  AND (sqlc.narg('storage_location_id')::uuid IS NULL
+       OR ie.storage_location_id IN (SELECT id FROM loc_tree))
+  AND (sqlc.narg('storage_cells')::text IS NULL
+       OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array(sqlc.narg('storage_cells'), '|')));
 
 -- name: GetParametersByPartIDs :many
 -- Returns one resolved row per (part, parameter) pair, preferring user-specified
@@ -156,7 +174,10 @@ SELECT
     ie.reorder_quantity,
     ie.preferred_listing_id,
     ie.storage_location_id,
-    sl.label               AS storage_location_label
+    ie.storage_coordinate,
+    sl.label               AS storage_location_label,
+    sl.grid_config         AS storage_location_grid_config,
+    sl.parent_id           AS storage_location_parent_id
 FROM parts p
 LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')

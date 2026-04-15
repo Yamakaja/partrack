@@ -5,8 +5,11 @@
   import { X, Hash, ListFilter } from 'lucide-svelte';
   import { listParts, getCategoryParameters, type ParamFilter } from '$lib/api/parts.js';
   import { listCategories, listPartCategories } from '$lib/api/categories.js';
+  import { listStorageLocations } from '$lib/api/storage.js';
   import type { PartSummary, CategoryParameter } from '$lib/types/parts.js';
   import CategoryPicker from '$lib/components/CategoryPicker.svelte';
+  import StorageLocationFilterPicker from '$lib/components/storage/StorageLocationFilterPicker.svelte';
+  import type { StorageLocationFilter } from '$lib/components/storage/StorageLocationFilterPicker.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
@@ -31,9 +34,6 @@
   const hashParams = new URLSearchParams(untrack(() => syncUrl) ? window.location.hash.slice(1) : '');
 
   let searchValue = $state(hashParams.get('q') ?? '');
-  let categoryFilter = $state<number | null>(
-    hashParams.get('category_id') ? Number(hashParams.get('category_id')) : null,
-  );
   // Per-param popover open state and numeric input state, keyed by param slug
   let filterOpenState = $state<Record<string, boolean>>({});
   let numericInputs = $state<Record<string, { min: string; max: string }>>({});
@@ -50,13 +50,9 @@
     staleTime: 5 * 60 * 1000,
   }));
 
-  const categoryParamsQuery = createQuery(() => ({
-    queryKey: ['category-params', categoryFilter, teamId],
-    queryFn: () =>
-      categoryFilter != null
-        ? getCategoryParameters(categoryFilter, teamId)
-        : Promise.resolve<CategoryParameter[]>([]),
-    enabled: categoryFilter != null,
+  const storageQuery = createQuery(() => ({
+    queryKey: ['storage-locations', teamId],
+    queryFn: () => listStorageLocations(teamId),
     staleTime: 5 * 60 * 1000,
   }));
 
@@ -116,6 +112,9 @@
         }
       }
 
+      const storageLocationId = [...(params.filters.get('storage_location_id') ?? [])][0] ?? undefined;
+      const storageCellStrs = [...(params.filters.get('storage_cells') ?? [])];
+
       const result = await listParts({
         team_id: teamId,
         q: (params.extra.q as string) || undefined,
@@ -123,6 +122,8 @@
         lifecycle_status: lifecycleStatus.length ? lifecycleStatus : undefined,
         category_id: categoryIdStr ? Number(categoryIdStr) : undefined,
         param_filters: Object.keys(pf).length ? pf : undefined,
+        storage_location_id: storageLocationId,
+        storage_cells: storageCellStrs.length ? storageCellStrs.join('|') : undefined,
         limit: params.pageSize,
         offset: (params.page - 1) * params.pageSize,
       });
@@ -153,12 +154,37 @@
     },
   );
 
+  // Derived from source.filters so clearing a chip updates the pickers automatically
+  const categoryFilter = $derived.by(() => {
+    const val = [...(source.filters.get('category_id') ?? [])][0];
+    return val != null ? Number(val) : null;
+  });
+  const storageFilter = $derived.by((): StorageLocationFilter | null => {
+    const sid = [...(source.filters.get('storage_location_id') ?? [])][0];
+    if (!sid) return null;
+    const sc = [...(source.filters.get('storage_cells') ?? [])];
+    const cells = sc.length ? sc.map((s) => s.split(',').map(Number)) : null;
+    return { locationId: sid, cells };
+  });
+
+  const categoryParamsQuery = createQuery(() => ({
+    queryKey: ['category-params', categoryFilter, teamId],
+    queryFn: () =>
+      categoryFilter != null
+        ? getCategoryParameters(categoryFilter, teamId)
+        : Promise.resolve<CategoryParameter[]>([]),
+    enabled: categoryFilter != null,
+    staleTime: 5 * 60 * 1000,
+  }));
+
   // svelte-ignore state_referenced_locally
   {
     const ss = hashParams.get('stock_status');
     const ls = hashParams.get('lifecycle_status');
     const ci = hashParams.get('category_id');
     const pg = hashParams.get('page');
+    const sid = hashParams.get('storage_location_id');
+    const sc = hashParams.get('storage_cells');
     if (ss) {
       source.setFilter('stock_status', new Set(ss.split(',')));
     } else if (initialStockFilter) {
@@ -171,6 +197,10 @@
       if (key.startsWith('param_') && val) {
         source.setFilter(key, new Set([val]));
       }
+    }
+    if (sid) {
+      source.setFilter('storage_location_id', new Set([sid]));
+      if (sc) source.setFilter('storage_cells', new Set(sc.split('|')));
     }
     if (pg) source.page = Number(pg);
   }
@@ -247,6 +277,10 @@
     const ls = [...(source.filters.get('lifecycle_status') ?? [])];
     if (ls.length) params.set('lifecycle_status', ls.join(','));
     if (categoryFilter != null) params.set('category_id', String(categoryFilter));
+    const sid = [...(source.filters.get('storage_location_id') ?? [])][0];
+    if (sid) params.set('storage_location_id', sid);
+    const sc = [...(source.filters.get('storage_cells') ?? [])];
+    if (sc.length) params.set('storage_cells', sc.join('|'));
     // Persist active param filters individually
     for (const [key, values] of source.filters) {
       if (key.startsWith('param_') && values.size > 0) {
@@ -259,6 +293,24 @@
     history.replaceState(null, '', window.location.pathname + (hash ? '#' + hash : ''));
   });
 
+  function applyParamFilter(slug: string, filterKey: string, unitSymbol?: string) {
+    const inputs = numericInputs[slug] ?? { min: '', max: '' };
+    const minVal = parseSI(inputs.min, unitSymbol);
+    const maxVal = parseSI(inputs.max, unitSymbol);
+    if (minVal == null && maxVal == null) {
+      source.setFilter(filterKey, new Set());
+    } else if (minVal != null && maxVal != null && minVal === maxVal) {
+      source.setFilter(filterKey, new Set([`=${minVal}`]));
+    } else if (minVal != null && maxVal != null) {
+      source.setFilter(filterKey, new Set([`${minVal}|${maxVal}`]));
+    } else if (minVal != null) {
+      source.setFilter(filterKey, new Set([`>=${minVal}`]));
+    } else if (maxVal != null) {
+      source.setFilter(filterKey, new Set([`<=${maxVal}`]));
+    }
+    filterOpenState = { ...filterOpenState, [slug]: false };
+  }
+
   export function refresh() {
     source.refresh();
   }
@@ -268,10 +320,27 @@
   }
 
   export function setCategoryFilter(id: number | null) {
-    categoryFilter = id;
     source.setFilter('category_id', id != null ? new Set([String(id)]) : new Set());
   }
 </script>
+
+{#snippet renderCategory(value: unknown, row: PartSummary)}
+  {#if value && row.category_id != null}
+    <span class="group flex items-center gap-1">
+      <span>{value}</span>
+      <button
+        type="button"
+        class="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-opacity"
+        title="Filter by this category"
+        onclick={(e) => { e.stopPropagation(); source.setFilter('category_id', new Set([String(row.category_id)])); }}
+      >
+        <ListFilter class="h-3 w-3" />
+      </button>
+    </span>
+  {:else}
+    {value ?? '—'}
+  {/if}
+{/snippet}
 
 {#snippet renderMpn(value: unknown, _row: PartSummary)}
   <span class="font-mono font-medium text-xs">{value ?? '—'}</span>
@@ -362,6 +431,7 @@
                 oninput={(e) => {
                   numericInputs = { ...numericInputs, [slug]: { ...numericInputs[slug], min: (e.target as HTMLInputElement).value } };
                 }}
+                onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); applyParamFilter(slug, col.key, param.unit_symbol ?? undefined); } }}
                 class="h-7 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </label>
@@ -377,32 +447,13 @@
                 oninput={(e) => {
                   numericInputs = { ...numericInputs, [slug]: { ...numericInputs[slug], max: (e.target as HTMLInputElement).value } };
                 }}
+                onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); applyParamFilter(slug, col.key, param.unit_symbol ?? undefined); } }}
                 class="h-7 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </label>
           </div>
           <div class="flex gap-2">
-            <Button
-              size="sm"
-              class="flex-1 h-7 text-xs"
-              onclick={() => {
-                const inputs = numericInputs[slug] ?? { min: '', max: '' };
-                const minVal = parseSI(inputs.min, param.unit_symbol);
-                const maxVal = parseSI(inputs.max, param.unit_symbol);
-                if (minVal == null && maxVal == null) {
-                  source.setFilter(col.key, new Set());
-                } else if (minVal != null && maxVal != null && minVal === maxVal) {
-                  source.setFilter(col.key, new Set([`=${minVal}`]));
-                } else if (minVal != null && maxVal != null) {
-                  source.setFilter(col.key, new Set([`${minVal}|${maxVal}`]));
-                } else if (minVal != null) {
-                  source.setFilter(col.key, new Set([`>=${minVal}`]));
-                } else if (maxVal != null) {
-                  source.setFilter(col.key, new Set([`<=${maxVal}`]));
-                }
-                filterOpenState = { ...filterOpenState, [slug]: false };
-              }}
-            >Apply</Button>
+            <Button size="sm" class="flex-1 h-7 text-xs" onclick={() => applyParamFilter(slug, col.key, param.unit_symbol ?? undefined)}>Apply</Button>
             {#if isFiltered}
               <Button variant="outline" size="sm" class="h-7 text-xs" onclick={() => { source.setFilter(col.key, new Set()); filterOpenState = { ...filterOpenState, [slug]: false }; }}>Clear</Button>
             {/if}
@@ -470,6 +521,7 @@
   onRowClick={onRowClick}
   renderers={{
     mpn: renderMpn,
+    category_name: renderCategory,
     description: renderDescription,
     lifecycle_status: renderLifecycle,
     quantity_on_hand: renderQty,
@@ -493,10 +545,20 @@
         availableIds={partCategoriesQuery.data}
         placeholder="All categories"
         onSelect={(id) => {
-          categoryFilter = id;
           source.setFilter('category_id', id != null ? new Set([String(id)]) : new Set());
         }}
       />
     </div>
+    <StorageLocationFilterPicker
+      value={storageFilter}
+      locations={storageQuery.data?.items ?? []}
+      onSelect={(v) => {
+        source.setFilter('storage_location_id', v ? new Set([v.locationId]) : new Set());
+        source.setFilter(
+          'storage_cells',
+          v?.cells?.length ? new Set(v.cells.map((c) => c.join(','))) : new Set(),
+        );
+      }}
+    />
   {/snippet}
 </DataTable>

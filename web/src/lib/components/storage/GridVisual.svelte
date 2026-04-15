@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { GridConfig } from '$lib/types/inventory.js';
+  import GridLevelCells from './GridLevelCells.svelte';
 
   interface Props {
     config: GridConfig;
@@ -141,19 +142,6 @@
     });
   }
 
-  function isCellSelected(levelDims: number[], row: number, col?: number): boolean {
-    if (address.length <= currentLevelIndex) return false;
-    const nextEntry = address[currentLevelIndex];
-    if (levelDims.length === 1) return nextEntry?.[0] === row;
-    return nextEntry?.[0] === row && nextEntry?.[1] === (col ?? 0);
-  }
-
-  function handleCellClick(levelDims: number[], row: number, col?: number) {
-    const coords = levelDims.length === 1 ? [row] : [row, col ?? 0];
-    const newAddress = [...address.slice(0, currentLevelIndex), coords];
-    onSelect(newAddress);
-  }
-
   function levelBreadcrumb(levelIdx: number): string {
     if (levelIdx >= address.length) return '';
     const lvl = config.levels[levelIdx];
@@ -189,88 +177,80 @@
   {/if}
 
   {#if currentLevel}
-    {@const dims = currentLevel.dims}
-    {@const rows = dims[0]}
-    {@const cols = dims.length > 1 ? dims[1] : 1}
-    {@const is1D = dims.length === 1}
-
     {#if currentLevel.name}
       <p class="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
         {currentLevel.name}
       </p>
     {/if}
 
-    {#if is1D}
-      <!-- 1D: horizontal strip -->
-      <div class="flex flex-wrap gap-1.5">
-        {#each { length: rows } as _, row}
-          {@const occupied_ = isCellOccupied(dims, row)}
-          {@const selected = useMultiSelect ? isCellSelectedMulti(row) : isCellSelected(dims, row)}
-          {@const inDraft = useMultiSelect && isDragging && draftSet.has(String(row))}
-          {@const inAddDraft = inDraft && dragMode === 'add'}
-          {@const inRemoveDraft = inDraft && dragMode === 'remove' && selected}
-          <button
-            class="w-10 h-10 rounded border text-xs font-mono transition-colors select-none
-              {inRemoveDraft
-                ? 'bg-primary/20 border-primary/30 text-muted-foreground'
-                : selected
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : inAddDraft
-                    ? 'bg-primary/40 border-primary/60'
-                    : occupied_
-                      ? 'bg-accent border-accent-foreground/30 hover:bg-accent/80'
-                      : 'border-border hover:bg-muted'}"
-            onpointerdown={useMultiSelect
-              ? (e: PointerEvent) => { e.preventDefault(); dragMode = isCellSelectedMulti(row) ? 'remove' : 'add'; dragStart = { row }; dragCurrent = { row }; }
-              : undefined}
-            onpointerenter={useMultiSelect
-              ? () => { if (dragStart) dragCurrent = { row }; }
-              : undefined}
-            onclick={!useMultiSelect ? () => handleCellClick(dims, row) : undefined}
-            title={cellLabel(dims, row)}
-          >
-            {cellLabel(dims, row)}
-          </button>
-        {/each}
-      </div>
-    {:else}
-      <!-- 2D: grid -->
-      <div
-        class="grid gap-1"
-        style="grid-template-columns: repeat({cols}, minmax(0, 2.5rem));"
-      >
-        {#each { length: rows } as _, row}
-          {#each { length: cols } as _, col}
-            {@const occupied_ = isCellOccupied(dims, row, col)}
-            {@const selected = useMultiSelect ? isCellSelectedMulti(row, col) : isCellSelected(dims, row, col)}
-            {@const inDraft = useMultiSelect && isDragging && draftSet.has(`${row},${col}`)}
+    {#if useMultiSelect}
+      {@const dims = currentLevel.dims}
+      {@const rows = dims[0]}
+      {@const cols = dims.length > 1 ? dims[1] : 1}
+      {@const is1D = dims.length === 1}
+      {#if is1D}
+        <div class="flex flex-wrap gap-1.5">
+          {#each { length: rows } as _, row}
+            {@const selected = isCellSelectedMulti(row)}
+            {@const inDraft = isDragging && draftSet.has(String(row))}
             {@const inAddDraft = inDraft && dragMode === 'add'}
             {@const inRemoveDraft = inDraft && dragMode === 'remove' && selected}
             <button
-              class="h-9 rounded border text-xs font-mono transition-colors select-none
+              class="w-10 h-10 rounded border text-xs font-mono transition-colors select-none
                 {inRemoveDraft
                   ? 'bg-primary/20 border-primary/30 text-muted-foreground'
                   : selected
                     ? 'bg-primary text-primary-foreground border-primary'
                     : inAddDraft
                       ? 'bg-primary/40 border-primary/60'
-                      : occupied_
+                      : isCellOccupied(dims, row)
                         ? 'bg-accent border-accent-foreground/30 hover:bg-accent/80'
                         : 'border-border hover:bg-muted'}"
-              onpointerdown={useMultiSelect
-                ? (e: PointerEvent) => { e.preventDefault(); dragMode = isCellSelectedMulti(row, col) ? 'remove' : 'add'; dragStart = { row, col }; dragCurrent = { row, col }; }
-                : undefined}
-              onpointerenter={useMultiSelect
-                ? () => { if (dragStart) dragCurrent = { row, col }; }
-                : undefined}
-              onclick={!useMultiSelect ? () => handleCellClick(dims, row, col) : undefined}
-              title={cellLabel(dims, row, col)}
+              onpointerdown={(e: PointerEvent) => { e.preventDefault(); dragMode = isCellSelectedMulti(row) ? 'remove' : 'add'; dragStart = { row }; dragCurrent = { row }; }}
+              onpointerenter={() => { if (dragStart) dragCurrent = { row }; }}
+              title={cellLabel(dims, row)}
             >
-              {cellLabel(dims, row, col)}
+              {cellLabel(dims, row)}
             </button>
           {/each}
-        {/each}
-      </div>
+        </div>
+      {:else}
+        <div class="grid gap-1" style="grid-template-columns: repeat({cols}, minmax(0, 2.5rem));">
+          {#each { length: rows } as _, row}
+            {#each { length: cols } as _, col}
+              {@const selected = isCellSelectedMulti(row, col)}
+              {@const inDraft = isDragging && draftSet.has(`${row},${col}`)}
+              {@const inAddDraft = inDraft && dragMode === 'add'}
+              {@const inRemoveDraft = inDraft && dragMode === 'remove' && selected}
+              <button
+                class="h-9 rounded border text-xs font-mono transition-colors select-none
+                  {inRemoveDraft
+                    ? 'bg-primary/20 border-primary/30 text-muted-foreground'
+                    : selected
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : inAddDraft
+                        ? 'bg-primary/40 border-primary/60'
+                        : isCellOccupied(dims, row, col)
+                          ? 'bg-accent border-accent-foreground/30 hover:bg-accent/80'
+                          : 'border-border hover:bg-muted'}"
+                onpointerdown={(e: PointerEvent) => { e.preventDefault(); dragMode = isCellSelectedMulti(row, col) ? 'remove' : 'add'; dragStart = { row, col }; dragCurrent = { row, col }; }}
+                onpointerenter={() => { if (dragStart) dragCurrent = { row, col }; }}
+                title={cellLabel(currentLevel.dims, row, col)}
+              >
+                {cellLabel(currentLevel.dims, row, col)}
+              </button>
+            {/each}
+          {/each}
+        </div>
+      {/if}
+    {:else}
+      <GridLevelCells
+        level={currentLevel}
+        {display}
+        selected={address[currentLevelIndex] ?? null}
+        isOccupied={(row, col) => isCellOccupied(currentLevel.dims, row, col)}
+        onSelect={(coord) => onSelect([...address.slice(0, currentLevelIndex), coord])}
+      />
     {/if}
 
     {#if currentLevelIndex < config.levels.length - 1}
@@ -279,6 +259,18 @@
       </p>
     {/if}
   {:else if config.levels.length > 0 && address.length >= config.levels.length}
-    <p class="text-sm text-muted-foreground">Fully addressed.</p>
+    {@const leafLevel = config.levels[config.levels.length - 1]}
+    {#if leafLevel.name}
+      <p class="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
+        {leafLevel.name}
+      </p>
+    {/if}
+    <GridLevelCells
+      level={leafLevel}
+      {display}
+      selected={address[address.length - 1] ?? null}
+      isOccupied={(row, col) => isCellOccupied(leafLevel.dims, row, col)}
+      onSelect={(coord) => onSelect([...address.slice(0, -1), coord])}
+    />
   {/if}
 </div>

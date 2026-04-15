@@ -17,6 +17,15 @@ export interface StorageLocation {
   grid_config: GridConfig | null;
 }
 
+/** Denormalized storage location embedded in part/inventory responses. */
+export interface StorageLocationRef {
+  id: string;
+  label: string;
+  ancestor_path: string | null;
+  grid_config: GridConfig | null;
+  coordinate: number[] | null;
+}
+
 export interface InventoryEntry {
   id: string;
   team_id: string;

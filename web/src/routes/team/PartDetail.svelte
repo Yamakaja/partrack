@@ -9,6 +9,9 @@
   import { addCartItem, getCartPartQuantity } from '$lib/api/cart.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { listStorageLocations } from '$lib/api/storage.js';
+  import StorageLocationPicker from '$lib/components/storage/StorageLocationPicker.svelte';
+  import type { StorageLocationValue } from '$lib/components/storage/StorageLocationPicker.svelte';
+  import StorageLocationChip from '$lib/components/storage/StorageLocationChip.svelte';
   import CategoryPicker from '$lib/components/CategoryPicker.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
@@ -43,10 +46,30 @@
 
   // Edit settings dialog
   let editOpen = $state(false);
-  let editStorageLocationId = $state('');
+  let editStorageValue = $state<StorageLocationValue | null>(null);
   let editMinStock = $state('');
   let editReorderQty = $state('');
   let editSaving = $state(false);
+
+  // Inline storage location edit
+  let inlineStorageSaving = $state(false);
+
+  async function handleInlineStorageSelect(v: StorageLocationValue | null) {
+    inlineStorageSaving = true;
+    try {
+      await updateInventoryEntry(teamId, entryId, {
+        storage_location_id: v?.locationId ?? null,
+        storage_coordinate: v?.coordinate ?? null,
+        minimum_stock_quantity: partQuery.data?.minimum_stock_quantity ?? null,
+        reorder_quantity: partQuery.data?.reorder_quantity ?? null,
+      });
+      qc.invalidateQueries({ queryKey: ['part', partId, teamId] });
+    } catch (err: any) {
+      pushToast('error', 'Failed to update location', err.message);
+    } finally {
+      inlineStorageSaving = false;
+    }
+  }
 
   // Role check
   let isPurchaser = $derived(
@@ -174,7 +197,9 @@
   function openEdit() {
     const part = partQuery.data;
     if (!part) return;
-    editStorageLocationId = part.storage_location_id ?? '';
+    editStorageValue = part.storage_location
+      ? { locationId: part.storage_location.id, coordinate: part.storage_location.coordinate }
+      : null;
     editMinStock = part.minimum_stock_quantity != null ? String(part.minimum_stock_quantity) : '';
     editReorderQty = part.reorder_quantity != null ? String(part.reorder_quantity) : '';
     editOpen = true;
@@ -288,7 +313,8 @@
     editSaving = true;
     try {
       await updateInventoryEntry(teamId, entryId, {
-        storage_location_id: editStorageLocationId || null,
+        storage_location_id: editStorageValue?.locationId ?? null,
+        storage_coordinate: editStorageValue?.coordinate ?? null,
         minimum_stock_quantity: editMinStock ? parseInt(editMinStock, 10) : null,
         reorder_quantity: editReorderQty ? parseInt(editReorderQty, 10) : null,
       });
@@ -404,7 +430,32 @@
                 </div>
                 <div>
                   <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
-                  <p class="text-sm font-medium">{part.storage_location_label ?? '—'}</p>
+                  <div class="flex items-center gap-1.5">
+                    {#if part.storage_location}
+                      <StorageLocationChip location={part.storage_location} />
+                    {:else}
+                      <span class="text-sm font-medium text-muted-foreground">—</span>
+                    {/if}
+                    <StorageLocationPicker
+                      value={part.storage_location
+                        ? { locationId: part.storage_location.id, coordinate: part.storage_location.coordinate }
+                        : null}
+                      locations={storageQuery.data?.items ?? []}
+                      onSelect={handleInlineStorageSelect}
+                      disabled={inlineStorageSaving}
+                    >
+                      {#snippet trigger()}
+                        <button
+                          type="button"
+                          class="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                          disabled={inlineStorageSaving}
+                          aria-label="Edit storage location"
+                        >
+                          <Pencil class="h-3.5 w-3.5" />
+                        </button>
+                      {/snippet}
+                    </StorageLocationPicker>
+                  </div>
                 </div>
                 <div>
                   <p class="text-xs text-muted-foreground mb-0.5">Min Stock</p>
@@ -615,13 +666,12 @@
       <Dialog.Title class="text-lg font-semibold mb-4">Edit Inventory Settings</Dialog.Title>
       <form onsubmit={handleEditSave} class="space-y-3">
         <div class="space-y-1">
-          <Label for="edit-location">Storage Location</Label>
-          <Select id="edit-location" bind:value={editStorageLocationId}>
-            <option value="">None</option>
-            {#each (storageQuery.data?.items ?? []) as loc (loc.id)}
-              <option value={loc.id}>{loc.label}</option>
-            {/each}
-          </Select>
+          <Label>Storage Location</Label>
+          <StorageLocationPicker
+            value={editStorageValue}
+            locations={storageQuery.data?.items ?? []}
+            onSelect={(v) => { editStorageValue = v; }}
+          />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1">

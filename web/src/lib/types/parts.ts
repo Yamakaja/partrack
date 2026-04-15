@@ -1,3 +1,6 @@
+import type { StorageLocationRef } from './inventory.js';
+export type { StorageLocationRef };
+
 export type PartScope = 'global' | 'team';
 export type LifecycleStatus = 'active' | 'nrnd' | 'obsolete' | 'deprecated' | 'no_longer_available';
 
@@ -32,8 +35,7 @@ export interface Part {
   minimum_stock_quantity: number | null;
   reorder_quantity: number | null;
   preferred_listing_id: string | null;
-  storage_location_id: string | null;
-  storage_location_label: string | null;
+  storage_location: StorageLocationRef | null;
   // Embedded from GET /parts/:id
   listings: Listing[];
   parameters: {

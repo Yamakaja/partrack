@@ -65,6 +65,17 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		params.StockStatus = &v
 		countParams.StockStatus = &v
 	}
+	if v := q.Get("storage_location_id"); v != "" {
+		var uid pgtype.UUID
+		if err := uid.Scan(v); err == nil {
+			params.StorageLocationID = uid
+			countParams.StorageLocationID = uid
+		}
+	}
+	if v := q.Get("storage_cells"); v != "" {
+		params.StorageCells = &v
+		countParams.StorageCells = &v
+	}
 
 	// Parameter filters: param_{id}_min, param_{id}_max (numeric) and param_{id}_values (enum/text)
 	type paramFilter struct {
@@ -417,16 +428,23 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inventory fields, populated when team_id is present.
+	type storageLocationObj struct {
+		ID           string          `json:"id"`
+		Label        string          `json:"label"`
+		AncestorPath *string         `json:"ancestor_path"`
+		GridConfig   json.RawMessage `json:"grid_config"`
+		Coordinate   []int32         `json:"coordinate"`
+	}
+
 	var (
 		inventoryEntryID     *string
 		quantityOnHand       *int32
 		minimumStockQuantity *int32
 		reorderQuantity      *int32
 		preferredListingID   *string
-		storageLocationID    *string
-		storageLocationLabel *string
-		categoryName         *string
-		categoryParentID     *int32
+		storageLocation      *storageLocationObj
+		categoryName      *string
+		categoryParentID  *int32
 	)
 
 	teamIDStr := r.URL.Query().Get("team_id")
@@ -475,10 +493,34 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 			preferredListingID = &s
 		}
 		if row.StorageLocationID.Valid {
-			s := row.StorageLocationID.String()
-			storageLocationID = &s
+			label := ""
+			if row.StorageLocationLabel != nil {
+				label = *row.StorageLocationLabel
+			}
+			sl := &storageLocationObj{
+				ID:         row.StorageLocationID.String(),
+				Label:      label,
+				GridConfig: json.RawMessage(row.StorageLocationGridConfig),
+			}
+			// Build ancestor path from parent chain (if this location has a parent).
+			if row.StorageLocationParentID.Valid {
+				ancestors, err := h.Queries.ListStorageLocationAncestors(r.Context(), dbgen.ListStorageLocationAncestorsParams{
+					LocationID: row.StorageLocationID,
+					TeamID:     teamID,
+				})
+				if err == nil && len(ancestors) > 1 {
+					// ancestors is ordered root-first; last element is the location itself.
+					labels := make([]string, len(ancestors)-1)
+					for i, a := range ancestors[:len(ancestors)-1] {
+						labels[i] = a.Label
+					}
+					path := strings.Join(labels, " > ")
+					sl.AncestorPath = &path
+				}
+			}
+			sl.Coordinate = row.StorageCoordinate
+			storageLocation = sl
 		}
-		storageLocationLabel = row.StorageLocationLabel
 	} else {
 		var err error
 		partBase, err = h.Queries.GetPart(r.Context(), partID)
@@ -623,8 +665,7 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		"minimum_stock_quantity":        minimumStockQuantity,
 		"reorder_quantity":              reorderQuantity,
 		"preferred_listing_id":          preferredListingID,
-		"storage_location_id":           storageLocationID,
-		"storage_location_label":        storageLocationLabel,
+		"storage_location":              storageLocation,
 		"parameters": map[string]any{
 			"user_specified":      userParams,
 			"distributor_sourced": distParams,

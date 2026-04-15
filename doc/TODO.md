@@ -204,3 +204,9 @@ Currently the server will send query invalidation notifications within a team on
 - Parameter management
 
 - Convert partrack search (parameters!) to digikey search parameters
+
+# Others
+
+- Pressing refresh stock (somtimes) does not update stock value on listings, even when the API request succeeds. A page reload shows the new values (Invalidation issue?)
+- In the column picker of the parts table, the picker should stay open when a value is selected or unselected.
+- Allow seraching for parent categories in category picker

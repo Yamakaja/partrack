@@ -61,6 +61,11 @@ WITH RECURSIVE cat_tree AS (
   SELECT id FROM categories WHERE id = $4
   UNION ALL
   SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+),
+loc_tree AS (
+  SELECT id FROM storage_locations WHERE id = $10::uuid
+  UNION ALL
+  SELECT sl.id FROM storage_locations sl JOIN loc_tree lt ON sl.parent_id = lt.id
 )
 SELECT COUNT(*) FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
@@ -86,18 +91,24 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   )
   AND ($9::text IS NULL
        OR p.id = ANY(string_to_array($9, ',')::uuid[]))
+  AND ($10::uuid IS NULL
+       OR ie.storage_location_id IN (SELECT id FROM loc_tree))
+  AND ($11::text IS NULL
+       OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array($11, '|')))
 `
 
 type CountPartsWithInventoryParams struct {
-	TeamID          pgtype.UUID   `json:"team_id"`
-	Q               *string       `json:"q"`
-	MpnExact        *string       `json:"mpn_exact"`
-	CategoryID      *int32        `json:"category_id"`
-	Package         *string       `json:"package"`
-	LifecycleStatus *string       `json:"lifecycle_status"`
-	FilterScope     NullPartScope `json:"filter_scope"`
-	StockStatus     *string       `json:"stock_status"`
-	PartIDFilter    *string       `json:"part_id_filter"`
+	TeamID            pgtype.UUID   `json:"team_id"`
+	Q                 *string       `json:"q"`
+	MpnExact          *string       `json:"mpn_exact"`
+	CategoryID        *int32        `json:"category_id"`
+	Package           *string       `json:"package"`
+	LifecycleStatus   *string       `json:"lifecycle_status"`
+	FilterScope       NullPartScope `json:"filter_scope"`
+	StockStatus       *string       `json:"stock_status"`
+	PartIDFilter      *string       `json:"part_id_filter"`
+	StorageLocationID pgtype.UUID   `json:"storage_location_id"`
+	StorageCells      *string       `json:"storage_cells"`
 }
 
 func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWithInventoryParams) (int64, error) {
@@ -111,6 +122,8 @@ func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWit
 		arg.FilterScope,
 		arg.StockStatus,
 		arg.PartIDFilter,
+		arg.StorageLocationID,
+		arg.StorageCells,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -463,7 +476,10 @@ SELECT
     ie.reorder_quantity,
     ie.preferred_listing_id,
     ie.storage_location_id,
-    sl.label               AS storage_location_label
+    ie.storage_coordinate,
+    sl.label               AS storage_location_label,
+    sl.grid_config         AS storage_location_grid_config,
+    sl.parent_id           AS storage_location_parent_id
 FROM parts p
 LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
@@ -504,7 +520,10 @@ type GetPartWithInventoryRow struct {
 	ReorderQuantity            *int32              `json:"reorder_quantity"`
 	PreferredListingID         pgtype.UUID         `json:"preferred_listing_id"`
 	StorageLocationID          pgtype.UUID         `json:"storage_location_id"`
+	StorageCoordinate          []int32             `json:"storage_coordinate"`
 	StorageLocationLabel       *string             `json:"storage_location_label"`
+	StorageLocationGridConfig  []byte              `json:"storage_location_grid_config"`
+	StorageLocationParentID    pgtype.UUID         `json:"storage_location_parent_id"`
 }
 
 // Like GetPart but LEFT JOINs the team's inventory entry, storage location, and category.
@@ -539,7 +558,10 @@ func (q *Queries) GetPartWithInventory(ctx context.Context, arg GetPartWithInven
 		&i.ReorderQuantity,
 		&i.PreferredListingID,
 		&i.StorageLocationID,
+		&i.StorageCoordinate,
 		&i.StorageLocationLabel,
+		&i.StorageLocationGridConfig,
+		&i.StorageLocationParentID,
 	)
 	return i, err
 }
@@ -987,6 +1009,11 @@ WITH RECURSIVE cat_tree AS (
   SELECT id FROM categories WHERE id = $4
   UNION ALL
   SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+),
+loc_tree AS (
+  SELECT id FROM storage_locations WHERE id = $10::uuid
+  UNION ALL
+  SELECT sl.id FROM storage_locations sl JOIN loc_tree lt ON sl.parent_id = lt.id
 )
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
@@ -1023,22 +1050,28 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
   )
   AND ($9::text IS NULL
        OR p.id = ANY(string_to_array($9, ',')::uuid[]))
+  AND ($10::uuid IS NULL
+       OR ie.storage_location_id IN (SELECT id FROM loc_tree))
+  AND ($11::text IS NULL
+       OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array($11, '|')))
 ORDER BY p.mpn NULLS LAST, p.id
-LIMIT $11 OFFSET $10
+LIMIT $13 OFFSET $12
 `
 
 type ListPartsWithInventoryParams struct {
-	TeamID          pgtype.UUID   `json:"team_id"`
-	Q               *string       `json:"q"`
-	MpnExact        *string       `json:"mpn_exact"`
-	CategoryID      *int32        `json:"category_id"`
-	Package         *string       `json:"package"`
-	LifecycleStatus *string       `json:"lifecycle_status"`
-	FilterScope     NullPartScope `json:"filter_scope"`
-	StockStatus     *string       `json:"stock_status"`
-	PartIDFilter    *string       `json:"part_id_filter"`
-	Offset          int32         `json:"offset"`
-	Limit           int32         `json:"limit"`
+	TeamID            pgtype.UUID   `json:"team_id"`
+	Q                 *string       `json:"q"`
+	MpnExact          *string       `json:"mpn_exact"`
+	CategoryID        *int32        `json:"category_id"`
+	Package           *string       `json:"package"`
+	LifecycleStatus   *string       `json:"lifecycle_status"`
+	FilterScope       NullPartScope `json:"filter_scope"`
+	StockStatus       *string       `json:"stock_status"`
+	PartIDFilter      *string       `json:"part_id_filter"`
+	StorageLocationID pgtype.UUID   `json:"storage_location_id"`
+	StorageCells      *string       `json:"storage_cells"`
+	Offset            int32         `json:"offset"`
+	Limit             int32         `json:"limit"`
 }
 
 type ListPartsWithInventoryRow struct {
@@ -1076,6 +1109,8 @@ func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithI
 		arg.FilterScope,
 		arg.StockStatus,
 		arg.PartIDFilter,
+		arg.StorageLocationID,
+		arg.StorageCells,
 		arg.Offset,
 		arg.Limit,
 	)

@@ -20,6 +20,8 @@ export interface ListPartsParams {
   scope?: string;
   stock_status?: string[];
   param_filters?: Record<number, ParamFilter>;
+  storage_location_id?: string;
+  storage_cells?: string;
   limit?: number;
   offset?: number;
 }
