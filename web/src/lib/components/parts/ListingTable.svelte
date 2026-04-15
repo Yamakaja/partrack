@@ -8,10 +8,8 @@
   import { subscribeSSE } from '$lib/api/sse.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { RefreshCw, Star, Sparkles, Trash2, Plus, ChevronDown, ChevronRight, ShoppingCart, QrCode } from 'lucide-svelte';
-  import QRCode from 'qrcode';
-  import { Dialog } from 'bits-ui';
   import { generateListingQRPayload } from '$lib/utils/ipc2d.js';
-  import { copyQRImage, downloadQRPng, copyText } from '$lib/utils/qr.js';
+  import QRDialog from '$lib/components/common/QRDialog.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import AddListingDialog from '$lib/components/parts/AddListingDialog.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
@@ -68,25 +66,18 @@
   let addListingOpen = $state(false);
   let confirmDeleteId = $state<string | null>(null);
   let confirmDeleteOpen = $state(false);
-  let qrListingId = $state<string | null>(null);
-  let qrSvg = $state('');
-  let qrPayload = $state('');
-  let qrImgCopied = $state(false);
-  let qrDataCopied = $state(false);
+  let qrListing = $state<Listing | null>(null);
 
-  $effect(() => {
-    if (!qrListingId) return;
-    const listing = listings.find((l) => l.id === qrListingId);
-    if (!listing) return;
-    qrPayload = generateListingQRPayload({
-      mpn,
-      manufacturer,
-      distributorName: listing.distributor_name,
-      sku: listing.sku,
-    });
-    QRCode.toString(qrPayload, { type: 'svg', errorCorrectionLevel: 'M', margin: 2 })
-      .then((svg) => { qrSvg = svg; });
-  });
+  const qrPayload = $derived(qrListing ? generateListingQRPayload({
+    mpn,
+    manufacturer,
+    distributorName: qrListing.distributor_name,
+    sku: qrListing.sku,
+  }) : '');
+  const qrDescription = $derived(qrListing ? `${qrListing.distributor_name} · ${qrListing.sku}` : '');
+  const qrFilename = $derived(qrListing
+    ? `${qrListing.distributor_name.toLowerCase().replace(/\s+/g, '-')}-${qrListing.sku}-qr.png`
+    : 'listing-qr.png');
 
   async function doRefreshAll() {
     if (!teamId) return;
@@ -255,7 +246,7 @@
               <Button
                 variant="ghost"
                 size="icon"
-                onclick={() => (qrListingId = listing.id)}
+                onclick={() => (qrListing = listing)}
                 title="Show QR code"
               >
                 <QrCode class="h-3.5 w-3.5" />
@@ -346,42 +337,11 @@
 {/if}
 
 <!-- Listing QR Code Dialog -->
-<Dialog.Root open={qrListingId !== null} onOpenChange={(v) => { if (!v) { qrListingId = null; qrImgCopied = false; qrDataCopied = false; } }}>
-  <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
-      <Dialog.Title class="text-lg font-semibold mb-1">Listing QR Code</Dialog.Title>
-      {#if qrListingId}
-        {@const l = listings.find((l) => l.id === qrListingId)}
-        <Dialog.Description class="text-sm text-muted-foreground mb-4">
-          {l?.distributor_name} · {l?.sku}
-        </Dialog.Description>
-      {/if}
-      <div class="flex justify-center mb-4">
-        {@html qrSvg}
-      </div>
-      <div class="flex gap-2">
-        <Button variant="outline" size="sm" class="flex-1" onclick={async () => {
-          await copyQRImage(qrSvg);
-          qrImgCopied = true;
-          setTimeout(() => { qrImgCopied = false; }, 2000);
-        }}>
-          {qrImgCopied ? 'Copied!' : 'Copy Image'}
-        </Button>
-        {#if qrListingId}
-          {@const l = listings.find((l) => l.id === qrListingId)}
-          <Button variant="outline" size="sm" class="flex-1" onclick={() => downloadQRPng(qrSvg, `${l?.distributor_name ?? 'listing'}-${l?.sku ?? 'qr'}.png`)}>
-            Download PNG
-          </Button>
-        {/if}
-        <Button variant="outline" size="sm" class="flex-1" onclick={async () => {
-          await copyText(qrPayload);
-          qrDataCopied = true;
-          setTimeout(() => { qrDataCopied = false; }, 2000);
-        }}>
-          {qrDataCopied ? 'Copied!' : 'Copy Data'}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<QRDialog
+  open={qrListing !== null}
+  onOpenChange={(v) => { if (!v) qrListing = null; }}
+  title="Listing QR Code"
+  description={qrDescription}
+  payload={qrPayload}
+  filename={qrFilename}
+/>

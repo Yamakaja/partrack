@@ -56,6 +56,8 @@
     id: string;
     primary: string;
     secondary: string;
+    /** Ancestor breadcrumb shown inline before the primary label (storage locations). */
+    path?: string;
     badge?: string;
     url: string;
     icon?: any;
@@ -153,7 +155,8 @@
         id: s.id,
         primary: s.label,
         secondary: s.description ?? '',
-        url: `/teams/${teamId}/storage`,
+        path: s.ancestor_path ?? undefined,
+        url: `/teams/${teamId}/storage/${s.id}`,
       });
     }
     // Add matching pages alongside API results
@@ -341,7 +344,11 @@
                 >
                   <Icon class="size-4 shrink-0 text-muted-foreground" />
                   <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium truncate">{item.primary}</div>
+                    <div class="text-sm font-medium truncate">
+                      {#if item.path}
+                        <span class="text-muted-foreground font-normal">{item.path + " >"}</span>{' '}
+                      {/if}{item.primary}
+                    </div>
                     {#if item.secondary}
                       <div class="text-xs text-muted-foreground truncate">{item.secondary}</div>
                     {/if}

@@ -3,6 +3,7 @@ SELECT
     ie.id, ie.team_id, ie.part_id,
     p.mpn AS part_mpn, p.description AS part_description,
     ie.quantity_on_hand, ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label,
     ie.preferred_listing_id,
     ie.minimum_stock_quantity, ie.reorder_quantity
@@ -41,12 +42,13 @@ INSERT INTO inventory_entries (team_id, part_id, storage_location_id, preferred_
                                minimum_stock_quantity, reorder_quantity)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, team_id, part_id, quantity_on_hand, storage_location_id,
-          preferred_listing_id, minimum_stock_quantity, reorder_quantity;
+          preferred_listing_id, minimum_stock_quantity, reorder_quantity, storage_coordinate;
 
 -- name: GetInventoryEntry :one
 SELECT
     ie.id, ie.team_id, ie.part_id,
     ie.quantity_on_hand, ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label,
     ie.preferred_listing_id,
     ie.minimum_stock_quantity, ie.reorder_quantity
@@ -59,6 +61,9 @@ UPDATE inventory_entries
 SET storage_location_id    = CASE WHEN sqlc.arg('set_storage_location_id')::bool
                                   THEN sqlc.narg('storage_location_id')::uuid
                                   ELSE storage_location_id    END,
+    storage_coordinate     = CASE WHEN sqlc.arg('set_storage_coordinate')::bool
+                                  THEN sqlc.narg('storage_coordinate')::integer[]
+                                  ELSE storage_coordinate     END,
     preferred_listing_id   = CASE WHEN sqlc.arg('set_preferred_listing_id')::bool
                                   THEN sqlc.narg('preferred_listing_id')::uuid
                                   ELSE preferred_listing_id   END,
@@ -70,7 +75,7 @@ SET storage_location_id    = CASE WHEN sqlc.arg('set_storage_location_id')::bool
                                   ELSE reorder_quantity       END
 WHERE id = sqlc.arg('id') AND team_id = sqlc.arg('team_id')
 RETURNING id, team_id, part_id, quantity_on_hand, storage_location_id,
-          preferred_listing_id, minimum_stock_quantity, reorder_quantity;
+          preferred_listing_id, minimum_stock_quantity, reorder_quantity, storage_coordinate;
 
 -- name: ListAdjustments :many
 SELECT

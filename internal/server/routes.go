@@ -130,6 +130,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// 9. Storage locations
 					r.Get("/storage-locations", h.ListStorageLocations)
+					r.Get("/storage-locations/{locationId}", h.GetStorageLocation)
+					r.Get("/storage-locations/{locationId}/inventory", h.ListInventoryByLocation)
 
 					// 10. Projects & BOMs
 					r.Get("/projects", h.ListProjects)

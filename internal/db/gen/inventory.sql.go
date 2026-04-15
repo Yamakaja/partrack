@@ -80,7 +80,7 @@ INSERT INTO inventory_entries (team_id, part_id, storage_location_id, preferred_
                                minimum_stock_quantity, reorder_quantity)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, team_id, part_id, quantity_on_hand, storage_location_id,
-          preferred_listing_id, minimum_stock_quantity, reorder_quantity
+          preferred_listing_id, minimum_stock_quantity, reorder_quantity, storage_coordinate
 `
 
 type CreateInventoryEntryParams struct {
@@ -111,6 +111,7 @@ func (q *Queries) CreateInventoryEntry(ctx context.Context, arg CreateInventoryE
 		&i.PreferredListingID,
 		&i.MinimumStockQuantity,
 		&i.ReorderQuantity,
+		&i.StorageCoordinate,
 	)
 	return i, err
 }
@@ -155,6 +156,7 @@ const getInventoryEntry = `-- name: GetInventoryEntry :one
 SELECT
     ie.id, ie.team_id, ie.part_id,
     ie.quantity_on_hand, ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label,
     ie.preferred_listing_id,
     ie.minimum_stock_quantity, ie.reorder_quantity
@@ -174,6 +176,7 @@ type GetInventoryEntryRow struct {
 	PartID               pgtype.UUID `json:"part_id"`
 	QuantityOnHand       int32       `json:"quantity_on_hand"`
 	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 	StorageLocationLabel *string     `json:"storage_location_label"`
 	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
 	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
@@ -189,6 +192,7 @@ func (q *Queries) GetInventoryEntry(ctx context.Context, arg GetInventoryEntryPa
 		&i.PartID,
 		&i.QuantityOnHand,
 		&i.StorageLocationID,
+		&i.StorageCoordinate,
 		&i.StorageLocationLabel,
 		&i.PreferredListingID,
 		&i.MinimumStockQuantity,
@@ -228,9 +232,20 @@ WHERE id = $1
 FOR UPDATE
 `
 
-func (q *Queries) GetInventoryEntryForUpdate(ctx context.Context, id pgtype.UUID) (InventoryEntry, error) {
+type GetInventoryEntryForUpdateRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	TeamID               pgtype.UUID `json:"team_id"`
+	PartID               pgtype.UUID `json:"part_id"`
+	QuantityOnHand       int32       `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
+	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
+	ReorderQuantity      *int32      `json:"reorder_quantity"`
+}
+
+func (q *Queries) GetInventoryEntryForUpdate(ctx context.Context, id pgtype.UUID) (GetInventoryEntryForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getInventoryEntryForUpdate, id)
-	var i InventoryEntry
+	var i GetInventoryEntryForUpdateRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -336,6 +351,7 @@ SELECT
     ie.id, ie.team_id, ie.part_id,
     p.mpn AS part_mpn, p.description AS part_description,
     ie.quantity_on_hand, ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label,
     ie.preferred_listing_id,
     ie.minimum_stock_quantity, ie.reorder_quantity
@@ -373,6 +389,7 @@ type ListInventoryRow struct {
 	PartDescription      *string     `json:"part_description"`
 	QuantityOnHand       int32       `json:"quantity_on_hand"`
 	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 	StorageLocationLabel *string     `json:"storage_location_label"`
 	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
 	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
@@ -403,6 +420,7 @@ func (q *Queries) ListInventory(ctx context.Context, arg ListInventoryParams) ([
 			&i.PartDescription,
 			&i.QuantityOnHand,
 			&i.StorageLocationID,
+			&i.StorageCoordinate,
 			&i.StorageLocationLabel,
 			&i.PreferredListingID,
 			&i.MinimumStockQuantity,
@@ -484,23 +502,28 @@ UPDATE inventory_entries
 SET storage_location_id    = CASE WHEN $1::bool
                                   THEN $2::uuid
                                   ELSE storage_location_id    END,
-    preferred_listing_id   = CASE WHEN $3::bool
-                                  THEN $4::uuid
+    storage_coordinate     = CASE WHEN $3::bool
+                                  THEN $4::integer[]
+                                  ELSE storage_coordinate     END,
+    preferred_listing_id   = CASE WHEN $5::bool
+                                  THEN $6::uuid
                                   ELSE preferred_listing_id   END,
-    minimum_stock_quantity = CASE WHEN $5::bool
-                                  THEN $6
-                                  ELSE minimum_stock_quantity END,
-    reorder_quantity       = CASE WHEN $7::bool
+    minimum_stock_quantity = CASE WHEN $7::bool
                                   THEN $8
+                                  ELSE minimum_stock_quantity END,
+    reorder_quantity       = CASE WHEN $9::bool
+                                  THEN $10
                                   ELSE reorder_quantity       END
-WHERE id = $9 AND team_id = $10
+WHERE id = $11 AND team_id = $12
 RETURNING id, team_id, part_id, quantity_on_hand, storage_location_id,
-          preferred_listing_id, minimum_stock_quantity, reorder_quantity
+          preferred_listing_id, minimum_stock_quantity, reorder_quantity, storage_coordinate
 `
 
 type UpdateInventoryEntryParams struct {
 	SetStorageLocationID    bool        `json:"set_storage_location_id"`
 	StorageLocationID       pgtype.UUID `json:"storage_location_id"`
+	SetStorageCoordinate    bool        `json:"set_storage_coordinate"`
+	StorageCoordinate       []int32     `json:"storage_coordinate"`
 	SetPreferredListingID   bool        `json:"set_preferred_listing_id"`
 	PreferredListingID      pgtype.UUID `json:"preferred_listing_id"`
 	SetMinimumStockQuantity bool        `json:"set_minimum_stock_quantity"`
@@ -515,6 +538,8 @@ func (q *Queries) UpdateInventoryEntry(ctx context.Context, arg UpdateInventoryE
 	row := q.db.QueryRow(ctx, updateInventoryEntry,
 		arg.SetStorageLocationID,
 		arg.StorageLocationID,
+		arg.SetStorageCoordinate,
+		arg.StorageCoordinate,
 		arg.SetPreferredListingID,
 		arg.PreferredListingID,
 		arg.SetMinimumStockQuantity,
@@ -534,6 +559,7 @@ func (q *Queries) UpdateInventoryEntry(ctx context.Context, arg UpdateInventoryE
 		&i.PreferredListingID,
 		&i.MinimumStockQuantity,
 		&i.ReorderQuantity,
+		&i.StorageCoordinate,
 	)
 	return i, err
 }

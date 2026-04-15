@@ -45,9 +45,21 @@ ORDER BY b.created_at DESC
 LIMIT @lim;
 
 -- name: SearchStorageLocations :many
-SELECT id, label, description
-FROM storage_locations
-WHERE team_id = @team_id
-  AND (label ILIKE '%' || @q || '%' OR description ILIKE '%' || @q || '%')
+WITH RECURSIVE tree AS (
+    SELECT sl.id, sl.label, sl.description, sl.parent_id,
+           NULL::text AS ancestor_path
+    FROM storage_locations sl
+    WHERE sl.team_id = sqlc.arg('team_id') AND sl.parent_id IS NULL
+    UNION ALL
+    SELECT s.id, s.label, s.description, s.parent_id,
+           CASE WHEN t.ancestor_path IS NULL THEN t.label
+                ELSE t.ancestor_path || ' > ' || t.label
+           END
+    FROM storage_locations s
+    JOIN tree t ON s.parent_id = t.id
+)
+SELECT id, label, description, ancestor_path
+FROM tree
+WHERE label ILIKE '%' || sqlc.arg('q') || '%' OR description ILIKE '%' || sqlc.arg('q') || '%'
 ORDER BY label
-LIMIT @lim;
+LIMIT sqlc.arg('lim');

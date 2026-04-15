@@ -531,6 +531,7 @@ type InventoryEntry struct {
 	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
 	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
 	ReorderQuantity      *int32      `json:"reorder_quantity"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 }
 
 type OauthToken struct {
@@ -702,6 +703,8 @@ type StorageLocation struct {
 	TeamID      pgtype.UUID `json:"team_id"`
 	Label       string      `json:"label"`
 	Description *string     `json:"description"`
+	ParentID    pgtype.UUID `json:"parent_id"`
+	GridConfig  []byte      `json:"grid_config"`
 }
 
 type Team struct {

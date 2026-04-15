@@ -294,6 +294,24 @@ func (h *Handler) UpdateInventoryEntry(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if raw, ok := rawReq["storage_coordinate"]; ok {
+		params.SetStorageCoordinate = true
+		if string(raw) != "null" {
+			var coords []int32
+			if err := json.Unmarshal(raw, &coords); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid storage_coordinate", "BAD_REQUEST")
+				return
+			}
+			for _, c := range coords {
+				if c < 0 {
+					writeError(w, http.StatusBadRequest, "storage_coordinate values must be non-negative", "BAD_REQUEST")
+					return
+				}
+			}
+			params.StorageCoordinate = coords
+		}
+	}
+
 	entry, err := h.Queries.UpdateInventoryEntry(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -645,6 +663,7 @@ func inventoryEntryResponse(e dbgen.InventoryEntry) map[string]any {
 		"part_id":                e.PartID.String(),
 		"quantity_on_hand":       e.QuantityOnHand,
 		"storage_location_id":    storLocID,
+		"storage_coordinate":     e.StorageCoordinate,
 		"preferred_listing_id":   prefListID,
 		"minimum_stock_quantity": e.MinimumStockQuantity,
 		"reorder_quantity":       e.ReorderQuantity,

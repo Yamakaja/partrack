@@ -6,13 +6,18 @@
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import AdjustmentHistory from '$lib/components/inventory/AdjustmentHistory.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
+  import StorageLocationPicker from '$lib/components/storage/StorageLocationPicker.svelte';
+  import type { StorageLocationValue } from '$lib/components/storage/StorageLocationPicker.svelte';
+  import QRDialog from '$lib/components/common/QRDialog.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { Select } from '$lib/components/ui/select/index.js';
   import { Dialog } from 'bits-ui';
+  import { QrCode } from 'lucide-svelte';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { ApiError } from '$lib/api/client.js';
+  import { generateStorageLocationQRPayload } from '$lib/utils/ipc2d.js';
+  import type { StorageLocation } from '$lib/types/inventory.js';
 
   let { teamId, entryId }: { teamId: string; entryId: string } = $props();
 
@@ -26,20 +31,94 @@
 
   // Edit settings dialog
   let editOpen = $state(false);
-  let editStorageLocationId = $state('');
+  let editStorageValue = $state<StorageLocationValue | null>(null);
   let editMinStock = $state('');
   let editReorderQty = $state('');
   let editSaving = $state(false);
 
-  let entryQuery = createQuery(() => ({
+  // QR dialog
+  let qrOpen = $state(false);
+
+  const entryQuery = createQuery(() => ({
     queryKey: ['inventory-entry', teamId, entryId],
     queryFn: () => getInventoryEntry(teamId, entryId),
   }));
 
-  let storageQuery = createQuery(() => ({
+  const storageQuery = createQuery(() => ({
     queryKey: ['storage', teamId],
     queryFn: () => listStorageLocations(teamId),
   }));
+
+  const allLocations = $derived(storageQuery.data?.items ?? []);
+
+  // ── Path label helpers ────────────────────────────────────────────────────
+  const locById = $derived.by(() => {
+    const m = new Map<string, StorageLocation>();
+    for (const l of allLocations) m.set(l.id, l);
+    return m;
+  });
+
+  function fullPathLabel(locId: string): string {
+    const parts: string[] = [];
+    let cur = locById.get(locId);
+    while (cur) {
+      parts.unshift(cur.label);
+      cur = cur.parent_id ? locById.get(cur.parent_id) : undefined;
+    }
+    return parts.join(' / ');
+  }
+
+  function coordinateLabel(loc: StorageLocation, coord: number[]): string {
+    if (!loc.grid_config || coord.length === 0) return '';
+    const display = loc.grid_config.display ?? 'alphanumeric';
+    const parts: string[] = [];
+    let offset = 0;
+    for (const level of loc.grid_config.levels) {
+      if (offset >= coord.length) break;
+      const dimCount = level.dims.length;
+      const levelCoords = coord.slice(offset, offset + dimCount);
+      offset += dimCount;
+      if (level.dims.length === 1) {
+        const row = levelCoords[0];
+        parts.push(display === 'alphanumeric' ? String.fromCharCode(65 + row) : String(row + 1));
+      } else {
+        const row = levelCoords[0];
+        const col = levelCoords[1] ?? 0;
+        parts.push(display === 'alphanumeric'
+          ? `${String.fromCharCode(65 + row)}${col + 1}`
+          : `(${row + 1}, ${col + 1})`);
+      }
+    }
+    return parts.join(' / ');
+  }
+
+  /** Full human-readable label for a location+coordinate pair. */
+  const storageDisplayLabel = $derived.by(() => {
+    const entry = entryQuery.data;
+    if (!entry?.storage_location_id) return '—';
+    const path = fullPathLabel(entry.storage_location_id);
+    if (!entry.storage_coordinate || entry.storage_coordinate.length === 0) return path || entry.storage_location_label || '—';
+    const loc = locById.get(entry.storage_location_id);
+    if (!loc) return path || entry.storage_location_label || '—';
+    const coordStr = coordinateLabel(loc, entry.storage_coordinate);
+    return coordStr ? `${path} / ${coordStr}` : path;
+  });
+
+  // QR payload for current entry's storage position
+  const qrPayload = $derived.by(() => {
+    const entry = entryQuery.data;
+    if (!entry?.storage_location_id) return '';
+    return generateStorageLocationQRPayload({
+      locationId: entry.storage_location_id,
+      coordinate: entry.storage_coordinate,
+    });
+  });
+  const qrFilename = $derived.by(() => {
+    const entry = entryQuery.data;
+    if (!entry?.storage_location_id) return 'storage-qr.png';
+    const loc = locById.get(entry.storage_location_id);
+    return `${(loc?.label ?? 'location').toLowerCase().replace(/\s+/g, '-')}-qr.png`;
+  });
 
   function openAdjust() {
     adjustDelta = '';
@@ -50,7 +129,9 @@
   function openEdit() {
     const entry = entryQuery.data;
     if (!entry) return;
-    editStorageLocationId = entry.storage_location_id ?? '';
+    editStorageValue = entry.storage_location_id
+      ? { locationId: entry.storage_location_id, coordinate: entry.storage_coordinate }
+      : null;
     editMinStock = entry.minimum_stock_quantity != null ? String(entry.minimum_stock_quantity) : '';
     editReorderQty = entry.reorder_quantity != null ? String(entry.reorder_quantity) : '';
     editOpen = true;
@@ -69,8 +150,7 @@
       pushToast('success', `Stock adjusted (${delta >= 0 ? '+' : ''}${delta})`);
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 422 && err.code === 'INSUFFICIENT_STOCK') {
-        const msg = err.message;
-        pushToast('error', 'Cannot adjust stock', msg);
+        pushToast('error', 'Cannot adjust stock', err.message);
       } else {
         pushToast('error', 'Failed to adjust stock', err.message);
       }
@@ -84,7 +164,8 @@
     editSaving = true;
     try {
       await updateInventoryEntry(teamId, entryId, {
-        storage_location_id: editStorageLocationId || null,
+        storage_location_id: editStorageValue?.locationId ?? null,
+        storage_coordinate: editStorageValue?.coordinate ?? null,
         minimum_stock_quantity: editMinStock ? parseInt(editMinStock, 10) : null,
         reorder_quantity: editReorderQty ? parseInt(editReorderQty, 10) : null,
       });
@@ -139,7 +220,19 @@
             </div>
             <div>
               <p class="text-xs text-muted-foreground mb-0.5">Storage Location</p>
-              <p class="text-sm font-medium">{entry.storage_location_label ?? '—'}</p>
+              <div class="flex items-center gap-1.5">
+                <p class="text-sm font-medium">{storageDisplayLabel}</p>
+                {#if entry.storage_location_id}
+                  <button
+                    type="button"
+                    class="text-muted-foreground hover:text-foreground transition-colors"
+                    onclick={() => (qrOpen = true)}
+                    title="QR code for this location"
+                  >
+                    <QrCode class="h-3.5 w-3.5" />
+                  </button>
+                {/if}
+              </div>
             </div>
             <div>
               <p class="text-xs text-muted-foreground mb-0.5">Min Stock</p>
@@ -201,13 +294,12 @@
       <Dialog.Title class="text-lg font-semibold mb-4">Edit Settings</Dialog.Title>
       <form onsubmit={handleEditSave} class="space-y-3">
         <div class="space-y-1">
-          <Label for="edit-location">Storage Location</Label>
-          <Select id="edit-location" bind:value={editStorageLocationId}>
-            <option value="">None</option>
-            {#each (storageQuery.data?.items ?? []) as loc (loc.id)}
-              <option value={loc.id}>{loc.label}</option>
-            {/each}
-          </Select>
+          <Label>Storage Location</Label>
+          <StorageLocationPicker
+            value={editStorageValue}
+            locations={allLocations}
+            onSelect={(v) => (editStorageValue = v)}
+          />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1">
@@ -231,3 +323,13 @@
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>
+
+<!-- Storage Location QR Dialog -->
+<QRDialog
+  open={qrOpen}
+  onOpenChange={(v) => (qrOpen = v)}
+  title="Storage Location QR Code"
+  description={storageDisplayLabel}
+  payload={qrPayload}
+  filename={qrFilename}
+/>

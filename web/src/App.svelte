@@ -61,6 +61,7 @@
     { pattern: '/settings/tokens',                                                        component: Tokens },
     { pattern: '/teams/:teamId/parts/:partId',                                            component: PartDetail },
     { pattern: '/teams/:teamId/parts',                                                    component: Parts },
+    { pattern: '/teams/:teamId/storage/:locationId',                                       component: Storage },
     { pattern: '/teams/:teamId/storage',                                                  component: Storage },
     { pattern: '/teams/:teamId/projects/:projectId/revisions/:revId',                    component: RevisionDetail },
     { pattern: '/teams/:teamId/projects/:projectId',                                      component: ProjectDetail },

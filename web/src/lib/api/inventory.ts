@@ -17,6 +17,7 @@ export function listInventory(teamId: string, params: ListInventoryParams = {}) 
 export function createInventoryEntry(teamId: string, body: {
   part_id: string;
   storage_location_id?: string;
+  storage_coordinate?: number[] | null;
   preferred_listing_id?: string;
   minimum_stock_quantity?: number;
   reorder_quantity?: number;
@@ -30,6 +31,7 @@ export function getInventoryEntry(teamId: string, entryId: string) {
 
 export function updateInventoryEntry(teamId: string, entryId: string, body: {
   storage_location_id?: string | null;
+  storage_coordinate?: number[] | null;
   preferred_listing_id?: string | null;
   minimum_stock_quantity?: number | null;
   reorder_quantity?: number | null;

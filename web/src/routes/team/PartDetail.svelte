@@ -27,9 +27,8 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { ArrowLeft, PackagePlus, Pencil, QrCode, ShoppingCart } from 'lucide-svelte';
-  import QRCode from 'qrcode';
   import { generatePartQRPayload } from '$lib/utils/ipc2d.js';
-  import { copyQRImage, downloadQRPng, copyText } from '$lib/utils/qr.js';
+  import QRDialog from '$lib/components/common/QRDialog.svelte';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
 
@@ -64,20 +63,6 @@
 
   // Part QR code dialog
   let partQrOpen = $state(false);
-  let partQrSvg = $state('');
-  let partQrPayload = $state('');
-  let partQrCopied = $state(false);
-  let partQrDataCopied = $state(false);
-
-  $effect(() => {
-    if (!partQrOpen) return;
-    partQrPayload = generatePartQRPayload({
-      mpn: partQuery.data?.mpn,
-      manufacturer: partQuery.data?.manufacturer,
-    });
-    QRCode.toString(partQrPayload, { type: 'svg', errorCorrectionLevel: 'M', margin: 2 })
-      .then((svg) => { partQrSvg = svg; });
-  });
 
   // Edit part dialog
   let editPartOpen = $state(false);
@@ -92,6 +77,15 @@
     queryKey: ['part', partId, teamId],
     queryFn: () => getPart(partId, teamId),
   }));
+
+  const partQrPayload = $derived(generatePartQRPayload({
+    mpn: partQuery.data?.mpn,
+    manufacturer: partQuery.data?.manufacturer,
+  }));
+  const partQrDescription = $derived(
+    [partQuery.data?.mpn, partQuery.data?.manufacturer].filter(Boolean).join(' · '),
+  );
+  const partQrFilename = $derived(`${partQuery.data?.mpn ?? 'part'}-qr.png`);
 
   let storageQuery = createQuery(() => ({
     queryKey: ['storage', teamId],
@@ -651,37 +645,11 @@
 </Dialog.Root>
 
 <!-- Part QR Code Dialog -->
-<Dialog.Root open={partQrOpen} onOpenChange={(v) => (partQrOpen = v)}>
-  <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
-      <Dialog.Title class="text-lg font-semibold mb-1">Part QR Code</Dialog.Title>
-      <Dialog.Description class="text-sm text-muted-foreground mb-4">
-        {partQuery.data?.mpn ?? ''}
-        {#if partQuery.data?.manufacturer} · {partQuery.data.manufacturer}{/if}
-      </Dialog.Description>
-      <div class="flex justify-center mb-4">
-        {@html partQrSvg}
-      </div>
-      <div class="flex gap-2">
-        <Button variant="outline" size="sm" class="flex-1" onclick={async () => {
-          await copyQRImage(partQrSvg);
-          partQrCopied = true;
-          setTimeout(() => { partQrCopied = false; }, 2000);
-        }}>
-          {partQrCopied ? 'Copied!' : 'Copy Image'}
-        </Button>
-        <Button variant="outline" size="sm" class="flex-1" onclick={() => downloadQRPng(partQrSvg, `${partQuery.data?.mpn ?? 'part'}-qr.png`)}>
-          Download PNG
-        </Button>
-        <Button variant="outline" size="sm" class="flex-1" onclick={async () => {
-          await copyText(partQrPayload);
-          partQrDataCopied = true;
-          setTimeout(() => { partQrDataCopied = false; }, 2000);
-        }}>
-          {partQrDataCopied ? 'Copied!' : 'Copy Data'}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<QRDialog
+  open={partQrOpen}
+  onOpenChange={(v) => (partQrOpen = v)}
+  title="Part QR Code"
+  description={partQrDescription}
+  payload={partQrPayload}
+  filename={partQrFilename}
+/>

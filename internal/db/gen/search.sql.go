@@ -222,28 +222,41 @@ func (q *Queries) SearchProjects(ctx context.Context, arg SearchProjectsParams) 
 }
 
 const searchStorageLocations = `-- name: SearchStorageLocations :many
-SELECT id, label, description
-FROM storage_locations
-WHERE team_id = $1
-  AND (label ILIKE '%' || $2 || '%' OR description ILIKE '%' || $2 || '%')
+WITH RECURSIVE tree AS (
+    SELECT sl.id, sl.label, sl.description, sl.parent_id,
+           NULL::text AS ancestor_path
+    FROM storage_locations sl
+    WHERE sl.team_id = $3 AND sl.parent_id IS NULL
+    UNION ALL
+    SELECT s.id, s.label, s.description, s.parent_id,
+           CASE WHEN t.ancestor_path IS NULL THEN t.label
+                ELSE t.ancestor_path || ' > ' || t.label
+           END
+    FROM storage_locations s
+    JOIN tree t ON s.parent_id = t.id
+)
+SELECT id, label, description, ancestor_path
+FROM tree
+WHERE label ILIKE '%' || $1 || '%' OR description ILIKE '%' || $1 || '%'
 ORDER BY label
-LIMIT $3
+LIMIT $2
 `
 
 type SearchStorageLocationsParams struct {
-	TeamID pgtype.UUID `json:"team_id"`
 	Q      *string     `json:"q"`
 	Lim    int32       `json:"lim"`
+	TeamID pgtype.UUID `json:"team_id"`
 }
 
 type SearchStorageLocationsRow struct {
-	ID          pgtype.UUID `json:"id"`
-	Label       string      `json:"label"`
-	Description *string     `json:"description"`
+	ID           pgtype.UUID `json:"id"`
+	Label        string      `json:"label"`
+	Description  *string     `json:"description"`
+	AncestorPath *string     `json:"ancestor_path"`
 }
 
 func (q *Queries) SearchStorageLocations(ctx context.Context, arg SearchStorageLocationsParams) ([]SearchStorageLocationsRow, error) {
-	rows, err := q.db.Query(ctx, searchStorageLocations, arg.TeamID, arg.Q, arg.Lim)
+	rows, err := q.db.Query(ctx, searchStorageLocations, arg.Q, arg.Lim, arg.TeamID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +264,12 @@ func (q *Queries) SearchStorageLocations(ctx context.Context, arg SearchStorageL
 	var items []SearchStorageLocationsRow
 	for rows.Next() {
 		var i SearchStorageLocationsRow
-		if err := rows.Scan(&i.ID, &i.Label, &i.Description); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Label,
+			&i.Description,
+			&i.AncestorPath,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

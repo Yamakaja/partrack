@@ -1,8 +1,20 @@
+export interface GridLevel {
+  dims: number[];    // [rows] for 1D, [rows, cols] for 2D
+  name?: string;     // e.g. "Box", "Drawer"
+}
+
+export interface GridConfig {
+  levels: GridLevel[];
+  display?: 'numeric' | 'alphanumeric';
+}
+
 export interface StorageLocation {
   id: string;
   team_id: string;
+  parent_id: string | null;
   label: string;
   description: string | null;
+  grid_config: GridConfig | null;
 }
 
 export interface InventoryEntry {
@@ -13,6 +25,7 @@ export interface InventoryEntry {
   part_description: string | null;
   quantity_on_hand: number;
   storage_location_id: string | null;
+  storage_coordinate: number[] | null;
   storage_location_label: string | null;
   preferred_listing_id: string | null;
   minimum_stock_quantity: number | null;

@@ -36,6 +36,7 @@ export interface StorageSearchResult {
   id: string;
   label: string;
   description: string | null;
+  ancestor_path: string | null;
 }
 
 export interface SearchResults {

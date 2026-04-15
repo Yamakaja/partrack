@@ -138,16 +138,24 @@ Higher roles inherit all permissions of lower roles.
 | GET | `/inventory/{entryId}` | viewer | Entry details |
 | GET | `/inventory/{entryId}/adjustments` | viewer | Stock adjustment ledger; query: `limit`, `offset`. Each entry includes `source_type` (`order_line_item`, `build`, `general_checkout`, or null for manual) and `source_id`. |
 | POST | `/inventory` | member | `{part_id, preferred_listing_id?, storage_location_id?, min_stock_qty?, reorder_qty?}` → 201. Returns 409 if entry already exists. |
-| PATCH | `/inventory/{entryId}` | member | `{preferred_listing_id?, storage_location_id?, min_stock_qty?, reorder_qty?}`. Three-state: absent=keep, null=clear, value=set. |
+| PATCH | `/inventory/{entryId}` | member | `{preferred_listing_id?, storage_location_id?, storage_coordinate?, min_stock_qty?, reorder_qty?}`. Three-state: absent=keep, null=clear, value=set. `storage_coordinate` is a flat `number[]` interpreted against the referenced location's `grid_config`. |
 | POST | `/inventory/{entryId}/adjustments` | member | `{delta, reason?}` → 201 `{id, inventory_entry_id, delta, adjusted_at, reason, created_by, quantity_on_hand}`. Delta must be non-zero. Returns 422 `INSUFFICIENT_STOCK` if would go negative. Positive adjustments trigger build readiness re-evaluation. |
 
 ### Storage Locations
 
+All storage location responses include: `{id, team_id, parent_id: string|null, label, description: string|null, grid_config: GridConfig|null}`.
+
+`GridConfig = { levels: [{dims: number[], name?: string}], display?: "numeric"|"alphanumeric" }`. `dims` is 1 or 2 positive integers (1D or 2D grid). Multiple levels enable drill-down (e.g. wall of boxes → drawers within a box).
+
+`storage_coordinate` on inventory entries is a flat `number[]`. Its structure is derived from the referenced location's `grid_config.levels[*].dims` — a partial prefix covering a whole number of levels is valid (partial addressing).
+
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| GET | `/storage-locations` | viewer | List locations |
-| POST | `/storage-locations` | member | `{label, description?}` → 201. Returns 409 if label exists. |
-| PATCH | `/storage-locations/{locationId}` | member | `{label?, description?}` |
+| GET | `/storage-locations` | viewer | List all locations (flat, client assembles tree using `parent_id`). |
+| GET | `/storage-locations/{locationId}` | viewer | `{location: StorageLocation, ancestors: StorageLocation[]}`. Ancestors ordered root-first including the location itself. |
+| GET | `/storage-locations/{locationId}/inventory` | viewer | Paginated inventory entries at this location or any descendant. Supports `limit`/`offset`. Returns `{items, total}`. |
+| POST | `/storage-locations` | member | `{label, description?, parent_id?: string, grid_config?: GridConfig}` → 201. Returns 409 if sibling label conflict. |
+| PATCH | `/storage-locations/{locationId}` | member | `{label?, description?, grid_config?}`. Send `grid_config: null` to clear. |
 | DELETE | `/storage-locations/{locationId}` | member | 204. Returns 422 `LOCATION_IN_USE` if referenced by inventory entries. |
 
 ### Projects & BOMs

@@ -11,6 +11,32 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countInventoryByLocation = `-- name: CountInventoryByLocation :one
+WITH RECURSIVE descendants AS (
+    SELECT sl.id FROM storage_locations sl
+    WHERE sl.id = $2 AND sl.team_id = $1
+    UNION ALL
+    SELECT s.id FROM storage_locations s
+    JOIN descendants d ON s.parent_id = d.id
+)
+SELECT COUNT(*)
+FROM inventory_entries ie
+WHERE ie.storage_location_id IN (SELECT id FROM descendants)
+  AND ie.team_id = $1
+`
+
+type CountInventoryByLocationParams struct {
+	TeamID     pgtype.UUID `json:"team_id"`
+	LocationID pgtype.UUID `json:"location_id"`
+}
+
+func (q *Queries) CountInventoryByLocation(ctx context.Context, arg CountInventoryByLocationParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countInventoryByLocation, arg.TeamID, arg.LocationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countInventoryEntriesForLocation = `-- name: CountInventoryEntriesForLocation :one
 SELECT COUNT(*) FROM inventory_entries
 WHERE storage_location_id = $1
@@ -24,25 +50,44 @@ func (q *Queries) CountInventoryEntriesForLocation(ctx context.Context, storageL
 }
 
 const createStorageLocation = `-- name: CreateStorageLocation :one
-INSERT INTO storage_locations (team_id, label, description)
-VALUES ($1, $2, $3)
-RETURNING id, team_id, label, description
+INSERT INTO storage_locations (team_id, parent_id, label, description, grid_config)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, team_id, parent_id, label, description, grid_config
 `
 
 type CreateStorageLocationParams struct {
 	TeamID      pgtype.UUID `json:"team_id"`
+	ParentID    pgtype.UUID `json:"parent_id"`
 	Label       string      `json:"label"`
 	Description *string     `json:"description"`
+	GridConfig  []byte      `json:"grid_config"`
 }
 
-func (q *Queries) CreateStorageLocation(ctx context.Context, arg CreateStorageLocationParams) (StorageLocation, error) {
-	row := q.db.QueryRow(ctx, createStorageLocation, arg.TeamID, arg.Label, arg.Description)
-	var i StorageLocation
+type CreateStorageLocationRow struct {
+	ID          pgtype.UUID `json:"id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+	ParentID    pgtype.UUID `json:"parent_id"`
+	Label       string      `json:"label"`
+	Description *string     `json:"description"`
+	GridConfig  []byte      `json:"grid_config"`
+}
+
+func (q *Queries) CreateStorageLocation(ctx context.Context, arg CreateStorageLocationParams) (CreateStorageLocationRow, error) {
+	row := q.db.QueryRow(ctx, createStorageLocation,
+		arg.TeamID,
+		arg.ParentID,
+		arg.Label,
+		arg.Description,
+		arg.GridConfig,
+	)
+	var i CreateStorageLocationRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
+		&i.ParentID,
 		&i.Label,
 		&i.Description,
+		&i.GridConfig,
 	)
 	return i, err
 }
@@ -61,27 +106,214 @@ func (q *Queries) DeleteStorageLocation(ctx context.Context, arg DeleteStorageLo
 	return err
 }
 
+const getStorageLocation = `-- name: GetStorageLocation :one
+SELECT id, team_id, parent_id, label, description, grid_config
+FROM storage_locations
+WHERE id = $1 AND team_id = $2
+`
+
+type GetStorageLocationParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetStorageLocationRow struct {
+	ID          pgtype.UUID `json:"id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+	ParentID    pgtype.UUID `json:"parent_id"`
+	Label       string      `json:"label"`
+	Description *string     `json:"description"`
+	GridConfig  []byte      `json:"grid_config"`
+}
+
+func (q *Queries) GetStorageLocation(ctx context.Context, arg GetStorageLocationParams) (GetStorageLocationRow, error) {
+	row := q.db.QueryRow(ctx, getStorageLocation, arg.ID, arg.TeamID)
+	var i GetStorageLocationRow
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.ParentID,
+		&i.Label,
+		&i.Description,
+		&i.GridConfig,
+	)
+	return i, err
+}
+
+const listInventoryByLocation = `-- name: ListInventoryByLocation :many
+WITH RECURSIVE descendants AS (
+    SELECT sl.id FROM storage_locations sl
+    WHERE sl.id = $4 AND sl.team_id = $1
+    UNION ALL
+    SELECT s.id FROM storage_locations s
+    JOIN descendants d ON s.parent_id = d.id
+)
+SELECT
+    ie.id, ie.team_id, ie.part_id,
+    p.mpn AS part_mpn, p.description AS part_description,
+    ie.quantity_on_hand, ie.storage_location_id,
+    ie.storage_coordinate,
+    sl.label AS storage_location_label,
+    ie.preferred_listing_id,
+    ie.minimum_stock_quantity, ie.reorder_quantity
+FROM inventory_entries ie
+JOIN parts p ON p.id = ie.part_id
+LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
+WHERE ie.storage_location_id IN (SELECT id FROM descendants)
+  AND ie.team_id = $1
+ORDER BY p.mpn NULLS LAST, ie.id
+LIMIT $3 OFFSET $2
+`
+
+type ListInventoryByLocationParams struct {
+	TeamID     pgtype.UUID `json:"team_id"`
+	Offset     int32       `json:"offset"`
+	Limit      int32       `json:"limit"`
+	LocationID pgtype.UUID `json:"location_id"`
+}
+
+type ListInventoryByLocationRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	TeamID               pgtype.UUID `json:"team_id"`
+	PartID               pgtype.UUID `json:"part_id"`
+	PartMpn              *string     `json:"part_mpn"`
+	PartDescription      *string     `json:"part_description"`
+	QuantityOnHand       int32       `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
+	StorageLocationLabel *string     `json:"storage_location_label"`
+	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
+	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
+	ReorderQuantity      *int32      `json:"reorder_quantity"`
+}
+
+// Returns inventory entries at the given location or any descendant location.
+func (q *Queries) ListInventoryByLocation(ctx context.Context, arg ListInventoryByLocationParams) ([]ListInventoryByLocationRow, error) {
+	rows, err := q.db.Query(ctx, listInventoryByLocation,
+		arg.TeamID,
+		arg.Offset,
+		arg.Limit,
+		arg.LocationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInventoryByLocationRow
+	for rows.Next() {
+		var i ListInventoryByLocationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.PartID,
+			&i.PartMpn,
+			&i.PartDescription,
+			&i.QuantityOnHand,
+			&i.StorageLocationID,
+			&i.StorageCoordinate,
+			&i.StorageLocationLabel,
+			&i.PreferredListingID,
+			&i.MinimumStockQuantity,
+			&i.ReorderQuantity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStorageLocationAncestors = `-- name: ListStorageLocationAncestors :many
+WITH RECURSIVE ancestors AS (
+    SELECT sl.id, sl.team_id, sl.parent_id, sl.label, sl.description, sl.grid_config, 0 AS depth
+    FROM storage_locations sl
+    WHERE sl.id = $1 AND sl.team_id = $2
+    UNION ALL
+    SELECT s.id, s.team_id, s.parent_id, s.label, s.description, s.grid_config, a.depth + 1
+    FROM storage_locations s
+    JOIN ancestors a ON s.id = a.parent_id
+)
+SELECT id, team_id, parent_id, label, description, grid_config FROM ancestors
+ORDER BY depth DESC
+`
+
+type ListStorageLocationAncestorsParams struct {
+	LocationID pgtype.UUID `json:"location_id"`
+	TeamID     pgtype.UUID `json:"team_id"`
+}
+
+type ListStorageLocationAncestorsRow struct {
+	ID          pgtype.UUID `json:"id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+	ParentID    pgtype.UUID `json:"parent_id"`
+	Label       string      `json:"label"`
+	Description *string     `json:"description"`
+	GridConfig  []byte      `json:"grid_config"`
+}
+
+// Returns the location itself plus all ancestors, ordered root-first (depth DESC).
+func (q *Queries) ListStorageLocationAncestors(ctx context.Context, arg ListStorageLocationAncestorsParams) ([]ListStorageLocationAncestorsRow, error) {
+	rows, err := q.db.Query(ctx, listStorageLocationAncestors, arg.LocationID, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStorageLocationAncestorsRow
+	for rows.Next() {
+		var i ListStorageLocationAncestorsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.ParentID,
+			&i.Label,
+			&i.Description,
+			&i.GridConfig,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStorageLocations = `-- name: ListStorageLocations :many
-SELECT id, team_id, label, description
+SELECT id, team_id, parent_id, label, description, grid_config
 FROM storage_locations
 WHERE team_id = $1
 ORDER BY label
 `
 
-func (q *Queries) ListStorageLocations(ctx context.Context, teamID pgtype.UUID) ([]StorageLocation, error) {
+type ListStorageLocationsRow struct {
+	ID          pgtype.UUID `json:"id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+	ParentID    pgtype.UUID `json:"parent_id"`
+	Label       string      `json:"label"`
+	Description *string     `json:"description"`
+	GridConfig  []byte      `json:"grid_config"`
+}
+
+func (q *Queries) ListStorageLocations(ctx context.Context, teamID pgtype.UUID) ([]ListStorageLocationsRow, error) {
 	rows, err := q.db.Query(ctx, listStorageLocations, teamID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []StorageLocation
+	var items []ListStorageLocationsRow
 	for rows.Next() {
-		var i StorageLocation
+		var i ListStorageLocationsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TeamID,
+			&i.ParentID,
 			&i.Label,
 			&i.Description,
+			&i.GridConfig,
 		); err != nil {
 			return nil, err
 		}
@@ -96,31 +328,49 @@ func (q *Queries) ListStorageLocations(ctx context.Context, teamID pgtype.UUID) 
 const updateStorageLocation = `-- name: UpdateStorageLocation :one
 UPDATE storage_locations
 SET label       = COALESCE($1, label),
-    description = COALESCE($2, description)
-WHERE id = $3 AND team_id = $4
-RETURNING id, team_id, label, description
+    description = COALESCE($2, description),
+    grid_config = CASE WHEN $3::bool
+                       THEN $4
+                       ELSE grid_config END
+WHERE id = $5 AND team_id = $6
+RETURNING id, team_id, parent_id, label, description, grid_config
 `
 
 type UpdateStorageLocationParams struct {
-	Label       *string     `json:"label"`
-	Description *string     `json:"description"`
-	ID          pgtype.UUID `json:"id"`
-	TeamID      pgtype.UUID `json:"team_id"`
+	Label         *string     `json:"label"`
+	Description   *string     `json:"description"`
+	SetGridConfig bool        `json:"set_grid_config"`
+	GridConfig    []byte      `json:"grid_config"`
+	ID            pgtype.UUID `json:"id"`
+	TeamID        pgtype.UUID `json:"team_id"`
 }
 
-func (q *Queries) UpdateStorageLocation(ctx context.Context, arg UpdateStorageLocationParams) (StorageLocation, error) {
+type UpdateStorageLocationRow struct {
+	ID          pgtype.UUID `json:"id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+	ParentID    pgtype.UUID `json:"parent_id"`
+	Label       string      `json:"label"`
+	Description *string     `json:"description"`
+	GridConfig  []byte      `json:"grid_config"`
+}
+
+func (q *Queries) UpdateStorageLocation(ctx context.Context, arg UpdateStorageLocationParams) (UpdateStorageLocationRow, error) {
 	row := q.db.QueryRow(ctx, updateStorageLocation,
 		arg.Label,
 		arg.Description,
+		arg.SetGridConfig,
+		arg.GridConfig,
 		arg.ID,
 		arg.TeamID,
 	)
-	var i StorageLocation
+	var i UpdateStorageLocationRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
+		&i.ParentID,
 		&i.Label,
 		&i.Description,
+		&i.GridConfig,
 	)
 	return i, err
 }
