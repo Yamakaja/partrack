@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { GridConfig } from '$lib/types/inventory.js';
-  import GridVisual from './GridVisual.svelte';
+  import GridLevelCells from './GridLevelCells.svelte';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Plus, Trash2 } from 'lucide-svelte';
@@ -105,9 +105,9 @@
   </label>
 
   {#if enabled}
-    <div class="grid grid-cols-2 gap-4 pt-1">
+    <div class="grid grid-cols-5 gap-4 pt-1">
       <!-- Left: form -->
-      <div class="space-y-4">
+      <div class="col-span-2 space-y-4">
         <!-- Display format -->
         <div class="space-y-1.5">
           <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Cell labels</p>
@@ -241,11 +241,24 @@
       </div>
 
       <!-- Right: live preview -->
-      <div class="space-y-2">
+      <div class="col-span-3 space-y-2">
         <p class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Preview</p>
         {#if config}
-          <div class="rounded-md border border-border p-3 overflow-auto max-h-64 pointer-events-none select-none">
-            <GridVisual config={config} address={[]} onSelect={() => {}} />
+          <div class="space-y-3">
+            {#each config.levels as level, i}
+              <div class="rounded-md border border-border p-3 select-none">
+                {#if config.levels.length > 1 || level.name}
+                  <p class="text-xs text-muted-foreground font-medium mb-2">
+                    {level.name || `Level ${i + 1}`}
+                  </p>
+                {/if}
+                <GridLevelCells
+                  {level}
+                  display={config.display ?? 'alphanumeric'}
+                  readonly={true}
+                />
+              </div>
+            {/each}
           </div>
         {/if}
       </div>

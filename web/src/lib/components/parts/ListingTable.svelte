@@ -92,6 +92,7 @@
         completed++;
         if (completed >= listing_count) {
           unsub();
+          onrefresh?.();
           if (failed > 0) {
             pushToast('warning', 'Stock refresh incomplete', `${failed} of ${listing_count} listing${listing_count !== 1 ? 's' : ''} failed`);
           } else {

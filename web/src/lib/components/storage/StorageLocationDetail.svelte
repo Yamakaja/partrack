@@ -458,7 +458,7 @@
 <Dialog.Root open={editOpen} onOpenChange={(v) => (editOpen = v)}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
       <Dialog.Title class="text-lg font-semibold mb-4">Edit Location</Dialog.Title>
       <form onsubmit={handleEdit} class="space-y-3">
         <div class="space-y-1">
@@ -488,7 +488,7 @@
 <Dialog.Root open={addChildOpen} onOpenChange={(v) => (addChildOpen = v)}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
       <Dialog.Title class="text-lg font-semibold mb-4">Add Child Location</Dialog.Title>
       <p class="text-sm text-muted-foreground mb-4">Parent: <strong>{location.label}</strong></p>
       <form onsubmit={handleAddChild} class="space-y-3">

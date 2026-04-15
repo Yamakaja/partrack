@@ -12,9 +12,9 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
-  import { Plus, QrCode, ChevronDown, ChevronRight, Grid3x3 } from 'lucide-svelte';
+  import { Plus, QrCode, Grid3x3 } from 'lucide-svelte';
+  import StorageTree from '$lib/components/storage/StorageTree.svelte';
   import { generateStorageLocationQRPayload } from '$lib/utils/ipc2d.js';
-  import { cn } from '$lib/utils/cn.js';
 
   let { teamId, locationId }: { teamId: string; locationId?: string } = $props();
 
@@ -35,19 +35,6 @@
     return m;
   });
 
-  const childrenOf = $derived.by(() => {
-    const m = new Map<string | null, StorageLocation[]>();
-    for (const l of allLocations) {
-      const key = l.parent_id;
-      if (!m.has(key)) m.set(key, []);
-      m.get(key)!.push(l);
-    }
-    for (const [, children] of m) {
-      children.sort((a, b) => a.label.localeCompare(b.label));
-    }
-    return m;
-  });
-
   function ancestorsOf(locId: string): StorageLocation[] {
     const parts: StorageLocation[] = [];
     let cur = locById.get(locId);
@@ -62,35 +49,6 @@
     return ancestorsOf(locId).map((l) => l.label).join(' / ');
   }
 
-  // ── Expand/collapse ───────────────────────────────────────────────────────
-  let expanded = $state<Set<string>>(new Set());
-  $effect(() => {
-    const roots = childrenOf.get(null) ?? [];
-    expanded = new Set(roots.map((l) => l.id));
-  });
-
-  function toggleExpand(id: string, e: MouseEvent) {
-    e.stopPropagation();
-    const next = new Set(expanded);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    expanded = next;
-  }
-
-  interface FlatNode { loc: StorageLocation; depth: number }
-  const flatTree = $derived.by((): FlatNode[] => {
-    const result: FlatNode[] = [];
-    function visit(parentId: string | null, depth: number) {
-      const children = childrenOf.get(parentId) ?? [];
-      for (const loc of children) {
-        result.push({ loc, depth });
-        if (expanded.has(loc.id)) visit(loc.id, depth + 1);
-      }
-    }
-    visit(null, 0);
-    return result;
-  });
-
   // ── Selection ─────────────────────────────────────────────────────────────
   let selectedId = $state<string | null>(null);
 
@@ -100,16 +58,6 @@
   function selectLocation(loc: StorageLocation) {
     selectedId = loc.id;
     navigate(`/teams/${teamId}/storage/${loc.id}`);
-    // Expand ancestors so the selected item is visible in the tree
-    if (loc.parent_id) {
-      const next = new Set(expanded);
-      let cur = locById.get(loc.parent_id);
-      while (cur) {
-        next.add(cur.id);
-        cur = cur.parent_id ? locById.get(cur.parent_id) : undefined;
-      }
-      expanded = next;
-    }
   }
 
   // Apply the locationId prop (from the route) once the location list has loaded.
@@ -117,19 +65,7 @@
   $effect(() => {
     if (locationId && locationId !== propLocApplied && allLocations.length > 0) {
       const loc = locById.get(locationId);
-      if (loc) {
-        selectedId = loc.id;
-        // Expand ancestors without navigating (URL is already correct)
-        if (loc.parent_id) {
-          const next = new Set(expanded);
-          let cur = locById.get(loc.parent_id);
-          while (cur) {
-            next.add(cur.id);
-            cur = cur.parent_id ? locById.get(cur.parent_id) : undefined;
-          }
-          expanded = next;
-        }
-      }
+      if (loc) selectedId = loc.id;
       propLocApplied = locationId;
     } else if (!locationId) {
       selectedId = null;
@@ -273,7 +209,7 @@
           <p class="px-3 py-2 text-sm text-muted-foreground">Loading…</p>
         {:else if query.isError}
           <p class="px-3 py-2 text-sm text-destructive">Error loading locations</p>
-        {:else if flatTree.length === 0}
+        {:else if allLocations.length === 0}
           <div class="px-3 py-4 text-center">
             <p class="text-sm text-muted-foreground">No locations yet</p>
             <button
@@ -284,72 +220,37 @@
             </button>
           </div>
         {:else}
-          {#each flatTree as { loc, depth } (loc.id)}
-            {@const children = childrenOf.get(loc.id) ?? []}
-            {@const hasChildren = children.length > 0 && !loc.grid_config}
-            {@const isExpanded = expanded.has(loc.id)}
-            {@const isSelected = selectedId === loc.id}
-            <div class={cn('group flex w-full items-center', isSelected && 'bg-accent')}>
-              <!-- Expand/collapse button or indent spacer -->
-              {#if hasChildren}
-                <button
-                  type="button"
-                  style="padding-left: {0.25 + depth * 1.125}rem"
-                  class="flex-shrink-0 p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                  onclick={(e) => toggleExpand(loc.id, e)}
-                  aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                >
-                  {#if isExpanded}
-                    <ChevronDown class="h-3.5 w-3.5" />
-                  {:else}
-                    <ChevronRight class="h-3.5 w-3.5" />
-                  {/if}
-                </button>
-              {:else}
-                <!-- Spacer matching chevron button width -->
-                <span
-                  style="padding-left: {0.25 + depth * 1.125 + 1.5}rem"
-                  class="flex-shrink-0"
-                ></span>
+          <StorageTree
+            locations={allLocations}
+            selectedId={selectedId}
+            onSelect={selectLocation}
+          >
+            {#snippet rowLeading(loc, _isSelected)}
+              {#if loc.grid_config}
+                <Grid3x3 class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
               {/if}
-
-              <!-- Label button (selects the location) -->
-              <button
-                type="button"
-                class="flex flex-1 items-center gap-1.5 py-1.5 pr-1 text-sm text-left min-w-0"
-                onclick={() => selectLocation(loc)}
-              >
-                {#if loc.grid_config}
-                  <Grid3x3 class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                {/if}
-                <span class="truncate">{loc.label}</span>
-              </button>
-
-              <!-- Hover-revealed actions -->
-              <div
-                class="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pr-1"
-              >
-                {#if !loc.grid_config}
-                  <button
-                    type="button"
-                    class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    onclick={(e) => openTreeAddChild(loc, e)}
-                    title="Add child location"
-                  >
-                    <Plus class="h-3.5 w-3.5" />
-                  </button>
-                {/if}
+            {/snippet}
+            {#snippet rowActions(loc)}
+              {#if !loc.grid_config}
                 <button
                   type="button"
                   class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  onclick={(e) => openTreeQr(loc, e)}
-                  title="QR code"
+                  onclick={(e) => openTreeAddChild(loc, e)}
+                  title="Add child location"
                 >
-                  <QrCode class="h-3.5 w-3.5" />
+                  <Plus class="h-3.5 w-3.5" />
                 </button>
-              </div>
-            </div>
-          {/each}
+              {/if}
+              <button
+                type="button"
+                class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onclick={(e) => openTreeQr(loc, e)}
+                title="QR code"
+              >
+                <QrCode class="h-3.5 w-3.5" />
+              </button>
+            {/snippet}
+          </StorageTree>
         {/if}
       </div>
     </div>
@@ -395,7 +296,7 @@
 <Dialog.Root open={addRootOpen} onOpenChange={(v) => (addRootOpen = v)}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
       <Dialog.Title class="text-lg font-semibold mb-4">Add Storage Location</Dialog.Title>
       <form onsubmit={handleAddRoot} class="space-y-3">
         <div class="space-y-1">
@@ -427,7 +328,7 @@
 <Dialog.Root open={treeAddChildOpen} onOpenChange={(v) => (treeAddChildOpen = v)}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[90vh]">
       <Dialog.Title class="text-lg font-semibold mb-1">Add Child Location</Dialog.Title>
       {#if treeAddChildParentId}
         <p class="text-sm text-muted-foreground mb-4">

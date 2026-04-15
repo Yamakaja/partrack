@@ -214,6 +214,18 @@ func (q *Queue) handleListingRefresh(job Job) {
 		}
 	}
 
+	// Publish part_changed for each unique part so other users' views refresh.
+	seen := map[string]bool{}
+	for _, key := range groupOrder {
+		partIDStr := key.partID.String()
+		if seen[partIDStr] {
+			continue
+		}
+		seen[partIDStr] = true
+		partData, _ := json.Marshal(map[string]string{"part_id": partIDStr})
+		q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, UserID: payload.UserID, Data: partData})
+	}
+
 	data, _ := json.Marshal(map[string]string{})
 	q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: data})
 }

@@ -1,10 +1,11 @@
 <script lang="ts">
   import { Popover } from 'bits-ui';
-  import { ChevronDown, ChevronRight, Check, Grid3x3 } from 'lucide-svelte';
+  import { ChevronDown, Check, Grid3x3 } from 'lucide-svelte';
   import type { Snippet } from 'svelte';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import { cn } from '$lib/utils/cn.js';
   import GridVisual from './GridVisual.svelte';
+  import StorageTree from './StorageTree.svelte';
 
   export interface StorageLocationValue {
     locationId: string;
@@ -74,19 +75,6 @@
     return m;
   });
 
-  const childrenOf = $derived.by(() => {
-    const m = new Map<string | null, StorageLocation[]>();
-    for (const l of locations) {
-      const key = l.parent_id;
-      if (!m.has(key)) m.set(key, []);
-      m.get(key)!.push(l);
-    }
-    for (const [, children] of m) {
-      children.sort((a, b) => a.label.localeCompare(b.label));
-    }
-    return m;
-  });
-
   /** Full label from root to a location, e.g. "East Wall > Organizer 2". */
   function fullPathLabel(locId: string): string {
     const parts: string[] = [];
@@ -133,32 +121,6 @@
     const coordLabel = coordinateLabel(loc, value.coordinate);
     return coordLabel ? `${path} [${coordLabel}]` : path;
   });
-
-  // ── Expand/collapse state ─────────────────────────────────────────────────
-
-  let expanded = $state<Set<string>>(new Set());
-  $effect(() => {
-    // Auto-expand root nodes, plus all ancestors of the current value so the
-    // selected item is visible in the tree when the picker opens.
-    const roots = childrenOf.get(null) ?? [];
-    const next = new Set(roots.map((l) => l.id));
-    if (value) {
-      let cur = locById.get(value.locationId);
-      while (cur?.parent_id) {
-        next.add(cur.parent_id);
-        cur = locById.get(cur.parent_id);
-      }
-    }
-    expanded = next;
-  });
-
-  function toggleExpand(id: string, e: MouseEvent) {
-    e.stopPropagation();
-    const next = new Set(expanded);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    expanded = next;
-  }
 
   // ── Search ────────────────────────────────────────────────────────────────
 
@@ -207,22 +169,6 @@
     }
   }
 
-  // ── Flat tree rendering helpers ───────────────────────────────────────────
-
-  interface FlatNode { loc: StorageLocation; depth: number }
-
-  const flatTree = $derived.by((): FlatNode[] => {
-    const result: FlatNode[] = [];
-    function visit(parentId: string | null, depth: number) {
-      const children = childrenOf.get(parentId) ?? [];
-      for (const loc of children) {
-        result.push({ loc, depth });
-        if (expanded.has(loc.id)) visit(loc.id, depth + 1);
-      }
-    }
-    visit(null, 0);
-    return result;
-  });
 </script>
 
 <Popover.Root {open} onOpenChange={handleOpenChange}>
@@ -253,7 +199,7 @@
     class="z-50 flex overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
   >
     <!-- Left panel: tree -->
-    <div class="flex w-52 flex-col border-r border-border">
+    <div class="flex w-64 flex-col border-r border-border">
       <!-- Search -->
       <div class="border-b border-border px-2 py-1.5">
         <input
@@ -311,52 +257,27 @@
           {/if}
         {:else}
           <!-- Hierarchical tree -->
-          {#each flatTree as { loc, depth } (loc.id)}
-            {@const children = childrenOf.get(loc.id) ?? []}
-            {@const isExpanded = expanded.has(loc.id)}
-            {@const isSelected = !activeGridId && value?.locationId === loc.id}
-            {@const isActive = !!loc.grid_config && activeGridId === loc.id}
-            <div class="flex w-full items-center">
-              <button
-                type="button"
-                style="padding-left: {0.5 + depth * 1.25}rem"
-                class={cn(
-                  'flex flex-1 items-center gap-1.5 rounded-sm pr-2 py-1.5 text-sm hover:bg-accent text-left min-w-0',
-                  (isSelected || isActive) && 'bg-accent font-medium',
-                )}
-                onclick={() => selectLocation(loc)}
-              >
-                <span class="h-4 w-4 flex-shrink-0 flex items-center justify-center">
-                  {#if isSelected && !loc.grid_config}
-                    <Check class="h-3.5 w-3.5" />
-                  {:else if loc.grid_config}
-                    <Grid3x3 class="h-3.5 w-3.5 text-muted-foreground" />
-                  {/if}
-                </span>
-                <span class="truncate">{loc.label}</span>
-              </button>
-              {#if children.length > 0 && !loc.grid_config}
-                <button
-                  type="button"
-                  class="px-1.5 py-1.5 text-muted-foreground hover:text-foreground flex-shrink-0"
-                  onclick={(e) => toggleExpand(loc.id, e)}
-                  aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                >
-                  {#if isExpanded}
-                    <ChevronDown class="h-3.5 w-3.5" />
-                  {:else}
-                    <ChevronRight class="h-3.5 w-3.5" />
-                  {/if}
-                </button>
-              {/if}
-            </div>
-          {/each}
+          <StorageTree
+            locations={locations}
+            selectedId={activeGridId ?? value?.locationId ?? null}
+            onSelect={selectLocation}
+          >
+            {#snippet rowLeading(loc, isSelected)}
+              <span class="h-4 w-4 flex-shrink-0 flex items-center justify-center">
+                {#if isSelected && !loc.grid_config}
+                  <Check class="h-3.5 w-3.5" />
+                {:else if loc.grid_config}
+                  <Grid3x3 class="h-3.5 w-3.5 text-muted-foreground" />
+                {/if}
+              </span>
+            {/snippet}
+          </StorageTree>
         {/if}
       </div>
     </div>
 
     <!-- Right panel: grid visualization or placeholder -->
-    <div class="flex w-64 flex-col">
+    <div class="flex w-80 flex-col">
       {#if activeGridLoc}
         <!-- Location name header -->
         <div class="border-b border-border px-3 py-2 text-sm font-medium truncate">
