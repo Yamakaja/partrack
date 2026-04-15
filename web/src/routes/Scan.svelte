@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
-  import type { NavEntry, ScanPart } from '$lib/components/mobile-scanner/types.js';
+  import type { NavEntry, ScanPart, PartLocation } from '$lib/components/mobile-scanner/types.js';
   import type { ScanHistoryEntry } from '$lib/stores/scannerHistory.svelte.js';
-  import { checkSession, ScanExpiredError } from '$lib/api/scanner.js';
+  import { checkSession, listScanStorageLocations, ScanExpiredError } from '$lib/api/scanner.js';
+  import type { StorageLocation } from '$lib/types/inventory.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
   import ReceiveOrder from '$lib/components/mobile-scanner/ReceiveOrder.svelte';
   import FindPart from '$lib/components/mobile-scanner/FindPart.svelte';
@@ -11,11 +12,27 @@
   import StockAdjustment from '$lib/components/mobile-scanner/StockAdjustment.svelte';
   import BagScan from '$lib/components/mobile-scanner/BagScan.svelte';
   import ListingPicker from '$lib/components/mobile-scanner/ListingPicker.svelte';
+  import LocationInventory from '$lib/components/mobile-scanner/LocationInventory.svelte';
+  import BatchPutaway from '$lib/components/mobile-scanner/BatchPutaway.svelte';
+  import GridAssignment from '$lib/components/mobile-scanner/GridAssignment.svelte';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   const TOKEN_KEY = 'scan_token';
   let token = $state('');
+
+  // ── Storage locations (fetched once, passed to all child screens) ─────────
+
+  let locations = $state<StorageLocation[]>([]);
+
+  async function fetchLocations(t: string) {
+    try {
+      const res = await listScanStorageLocations(t);
+      locations = res.locations;
+    } catch {
+      // non-fatal — components degrade gracefully with empty list
+    }
+  }
 
   function handleExpired() {
     localStorage.removeItem(TOKEN_KEY);
@@ -177,6 +194,7 @@
     token = t;
     openPhoneSSE(t);
     startPolling();
+    fetchLocations(t);
 
     return () => {
       viewport?.setAttribute('content', originalContent);
@@ -221,12 +239,15 @@
       onBagScan={() => goTo({ screen: 'bag_scan' })}
       onFindPart={() => goTo({ screen: 'find_part', initialQuery: '' })}
       onPartSelect={handleHistoryPartSelect}
+      onBatchPutaway={() => goTo({ screen: 'batch_putaway' })}
+      onGridAssignment={() => goTo({ screen: 'grid_assignment' })}
     />
 
   <!-- ── RECEIVE ORDER ─────────────────────────────────────────────────────── -->
   {:else if current.screen === 'receive_order'}
     <ReceiveOrder
       {token}
+      {locations}
       {contextOrderId}
       {contextOrderRef}
       onBack={goBack}
@@ -245,6 +266,7 @@
         initialAdjust: { value: qty, mode: 'set', reason: 'Initial Stock' },
       })}
       onStartImport={(ctx) => goTo({ screen: 'listing_picker', context: ctx })}
+      onLocationScanned={(loc: PartLocation) => goTo({ screen: 'location_inventory', locationId: loc.id, coordinate: loc.coordinate })}
       onExpired={handleExpired}
     />
 
@@ -275,6 +297,7 @@
   {:else if current.screen === 'part_detail'}
     <PartDetail
       {token}
+      {locations}
       part={current.part}
       initialAdjust={current.initialAdjust}
       onBack={goBack}
@@ -297,6 +320,37 @@
       initialReason={current.initialReason}
       onBack={goBack}
       onDone={goBack2}
+      onExpired={handleExpired}
+    />
+
+  <!-- ── LOCATION INVENTORY ────────────────────────────────────────────────── -->
+  {:else if current.screen === 'location_inventory'}
+    <LocationInventory
+      {token}
+      {locations}
+      locationId={current.locationId}
+      coordinate={current.coordinate}
+      onBack={goBack}
+      onPartSelect={(part) => goTo({ screen: 'part_detail', part })}
+      onExpired={handleExpired}
+    />
+
+  <!-- ── BATCH PUTAWAY ──────────────────────────────────────────────────────── -->
+  {:else if current.screen === 'batch_putaway'}
+    <BatchPutaway
+      {token}
+      {locations}
+      onBack={goBack}
+      onExpired={handleExpired}
+    />
+
+  <!-- ── GRID ASSIGNMENT ───────────────────────────────────────────────────── -->
+  {:else if current.screen === 'grid_assignment'}
+    <GridAssignment
+      {token}
+      {locations}
+      initialLocationId={current.locationId}
+      onBack={goBack}
       onExpired={handleExpired}
     />
   {/if}

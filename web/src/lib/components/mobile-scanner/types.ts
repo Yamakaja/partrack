@@ -1,10 +1,15 @@
+export interface PartLocation {
+  id: string;
+  coordinate: number[] | null;
+}
+
 export interface ScanPart {
   id: string;
   mpn: string | null;
   description: string | null;
   inventory_entry_id: string | null;
   quantity_on_hand: number | null;
-  storage_location: string | null;
+  storage_location: PartLocation | null;
   // Optional fields: populated from bag scans only
   manufacturer?: string | null;
   sku?: string | null;
@@ -38,7 +43,10 @@ export type NavEntry =
   | { screen: 'find_part'; initialQuery: string }
   | { screen: 'part_detail'; part: ScanPart; initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string } }
   | { screen: 'listing_picker'; context: ScanImportContext }
-  | { screen: 'stock_adjustment'; part: ScanPart; mode: 'set' | 'adjust'; initialValue?: number; initialReason?: string };
+  | { screen: 'stock_adjustment'; part: ScanPart; mode: 'set' | 'adjust'; initialValue?: number; initialReason?: string }
+  | { screen: 'location_inventory'; locationId: string; coordinate?: number[] | null }
+  | { screen: 'batch_putaway' }
+  | { screen: 'grid_assignment'; locationId?: string };
 
 export interface SelectedListing {
   distributor_id: string;
@@ -76,5 +84,5 @@ export interface BagLookupResult {
   barcode_qty: number;
   inventory_entry_id: string | null;
   quantity_on_hand: number | null;
-  storage_location: string | null;
+  storage_location: PartLocation | null;
 }

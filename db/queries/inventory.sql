@@ -126,7 +126,7 @@ WHERE ie.team_id = $1
 ORDER BY p.mpn NULLS LAST;
 
 -- name: GetInventoryEntryByPartID :one
-SELECT id, quantity_on_hand
+SELECT id, quantity_on_hand, storage_location_id, storage_coordinate
 FROM inventory_entries
 WHERE team_id = $1 AND part_id = $2;
 

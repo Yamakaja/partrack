@@ -71,6 +71,8 @@ SELECT
     ie.quantity_on_hand,
     ie.minimum_stock_quantity,
     ie.reorder_quantity,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label         AS storage_location_label
 FROM parts p
 LEFT JOIN categories c ON c.id = p.category_id

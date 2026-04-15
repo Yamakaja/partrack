@@ -1,4 +1,5 @@
-import type { ScanPart, ScanOrder } from '$lib/components/mobile-scanner/types.js';
+import type { ScanPart, ScanOrder, PartLocation } from '$lib/components/mobile-scanner/types.js';
+import type { StorageLocation } from '$lib/types/inventory.js';
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ export interface PartDetailResponse {
   quantity_on_hand: number | null;
   quantity_reserved: number;
   quantity_available: number;
-  storage_location: string | null;
+  storage_location: PartLocation | null;
   minimum_stock_quantity: number | null;
   reorder_quantity: number | null;
   listings: PartDetailListing[];
@@ -80,7 +81,7 @@ export interface BagLookupFound {
   description: string | null;
   inventory_entry_id: string | null;
   quantity_on_hand: number | null;
-  storage_location: string | null;
+  storage_location: PartLocation | null;
   manufacturer: string | null;
   sku: string | null;
   distributor_name: string | null;
@@ -169,6 +170,8 @@ export interface StockAdjustmentResponse {
 
 export interface ConfirmReceiptResponse {
   order_status: 'received' | 'pending';
+  inventory_entry_id: string;
+  storage_location: PartLocation | null;
 }
 
 // ── API functions ─────────────────────────────────────────────────────────────
@@ -244,4 +247,34 @@ export function searchDistributor(
     'GET',
     `/api/v1/scan/distributor-search?distributor_id=${encodeURIComponent(distributorId)}&q=${encodeURIComponent(q)}`,
   );
+}
+
+export function listScanStorageLocations(token: string): Promise<{ locations: StorageLocation[] }> {
+  return scanRequest(token, 'GET', '/api/v1/scan/storage-locations');
+}
+
+export interface StorageInventoryEntry {
+  inventory_entry_id: string;
+  part_id: string;
+  mpn: string | null;
+  description: string | null;
+  quantity_on_hand: number;
+  storage_location: PartLocation | null;
+}
+
+export function listScanStorageInventory(
+  token: string,
+  locationId: string,
+): Promise<StorageInventoryEntry[]> {
+  return scanRequest(token, 'GET', `/api/v1/scan/storage/${locationId}/inventory`);
+}
+
+export function patchInventoryEntry(
+  token: string,
+  inventoryEntryId: string,
+  storageLocation: PartLocation | null,
+): Promise<{ id: string; storage_location: PartLocation | null }> {
+  return scanRequest(token, 'PATCH', `/api/v1/scan/inventory-entries/${inventoryEntryId}`, {
+    storage_location: storageLocation,
+  });
 }

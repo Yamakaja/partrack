@@ -1,14 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ScanPart } from './types.js';
+  import type { ScanPart, PartLocation } from './types.js';
+  import type { StorageLocation } from '$lib/types/inventory.js';
   import { recordVisit } from '$lib/stores/scannerHistory.svelte.js';
-  import { getPartDetail, ScanExpiredError } from '$lib/api/scanner.js';
+  import { getPartDetail, patchInventoryEntry, ScanExpiredError } from '$lib/api/scanner.js';
+  import { fullLocationLabel } from './locationUtils.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   let {
     token,
     part,
     initialAdjust,
+    locations,
     onBack,
     onAdjustStock,
     onExpired,
@@ -16,6 +20,7 @@
     token: string;
     part: ScanPart;
     initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string };
+    locations: StorageLocation[];
     onBack: () => void;
     onAdjustStock: (part: ScanPart, adjust?: { value?: number; mode?: 'set' | 'adjust'; reason?: string }) => void;
     onExpired: () => void;
@@ -54,7 +59,7 @@
     quantity_on_hand: number | null;
     quantity_reserved: number;
     quantity_available: number;
-    storage_location: string | null;
+    storage_location: PartLocation | null;
     minimum_stock_quantity: number | null;
     reorder_quantity: number | null;
     listings: ListingItem[];
@@ -63,6 +68,13 @@
 
   let detail = $state<PartDetail | null>(null);
   let loading = $state(true);
+  let showLocationPicker = $state(false);
+  let assigningLocation = $state(false);
+
+  const currentLocation = $derived(detail?.storage_location ?? part.storage_location ?? null);
+  const currentLocationLabel = $derived(
+    currentLocation ? fullLocationLabel(currentLocation, locations) : null,
+  );
 
   onMount(async () => {
     try {
@@ -75,6 +87,7 @@
           description: detail.description,
           imageUrl: detail.image_url,
           storageLocation: detail.storage_location,
+          locationLabel: detail.storage_location ? fullLocationLabel(detail.storage_location, locations) : null,
           quantityOnHand: detail.quantity_on_hand,
           inventoryEntryId: detail.inventory_entry_id,
         });
@@ -88,6 +101,20 @@
       loading = false;
     }
   });
+
+  async function assignLocation(loc: PartLocation | null) {
+    const entryId = detail?.inventory_entry_id ?? part.inventory_entry_id;
+    if (!entryId) return;
+    assigningLocation = true;
+    try {
+      await patchInventoryEntry(token, entryId, loc);
+      if (detail) detail = { ...detail, storage_location: loc };
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+    } finally {
+      assigningLocation = false;
+    }
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -241,9 +268,32 @@
             </p>
           </div>
         </div>
+        <!-- Location chip -->
         <div class="pt-2 border-t border-zinc-800">
-          <p class="text-xs text-zinc-500 mb-0.5">Location</p>
-          <p class="text-sm font-medium">{detail?.storage_location ?? part.storage_location ?? '—'}</p>
+          <p class="text-xs text-zinc-500 mb-1">Location</p>
+          <button
+            onclick={() => showLocationPicker = true}
+            disabled={assigningLocation || !inventoryEntryId}
+            class="flex w-full items-center gap-2 text-left active:opacity-70 disabled:opacity-50"
+          >
+            <!-- pin icon -->
+            <svg class="h-4 w-4 shrink-0 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+            </svg>
+            {#if assigningLocation}
+              <span class="text-sm text-zinc-500">Saving…</span>
+            {:else if currentLocationLabel}
+              <span class="text-sm font-medium truncate">{currentLocationLabel}</span>
+            {:else}
+              <span class="text-sm text-zinc-500">No location assigned</span>
+            {/if}
+            <svg class="h-4 w-4 shrink-0 text-zinc-600 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         </div>
         {#if detail && (detail.minimum_stock_quantity != null || detail.reorder_quantity != null)}
           <div class="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800">
@@ -318,3 +368,12 @@
     </div>
   {/if}
 </div>
+
+{#if showLocationPicker}
+  <MobileLocationPicker
+    {locations}
+    value={currentLocation}
+    onSelect={(loc) => assignLocation(loc)}
+    onClose={() => showLocationPicker = false}
+  />
+{/if}

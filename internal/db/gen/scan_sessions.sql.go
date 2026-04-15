@@ -160,6 +160,8 @@ SELECT
     p.id, p.mpn, p.manufacturer, p.description, p.short_description,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $3
@@ -185,6 +187,8 @@ type GetPartByMPNAndManufacturerWithInventoryRow struct {
 	ShortDescription     *string     `json:"short_description"`
 	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
 	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 	StorageLocationLabel *string     `json:"storage_location_label"`
 }
 
@@ -201,6 +205,8 @@ func (q *Queries) GetPartByMPNAndManufacturerWithInventory(ctx context.Context, 
 		&i.ShortDescription,
 		&i.InventoryEntryID,
 		&i.QuantityOnHand,
+		&i.StorageLocationID,
+		&i.StorageCoordinate,
 		&i.StorageLocationLabel,
 	)
 	return i, err
@@ -211,6 +217,8 @@ SELECT
     p.id, p.mpn, p.manufacturer, p.description, p.short_description,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $2
@@ -234,6 +242,8 @@ type GetPartByMPNWithInventoryRow struct {
 	ShortDescription     *string     `json:"short_description"`
 	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
 	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 	StorageLocationLabel *string     `json:"storage_location_label"`
 }
 
@@ -249,6 +259,8 @@ func (q *Queries) GetPartByMPNWithInventory(ctx context.Context, arg GetPartByMP
 		&i.ShortDescription,
 		&i.InventoryEntryID,
 		&i.QuantityOnHand,
+		&i.StorageLocationID,
+		&i.StorageCoordinate,
 		&i.StorageLocationLabel,
 	)
 	return i, err
@@ -260,6 +272,8 @@ SELECT
     dl.sku, d.name AS distributor_name,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM distributor_listings dl
 JOIN parts p ON p.id = dl.part_id
@@ -288,6 +302,8 @@ type GetPartBySKUAndDistributorWithInventoryRow struct {
 	DistributorName      string      `json:"distributor_name"`
 	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
 	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 	StorageLocationLabel *string     `json:"storage_location_label"`
 }
 
@@ -306,6 +322,8 @@ func (q *Queries) GetPartBySKUAndDistributorWithInventory(ctx context.Context, a
 		&i.DistributorName,
 		&i.InventoryEntryID,
 		&i.QuantityOnHand,
+		&i.StorageLocationID,
+		&i.StorageCoordinate,
 		&i.StorageLocationLabel,
 	)
 	return i, err
@@ -317,6 +335,8 @@ SELECT
     dl.sku, d.name AS distributor_name,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM distributor_listings dl
 JOIN parts p ON p.id = dl.part_id
@@ -343,6 +363,8 @@ type GetPartBySKUWithInventoryRow struct {
 	DistributorName      string      `json:"distributor_name"`
 	InventoryEntryID     pgtype.UUID `json:"inventory_entry_id"`
 	QuantityOnHand       *int32      `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate    []int32     `json:"storage_coordinate"`
 	StorageLocationLabel *string     `json:"storage_location_label"`
 }
 
@@ -361,6 +383,8 @@ func (q *Queries) GetPartBySKUWithInventory(ctx context.Context, arg GetPartBySK
 		&i.DistributorName,
 		&i.InventoryEntryID,
 		&i.QuantityOnHand,
+		&i.StorageLocationID,
+		&i.StorageCoordinate,
 		&i.StorageLocationLabel,
 	)
 	return i, err

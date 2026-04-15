@@ -2,16 +2,20 @@
   import { untrack } from 'svelte';
   import ScannerCamera from './ScannerCamera.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
-  import type { ScanOrder } from './types.js';
+  import type { ScanOrder, PartLocation } from './types.js';
+  import { fullLocationLabel } from './locationUtils.js';
+  import type { StorageLocation } from '$lib/types/inventory.js';
   import {
-    listOrders, scanBarcode, confirmReceipt, skipItem,
+    listOrders, scanBarcode, confirmReceipt, skipItem, patchInventoryEntry,
     ScanExpiredError, type ScanMatchedResponse,
   } from '$lib/api/scanner.js';
+  import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   let {
     token,
     contextOrderId: initialContextOrderId,  // snapshot — used only to seed initial screen state
     contextOrderRef,
+    locations,
     onBack,
     onContextChange,
     onExpired,
@@ -19,6 +23,7 @@
     token: string;
     contextOrderId: string | null;
     contextOrderRef: string | null;
+    locations: StorageLocation[];
     onBack: () => void;
     onContextChange: (orderId: string, orderRef: string) => void;
     onExpired: () => void;
@@ -31,6 +36,7 @@
     | 'scanning'
     | 'confirming'
     | 'confirming_over_receive'
+    | 'confirmed'
     | 'order_complete'
     | 'error_no_match'
     | 'error_parse';
@@ -59,6 +65,26 @@
   let submitting = $state(false);
   let errorMPN = $state('');
   let errorSKU = $state('');
+
+  // Post-confirm location state
+  let confirmedInventoryEntryId = $state<string | null>(null);
+  let confirmedStorageLocation = $state<PartLocation | null>(null);
+  let showLocationPicker = $state(false);
+  let assigningLocation = $state(false);
+  let nextScreenAfterConfirm = $state<'scanning' | 'order_complete'>('scanning');
+
+  async function assignLocation(loc: PartLocation | null) {
+    if (!confirmedInventoryEntryId) return;
+    assigningLocation = true;
+    try {
+      await patchInventoryEntry(token, confirmedInventoryEntryId, loc);
+      confirmedStorageLocation = loc;
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+    } finally {
+      assigningLocation = false;
+    }
+  }
 
   // ── Order list ────────────────────────────────────────────────────────────
 
@@ -123,8 +149,11 @@
     submitting = true;
     try {
       const data = await confirmReceipt(token, qty);
+      confirmedInventoryEntryId = data.inventory_entry_id ?? null;
+      confirmedStorageLocation = data.storage_location ?? null;
+      nextScreenAfterConfirm = data.order_status === 'received' ? 'order_complete' : 'scanning';
       confirmData = null;
-      screen = data.order_status === 'received' ? 'order_complete' : 'scanning';
+      screen = 'confirmed';
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       // keep state for retry
@@ -289,6 +318,64 @@
       </div>
     </div>
   </div>
+
+<!-- ── CONFIRMED ──────────────────────────────────────────────────────────── -->
+{:else if screen === 'confirmed'}
+  <div class="flex flex-1 flex-col gap-4 px-5 py-6">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
+        <svg class="h-5 w-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <p class="font-semibold">Received</p>
+    </div>
+
+    <!-- Storage location chip -->
+    {#if confirmedInventoryEntryId}
+      <div class="rounded-xl bg-zinc-900 p-4">
+        <p class="text-xs text-zinc-500 mb-2">Storage location</p>
+        <button
+          onclick={() => showLocationPicker = true}
+          disabled={assigningLocation}
+          class="flex w-full items-center gap-2 text-left active:opacity-70 disabled:opacity-50"
+        >
+          <svg class="h-4 w-4 shrink-0 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+          </svg>
+          {#if assigningLocation}
+            <span class="text-sm text-zinc-500">Saving…</span>
+          {:else if confirmedStorageLocation}
+            <span class="text-sm font-medium">{fullLocationLabel(confirmedStorageLocation, locations)}</span>
+          {:else}
+            <span class="text-sm text-zinc-500">No storage location — tap to assign</span>
+          {/if}
+          <svg class="h-4 w-4 shrink-0 text-zinc-600 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+    {/if}
+
+    <button
+      onclick={() => screen = nextScreenAfterConfirm}
+      class="mt-auto w-full rounded-xl bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
+    >
+      {nextScreenAfterConfirm === 'order_complete' ? 'Done' : 'Scan Next'}
+    </button>
+  </div>
+
+  {#if showLocationPicker}
+    <MobileLocationPicker
+      {locations}
+      value={confirmedStorageLocation}
+      onSelect={(loc) => assignLocation(loc)}
+      onClose={() => showLocationPicker = false}
+    />
+  {/if}
 
 <!-- ── ORDER COMPLETE ────────────────────────────────────────────────────── -->
 {:else if screen === 'order_complete'}

@@ -553,13 +553,17 @@ func (h *Handler) SearchScanParts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type partLocation struct {
+		ID         string  `json:"id"`
+		Coordinate []int32 `json:"coordinate"`
+	}
 	type partItem struct {
-		ID               string  `json:"id"`
-		MPN              *string `json:"mpn"`
-		Description      *string `json:"description"`
-		InventoryEntryID *string `json:"inventory_entry_id,omitempty"`
-		QuantityOnHand   *int32  `json:"quantity_on_hand,omitempty"`
-		StorageLocation  *string `json:"storage_location,omitempty"`
+		ID               string        `json:"id"`
+		MPN              *string       `json:"mpn"`
+		Description      *string       `json:"description"`
+		InventoryEntryID *string       `json:"inventory_entry_id,omitempty"`
+		QuantityOnHand   *int32        `json:"quantity_on_hand,omitempty"`
+		StorageLocation  *partLocation `json:"storage_location,omitempty"`
 	}
 	items := make([]partItem, len(parts))
 	for i, p := range parts {
@@ -576,8 +580,11 @@ func (h *Handler) SearchScanParts(w http.ResponseWriter, r *http.Request) {
 			s := p.InventoryEntryID.String()
 			item.InventoryEntryID = &s
 			item.QuantityOnHand = p.QuantityOnHand
-			if p.StorageLocationLabel != nil {
-				item.StorageLocation = p.StorageLocationLabel
+			if p.StorageLocationID.Valid {
+				item.StorageLocation = &partLocation{
+					ID:         p.StorageLocationID.String(),
+					Coordinate: p.StorageCoordinate,
+				}
 			}
 		}
 		items[i] = item
@@ -757,7 +764,8 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 			})
 			if err == nil {
 				h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
-					&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+					&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand,
+					row.StorageLocationID, row.StorageCoordinate, parsed)
 				return
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -773,7 +781,8 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		})
 		if err == nil {
 			h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
-				&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+				&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand,
+				row.StorageLocationID, row.StorageCoordinate, parsed)
 			return
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -794,7 +803,8 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 			})
 			if err == nil {
 				h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
-					nil, nil, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+					nil, nil, row.InventoryEntryID, row.QuantityOnHand,
+					row.StorageLocationID, row.StorageCoordinate, parsed)
 				return
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -809,7 +819,8 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		})
 		if err == nil {
 			h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
-				nil, nil, row.InventoryEntryID, row.QuantityOnHand, row.StorageLocationLabel, parsed)
+				nil, nil, row.InventoryEntryID, row.QuantityOnHand,
+				row.StorageLocationID, row.StorageCoordinate, parsed)
 			return
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -875,13 +886,15 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 // auto-creating the team's inventory entry at quantity 0 if one does not exist.
 func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
 	teamID pgtype.UUID, partID pgtype.UUID, mpn, manufacturer, desc, shortDesc *string,
-	sku, distributorName *string, invEntryID pgtype.UUID, qoh *int32, storageLabel *string,
+	sku, distributorName *string, invEntryID pgtype.UUID, qoh *int32,
+	storageLocationID pgtype.UUID, storageCoordinate []int32,
 	parsed *scanner.ParsedBarcode) {
 
 	newlyCreated := false
 	finalEntryID := invEntryID
 	finalQoh := qoh
-	finalStorageLabel := storageLabel
+	finalStorageLocationID := storageLocationID
+	finalStorageCoordinate := storageCoordinate
 
 	if !invEntryID.Valid {
 		entry, err := h.Queries.CreateInventoryEntry(r.Context(), dbgen.CreateInventoryEntryParams{
@@ -895,7 +908,8 @@ func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
 		finalEntryID = entry.ID
 		var zero int32 = 0
 		finalQoh = &zero
-		finalStorageLabel = nil
+		finalStorageLocationID = pgtype.UUID{}
+		finalStorageCoordinate = nil
 		newlyCreated = true
 	}
 
@@ -903,6 +917,15 @@ func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
 	if d == nil {
 		d = shortDesc
 	}
+
+	var storageLocation any
+	if finalStorageLocationID.Valid {
+		storageLocation = map[string]any{
+			"id":         finalStorageLocationID.String(),
+			"coordinate": finalStorageCoordinate,
+		}
+	}
+
 	resp := map[string]any{
 		"status":                        "found",
 		"id":                            partID.String(),
@@ -913,7 +936,7 @@ func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
 		"distributor":                   parsed.Distributor,
 		"inventory_entry_id":            finalEntryID.String(),
 		"quantity_on_hand":              finalQoh,
-		"storage_location":              finalStorageLabel,
+		"storage_location":              storageLocation,
 		"inventory_entry_newly_created": newlyCreated,
 		"bag_qty":                       parsed.Quantity,
 	}
@@ -1338,11 +1361,21 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		h.Worker.Publish(worker.Event{Type: "build_changed", TeamID: teamIDStr, Data: d3})
 	}
 
+	var storageLoc any
+	if invEntry.StorageLocationID.Valid {
+		storageLoc = map[string]any{
+			"id":         invEntry.StorageLocationID.String(),
+			"coordinate": invEntry.StorageCoordinate,
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                    true,
 		"new_quantity_received": updatedLI.QuantityReceived,
 		"new_quantity_on_hand":  newQty,
 		"order_status":          string(newOrderStatus),
+		"inventory_entry_id":    invEntry.ID.String(),
+		"storage_location":      storageLoc,
 	})
 }
 
@@ -1489,11 +1522,21 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 		"product_url":            part.ProductUrl,
 		"image_url":              part.ImageUrl,
 		"category_name":          part.CategoryName,
-		"inventory_entry_id":     invEntryID,
-		"quantity_on_hand":       part.QuantityOnHand,
-		"quantity_reserved":      quantityReserved,
-		"quantity_available":     max(int32(0), func() int32 { if part.QuantityOnHand != nil { return *part.QuantityOnHand }; return 0 }()-quantityReserved),
-		"storage_location":       part.StorageLocationLabel,
+		"inventory_entry_id": invEntryID,
+		"quantity_on_hand":   part.QuantityOnHand,
+		"quantity_reserved":  quantityReserved,
+		"quantity_available": max(int32(0), func() int32 {
+			if part.QuantityOnHand != nil {
+				return *part.QuantityOnHand
+			}
+			return 0
+		}() - quantityReserved),
+		"storage_location": func() any {
+			if part.StorageLocationID.Valid {
+				return map[string]any{"id": part.StorageLocationID.String(), "coordinate": part.StorageCoordinate}
+			}
+			return nil
+		}(),
 		"minimum_stock_quantity": part.MinimumStockQuantity,
 		"reorder_quantity":       part.ReorderQuantity,
 		"listings":               listingItems,
@@ -1743,5 +1786,195 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"part_id": lastPartID.String(),
 		"failed":  failed,
+	})
+}
+
+// ListScanStorageLocations handles GET /api/v1/scan/storage-locations.
+// Returns the full storage location tree for the team so the mobile picker can
+// build paths and detect grid-enabled locations client-side.
+func (h *Handler) ListScanStorageLocations(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	locations, err := h.Queries.ListStorageLocations(r.Context(), sess.TeamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type locationItem struct {
+		ID          string          `json:"id"`
+		ParentID    *string         `json:"parent_id"`
+		Label       string          `json:"label"`
+		Description *string         `json:"description"`
+		GridConfig  json.RawMessage `json:"grid_config"`
+	}
+	items := make([]locationItem, len(locations))
+	for i, loc := range locations {
+		item := locationItem{
+			ID:          loc.ID.String(),
+			Label:       loc.Label,
+			Description: loc.Description,
+			GridConfig:  loc.GridConfig,
+		}
+		if loc.ParentID.Valid {
+			s := loc.ParentID.String()
+			item.ParentID = &s
+		}
+		items[i] = item
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"locations": items})
+}
+
+// ListScanStorageInventory handles GET /api/v1/scan/storage/{locationId}/inventory.
+// Returns all inventory entries in the given location and its descendants (up to 500).
+func (h *Handler) ListScanStorageInventory(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	locationIDStr := chi.URLParam(r, "locationId")
+	var locationID pgtype.UUID
+	if err := locationID.Scan(locationIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid location id", "BAD_REQUEST")
+		return
+	}
+
+	entries, err := h.Queries.ListInventoryByLocation(r.Context(), dbgen.ListInventoryByLocationParams{
+		LocationID: locationID,
+		TeamID:     sess.TeamID,
+		Limit:      500,
+		Offset:     0,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type storageLocationRef struct {
+		ID         string  `json:"id"`
+		Coordinate []int32 `json:"coordinate"`
+	}
+	type entryItem struct {
+		InventoryEntryID string              `json:"inventory_entry_id"`
+		PartID           string              `json:"part_id"`
+		MPN              *string             `json:"mpn"`
+		Description      *string             `json:"description"`
+		QuantityOnHand   int32               `json:"quantity_on_hand"`
+		StorageLocation  *storageLocationRef `json:"storage_location"`
+	}
+	items := make([]entryItem, len(entries))
+	for i, e := range entries {
+		item := entryItem{
+			InventoryEntryID: e.ID.String(),
+			PartID:           e.PartID.String(),
+			MPN:              e.PartMpn,
+			Description:      e.PartDescription,
+			QuantityOnHand:   e.QuantityOnHand,
+		}
+		if e.StorageLocationID.Valid {
+			item.StorageLocation = &storageLocationRef{
+				ID:         e.StorageLocationID.String(),
+				Coordinate: e.StorageCoordinate,
+			}
+		}
+		items[i] = item
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+// PatchScanInventoryEntry handles PATCH /api/v1/scan/inventory-entries/{id}.
+// Updates the storage_location (id + coordinate) of an inventory entry.
+// Body: { "storage_location": { "id": "uuid", "coordinate": [1,2] } | null }
+func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	membership, err := h.checkTeamMembership(r.Context(), sess.TeamID, sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if membership == nil || !roleAtLeast(membership.Role, "member") {
+		writeError(w, http.StatusForbidden, "member role required", "FORBIDDEN")
+		return
+	}
+
+	entryIDStr := chi.URLParam(r, "id")
+	var entryID pgtype.UUID
+	if err := entryID.Scan(entryIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid inventory entry id", "BAD_REQUEST")
+		return
+	}
+
+	var body struct {
+		StorageLocation *struct {
+			ID         string  `json:"id"`
+			Coordinate []int32 `json:"coordinate"`
+		} `json:"storage_location"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+
+	params := dbgen.UpdateInventoryEntryParams{
+		ID:                   entryID,
+		TeamID:               sess.TeamID,
+		SetStorageLocationID: true,
+		SetStorageCoordinate: true,
+	}
+	if body.StorageLocation != nil {
+		var locID pgtype.UUID
+		if err := locID.Scan(body.StorageLocation.ID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid storage_location.id", "BAD_REQUEST")
+			return
+		}
+		params.StorageLocationID = locID
+		params.StorageCoordinate = body.StorageLocation.Coordinate
+	}
+
+	entry, err := h.Queries.UpdateInventoryEntry(r.Context(), params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "inventory entry not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.publishEvent(r, "inventory_changed", sess.TeamID.String(), map[string]string{"entry_id": entry.ID.String()})
+
+	var storageLocation any
+	if entry.StorageLocationID.Valid {
+		storageLocation = map[string]any{
+			"id":         entry.StorageLocationID.String(),
+			"coordinate": entry.StorageCoordinate,
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":               entry.ID.String(),
+		"storage_location": storageLocation,
 	})
 }

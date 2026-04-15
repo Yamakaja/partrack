@@ -78,6 +78,8 @@ SELECT
     dl.sku, d.name AS distributor_name,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM distributor_listings dl
 JOIN parts p ON p.id = dl.part_id
@@ -97,6 +99,8 @@ SELECT
     dl.sku, d.name AS distributor_name,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM distributor_listings dl
 JOIN parts p ON p.id = dl.part_id
@@ -113,6 +117,8 @@ SELECT
     p.id, p.mpn, p.manufacturer, p.description, p.short_description,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = @team_id
@@ -129,6 +135,8 @@ SELECT
     p.id, p.mpn, p.manufacturer, p.description, p.short_description,
     ie.id AS inventory_entry_id,
     ie.quantity_on_hand,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label AS storage_location_label
 FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = @team_id

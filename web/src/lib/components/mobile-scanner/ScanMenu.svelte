@@ -7,13 +7,19 @@
     onBagScan,
     onFindPart,
     onPartSelect,
+    onBatchPutaway,
+    onGridAssignment,
   }: {
     contextOrderRef: string | null;
     onReceiveOrder: () => void;
     onBagScan: () => void;
     onFindPart: () => void;
     onPartSelect: (entry: ScanHistoryEntry) => void;
+    onBatchPutaway: () => void;
+    onGridAssignment: () => void;
   } = $props();
+
+  let storageExpanded = $state(false);
 
   function relativeTime(ts: number): string {
     const diff = Math.floor((Date.now() - ts) / 1000);
@@ -88,6 +94,62 @@
         <p class="text-xs text-zinc-400">Search catalog and check stock</p>
       </div>
     </button>
+
+    <!-- Storage sub-menu -->
+    <button
+      onclick={() => storageExpanded = !storageExpanded}
+      class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
+    >
+      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/20 text-amber-400">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10" />
+        </svg>
+      </div>
+      <div class="flex-1">
+        <p class="font-medium">Storage</p>
+        <p class="text-xs text-zinc-400">Assign locations &amp; grid putaway</p>
+      </div>
+      <svg
+        class="h-4 w-4 shrink-0 text-zinc-500 transition-transform {storageExpanded ? 'rotate-90' : ''}"
+        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+      </svg>
+    </button>
+
+    {#if storageExpanded}
+      <div class="ml-4 flex flex-col gap-1.5">
+        <button
+          onclick={() => { storageExpanded = false; onBatchPutaway(); }}
+          class="flex items-center gap-3 rounded-xl bg-zinc-800/60 px-4 py-3 text-left active:bg-zinc-700"
+        >
+          <svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+          </svg>
+          <div>
+            <p class="text-sm font-medium">Assign to Location</p>
+            <p class="text-xs text-zinc-500">Scan bags to one storage spot</p>
+          </div>
+        </button>
+        <button
+          onclick={() => { storageExpanded = false; onGridAssignment(); }}
+          class="flex items-center gap-3 rounded-xl bg-zinc-800/60 px-4 py-3 text-left active:bg-zinc-700"
+        >
+          <svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+          </svg>
+          <div>
+            <p class="text-sm font-medium">Grid Assignment</p>
+            <p class="text-xs text-zinc-500">Fill grid cells with parts</p>
+          </div>
+        </button>
+      </div>
+    {/if}
   </div>
 
   <!-- Recent parts -->
@@ -120,8 +182,8 @@
               {#if entry.description}
                 <p class="text-xs text-zinc-400 truncate">{entry.description}</p>
               {/if}
-              {#if entry.storageLocation}
-                <p class="text-xs text-zinc-500 truncate">{entry.storageLocation}</p>
+              {#if entry.locationLabel}
+                <p class="text-xs text-zinc-500 truncate">{entry.locationLabel}</p>
               {/if}
             </div>
           </button>

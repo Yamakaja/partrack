@@ -202,7 +202,7 @@ func (q *Queries) GetInventoryEntry(ctx context.Context, arg GetInventoryEntryPa
 }
 
 const getInventoryEntryByPartID = `-- name: GetInventoryEntryByPartID :one
-SELECT id, quantity_on_hand
+SELECT id, quantity_on_hand, storage_location_id, storage_coordinate
 FROM inventory_entries
 WHERE team_id = $1 AND part_id = $2
 `
@@ -213,14 +213,21 @@ type GetInventoryEntryByPartIDParams struct {
 }
 
 type GetInventoryEntryByPartIDRow struct {
-	ID             pgtype.UUID `json:"id"`
-	QuantityOnHand int32       `json:"quantity_on_hand"`
+	ID                pgtype.UUID `json:"id"`
+	QuantityOnHand    int32       `json:"quantity_on_hand"`
+	StorageLocationID pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate []int32     `json:"storage_coordinate"`
 }
 
 func (q *Queries) GetInventoryEntryByPartID(ctx context.Context, arg GetInventoryEntryByPartIDParams) (GetInventoryEntryByPartIDRow, error) {
 	row := q.db.QueryRow(ctx, getInventoryEntryByPartID, arg.TeamID, arg.PartID)
 	var i GetInventoryEntryByPartIDRow
-	err := row.Scan(&i.ID, &i.QuantityOnHand)
+	err := row.Scan(
+		&i.ID,
+		&i.QuantityOnHand,
+		&i.StorageLocationID,
+		&i.StorageCoordinate,
+	)
 	return i, err
 }
 

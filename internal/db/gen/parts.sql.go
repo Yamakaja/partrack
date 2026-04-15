@@ -1023,6 +1023,8 @@ SELECT
     ie.quantity_on_hand,
     ie.minimum_stock_quantity,
     ie.reorder_quantity,
+    ie.storage_location_id,
+    ie.storage_coordinate,
     sl.label         AS storage_location_label
 FROM parts p
 LEFT JOIN categories c ON c.id = p.category_id
@@ -1093,6 +1095,8 @@ type ListPartsWithInventoryRow struct {
 	QuantityOnHand       *int32              `json:"quantity_on_hand"`
 	MinimumStockQuantity *int32              `json:"minimum_stock_quantity"`
 	ReorderQuantity      *int32              `json:"reorder_quantity"`
+	StorageLocationID    pgtype.UUID         `json:"storage_location_id"`
+	StorageCoordinate    []int32             `json:"storage_coordinate"`
 	StorageLocationLabel *string             `json:"storage_location_label"`
 }
 
@@ -1140,6 +1144,8 @@ func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithI
 			&i.QuantityOnHand,
 			&i.MinimumStockQuantity,
 			&i.ReorderQuantity,
+			&i.StorageLocationID,
+			&i.StorageCoordinate,
 			&i.StorageLocationLabel,
 		); err != nil {
 			return nil, err

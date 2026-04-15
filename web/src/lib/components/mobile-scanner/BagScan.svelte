@@ -1,7 +1,8 @@
 <script lang="ts">
   import ScannerCamera from './ScannerCamera.svelte';
-  import type { ScanPart, ScanImportContext } from './types.js';
+  import type { ScanPart, ScanImportContext, PartLocation } from './types.js';
   import { lookupBag, importScanPart, ScanExpiredError } from '$lib/api/scanner.js';
+  import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
 
   let {
     token,
@@ -9,6 +10,7 @@
     onPartFound,
     onPartImported,
     onStartImport,
+    onLocationScanned,
     onExpired,
   }: {
     token: string;
@@ -16,6 +18,7 @@
     onPartFound: (part: ScanPart, bagQty: number, newEntry: boolean) => void;
     onPartImported: (part: ScanPart, bagQty: number) => void;
     onStartImport: (context: ScanImportContext) => void;
+    onLocationScanned: (loc: PartLocation) => void;
     onExpired: () => void;
   } = $props();
 
@@ -95,6 +98,13 @@
   // ── Scan handling ─────────────────────────────────────────────────────────
 
   async function handleBagScanResult(raw: string) {
+    // Location QR takes priority — don't hit the bag lookup endpoint.
+    const loc = parseStorageLocationQR(raw);
+    if (loc) {
+      onLocationScanned(loc);
+      return;
+    }
+
     try {
       const data = await lookupBag(token, raw);
 

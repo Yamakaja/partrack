@@ -1,10 +1,16 @@
+export interface PartLocation {
+  id: string;
+  coordinate: number[] | null;
+}
+
 export interface ScanHistoryEntry {
   partId: string;
   mpn: string | null;
   manufacturer: string | null;
   description: string | null;
   imageUrl: string | null;
-  storageLocation: string | null;
+  storageLocation: PartLocation | null;
+  locationLabel: string | null;
   quantityOnHand: number | null;
   inventoryEntryId: string | null;
   timestamp: number;

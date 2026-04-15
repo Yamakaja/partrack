@@ -42,6 +42,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Post("/scan/stock-adjustment", h.CreateScanStockAdjustment)
 			r.Post("/scan/lookup", h.LookupScanBarcode)
 			r.Get("/scan/distributor-search", h.SearchScanDistributor)
+			r.Get("/scan/storage-locations", h.ListScanStorageLocations)
+			r.Get("/scan/storage/{locationId}/inventory", h.ListScanStorageInventory)
+			r.Patch("/scan/inventory-entries/{id}", h.PatchScanInventoryEntry)
 		})
 
 		// ── Authenticated-only routes ────────────────────────────────────────
