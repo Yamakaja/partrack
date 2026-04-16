@@ -7,19 +7,15 @@
     onBagScan,
     onFindPart,
     onPartSelect,
-    onBatchPutaway,
-    onGridAssignment,
+    onStorageAssignment,
   }: {
     contextOrderRef: string | null;
     onReceiveOrder: () => void;
     onBagScan: () => void;
     onFindPart: () => void;
     onPartSelect: (entry: ScanHistoryEntry) => void;
-    onBatchPutaway: () => void;
-    onGridAssignment: () => void;
+    onStorageAssignment: () => void;
   } = $props();
-
-  let storageExpanded = $state(false);
 
   function relativeTime(ts: number): string {
     const diff = Math.floor((Date.now() - ts) / 1000);
@@ -44,6 +40,23 @@
   <!-- Menu items -->
   <div class="flex flex-col gap-2 p-4 shrink-0">
     <button
+      onclick={onBagScan}
+      class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
+    >
+      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-purple-500/20 text-purple-400">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 14.625v5.25M16.125 17.25h-5.25" />
+        </svg>
+      </div>
+      <div>
+        <p class="font-medium">Scan</p>
+        <p class="text-xs text-zinc-400">Look up part &amp; manage inventory</p>
+      </div>
+    </button>
+    
+    <button
       onclick={onReceiveOrder}
       class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
     >
@@ -63,23 +76,6 @@
     </button>
 
     <button
-      onclick={onBagScan}
-      class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
-    >
-      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-purple-500/20 text-purple-400">
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 14.625v5.25M16.125 17.25h-5.25" />
-        </svg>
-      </div>
-      <div>
-        <p class="font-medium">Scan Bag</p>
-        <p class="text-xs text-zinc-400">Look up part &amp; manage inventory</p>
-      </div>
-    </button>
-
-    <button
       onclick={onFindPart}
       class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
     >
@@ -95,9 +91,9 @@
       </div>
     </button>
 
-    <!-- Storage sub-menu -->
+    <!-- Storage -->
     <button
-      onclick={() => storageExpanded = !storageExpanded}
+      onclick={onStorageAssignment}
       class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
     >
       <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/20 text-amber-400">
@@ -106,50 +102,11 @@
             d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10" />
         </svg>
       </div>
-      <div class="flex-1">
+      <div>
         <p class="font-medium">Storage</p>
-        <p class="text-xs text-zinc-400">Assign locations &amp; grid putaway</p>
+        <p class="text-xs text-zinc-400">Assign parts to storage locations</p>
       </div>
-      <svg
-        class="h-4 w-4 shrink-0 text-zinc-500 transition-transform {storageExpanded ? 'rotate-90' : ''}"
-        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-      </svg>
     </button>
-
-    {#if storageExpanded}
-      <div class="ml-4 flex flex-col gap-1.5">
-        <button
-          onclick={() => { storageExpanded = false; onBatchPutaway(); }}
-          class="flex items-center gap-3 rounded-xl bg-zinc-800/60 px-4 py-3 text-left active:bg-zinc-700"
-        >
-          <svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-          </svg>
-          <div>
-            <p class="text-sm font-medium">Assign to Location</p>
-            <p class="text-xs text-zinc-500">Scan bags to one storage spot</p>
-          </div>
-        </button>
-        <button
-          onclick={() => { storageExpanded = false; onGridAssignment(); }}
-          class="flex items-center gap-3 rounded-xl bg-zinc-800/60 px-4 py-3 text-left active:bg-zinc-700"
-        >
-          <svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-          </svg>
-          <div>
-            <p class="text-sm font-medium">Grid Assignment</p>
-            <p class="text-xs text-zinc-500">Fill grid cells with parts</p>
-          </div>
-        </button>
-      </div>
-    {/if}
   </div>
 
   <!-- Recent parts -->

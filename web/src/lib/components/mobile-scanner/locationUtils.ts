@@ -1,6 +1,40 @@
 import type { StorageLocation, GridConfig } from '$lib/types/inventory.js';
 import type { PartLocation } from './types.js';
 
+/**
+ * Decompose a flat coordinate array into parent-level address and last-level cursor,
+ * based on the grid config's level definitions.
+ *
+ * Example: flat=[1,3,0,2], levels=[{dims:[3]},{dims:[4]},{dims:[5,5]}]
+ * → { address: [[1],[3]], cursor: [0,2] }
+ */
+export function decomposeCoordinate(
+  flat: number[],
+  config: GridConfig
+): { address: number[][], cursor: number[] } {
+  const levels = config.levels;
+  if (levels.length === 0) return { address: [], cursor: flat };
+
+  const address: number[][] = [];
+  let offset = 0;
+
+  for (let i = 0; i < levels.length - 1; i++) {
+    const d = levels[i].dims.length;
+    address.push(flat.slice(offset, offset + d));
+    offset += d;
+  }
+
+  return { address, cursor: flat.slice(offset) };
+}
+
+/**
+ * Reassemble parent-level address + last-level cursor into a flat coordinate array.
+ * Inverse of decomposeCoordinate.
+ */
+export function assembleCoordinate(address: number[][], cursor: number[]): number[] {
+  return [...address.flatMap(a => a), ...cursor];
+}
+
 export function locationPath(id: string, locations: StorageLocation[]): string {
   const path: string[] = [];
   let cur = locations.find(l => l.id === id);

@@ -1964,7 +1964,10 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.publishEvent(r, "inventory_changed", sess.TeamID.String(), map[string]string{"entry_id": entry.ID.String()})
+	h.publishEvent(r, "inventory_changed", sess.TeamID.String(), map[string]string{
+		"entry_id": entry.ID.String(),
+		"part_id":  entry.PartID.String(),
+	})
 
 	var storageLocation any
 	if entry.StorageLocationID.Valid {

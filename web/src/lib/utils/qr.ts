@@ -1,6 +1,6 @@
 /** Shared helpers for QR code copy and download actions. */
 
-const PNG_SIZE = 512; // pixels; enough for crisp label printing
+const PNG_SIZE = 1024; // pixels; enough for crisp label printing
 
 /** Converts an SVG string to a PNG Blob via an offscreen canvas. */
 async function svgToPngBlob(svg: string): Promise<Blob> {

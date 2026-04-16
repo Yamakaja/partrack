@@ -45,8 +45,7 @@ export type NavEntry =
   | { screen: 'listing_picker'; context: ScanImportContext }
   | { screen: 'stock_adjustment'; part: ScanPart; mode: 'set' | 'adjust'; initialValue?: number; initialReason?: string }
   | { screen: 'location_inventory'; locationId: string; coordinate?: number[] | null }
-  | { screen: 'batch_putaway' }
-  | { screen: 'grid_assignment'; locationId?: string };
+  | { screen: 'storage_assignment' };
 
 export interface SelectedListing {
   distributor_id: string;

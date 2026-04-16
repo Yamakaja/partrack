@@ -13,8 +13,7 @@
   import BagScan from '$lib/components/mobile-scanner/BagScan.svelte';
   import ListingPicker from '$lib/components/mobile-scanner/ListingPicker.svelte';
   import LocationInventory from '$lib/components/mobile-scanner/LocationInventory.svelte';
-  import BatchPutaway from '$lib/components/mobile-scanner/BatchPutaway.svelte';
-  import GridAssignment from '$lib/components/mobile-scanner/GridAssignment.svelte';
+  import StorageAssignment from '$lib/components/mobile-scanner/StorageAssignment.svelte';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -239,8 +238,7 @@
       onBagScan={() => goTo({ screen: 'bag_scan' })}
       onFindPart={() => goTo({ screen: 'find_part', initialQuery: '' })}
       onPartSelect={handleHistoryPartSelect}
-      onBatchPutaway={() => goTo({ screen: 'batch_putaway' })}
-      onGridAssignment={() => goTo({ screen: 'grid_assignment' })}
+      onStorageAssignment={() => goTo({ screen: 'storage_assignment' })}
     />
 
   <!-- ── RECEIVE ORDER ─────────────────────────────────────────────────────── -->
@@ -335,21 +333,11 @@
       onExpired={handleExpired}
     />
 
-  <!-- ── BATCH PUTAWAY ──────────────────────────────────────────────────────── -->
-  {:else if current.screen === 'batch_putaway'}
-    <BatchPutaway
+  <!-- ── STORAGE ASSIGNMENT ───────────────────────────────────────────────── -->
+  {:else if current.screen === 'storage_assignment'}
+    <StorageAssignment
       {token}
       {locations}
-      onBack={goBack}
-      onExpired={handleExpired}
-    />
-
-  <!-- ── GRID ASSIGNMENT ───────────────────────────────────────────────────── -->
-  {:else if current.screen === 'grid_assignment'}
-    <GridAssignment
-      {token}
-      {locations}
-      initialLocationId={current.locationId}
       onBack={goBack}
       onExpired={handleExpired}
     />

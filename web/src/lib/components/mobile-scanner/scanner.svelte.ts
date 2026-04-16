@@ -17,23 +17,39 @@ type ScanState = 'idle' | 'decoding' | 'no_barcode';
  *     }
  *   });
  */
+const CAMERA_KEY = 'preferred_camera_device_id';
+
+export type Scanner = ReturnType<typeof createScanner>;
+
 export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
   let mediaStream: MediaStream | null = null;
   let cameraError = $state<string | null>(null);
   let scanState = $state<ScanState>('idle');
+  let cameras = $state<MediaDeviceInfo[]>([]);
+  let continuousActive = $state(false);
+  let selectedCameraId = $state<string | null>(localStorage.getItem(CAMERA_KEY));
 
-  async function startCamera() {
+  function selectCamera(deviceId: string) {
+    selectedCameraId = deviceId;
+    localStorage.setItem(CAMERA_KEY, deviceId);
+  }
+
+  async function startCamera(deviceId?: string | null) {
     const el = getVideoEl();
     if (!el || mediaStream) return;
     cameraError = null;
     // Preload WASM in parallel while waiting for camera permission.
     prepareZXingModule({ overrides: { locateFile: () => zxingWasmUrl } });
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-      });
+      const constraints = deviceId
+        ? { video: { deviceId: { exact: deviceId } } }
+        : { video: { facingMode: { ideal: 'environment' } } };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       mediaStream = stream;
       el.srcObject = stream;
+      // Enumerate cameras now that permission is granted (labels become available).
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameras = devices.filter(d => d.kind === 'videoinput');
     } catch (e: unknown) {
       const name = (e instanceof Error) ? e.name : '';
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
@@ -49,6 +65,7 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
   }
 
   function stopCamera() {
+    continuousActive = false;
     mediaStream?.getTracks().forEach(t => t.stop());
     mediaStream = null;
     const el = getVideoEl();
@@ -65,6 +82,21 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
     return ctx.getImageData(0, 0, canvas.width, canvas.height);
   }
 
+  async function decodeFrame(imageData: ImageData): Promise<string | null> {
+    try {
+      const results = await readBarcodes(imageData, {
+        tryHarder: true,
+        maxNumberOfSymbols: 1,
+        textMode: 'Plain',
+        formats: ["DataMatrix", "QRCode"]
+      });
+      const valid = results.filter(r => r.isValid);
+      return valid.length > 0 ? valid[0].text : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Captures a single frame and attempts to decode a barcode.
    * Calls onResult(text) when a barcode is found; manages scanState throughout.
@@ -77,23 +109,10 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
     const imageData = captureFrame();
     if (!imageData) { scanState = 'idle'; return; }
 
-    let text: string;
-    try {
-      const results = await readBarcodes(imageData, {
-        tryHarder: true,
-        maxNumberOfSymbols: 1,
-        textMode: 'Plain',
-        formats: ["DataMatrix", "QRCode"]
-      });
-      const valid = results.filter(r => r.isValid);
-      if (valid.length === 0) {
-        scanState = 'no_barcode';
-        setTimeout(() => { if (scanState === 'no_barcode') scanState = 'idle'; }, 1500);
-        return;
-      }
-      text = valid[0].text;
-    } catch {
-      scanState = 'idle';
+    const text = await decodeFrame(imageData);
+    if (!text) {
+      scanState = 'no_barcode';
+      setTimeout(() => { if (scanState === 'no_barcode') scanState = 'idle'; }, 1500);
       return;
     }
 
@@ -104,11 +123,51 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
     }
   }
 
+  /**
+   * Continuously decodes frames until a barcode is found or stopContinuousScan() is called.
+   * Designed for hold-to-scan: call on pointerdown, call stopContinuousScan on pointerup/cancel.
+   */
+  async function startContinuousScan(onResult: (text: string) => Promise<void>): Promise<void> {
+    if (continuousActive) return;
+    continuousActive = true;
+    scanState = 'decoding';
+
+    while (continuousActive) {
+      // Yield a macrotask between each decode so the event loop can process
+      // pointerup/pointercancel before the next blocking WASM call.
+      await new Promise(r => setTimeout(r, 0));
+      if (!continuousActive) break;
+
+      const imageData = captureFrame();
+      if (!imageData) continue;
+
+      const text = await decodeFrame(imageData);
+      if (text && continuousActive) {
+        continuousActive = false;
+        scanState = 'idle';
+        await onResult(text);
+        return;
+      }
+    }
+
+    scanState = 'idle';
+  }
+
+  function stopContinuousScan() {
+    continuousActive = false;
+  }
+
   return {
     get cameraError() { return cameraError; },
     get scanState() { return scanState; },
+    get cameras() { return cameras; },
+    get isScanning() { return continuousActive; },
+    get selectedCameraId() { return selectedCameraId; },
     startCamera,
     stopCamera,
+    selectCamera,
     triggerScan,
+    startContinuousScan,
+    stopContinuousScan,
   };
 }

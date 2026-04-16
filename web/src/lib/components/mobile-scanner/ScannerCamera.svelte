@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createScanner } from './scanner.svelte.js';
+  import CameraSelector from './CameraSelector.svelte';
 
   let { onBack, onScan, label }: {
     onBack: () => void;
@@ -11,8 +12,9 @@
   const scanner = createScanner(() => videoEl);
 
   $effect(() => {
+    const deviceId = scanner.selectedCameraId;
     if (videoEl) {
-      scanner.startCamera();
+      scanner.startCamera(deviceId);
       return () => scanner.stopCamera();
     }
   });
@@ -28,6 +30,10 @@
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
     </svg>
   </button>
+
+  <div class="absolute top-3 right-3 z-10">
+    <CameraSelector {scanner} />
+  </div>
 
   {#if label}
     <div class="pointer-events-none absolute top-3 left-0 right-0 z-10 text-center">
@@ -53,17 +59,13 @@
     </div>
     <div class="absolute bottom-0 left-0 right-0 flex justify-center pb-14">
       <button
-        onclick={() => scanner.triggerScan(onScan)}
-        disabled={scanner.scanState === 'decoding'}
-        class="px-14 py-5 rounded-full bg-white text-black font-semibold text-lg active:bg-zinc-200 disabled:opacity-60"
+        onpointerdown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); scanner.startContinuousScan(onScan); }}
+        onpointerup={() => scanner.stopContinuousScan()}
+        onpointercancel={() => scanner.stopContinuousScan()}
+        style="touch-action: none"
+        class="px-14 py-5 rounded-full font-semibold text-lg transition-colors {scanner.isScanning ? 'bg-zinc-200 text-black' : 'bg-white text-black active:bg-zinc-200'}"
       >
-        {#if scanner.scanState === 'decoding'}
-          Scanning…
-        {:else if scanner.scanState === 'no_barcode'}
-          Not found — try again
-        {:else}
-          Scan
-        {/if}
+        {scanner.isScanning ? 'Scanning…' : 'Hold to scan'}
       </button>
     </div>
   {/if}

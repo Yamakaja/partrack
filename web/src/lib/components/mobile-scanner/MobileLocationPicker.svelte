@@ -4,6 +4,7 @@
   import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
   import { fullLocationLabel } from './locationUtils.js';
   import { createScanner } from './scanner.svelte.js';
+  import CameraSelector from './CameraSelector.svelte';
   import MobileGridVisualiser from './MobileGridVisualiser.svelte';
   import StorageTree from '$lib/components/storage/StorageTree.svelte';
 
@@ -12,13 +13,32 @@
     value: PartLocation | null;
     onSelect: (v: PartLocation | null) => void;
     onClose: () => void;
+    /** If set, skip the tree and open directly at this location's cell selection screen. */
+    initialLocationId?: string;
+    /** When false, hides the "Use location only (no cell)" button. Defaults to true. */
+    allowLocationOnly?: boolean;
+    /** When true, tapping a cell immediately confirms it (no separate Confirm button). Defaults to false. */
+    autoConfirmCell?: boolean;
   }
 
-  let { locations, value, onSelect, onClose }: Props = $props();
+  let { locations, value, onSelect, onClose, initialLocationId = undefined, allowLocationOnly = true, autoConfirmCell = false }: Props = $props();
 
   // ── Screen state ─────────────────────────────────────────────────────────
   type Screen = 'tree' | 'cell' | 'camera';
   let screen = $state<Screen>('tree');
+
+  // If an initial location is provided, skip the tree and jump to cell selection.
+  $effect(() => {
+    if (initialLocationId) {
+      const loc = locations.find(l => l.id === initialLocationId);
+      if (loc?.grid_config) {
+        pendingLocation = loc;
+        address = [];
+        currentCell = null;
+        screen = 'cell';
+      }
+    }
+  });
   let searchQuery = $state('');
   let scanError = $state<string | null>(null);
 
@@ -32,8 +52,9 @@
   const scanner = createScanner(() => videoEl);
 
   $effect(() => {
+    const deviceId = scanner.selectedCameraId;
     if (screen === 'camera' && videoEl) {
-      scanner.startCamera();
+      scanner.startCamera(deviceId);
       return () => scanner.stopCamera();
     }
   });
@@ -77,6 +98,7 @@
   // ── Cell interactions ─────────────────────────────────────────────────────
   function handleCellTap(coord: number[]) {
     currentCell = coord;
+    if (autoConfirmCell) confirmCell();
   }
 
   function confirmCell() {
@@ -156,6 +178,10 @@
         <!-- svelte-ignore a11y_media_has_caption -->
         <video bind:this={videoEl} autoplay playsinline muted class="h-full w-full object-cover"></video>
 
+        <div class="absolute top-3 right-3 z-10">
+          <CameraSelector {scanner} />
+        </div>
+
         {#if scanner.cameraError}
           <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 px-8 text-center">
             <p class="text-sm text-zinc-300">{scanner.cameraError}</p>
@@ -171,11 +197,13 @@
           {/if}
           <div class="absolute bottom-0 left-0 right-0 flex justify-center pb-14">
             <button
-              onclick={() => scanner.triggerScan(handleCameraScan)}
-              disabled={scanner.scanState === 'decoding'}
-              class="px-14 py-5 rounded-full bg-white text-black font-semibold text-lg active:bg-zinc-200 disabled:opacity-60"
+              onpointerdown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); scanner.startContinuousScan(handleCameraScan); }}
+              onpointerup={() => scanner.stopContinuousScan()}
+              onpointercancel={() => scanner.stopContinuousScan()}
+              style="touch-action: none"
+              class="px-14 py-5 rounded-full font-semibold text-lg transition-colors {scanner.isScanning ? 'bg-zinc-200 text-black' : 'bg-white text-black active:bg-zinc-200'}"
             >
-              {scanner.scanState === 'decoding' ? 'Scanning…' : 'Scan'}
+              {scanner.isScanning ? 'Scanning…' : 'Hold to scan'}
             </button>
           </div>
         {/if}
@@ -213,23 +241,29 @@
         onCellTap={handleCellTap}
       />
 
-      {#if currentCell}
-        <button
-          onclick={confirmCell}
-          class="w-full rounded-xl bg-white text-black font-semibold py-3 active:bg-zinc-200"
-        >
-          {isLastLevel ? 'Confirm' : 'Next Level →'}
-        </button>
+      {#if !autoConfirmCell}
+        {#if currentCell}
+          <button
+            onclick={confirmCell}
+            class="w-full rounded-xl bg-white text-black font-semibold py-3 active:bg-zinc-200"
+          >
+            {isLastLevel ? 'Confirm' : 'Next Level →'}
+          </button>
+        {:else}
+          <p class="text-center text-xs text-zinc-500">Tap a cell to select it</p>
+        {/if}
       {:else}
         <p class="text-center text-xs text-zinc-500">Tap a cell to select it</p>
       {/if}
 
-      <button
-        onclick={useLocationOnly}
-        class="w-full rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 active:bg-zinc-800"
-      >
-        Use location only (no cell)
-      </button>
+      {#if allowLocationOnly}
+        <button
+          onclick={useLocationOnly}
+          class="w-full rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 active:bg-zinc-800"
+        >
+          Use location only (no cell)
+        </button>
+      {/if}
     </div>
 
   {:else}
