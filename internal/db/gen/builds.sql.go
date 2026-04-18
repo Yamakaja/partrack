@@ -281,6 +281,15 @@ func (q *Queries) DeleteBuildOrderLink(ctx context.Context, arg DeleteBuildOrder
 	return err
 }
 
+const deleteBuildOrdersByOrder = `-- name: DeleteBuildOrdersByOrder :exec
+DELETE FROM build_orders WHERE order_id = $1
+`
+
+func (q *Queries) DeleteBuildOrdersByOrder(ctx context.Context, orderID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteBuildOrdersByOrder, orderID)
+	return err
+}
+
 const deleteBuildPartAllocations = `-- name: DeleteBuildPartAllocations :exec
 DELETE FROM build_part_allocations WHERE build_id = $1
 `

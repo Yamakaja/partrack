@@ -267,6 +267,9 @@ ORDER BY b.created_at DESC;
 -- name: DeleteBuildOrderLink :exec
 DELETE FROM build_orders WHERE build_id = @build_id AND order_id = @order_id;
 
+-- name: DeleteBuildOrdersByOrder :exec
+DELETE FROM build_orders WHERE order_id = $1;
+
 -- name: SetBuildExcludedDesignators :exec
 UPDATE builds SET excluded_designators = @designators WHERE id = @build_id AND team_id = @team_id;
 

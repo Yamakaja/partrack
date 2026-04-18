@@ -96,6 +96,9 @@ SET quantity_ordered = $2
 WHERE order_line_items.id = $1
   AND order_id IN (SELECT o.id FROM orders o WHERE o.team_id = $3 AND o.status = 'draft');
 
+-- name: GetOrderStatusForTeam :one
+SELECT status FROM orders WHERE id = $1 AND team_id = $2;
+
 -- name: CancelOrder :exec
 UPDATE orders
 SET status = 'cancelled'

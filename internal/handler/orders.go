@@ -338,7 +338,8 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 // CancelOrder handles DELETE /api/v1/teams/{teamId}/orders/{orderId}
-// Transitions order to cancelled (any status except Received).
+// Transitions order to cancelled (any status except Received). Linked builds in
+// ordered/ready state are reverted to pending and BOM shortfalls are recomputed.
 func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -351,7 +352,33 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.CancelOrder(r.Context(), dbgen.CancelOrderParams{
+	status, err := h.Queries.GetOrderStatusForTeam(r.Context(), dbgen.GetOrderStatusForTeamParams{
+		ID:     orderID,
+		TeamID: teamID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "order not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if status == "received" {
+		writeError(w, http.StatusConflict, "cannot cancel a received order", "INVALID_STATUS")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	qtx := h.Queries.WithTx(tx)
+
+	if err := qtx.CancelOrder(r.Context(), dbgen.CancelOrderParams{
 		ID:     orderID,
 		TeamID: teamID,
 	}); err != nil {
@@ -359,7 +386,73 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	linkedBuildIDs, err := qtx.GetLinkedBuildIDsForOrder(r.Context(), orderID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	var revertedBuildIDs []pgtype.UUID
+	for _, buildID := range linkedBuildIDs {
+		build, err := qtx.GetBuildForUpdate(r.Context(), dbgen.GetBuildForUpdateParams{
+			ID:     buildID,
+			TeamID: teamID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if build.Status != "ordered" && build.Status != "ready" {
+			continue
+		}
+		if err := qtx.DeleteBuildPartAllocations(r.Context(), buildID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if err := qtx.UpdateBuildStatus(r.Context(), dbgen.UpdateBuildStatusParams{
+			ID:     buildID,
+			Status: "pending",
+			TeamID: teamID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		revertedBuildIDs = append(revertedBuildIDs, buildID)
+	}
+
+	if err := qtx.DeleteBuildOrdersByOrder(r.Context(), orderID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if len(revertedBuildIDs) > 0 {
+		cart, err := qtx.GetOrCreateCart(r.Context(), teamID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if _, err := h.recomputeBomShortfalls(r.Context(), qtx, cart.ID, teamID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+	if len(revertedBuildIDs) > 0 {
+		for _, buildID := range revertedBuildIDs {
+			h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+		}
+		h.CartResolver.Invalidate(teamID.String())
+		h.publishCartChanged(r, teamID)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

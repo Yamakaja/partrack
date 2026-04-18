@@ -538,6 +538,22 @@ func (q *Queries) GetOrderReceiptStatus(ctx context.Context, orderID pgtype.UUID
 	return i, err
 }
 
+const getOrderStatusForTeam = `-- name: GetOrderStatusForTeam :one
+SELECT status FROM orders WHERE id = $1 AND team_id = $2
+`
+
+type GetOrderStatusForTeamParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) GetOrderStatusForTeam(ctx context.Context, arg GetOrderStatusForTeamParams) (OrderStatus, error) {
+	row := q.db.QueryRow(ctx, getOrderStatusForTeam, arg.ID, arg.TeamID)
+	var status OrderStatus
+	err := row.Scan(&status)
+	return status, err
+}
+
 const getOrdersWithQtyForPart = `-- name: GetOrdersWithQtyForPart :many
 SELECT o.id AS order_id,
        COALESCE(SUM(oli.quantity_ordered - oli.quantity_received), 0)::int AS outstanding_qty
