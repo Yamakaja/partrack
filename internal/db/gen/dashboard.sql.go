@@ -62,6 +62,7 @@ func (q *Queries) GetDashboardInventoryAlerts(ctx context.Context, teamID pgtype
 
 const getDashboardOutstandingOrders = `-- name: GetDashboardOutstandingOrders :many
 SELECT o.id, o.status, o.created_at,
+       o.purchase_order_number, o.external_reference,
        d.name AS distributor_name,
        COUNT(oli.id)::bigint AS item_count
 FROM orders o
@@ -75,11 +76,13 @@ LIMIT 5
 `
 
 type GetDashboardOutstandingOrdersRow struct {
-	ID              pgtype.UUID        `json:"id"`
-	Status          OrderStatus        `json:"status"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	DistributorName string             `json:"distributor_name"`
-	ItemCount       int64              `json:"item_count"`
+	ID                  pgtype.UUID        `json:"id"`
+	Status              OrderStatus        `json:"status"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	PurchaseOrderNumber *string            `json:"purchase_order_number"`
+	ExternalReference   *string            `json:"external_reference"`
+	DistributorName     string             `json:"distributor_name"`
+	ItemCount           int64              `json:"item_count"`
 }
 
 func (q *Queries) GetDashboardOutstandingOrders(ctx context.Context, teamID pgtype.UUID) ([]GetDashboardOutstandingOrdersRow, error) {
@@ -95,6 +98,8 @@ func (q *Queries) GetDashboardOutstandingOrders(ctx context.Context, teamID pgty
 			&i.ID,
 			&i.Status,
 			&i.CreatedAt,
+			&i.PurchaseOrderNumber,
+			&i.ExternalReference,
 			&i.DistributorName,
 			&i.ItemCount,
 		); err != nil {

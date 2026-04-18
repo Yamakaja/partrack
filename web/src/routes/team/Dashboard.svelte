@@ -13,6 +13,7 @@
   import { setPartsStockStatus } from '$lib/stores/navState.js';
   import { authStore } from '$lib/stores/auth.svelte.js';
   import BuildPipelineCards from '$lib/components/builds/BuildPipelineCards.svelte';
+  import { formatRelative } from '$lib/utils/date.js';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -20,19 +21,6 @@
     queryKey: ['dashboard', teamId],
     queryFn: () => getDashboard(teamId),
   }));
-
-  function formatRelative(isoString: string): string {
-    const diff = Date.now() - new Date(isoString).getTime();
-    const minutes = Math.floor(diff / 60_000);
-    const hours = Math.floor(diff / 3_600_000);
-    const days = Math.floor(diff / 86_400_000);
-    if (minutes < 2) return 'just now';
-    if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-    if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
-    const months = Math.floor(days / 30);
-    return `${months} month${months === 1 ? '' : 's'} ago`;
-  }
 
   const navCards = [
     { title: 'Parts', description: 'Browse and manage the parts catalog.', icon: Package, href: () => `/teams/${teamId}/parts` },
@@ -104,147 +92,156 @@
     </section>
 
     <!-- Middle grid: Recent Projects + Inventory Alerts -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
 
       <!-- Recent Projects -->
-      <section class="rounded-lg border border-border bg-card p-4 space-y-3">
+      <section class="space-y-2">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Recent Projects</h3>
-
-        {#if dashQuery.isPending}
-          <div class="space-y-2">
-            {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
-          </div>
-        {:else if dashQuery.data}
-          {@const projects = dashQuery.data.recent_projects}
-          {#if projects.length === 0}
-            <p class="text-sm text-muted-foreground">No projects yet.</p>
-          {:else}
-            <div class="space-y-0.5">
-              {#each projects as p (p.id)}
-                <a href={`/teams/${teamId}/projects/${p.id}`} use:linkAction
-                  class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
-                  <span class="text-sm font-medium truncate">{p.name}</span>
-                  <div class="flex items-center gap-2 shrink-0">
-                    {#if p.active_revision_label}
-                      <span class="text-xs text-muted-foreground font-mono">{p.active_revision_label}</span>
-                    {/if}
-                    <Badge variant={projectStatusVariant(p.status)} class="capitalize">{p.status}</Badge>
-                  </div>
-                </a>
-              {/each}
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          {#if dashQuery.isPending}
+            <div class="space-y-2">
+              {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
             </div>
+          {:else if dashQuery.data}
+            {@const projects = dashQuery.data.recent_projects}
+            {#if projects.length === 0}
+              <p class="text-sm text-muted-foreground">No projects yet.</p>
+            {:else}
+              <div class="space-y-0.5">
+                {#each projects as p (p.id)}
+                  <a href={`/teams/${teamId}/projects/${p.id}`} use:linkAction
+                    class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
+                    <div class="flex items-baseline gap-1.5 min-w-0">
+                      <span class="text-sm font-medium truncate">{p.name}</span>
+                      {#if p.active_revision_label}
+                        <span class="text-xs text-muted-foreground font-mono shrink-0">{p.active_revision_label}</span>
+                      {/if}
+                    </div>
+                    <Badge variant={projectStatusVariant(p.status)} class="capitalize shrink-0">{p.status}</Badge>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+            <a href={`/teams/${teamId}/projects`} use:linkAction
+              class="block text-xs text-muted-foreground hover:text-foreground transition-colors no-underline pt-1">
+              View all projects →
+            </a>
           {/if}
-          <a href={`/teams/${teamId}/projects`} use:linkAction
-            class="block text-xs text-muted-foreground hover:text-foreground transition-colors no-underline pt-1">
-            View all projects →
-          </a>
-        {/if}
+        </div>
       </section>
 
       <!-- Inventory Alerts -->
-      <section class="rounded-lg border border-border bg-card p-4 space-y-3">
+      <section class="space-y-2">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Inventory Alerts</h3>
-
-        {#if dashQuery.isPending}
-          <div class="space-y-2">
-            {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
-          </div>
-        {:else if dashQuery.data}
-          {@const alerts = dashQuery.data.inventory_alerts}
-          {#if alerts.length === 0}
-            <p class="text-sm text-muted-foreground">All inventory levels are healthy.</p>
-          {:else}
-            <div class="space-y-0.5">
-              {#each alerts as a (a.inventory_entry_id)}
-                <a href={`/teams/${teamId}/inventory/${a.inventory_entry_id}`} use:linkAction
-                  class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
-                  <span class="text-sm font-medium truncate">{a.mpn ?? a.description ?? '—'}</span>
-                  <span class="text-xs text-muted-foreground shrink-0 tabular-nums">
-                    {a.quantity_on_hand} / min {a.min_stock_level}
-                  </span>
-                </a>
-              {/each}
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          {#if dashQuery.isPending}
+            <div class="space-y-2">
+              {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
             </div>
+          {:else if dashQuery.data}
+            {@const alerts = dashQuery.data.inventory_alerts}
+            {#if alerts.length === 0}
+              <p class="text-sm text-muted-foreground">All inventory levels are healthy.</p>
+            {:else}
+              <div class="space-y-0.5">
+                {#each alerts as a (a.inventory_entry_id)}
+                  <a href={`/teams/${teamId}/inventory/${a.inventory_entry_id}`} use:linkAction
+                    class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
+                    <span class="text-sm font-medium truncate">{a.mpn ?? a.description ?? '—'}</span>
+                    <span class="text-xs text-muted-foreground shrink-0 tabular-nums">
+                      {a.quantity_on_hand} / min {a.min_stock_level}
+                    </span>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+            <button
+              onclick={() => { setPartsStockStatus('low_stock'); navigate(`/teams/${teamId}/parts`); }}
+              class="block text-xs text-muted-foreground hover:text-foreground transition-colors pt-1 text-left">
+              View all in Inventory →
+            </button>
           {/if}
-          <button
-            onclick={() => { setPartsStockStatus('low_stock'); navigate(`/teams/${teamId}/parts`); }}
-            class="block text-xs text-muted-foreground hover:text-foreground transition-colors pt-1 text-left">
-            View all in Inventory →
-          </button>
-        {/if}
+        </div>
       </section>
     </div>
 
     <!-- Bottom grid: Outstanding Orders + Recent Activity -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
 
       <!-- Outstanding Orders -->
-      <section class="rounded-lg border border-border bg-card p-4 space-y-3">
+      <section class="space-y-2">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Outstanding Orders</h3>
-
-        {#if dashQuery.isPending}
-          <div class="space-y-2">
-            {#each [0, 1] as _}<Skeleton class="h-9 rounded" />{/each}
-          </div>
-        {:else if dashQuery.data}
-          {@const orders = dashQuery.data.outstanding_orders}
-          {#if orders.length === 0}
-            <p class="text-sm text-muted-foreground">No outstanding orders.</p>
-          {:else}
-            <div class="space-y-0.5">
-              {#each orders as o (o.id)}
-                <a href={`/teams/${teamId}/orders/${o.id}`} use:linkAction
-                  class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
-                  <div class="min-w-0">
-                    <p class="text-sm font-medium truncate">{o.distributor_name}</p>
-                    <p class="text-xs text-muted-foreground">{o.item_count} item{o.item_count === 1 ? '' : 's'} · {formatRelative(o.created_at)}</p>
-                  </div>
-                  <Badge variant="outline" class="shrink-0 capitalize">{o.status.replace('_', ' ')}</Badge>
-                </a>
-              {/each}
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          {#if dashQuery.isPending}
+            <div class="space-y-2">
+              {#each [0, 1] as _}<Skeleton class="h-9 rounded" />{/each}
             </div>
+          {:else if dashQuery.data}
+            {@const orders = dashQuery.data.outstanding_orders}
+            {#if orders.length === 0}
+              <p class="text-sm text-muted-foreground">No outstanding orders.</p>
+            {:else}
+              <div class="space-y-0.5">
+                {#each orders as o (o.id)}
+                  <a href={`/teams/${teamId}/orders/${o.id}`} use:linkAction
+                    class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
+                    <div class="min-w-0">
+                      <div class="flex items-baseline gap-1.5">
+                        <p class="text-sm font-medium truncate">{o.distributor_name}</p>
+                        {#if o.purchase_order_number ?? o.external_reference}
+                          <span class="text-xs text-muted-foreground font-mono shrink-0">#{o.purchase_order_number ?? o.external_reference}</span>
+                        {/if}
+                      </div>
+                      <p class="text-xs text-muted-foreground">{o.item_count} item{o.item_count === 1 ? '' : 's'} · {formatRelative(o.created_at)}</p>
+                    </div>
+                    <Badge variant="outline" class="shrink-0 capitalize">{o.status.replace('_', ' ')}</Badge>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+            <a href={`/teams/${teamId}/orders`} use:linkAction
+              class="block text-xs text-muted-foreground hover:text-foreground transition-colors no-underline pt-1">
+              View all orders →
+            </a>
           {/if}
-          <a href={`/teams/${teamId}/orders`} use:linkAction
-            class="block text-xs text-muted-foreground hover:text-foreground transition-colors no-underline pt-1">
-            View all orders →
-          </a>
-        {/if}
+        </div>
       </section>
 
       <!-- Recent Activity -->
-      <section class="rounded-lg border border-border bg-card p-4 space-y-3">
+      <section class="space-y-2">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Recent Activity</h3>
-
-        {#if dashQuery.isPending}
-          <div class="space-y-2">
-            {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
-          </div>
-        {:else if dashQuery.data}
-          {@const activity = dashQuery.data.recent_activity}
-          {#if activity.length === 0}
-            <p class="text-sm text-muted-foreground">No recent activity.</p>
-          {:else}
-            <div class="space-y-0.5">
-              {#each activity as item, idx (idx)}
-                <div class="flex items-start gap-2 px-2 py-1.5">
-                  <span class="mt-0.5 text-muted-foreground shrink-0">
-                    {#if item.type === 'build'}
-                      <Hammer size={14} />
-                    {:else if item.type === 'checkout'}
-                      <LogOut size={14} />
-                    {:else}
-                      <PackageCheck size={14} />
-                    {/if}
-                  </span>
-                  <div class="min-w-0">
-                    <p class="text-sm truncate">{item.summary}</p>
-                    <p class="text-xs text-muted-foreground">{formatRelative(item.timestamp)}</p>
-                  </div>
-                </div>
-              {/each}
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          {#if dashQuery.isPending}
+            <div class="space-y-2">
+              {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
             </div>
+          {:else if dashQuery.data}
+            {@const activity = dashQuery.data.recent_activity}
+            {#if activity.length === 0}
+              <p class="text-sm text-muted-foreground">No recent activity.</p>
+            {:else}
+              <div class="space-y-0.5">
+                {#each activity as item, idx (idx)}
+                  <div class="flex items-start gap-2 px-2 py-1.5">
+                    <span class="mt-0.5 text-muted-foreground shrink-0">
+                      {#if item.type === 'build'}
+                        <Hammer size={14} />
+                      {:else if item.type === 'checkout'}
+                        <LogOut size={14} />
+                      {:else}
+                        <PackageCheck size={14} />
+                      {/if}
+                    </span>
+                    <div class="min-w-0">
+                      <p class="text-sm truncate">{item.summary}</p>
+                      <p class="text-xs text-muted-foreground">{formatRelative(item.timestamp)}</p>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           {/if}
-        {/if}
+        </div>
       </section>
     </div>
 

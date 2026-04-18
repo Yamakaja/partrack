@@ -24,8 +24,40 @@
     exportFilename?: string;
   } = $props();
 
+  let isDragging = false;
+  let dragTargetHidden = false;
+  let mouseHandled = false;
+
+  function handleColMousedown(e: MouseEvent, key: string, hidden: boolean | undefined) {
+    e.preventDefault();
+    mouseHandled = true;
+    isDragging = true;
+    dragTargetHidden = !hidden;
+    source.setColumnHidden?.(key, dragTargetHidden);
+  }
+
+  function handleColMouseover(key: string) {
+    if (!isDragging) return;
+    source.setColumnHidden?.(key, dragTargetHidden);
+  }
+
+  function handleColSelect(key: string, hidden: boolean | undefined) {
+    if (mouseHandled) { mouseHandled = false; return; }
+    source.setColumnHidden?.(key, !hidden);
+  }
+
   const activeFilters = $derived([...source.filters.entries()].filter(([, v]) => v.size > 0));
   const hasColumnPicker = $derived(showColumnPicker && !!source.setColumnHidden);
+  const columnGroups = $derived.by(() => {
+    const cols = source.columns.filter((c) => !c.exportOnly);
+    const groups: { label: string | undefined; cols: typeof cols }[] = [];
+    for (const col of cols) {
+      const last = groups[groups.length - 1];
+      if (last && last.label === col.group) { last.cols.push(col); }
+      else { groups.push({ label: col.group, cols: [col] }); }
+    }
+    return groups;
+  });
   const hasContent = $derived(
     !!title || !!toolbarLeft || !!toolbarRight || activeFilters.length > 0 || source.exportEnabled || hasColumnPicker,
   );
@@ -63,6 +95,8 @@
     return `${name}: ${labels.join(', ')}`;
   }
 </script>
+
+<svelte:document onmouseup={() => { isDragging = false; }} />
 
 {#if hasContent}
   <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -110,23 +144,17 @@
             align="end"
             class="z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
           >
-            {#each (() => {
-                const cols = source.columns.filter((c) => !c.exportOnly);
-                const groups: { label: string | undefined; cols: typeof cols }[] = [];
-                for (const col of cols) {
-                  const last = groups[groups.length - 1];
-                  if (last && last.label === col.group) { last.cols.push(col); }
-                  else { groups.push({ label: col.group, cols: [col] }); }
-                }
-                return groups;
-              })() as grp (grp.label ?? grp.cols[0].key)}
+            {#each columnGroups as grp (grp.label ?? grp.cols[0].key)}
               {#if grp.label}
                 <div class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">{grp.label}</div>
               {/if}
               {#each grp.cols as col (col.key)}
                 <DropdownMenuPrimitive.Item
                   class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground outline-none select-none"
-                  onSelect={() => source.setColumnHidden?.(col.key, !col.hidden)}
+                  closeOnSelect={false}
+                  onSelect={() => handleColSelect(col.key, col.hidden)}
+                  onmousedown={(e: MouseEvent) => handleColMousedown(e, col.key, col.hidden)}
+                  onmouseover={() => handleColMouseover(col.key)}
                 >
                   <span
                     class={cn(

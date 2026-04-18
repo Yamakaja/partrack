@@ -33,6 +33,7 @@ LIMIT 10;
 
 -- name: GetDashboardOutstandingOrders :many
 SELECT o.id, o.status, o.created_at,
+       o.purchase_order_number, o.external_reference,
        d.name AS distributor_name,
        COUNT(oli.id)::bigint AS item_count
 FROM orders o

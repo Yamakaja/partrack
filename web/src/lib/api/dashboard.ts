@@ -32,6 +32,8 @@ export interface DashboardInventoryAlert {
 export interface DashboardOrder {
   id: string;
   distributor_name: string;
+  purchase_order_number: string | null;
+  external_reference: string | null;
   created_at: string;
   item_count: number;
   status: string;

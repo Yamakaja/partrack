@@ -106,7 +106,7 @@
   const searchResults = $derived.by(() => {
     if (!trimmed) return null;
     return categories
-      .filter((c) => c.display_name.toLowerCase().includes(trimmed) && (!availableIds || availableIds.has(c.id)))
+      .filter((c) => c.display_name.toLowerCase().includes(trimmed) && (!visibleIds || visibleIds.has(c.id)))
       .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
   });
 </script>
@@ -132,7 +132,7 @@
   <Popover.Content
     align="start"
     sideOffset={4}
-    class="z-50 w-128 rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+    class="z-50 min-w-[480px] w-max max-w-[640px] rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
   >
     <!-- Search -->
     <div class="border-b border-border px-2 py-1.5">
@@ -182,7 +182,7 @@
                   <Check class="h-3.5 w-3.5" />
                 {/if}
               </span>
-              <span class="truncate">{getAncestorName(cat)}</span>
+              <span>{getAncestorName(cat)}</span>
             </button>
           {/each}
         {/if}
@@ -208,7 +208,7 @@
                   <Check class="h-3.5 w-3.5" />
                 {/if}
               </span>
-              <span class="truncate">{root.display_name}</span>
+              <span>{root.display_name}</span>
             </button>
             {#if rootChildren.length > 0}
               <button
@@ -245,7 +245,7 @@
                       <Check class="h-3.5 w-3.5" />
                     {/if}
                   </span>
-                  <span class="truncate">{child.display_name}</span>
+                  <span>{child.display_name}</span>
                 </button>
                 {#if grandchildren.length > 0}
                   <button
@@ -278,7 +278,7 @@
                         <Check class="h-3.5 w-3.5" />
                       {/if}
                     </span>
-                    <span class="truncate">{grandchild.display_name}</span>
+                    <span>{grandchild.display_name}</span>
                   </button>
                 {/each}
               {/if}

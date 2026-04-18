@@ -37,11 +37,13 @@ type dashboardInventoryAlert struct {
 }
 
 type dashboardOrder struct {
-	ID              string `json:"id"`
-	DistributorName string `json:"distributor_name"`
-	CreatedAt       string `json:"created_at"`
-	ItemCount       int64  `json:"item_count"`
-	Status          string `json:"status"`
+	ID                  string  `json:"id"`
+	DistributorName     string  `json:"distributor_name"`
+	PurchaseOrderNumber *string `json:"purchase_order_number"`
+	ExternalReference   *string `json:"external_reference"`
+	CreatedAt           string  `json:"created_at"`
+	ItemCount           int64   `json:"item_count"`
+	Status              string  `json:"status"`
 }
 
 type dashboardActivityItem struct {
@@ -139,11 +141,13 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	orders := make([]dashboardOrder, len(orderRows))
 	for i, o := range orderRows {
 		orders[i] = dashboardOrder{
-			ID:              o.ID.String(),
-			DistributorName: o.DistributorName,
-			CreatedAt:       o.CreatedAt.Time.UTC().Format(time.RFC3339),
-			ItemCount:       o.ItemCount,
-			Status:          string(o.Status),
+			ID:                  o.ID.String(),
+			DistributorName:     o.DistributorName,
+			PurchaseOrderNumber: o.PurchaseOrderNumber,
+			ExternalReference:   o.ExternalReference,
+			CreatedAt:           o.CreatedAt.Time.UTC().Format(time.RFC3339),
+			ItemCount:           o.ItemCount,
+			Status:              string(o.Status),
 		}
 	}
 
