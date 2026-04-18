@@ -101,6 +101,17 @@
     )
   );
 
+  // Companion quantity per part_id (sum of manual companion items for the same part).
+  let companionQtyByPartId = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const item of items) {
+      if (item.source === 'manual' && companionPartIds.has(item.part_id)) {
+        m.set(item.part_id, (m.get(item.part_id) ?? 0) + item.quantity);
+      }
+    }
+    return m;
+  });
+
   let distributorGroups = $derived.by(() => {
     const groups = new Map<string, CartItem[]>();
     for (const item of items) {
@@ -117,7 +128,10 @@
       let subtotal = 0;
       let fixedCost = 0;
       for (const item of distItems) {
-        const oq = effectiveOrderQty(item);
+        // Companion items are folded into their shortfall/maintenance sibling — skip here.
+        if (item.source === 'manual' && companionPartIds.has(item.part_id)) continue;
+        const compQty = companionQtyByPartId.get(item.part_id) ?? 0;
+        const oq = effectiveOrderQty(item, compQty);
         subtotal += effectiveUnitPrice(item, oq) * oq;
         const fcStr = item.listing?.fixed_order_cost ?? '0';
         const fc = parseFloat(fcStr);
@@ -135,7 +149,10 @@
   let buildOrderCosts = $derived.by(() => {
     const costs = new Map<string, number>();
     for (const item of items) {
-      const unitPrice = effectiveUnitPrice(item, effectiveOrderQty(item));
+      // Skip companion items — their cost is counted via the shortfall sibling.
+      if (item.source === 'manual' && companionPartIds.has(item.part_id)) continue;
+      const compQty = companionQtyByPartId.get(item.part_id) ?? 0;
+      const unitPrice = effectiveUnitPrice(item, effectiveOrderQty(item, compQty));
       if (!unitPrice) continue;
       for (const d of item.build_demands ?? []) {
         costs.set(d.build_id, (costs.get(d.build_id) ?? 0) + d.quantity_needed * unitPrice);
@@ -151,8 +168,12 @@
     let total = 0;
     for (const [dist, distItems] of distributorGroups) {
       if (dist === 'Unassigned') continue;
-      positions += distItems.length;
-      for (const item of items) parts += effectiveOrderQty(item);
+      for (const item of distItems) {
+        if (item.source === 'manual' && companionPartIds.has(item.part_id)) continue;
+        positions++;
+        const compQty = companionQtyByPartId.get(item.part_id) ?? 0;
+        parts += effectiveOrderQty(item, compQty);
+      }
       const t = distributorTotals.get(dist);
       if (t) {
         subtotal += parseFloat(t.subtotal);

@@ -8,11 +8,12 @@
   } from '$lib/utils/cart.js';
   import type { CartItem } from '$lib/types/orders.js';
 
-  let { item, orderQty, moq, demand }: {
+  let { item, orderQty, moq, demand, companionQty = 0 }: {
     item: CartItem;
     orderQty: number;
     moq: number;
     demand: number;
+    companionQty?: number;
   } = $props();
 
   let breaks = $derived(item.listing?.price_breaks ?? []);
@@ -22,6 +23,13 @@
   let distributor = $derived(itemDistributor(item));
   let sku = $derived(itemSku(item));
   let demands = $derived(item.build_demands ?? []);
+
+  // Qty breakdown steps
+  let available = $derived(demand - item.quantity); // stock covering some demand (> 0 means partial coverage)
+  let combinedDemand = $derived(item.quantity + companionQty);
+  let moqBump = $derived(moq > combinedDemand ? moq - combinedDemand : 0);
+  let afterMoq = $derived(Math.max(combinedDemand, moq));
+  let priceBreakBump = $derived(orderQty > afterMoq ? orderQty - afterMoq : 0);
 </script>
 
 <TableRow class="bg-muted/30 hover:bg-muted/30">
@@ -112,12 +120,12 @@
       <!-- Price Breaks -->
       <div class="space-y-2 shrink-0 px-8">
         <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Price Breaks</p>
-        <PriceBreaksTable {breaks} qty={orderQty} prevQty={item.quantity} flatPrice={effectiveUnitPriceStr(item, orderQty)} />
+        <PriceBreaksTable {breaks} qty={orderQty} prevQty={combinedDemand} flatPrice={effectiveUnitPriceStr(item, orderQty)} />
       </div>
 
-      <!-- Build Demand -->
+      <!-- Order Breakdown -->
       <div class="space-y-2 shrink-0 pl-8">
-        <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Build Demand</p>
+        <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Order Breakdown</p>
         {#if item.source === 'bom_shortfall' && demands.length > 0}
           <table class="text-xs">
             <thead>
@@ -138,37 +146,86 @@
             </tbody>
             <tfoot>
               <tr class="border-t border-border text-muted-foreground">
-                <td colspan={2} class="pt-1 pr-4">Total demand</td>
+                <td colspan={2} class="pt-1 pr-4">Build demand</td>
                 <td class="pt-1 text-right tabular-nums font-medium text-foreground">{demand.toLocaleString()}</td>
               </tr>
-              <tr class="text-muted-foreground">
-                <td colspan={2} class="pr-4">Ordering</td>
-                <td class="text-right tabular-nums font-medium text-foreground">
-                  {orderQty.toLocaleString()}
-                  {#if orderQty > item.quantity}
-                    <span class="ml-1 text-emerald-600 dark:text-emerald-400">(price break)</span>
-                  {/if}
-                </td>
-              </tr>
-              {#if orderQty > demand && demand > 0}
+              {#if available > 0}
                 <tr class="text-muted-foreground">
-                  <td colspan={2} class="pr-4">Excess</td>
-                  <td class="text-right tabular-nums">
-                    +{(orderQty - demand).toLocaleString()}
-                    {#if moq > 0 && orderQty <= moq}
-                      <span class="ml-1">(MOQ)</span>
-                    {/if}
-                  </td>
+                  <td colspan={2} class="pr-4">Available</td>
+                  <td class="text-right tabular-nums text-emerald-600 dark:text-emerald-400">−{available.toLocaleString()}</td>
                 </tr>
               {/if}
+              {#if companionQty > 0}
+                <tr class="text-muted-foreground">
+                  <td colspan={2} class="pr-4">Manual</td>
+                  <td class="text-right tabular-nums font-medium text-foreground">+{companionQty.toLocaleString()}</td>
+                </tr>
+              {/if}
+              {#if moqBump > 0}
+                <tr class="text-muted-foreground">
+                  <td colspan={2} class="pr-4">MOQ</td>
+                  <td class="text-right tabular-nums">+{moqBump.toLocaleString()}</td>
+                </tr>
+              {/if}
+              {#if priceBreakBump > 0}
+                <tr class="text-muted-foreground">
+                  <td colspan={2} class="pr-4">Price break</td>
+                  <td class="text-right tabular-nums text-emerald-600 dark:text-emerald-400">+{priceBreakBump.toLocaleString()}</td>
+                </tr>
+              {/if}
+              <tr class="border-t border-border">
+                <td colspan={3} class="pt-0"></td>
+              </tr>
+              <tr>
+                <td colspan={2} class="pr-4 text-muted-foreground">Ordering</td>
+                <td class="text-right tabular-nums font-semibold text-foreground">{orderQty.toLocaleString()}</td>
+              </tr>
             </tfoot>
           </table>
-        {:else if item.source === 'inventory_maintenance'}
-          <p class="text-xs text-muted-foreground">Replenishment order — not tied to a build.</p>
-        {:else if item.source === 'manual'}
-          <p class="text-xs text-muted-foreground">Manually added item.</p>
         {:else}
-          <p class="text-xs text-muted-foreground">No pending build demand for this part.</p>
+          <!-- inventory_maintenance or manual: show compact breakdown -->
+          <table class="text-xs">
+            <tbody class="text-muted-foreground">
+              {#if item.source === 'inventory_maintenance'}
+                <tr>
+                  <td class="pr-8 pb-0.5">Replenishment</td>
+                  <td class="text-right tabular-nums font-medium text-foreground">{item.quantity.toLocaleString()}</td>
+                </tr>
+              {:else}
+                <tr>
+                  <td class="pr-8 pb-0.5">Requested</td>
+                  <td class="text-right tabular-nums font-medium text-foreground">{item.quantity.toLocaleString()}</td>
+                </tr>
+              {/if}
+              {#if companionQty > 0}
+                <tr>
+                  <td class="pr-8 pb-0.5">Manual</td>
+                  <td class="text-right tabular-nums">+{companionQty.toLocaleString()}</td>
+                </tr>
+              {/if}
+              {#if moqBump > 0}
+                <tr>
+                  <td class="pr-8 pb-0.5">MOQ</td>
+                  <td class="text-right tabular-nums">+{moqBump.toLocaleString()}</td>
+                </tr>
+              {/if}
+              {#if priceBreakBump > 0}
+                <tr>
+                  <td class="pr-8 pb-0.5">Price break</td>
+                  <td class="text-right tabular-nums text-emerald-600 dark:text-emerald-400">+{priceBreakBump.toLocaleString()}</td>
+                </tr>
+              {/if}
+            </tbody>
+            <tfoot>
+              <tr class="border-t border-border">
+                <td colspan={2} class="pt-0"></td>
+              </tr>
+              <tr>
+                <td class="pr-8 text-muted-foreground">Ordering</td>
+                <td class="text-right tabular-nums font-semibold text-foreground">{orderQty.toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
         {/if}
       </div>
 

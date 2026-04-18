@@ -1,16 +1,42 @@
 import type { CartItem, PriceBreak } from '$lib/types/orders.js';
 
-export function effectiveOrderQty(item: CartItem): number {
-  return item.listing?.optimized_qty ?? Math.max(item.quantity, item.listing?.moq ?? 0);
+export function effectiveOrderQty(item: CartItem, companionQty = 0): number {
+  const listing = item.listing;
+  const demand = item.quantity + companionQty;
+  const moq = listing?.moq ?? 0;
+  const base = Math.max(demand, moq);
+  if (!listing) return base;
+
+  const breaks = listing.price_breaks ?? [];
+  if (!breaks.length) return base;
+
+  // Price at base (walk up price break tiers)
+  let naturalPrice = listing.unit_price ? parseFloat(listing.unit_price) : NaN;
+  for (const pb of breaks) {
+    if (base >= pb.break_qty) naturalPrice = parseFloat(pb.unit_price);
+  }
+  if (isNaN(naturalPrice)) return base;
+
+  // Check if bumping to a higher price break reduces total spend
+  const cap = demand * 100;
+  let optQty = base;
+  let bestCost = naturalPrice * base;
+  for (const pb of breaks) {
+    if (pb.break_qty <= base || pb.break_qty > cap) continue;
+    const breakPrice = parseFloat(pb.unit_price);
+    const cost = breakPrice * pb.break_qty;
+    if (cost < bestCost) {
+      bestCost = cost;
+      optQty = pb.break_qty;
+    }
+  }
+  return optQty;
 }
 
 export function effectiveUnitPrice(item: CartItem, orderQty: number): number {
   const listing = item.listing;
   if (!listing) return 0;
-  // For resolved listings the backend already computed the price at optimal qty.
-  if (!listing.chosen && listing.unit_price) {
-    return parseFloat(listing.unit_price);
-  }
+  // Walk price break tiers; fall back to flat unit_price if none apply
   let price = listing.unit_price ? parseFloat(listing.unit_price) : NaN;
   for (const pb of listing.price_breaks ?? []) {
     if (orderQty >= pb.break_qty) price = parseFloat(pb.unit_price);

@@ -132,10 +132,12 @@
       <TableBody>
         {#each distItems.filter(i => !(i.source === 'manual' && companionPartIds.has(i.part_id))) as item (item.id)}
           {@const moq = itemMoq(item)}
-          {@const belowMoq = moq > 0 && item.quantity < moq}
+          {@const companionQty = companionQtyByPartId.get(item.part_id) ?? 0}
+          {@const combinedDemand = item.quantity + companionQty}
+          {@const belowMoq = moq > 0 && combinedDemand < moq}
           {@const demand = totalBuildDemand(item)}
           {@const isExpanded = expandedItemId === item.id}
-          {@const orderQty = effectiveOrderQty(item)}
+          {@const orderQty = effectiveOrderQty(item, companionQty)}
           <!-- Main row -->
           <TableRow
             class="cursor-pointer hover:bg-muted/50 select-none"
@@ -176,17 +178,14 @@
                   {#if demand > 0 && item.source === 'bom_shortfall'}
                     <span>Needs {demand}</span>
                   {/if}
+                  {#if companionQty > 0}
+                    <span>+{companionQty} manual</span>
+                  {/if}
                   {#if moq > 0}
                     <span class={belowMoq ? 'text-destructive font-medium' : ''}>MOQ {moq}</span>
                   {/if}
-                  {#if orderQty > item.quantity}
+                  {#if orderQty > combinedDemand}
                     <span class="text-emerald-600 dark:text-emerald-400">↑ {orderQty} (price break)</span>
-                  {/if}
-                  {#if companionPartIds.has(item.part_id)}
-                    {@const cqty = companionQtyByPartId.get(item.part_id) ?? 0}
-                    {#if cqty > 0}
-                      <span>+{cqty} manual</span>
-                    {/if}
                   {/if}
                 </div>
               </div>
@@ -238,7 +237,7 @@
 
           <!-- Expandable detail row -->
           {#if isExpanded}
-            <CartItemDetail {item} {orderQty} {moq} {demand} />
+            <CartItemDetail {item} {orderQty} {moq} {demand} {companionQty} />
           {/if}
 
         {/each}

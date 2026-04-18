@@ -129,6 +129,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 	if len(ids) == 0 {
 		data, _ := json.Marshal(map[string]string{})
 		q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: data})
+		q.invalidateCart(job.TeamID)
 		return
 	}
 
@@ -228,6 +229,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 
 	data, _ := json.Marshal(map[string]string{})
 	q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: data})
+	q.invalidateCart(job.TeamID)
 }
 
 // updateListingFromResult writes refreshed price/stock data for one listing and

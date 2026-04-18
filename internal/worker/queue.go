@@ -54,11 +54,31 @@ type subscription struct {
 // Jobs are processed by a pool of worker goroutines. Progress events are
 // fanned out to all active SSE subscribers for the relevant team.
 type Queue struct {
-	jobs         chan Job
-	subscribers  map[string][]subscription // keyed by team ID
-	mu           sync.RWMutex
-	db           *pgxpool.Pool
-	distributors distributor.Registry
+	jobs           chan Job
+	subscribers    map[string][]subscription // keyed by team ID
+	mu             sync.RWMutex
+	db             *pgxpool.Pool
+	distributors   distributor.Registry
+	cartInvalidate func(teamID string)
+}
+
+// SetCartInvalidate registers a callback that is called whenever a background
+// job updates distributor listing data. The callback should invalidate any
+// cached cart resolution for the given team.
+func (q *Queue) SetCartInvalidate(fn func(teamID string)) {
+	q.mu.Lock()
+	q.cartInvalidate = fn
+	q.mu.Unlock()
+}
+
+// invalidateCart calls the registered cart invalidation callback, if any.
+func (q *Queue) invalidateCart(teamID string) {
+	q.mu.RLock()
+	fn := q.cartInvalidate
+	q.mu.RUnlock()
+	if fn != nil && teamID != "" {
+		fn(teamID)
+	}
 }
 
 // New creates a Queue and starts n worker goroutines.

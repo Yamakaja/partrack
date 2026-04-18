@@ -207,6 +207,4 @@ Currently the server will send query invalidation notifications within a team on
 
 # Others
 
-- In the column picker of the parts table, the picker should stay open when a value is selected or unselected.
-- Allow seraching for parent categories in category picker
-- Confirmation toasts in grid scanning mode for feedback
+- Handle cancelled order with linked builds

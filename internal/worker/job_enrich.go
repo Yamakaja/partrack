@@ -143,6 +143,9 @@ func (q *Queue) handlePartEnrich(job Job) {
 
 	data, _ := json.Marshal(map[string]string{"part_id": partIDStr})
 	q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, Data: data})
+	cartData, _ := json.Marshal(map[string]string{})
+	q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: cartData})
+	q.invalidateCart(job.TeamID)
 }
 
 // ApplyEnrichmentResult finds or creates a part matching result, applies parameters

@@ -93,6 +93,7 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 		ScanHub:      NewScanHub(),
 	}
 	h.initOIDC()
+	q.SetCartInvalidate(h.CartResolver.Invalidate)
 	return h
 }
 
