@@ -126,7 +126,8 @@ ORDER BY dl.distributor_id NULLS LAST, cli.id;
 -- name: GetPendingBuildsForTeamCart :many
 -- Returns pending builds that are included in cart (excluded_from_cart = FALSE)
 SELECT b.id, b.team_id, b.bom_revision_id, b.quantity AS build_quantity,
-       br.label AS revision_label, pr.name AS project_name
+       br.label AS revision_label, pr.name AS project_name,
+       b.excluded_designators
 FROM builds b
 JOIN bom_revisions br ON br.id = b.bom_revision_id
 JOIN projects pr       ON pr.id = br.project_id

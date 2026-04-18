@@ -124,7 +124,7 @@ const createBuildPlan = `-- name: CreateBuildPlan :one
 INSERT INTO builds (team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by)
 VALUES ($1, $2, $3, $4, 'draft', $5, NOW(), $6)
 RETURNING id, team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by,
-          assembled_at, assembled_by, assembled_quantity, excluded_from_cart
+          assembled_at, assembled_by, assembled_quantity, excluded_from_cart, excluded_designators
 `
 
 type CreateBuildPlanParams struct {
@@ -137,19 +137,20 @@ type CreateBuildPlanParams struct {
 }
 
 type CreateBuildPlanRow struct {
-	ID                pgtype.UUID        `json:"id"`
-	TeamID            pgtype.UUID        `json:"team_id"`
-	ProjectID         pgtype.UUID        `json:"project_id"`
-	BomRevisionID     pgtype.UUID        `json:"bom_revision_id"`
-	Quantity          int32              `json:"quantity"`
-	Status            string             `json:"status"`
-	Notes             *string            `json:"notes"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	CreatedBy         pgtype.UUID        `json:"created_by"`
-	AssembledAt       pgtype.Timestamptz `json:"assembled_at"`
-	AssembledBy       pgtype.UUID        `json:"assembled_by"`
-	AssembledQuantity *int32             `json:"assembled_quantity"`
-	ExcludedFromCart  bool               `json:"excluded_from_cart"`
+	ID                  pgtype.UUID        `json:"id"`
+	TeamID              pgtype.UUID        `json:"team_id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	BomRevisionID       pgtype.UUID        `json:"bom_revision_id"`
+	Quantity            int32              `json:"quantity"`
+	Status              string             `json:"status"`
+	Notes               *string            `json:"notes"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	AssembledAt         pgtype.Timestamptz `json:"assembled_at"`
+	AssembledBy         pgtype.UUID        `json:"assembled_by"`
+	AssembledQuantity   *int32             `json:"assembled_quantity"`
+	ExcludedFromCart    bool               `json:"excluded_from_cart"`
+	ExcludedDesignators []string           `json:"excluded_designators"`
 }
 
 func (q *Queries) CreateBuildPlan(ctx context.Context, arg CreateBuildPlanParams) (CreateBuildPlanRow, error) {
@@ -176,6 +177,7 @@ func (q *Queries) CreateBuildPlan(ctx context.Context, arg CreateBuildPlanParams
 		&i.AssembledBy,
 		&i.AssembledQuantity,
 		&i.ExcludedFromCart,
+		&i.ExcludedDesignators,
 	)
 	return i, err
 }
@@ -249,6 +251,20 @@ func (q *Queries) DecrementBuildQuantity(ctx context.Context, arg DecrementBuild
 	var i DecrementBuildQuantityRow
 	err := row.Scan(&i.ID, &i.Quantity, &i.Status)
 	return i, err
+}
+
+const deleteBuildLineItemOverride = `-- name: DeleteBuildLineItemOverride :exec
+DELETE FROM build_line_item_overrides WHERE build_id = $1 AND bom_line_item_id = $2
+`
+
+type DeleteBuildLineItemOverrideParams struct {
+	BuildID       pgtype.UUID `json:"build_id"`
+	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
+}
+
+func (q *Queries) DeleteBuildLineItemOverride(ctx context.Context, arg DeleteBuildLineItemOverrideParams) error {
+	_, err := q.db.Exec(ctx, deleteBuildLineItemOverride, arg.BuildID, arg.BomLineItemID)
+	return err
 }
 
 const deleteBuildOrderLink = `-- name: DeleteBuildOrderLink :exec
@@ -339,6 +355,7 @@ SELECT
     b.bom_revision_id, br.label AS bom_revision_label,
     b.quantity, b.status, b.notes,
     b.assembled_at, b.assembled_quantity, b.excluded_from_cart,
+    b.excluded_designators,
     b.created_at, b.created_by,
     b.selections_checked_at,
     u_assembled.display_name AS assembled_by_display_name,
@@ -369,6 +386,7 @@ type GetBuildRow struct {
 	AssembledAt            pgtype.Timestamptz `json:"assembled_at"`
 	AssembledQuantity      *int32             `json:"assembled_quantity"`
 	ExcludedFromCart       bool               `json:"excluded_from_cart"`
+	ExcludedDesignators    []string           `json:"excluded_designators"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	CreatedBy              pgtype.UUID        `json:"created_by"`
 	SelectionsCheckedAt    pgtype.Timestamptz `json:"selections_checked_at"`
@@ -392,6 +410,7 @@ func (q *Queries) GetBuild(ctx context.Context, arg GetBuildParams) (GetBuildRow
 		&i.AssembledAt,
 		&i.AssembledQuantity,
 		&i.ExcludedFromCart,
+		&i.ExcludedDesignators,
 		&i.CreatedAt,
 		&i.CreatedBy,
 		&i.SelectionsCheckedAt,
@@ -404,7 +423,7 @@ func (q *Queries) GetBuild(ctx context.Context, arg GetBuildParams) (GetBuildRow
 const getBuildForUpdate = `-- name: GetBuildForUpdate :one
 SELECT id, team_id, project_id, bom_revision_id, quantity, status, notes,
        assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart,
-       selections_checked_at
+       excluded_designators, selections_checked_at
 FROM builds
 WHERE id = $1 AND team_id = $2
 FOR UPDATE
@@ -429,6 +448,7 @@ type GetBuildForUpdateRow struct {
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	CreatedBy           pgtype.UUID        `json:"created_by"`
 	ExcludedFromCart    bool               `json:"excluded_from_cart"`
+	ExcludedDesignators []string           `json:"excluded_designators"`
 	SelectionsCheckedAt pgtype.Timestamptz `json:"selections_checked_at"`
 }
 
@@ -449,9 +469,62 @@ func (q *Queries) GetBuildForUpdate(ctx context.Context, arg GetBuildForUpdatePa
 		&i.CreatedAt,
 		&i.CreatedBy,
 		&i.ExcludedFromCart,
+		&i.ExcludedDesignators,
 		&i.SelectionsCheckedAt,
 	)
 	return i, err
+}
+
+const getBuildLineItemOverrides = `-- name: GetBuildLineItemOverrides :many
+SELECT build_id, bom_line_item_id, override_type
+FROM build_line_item_overrides
+WHERE build_id = $1
+`
+
+func (q *Queries) GetBuildLineItemOverrides(ctx context.Context, buildID pgtype.UUID) ([]BuildLineItemOverride, error) {
+	rows, err := q.db.Query(ctx, getBuildLineItemOverrides, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BuildLineItemOverride
+	for rows.Next() {
+		var i BuildLineItemOverride
+		if err := rows.Scan(&i.BuildID, &i.BomLineItemID, &i.OverrideType); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getBuildLineItemOverridesForBuilds = `-- name: GetBuildLineItemOverridesForBuilds :many
+SELECT build_id, bom_line_item_id, override_type
+FROM build_line_item_overrides
+WHERE build_id = ANY($1::uuid[])
+`
+
+func (q *Queries) GetBuildLineItemOverridesForBuilds(ctx context.Context, buildIds []pgtype.UUID) ([]BuildLineItemOverride, error) {
+	rows, err := q.db.Query(ctx, getBuildLineItemOverridesForBuilds, buildIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BuildLineItemOverride
+	for rows.Next() {
+		var i BuildLineItemOverride
+		if err := rows.Scan(&i.BuildID, &i.BomLineItemID, &i.OverrideType); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getBuildOrderIDs = `-- name: GetBuildOrderIDs :many
@@ -764,7 +837,7 @@ func (q *Queries) GetOrderedBuildsNeedingPart(ctx context.Context, arg GetOrdere
 const getPendingBuildsForTeam = `-- name: GetPendingBuildsForTeam :many
 SELECT b.id, b.team_id, b.project_id, pr.name AS project_name,
        b.bom_revision_id, br.label AS revision_label,
-       b.quantity AS build_quantity, b.excluded_from_cart
+       b.quantity AS build_quantity, b.excluded_from_cart, b.excluded_designators
 FROM builds b
 JOIN projects pr      ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
@@ -773,14 +846,15 @@ ORDER BY b.created_at
 `
 
 type GetPendingBuildsForTeamRow struct {
-	ID               pgtype.UUID `json:"id"`
-	TeamID           pgtype.UUID `json:"team_id"`
-	ProjectID        pgtype.UUID `json:"project_id"`
-	ProjectName      string      `json:"project_name"`
-	BomRevisionID    pgtype.UUID `json:"bom_revision_id"`
-	RevisionLabel    string      `json:"revision_label"`
-	BuildQuantity    int32       `json:"build_quantity"`
-	ExcludedFromCart bool        `json:"excluded_from_cart"`
+	ID                  pgtype.UUID `json:"id"`
+	TeamID              pgtype.UUID `json:"team_id"`
+	ProjectID           pgtype.UUID `json:"project_id"`
+	ProjectName         string      `json:"project_name"`
+	BomRevisionID       pgtype.UUID `json:"bom_revision_id"`
+	RevisionLabel       string      `json:"revision_label"`
+	BuildQuantity       int32       `json:"build_quantity"`
+	ExcludedFromCart    bool        `json:"excluded_from_cart"`
+	ExcludedDesignators []string    `json:"excluded_designators"`
 }
 
 func (q *Queries) GetPendingBuildsForTeam(ctx context.Context, teamID pgtype.UUID) ([]GetPendingBuildsForTeamRow, error) {
@@ -801,6 +875,7 @@ func (q *Queries) GetPendingBuildsForTeam(ctx context.Context, teamID pgtype.UUI
 			&i.RevisionLabel,
 			&i.BuildQuantity,
 			&i.ExcludedFromCart,
+			&i.ExcludedDesignators,
 		); err != nil {
 			return nil, err
 		}
@@ -1017,6 +1092,21 @@ func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListB
 	return items, nil
 }
 
+const setBuildExcludedDesignators = `-- name: SetBuildExcludedDesignators :exec
+UPDATE builds SET excluded_designators = $1 WHERE id = $2 AND team_id = $3
+`
+
+type SetBuildExcludedDesignatorsParams struct {
+	Designators []string    `json:"designators"`
+	BuildID     pgtype.UUID `json:"build_id"`
+	TeamID      pgtype.UUID `json:"team_id"`
+}
+
+func (q *Queries) SetBuildExcludedDesignators(ctx context.Context, arg SetBuildExcludedDesignatorsParams) error {
+	_, err := q.db.Exec(ctx, setBuildExcludedDesignators, arg.Designators, arg.BuildID, arg.TeamID)
+	return err
+}
+
 const setBuildExcludedFromCart = `-- name: SetBuildExcludedFromCart :exec
 UPDATE builds
 SET excluded_from_cart = $2
@@ -1169,6 +1259,23 @@ type UpdateBuildStatusParams struct {
 
 func (q *Queries) UpdateBuildStatus(ctx context.Context, arg UpdateBuildStatusParams) error {
 	_, err := q.db.Exec(ctx, updateBuildStatus, arg.ID, arg.Status, arg.TeamID)
+	return err
+}
+
+const upsertBuildLineItemOverride = `-- name: UpsertBuildLineItemOverride :exec
+INSERT INTO build_line_item_overrides (build_id, bom_line_item_id, override_type)
+VALUES ($1, $2, $3)
+ON CONFLICT (build_id, bom_line_item_id) DO UPDATE SET override_type = EXCLUDED.override_type
+`
+
+type UpsertBuildLineItemOverrideParams struct {
+	BuildID       pgtype.UUID `json:"build_id"`
+	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
+	OverrideType  string      `json:"override_type"`
+}
+
+func (q *Queries) UpsertBuildLineItemOverride(ctx context.Context, arg UpsertBuildLineItemOverrideParams) error {
+	_, err := q.db.Exec(ctx, upsertBuildLineItemOverride, arg.BuildID, arg.BomLineItemID, arg.OverrideType)
 	return err
 }
 

@@ -212,11 +212,14 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 |--------|------|------|-------------|
 | GET | `/builds` | viewer | List; query: `project_id?`, `status?` (repeatable), `created_by?`, `sort_by?` (`project_name`/`bom_revision_label`/`status`/`quantity`/`created_at`), `sort_dir?` (`asc`/`desc`), `limit`, `offset` |
 | GET | `/builds/pipeline` | viewer | Builds grouped by status: `{draft: [], pending: [], ordered: [], ready: []}` |
-| GET | `/builds/{buildId}` | viewer | Build details with `allocations`, `order_ids`, `substitute_selections`, `selections_stale`, and (if assembled) `items` showing per-part deductions |
-| POST | `/builds/preview` | member | `{bom_revision_id, quantity, substitute_selections?}` → preview deductions without persisting |
+| GET | `/builds/{buildId}` | viewer | Build details with `allocations`, `order_ids`, `substitute_selections`, `selections_stale`, `excluded_designators`, `line_item_overrides`, and (if assembled) `items` showing per-part deductions |
+| POST | `/builds/preview` | member | `{bom_revision_id, quantity}` → ad-hoc preview without a saved build |
+| GET | `/builds/{buildId}/preview` | viewer | Preview for a saved draft/pending build; accounts for `excluded_designators` and `line_item_overrides`. Items include `effective_quantity_per_board`, `effective_total_quantity`, `excluded_designator_count`, `override` (`use_available`/`skip`/`null`), `available_quantity` |
+| PUT | `/builds/{buildId}/excluded-designators` | member | `{designators: string[]}` — replace full excluded designator set (draft/pending only); recomputes cart shortfalls for pending builds; 200 |
+| PATCH | `/builds/{buildId}/line-item-overrides/{itemId}` | member | `{override_type: "use_available" \| "skip" \| null}` — set or clear stock override for a BOM line item (draft/pending only); null deletes the override; 200 |
 | POST | `/builds` | member | `{project_id, bom_revision_id, quantity, notes?}` → 201 draft build; enqueues substitute selection computation |
 | POST | `/builds/{buildId}/submit` | member | draft→pending; recomputes cart shortfalls. Returns 409 if substitute selections still being computed. |
-| POST | `/builds/{buildId}/checkout` | member | pending/ready→assembled; `{assembled_quantity?, substitute_selections?, allow_stock_reconciliation?, allow_orphaned_selections?}`. Returns 409 with `insufficient_items` if stock short and reconciliation not allowed. Response: `{id, status, assembled_quantity, remaining_quantity?, assembled_at, deduction_count}`. |
+| POST | `/builds/{buildId}/checkout` | member | draft/pending/ready→assembled; `{assembled_quantity?}`. Excluded designators and per-item overrides (`skip`/`use_available`) are applied at checkout. Returns 409 `INSUFFICIENT_STOCK` if any unacknowledged item has insufficient stock. Response: `{id, status, deduction_count}`. |
 | PATCH | `/builds/{buildId}` | member | `{quantity?, notes?}` (draft/pending only); recomputes shortfalls if pending and quantity changed |
 | DELETE | `/builds/{buildId}` | member | Cancel any non-terminal build; releases allocations; 204 |
 | PATCH | `/builds/{buildId}/cart-inclusion` | purchaser | `{excluded: bool}` — toggle whether pending build contributes to cart demand; 204 |

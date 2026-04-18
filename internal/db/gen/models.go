@@ -416,6 +416,13 @@ type Build struct {
 	CreatedBy           pgtype.UUID        `json:"created_by"`
 	ExcludedFromCart    bool               `json:"excluded_from_cart"`
 	SelectionsCheckedAt pgtype.Timestamptz `json:"selections_checked_at"`
+	ExcludedDesignators []string           `json:"excluded_designators"`
+}
+
+type BuildLineItemOverride struct {
+	BuildID       pgtype.UUID `json:"build_id"`
+	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
+	OverrideType  string      `json:"override_type"`
 }
 
 type BuildOrder struct {

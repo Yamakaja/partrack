@@ -453,7 +453,8 @@ func (q *Queries) GetOrCreateCart(ctx context.Context, teamID pgtype.UUID) (Shop
 
 const getPendingBuildsForTeamCart = `-- name: GetPendingBuildsForTeamCart :many
 SELECT b.id, b.team_id, b.bom_revision_id, b.quantity AS build_quantity,
-       br.label AS revision_label, pr.name AS project_name
+       br.label AS revision_label, pr.name AS project_name,
+       b.excluded_designators
 FROM builds b
 JOIN bom_revisions br ON br.id = b.bom_revision_id
 JOIN projects pr       ON pr.id = br.project_id
@@ -464,12 +465,13 @@ ORDER BY b.created_at
 `
 
 type GetPendingBuildsForTeamCartRow struct {
-	ID            pgtype.UUID `json:"id"`
-	TeamID        pgtype.UUID `json:"team_id"`
-	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
-	BuildQuantity int32       `json:"build_quantity"`
-	RevisionLabel string      `json:"revision_label"`
-	ProjectName   string      `json:"project_name"`
+	ID                  pgtype.UUID `json:"id"`
+	TeamID              pgtype.UUID `json:"team_id"`
+	BomRevisionID       pgtype.UUID `json:"bom_revision_id"`
+	BuildQuantity       int32       `json:"build_quantity"`
+	RevisionLabel       string      `json:"revision_label"`
+	ProjectName         string      `json:"project_name"`
+	ExcludedDesignators []string    `json:"excluded_designators"`
 }
 
 // Returns pending builds that are included in cart (excluded_from_cart = FALSE)
@@ -489,6 +491,7 @@ func (q *Queries) GetPendingBuildsForTeamCart(ctx context.Context, teamID pgtype
 			&i.BuildQuantity,
 			&i.RevisionLabel,
 			&i.ProjectName,
+			&i.ExcludedDesignators,
 		); err != nil {
 			return nil, err
 		}

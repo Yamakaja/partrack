@@ -2,10 +2,12 @@
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import {
     getBuild, submitBuild, checkoutBuild, cancelBuild,
-    previewBuild, refreshBuildSubstituteSelections, patchBuildSubstituteSelections,
+    getBuildPreview, setExcludedDesignators, setLineItemOverride,
+    refreshBuildSubstituteSelections, patchBuildSubstituteSelections,
     type BuildPreviewItem,
   } from '$lib/api/builds.js';
   import { ApiError } from '$lib/api/client.js';
+  import { expandDesignators } from '$lib/utils/designators.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
@@ -15,7 +17,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
-  import { Dialog } from 'bits-ui';
+  import { Dialog, Popover } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -32,21 +34,88 @@
     queryFn: () => getBuild(teamId, buildId),
   }));
 
-  // Fetch preview for draft/pending builds (parts table + checkout eligibility)
+  // Fetch preview for draft/pending/ready builds (parts table + checkout modal)
   let previewQuery = createQuery(() => ({
-    queryKey: ['build-preview', buildQuery.data?.bom_revision_id, buildQuery.data?.quantity],
-    queryFn: () => previewBuild(teamId, {
-      bom_revision_id: buildQuery.data!.bom_revision_id,
-      quantity: buildQuery.data!.quantity,
-    }),
-    enabled: !!buildQuery.data && (buildQuery.data.status === 'draft' || buildQuery.data.status === 'pending'),
+    queryKey: ['build-preview', buildId],
+    queryFn: () => getBuildPreview(teamId, buildId),
+    enabled: !!buildQuery.data && ['draft', 'pending', 'ready'].includes(buildQuery.data.status),
   }));
 
-  // Substitute selection state
+  // ── Excluded designators (optimistic local state) ──────────────────────────
+  let pendingExcluded = $state<Set<string> | null>(null);
+  const excludedDesignators = $derived(
+    pendingExcluded ?? new Set<string>(buildQuery.data?.excluded_designators ?? [])
+  );
+
+  async function applyExcluded(newSet: Set<string>) {
+    pendingExcluded = newSet;
+    try {
+      await setExcludedDesignators(teamId, buildId, [...newSet]);
+      qc.invalidateQueries({ queryKey: ['build-preview', buildId] });
+      qc.invalidateQueries({ queryKey: ['build', buildId] });
+    } catch (err: any) {
+      pushToast('error', 'Failed to update excluded designators', err.message);
+      pendingExcluded = null;
+    }
+  }
+
+  function toggleDesignator(d: string) {
+    const next = new Set(excludedDesignators);
+    if (next.has(d)) next.delete(d); else next.add(d);
+    applyExcluded(next);
+  }
+
+  function toggleAllDesignators(designators: string[], include: boolean) {
+    const next = new Set(excludedDesignators);
+    for (const d of designators) { if (include) next.delete(d); else next.add(d); }
+    applyExcluded(next);
+  }
+
+  function invertDesignators(designators: string[]) {
+    const next = new Set(excludedDesignators);
+    for (const d of designators) { if (next.has(d)) next.delete(d); else next.add(d); }
+    applyExcluded(next);
+  }
+
+  // ── Line-item overrides ─────────────────────────────────────────────────────
+  let settingOverride = $state<Record<string, boolean>>({});
+
+  async function setOverride(row: BuildPreviewItem, override: 'use_available' | 'skip' | null) {
+    settingOverride[row.bom_line_item_id] = true;
+    try {
+      await setLineItemOverride(teamId, buildId, row.bom_line_item_id, override);
+      qc.invalidateQueries({ queryKey: ['build-preview', buildId] });
+      qc.invalidateQueries({ queryKey: ['build', buildId] });
+    } catch (err: any) {
+      pushToast('error', 'Failed to update override', err.message);
+    } finally {
+      settingOverride[row.bom_line_item_id] = false;
+    }
+  }
+
+  // ── Paste exclusions popover ────────────────────────────────────────────────
+  let pasteOpen = $state(false);
+  let pasteText = $state('');
+
+  function parsePasteList(text: string): string[] {
+    return text.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+  }
+
+  async function applyPasteExclusions(parsed: string[]) {
+    const allItemDesignators = new Set(
+      (previewQuery.data?.items ?? []).flatMap(it => expandDesignators(it.reference_designators ?? ''))
+    );
+    const valid = parsed.filter(d => allItemDesignators.has(d));
+    const next = new Set([...excludedDesignators, ...valid]);
+    pasteOpen = false;
+    pasteText = '';
+    await applyExcluded(next);
+  }
+
+  // ── Substitute selection state ──────────────────────────────────────────────
   let refreshingSelections = $state(false);
   let patchingSelection = $state<Record<string, boolean>>({});
 
-  // selectionsReady: true when selections have been computed (checked_at is set) and not stale
   let selectionsReady = $derived(
     !!buildQuery.data?.selections_checked_at && !buildQuery.data?.selections_stale
   );
@@ -55,7 +124,6 @@
     refreshingSelections = true;
     try {
       await refreshBuildSubstituteSelections(teamId, buildId);
-      // Poll for completion by refetching
       qc.invalidateQueries({ queryKey: ['build', buildId] });
       pushToast('info', 'Recalculating substitute selections…');
     } catch (err: any) {
@@ -78,15 +146,12 @@
     }
   }
 
-  // Action states
+  // ── Action states ───────────────────────────────────────────────────────────
   let submitting = $state(false);
   let cancelOpen = $state(false);
 
-  // Checkout modal
+  // ── Checkout modal ──────────────────────────────────────────────────────────
   let checkoutOpen = $state(false);
-  let checkoutItems = $state<BuildPreviewItem[]>([]);
-  let checkoutPreviewing = $state(false);
-  let checkoutAllowReconciliation = $state(false);
   let checkoutAssembledQty = $state(1);
   let checkoutSubmitting = $state(false);
 
@@ -119,47 +184,17 @@
     }
   }
 
-  async function openCheckout() {
+  function openCheckout() {
     checkoutAssembledQty = buildQuery.data?.quantity ?? 1;
-    checkoutAllowReconciliation = false;
-    // Reuse preview data if already fetched (draft/pending)
-    if (previewQuery.data) {
-      checkoutItems = previewQuery.data.items;
-      checkoutOpen = true;
-      return;
-    }
-    // For ready state, fetch on demand
-    checkoutPreviewing = true;
     checkoutOpen = true;
-    try {
-      const build = buildQuery.data!;
-      const result = await previewBuild(teamId, {
-        bom_revision_id: build.bom_revision_id,
-        quantity: build.quantity,
-      });
-      checkoutItems = result.items;
-    } catch (err: any) {
-      pushToast('error', 'Failed to load checkout preview', err.message);
-      checkoutOpen = false;
-    } finally {
-      checkoutPreviewing = false;
-    }
   }
 
   async function handleCheckout() {
     checkoutSubmitting = true;
     try {
       const buildQty = buildQuery.data?.quantity ?? checkoutAssembledQty;
-      const body: {
-        assembled_quantity?: number;
-        allow_stock_reconciliation?: boolean;
-      } = {};
-      if (checkoutAssembledQty < buildQty) {
-        body.assembled_quantity = checkoutAssembledQty;
-      }
-      if (checkoutAllowReconciliation) {
-        body.allow_stock_reconciliation = true;
-      }
+      const body: { assembled_quantity?: number } = {};
+      if (checkoutAssembledQty < buildQty) body.assembled_quantity = checkoutAssembledQty;
       await checkoutBuild(teamId, buildId, body);
       qc.invalidateQueries({ queryKey: ['build', buildId] });
       qc.invalidateQueries({ queryKey: ['builds', teamId] });
@@ -169,7 +204,7 @@
       pushToast('success', 'Build checked out — assembly recorded');
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 409 && err.code === 'INSUFFICIENT_STOCK') {
-        pushToast('error', 'Insufficient stock. Enable "Allow stock reconciliation" and try again.');
+        pushToast('error', 'Insufficient stock for some items. Use per-item overrides before checking out.');
       } else {
         pushToast('error', 'Failed to checkout build', err.message);
       }
@@ -202,15 +237,19 @@
     }
   }
 
-  let allSufficient = $derived(
-    (previewQuery.data?.items ?? []).every(pi => pi.sufficient)
+  // Ready for checkout: every item is sufficient, overridden, or fully excluded
+  let allReadyForCheckout = $derived(
+    (previewQuery.data?.items ?? []).length > 0 &&
+    (previewQuery.data?.items ?? []).every(pi =>
+      pi.sufficient || pi.override !== null || pi.effective_total_quantity <= 0
+    )
   );
 
-  let hasShortCheckoutItems = $derived(
-    checkoutItems.some(pi => !pi.sufficient)
+  const canEditBuild = $derived(
+    buildQuery.data?.status === 'draft' || buildQuery.data?.status === 'pending'
   );
 
-  // DataTable sources for parts sections
+  // DataTable sources
   const consumedColumns: ColumnSpec<BuildConsumedItem>[] = [
     { key: 'part_mpn', header: 'Part MPN', type: 'text', sortable: true },
     { key: 'quantity_deducted', header: 'Qty Deducted', type: 'numeric', align: 'right', sortable: true },
@@ -234,16 +273,28 @@
 
   const previewColumns: ColumnSpec<BuildPreviewItem>[] = [
     { key: 'resolved_part_mpn', header: 'Part MPN', type: 'text', sortable: true },
-    { key: 'reference_designators', header: 'Ref Des', type: 'text' },
-    { key: 'quantity_per_board', header: 'Qty/Board', type: 'numeric', align: 'right', sortable: true },
-    { key: 'total_quantity', header: 'Total Needed', type: 'numeric', align: 'right', sortable: true },
+    { key: 'reference_designators', header: 'Ref Des', type: 'custom' },
+    { key: 'effective_quantity_per_board', header: 'Qty/Board', type: 'numeric', align: 'right', sortable: true },
+    { key: 'effective_total_quantity', header: 'Total Needed', type: 'numeric', align: 'right', sortable: true },
     { key: 'quantity_on_hand', header: 'On Hand', type: 'numeric', align: 'right', sortable: true },
     { key: 'sufficient', header: 'Stock', type: 'custom' },
     { key: 'substitutes', header: 'Using', type: 'custom' },
   ];
+  function getPreviewValue(row: BuildPreviewItem, key: string): unknown {
+    if (key === 'sufficient') {
+      // Sort rank: Short=0, Partial=1, Skipped=2, Excluded=3, In Stock=4
+      if (row.override === 'skip') return 2;
+      if (row.override === 'use_available') return 1;
+      if (row.effective_total_quantity <= 0) return 3;
+      return row.sufficient ? 4 : 0;
+    }
+    return (row as unknown as Record<string, unknown>)[key];
+  }
+
   const previewSource = new LocalDataSource<BuildPreviewItem>(
     () => previewQuery.data?.items ?? [],
     previewColumns,
+    getPreviewValue,
   );
 </script>
 
@@ -267,10 +318,25 @@
   {/if}
 {/snippet}
 
-{#snippet renderSufficient(value: unknown, _row: unknown)}
-  <Badge variant={value ? 'success' : 'destructive'}>
-    {value ? 'In Stock' : 'Short'}
-  </Badge>
+{#snippet renderSufficient(value: unknown, row: BuildPreviewItem)}
+  {#if row.override === 'skip'}
+    <Badge variant="secondary">Skipped</Badge>
+  {:else if row.override === 'use_available'}
+    <Badge variant="warning">Partial</Badge>
+  {:else if row.effective_total_quantity <= 0}
+    <Badge variant="secondary">Excluded</Badge>
+  {:else}
+    <Badge variant={value ? 'success' : 'destructive'}>{value ? 'In Stock' : 'Short'}</Badge>
+  {/if}
+{/snippet}
+
+{#snippet renderRefDes(value: unknown, row: BuildPreviewItem)}
+  <span class="font-mono text-xs">
+    {value as string}
+    {#if row.excluded_designator_count > 0}
+      <span class="text-muted-foreground ml-1">({row.excluded_designator_count} excluded)</span>
+    {/if}
+  </span>
 {/snippet}
 
 {#snippet renderSubstituteSelection(value: unknown, row: BuildPreviewItem)}
@@ -281,23 +347,136 @@
   {#if !subs || subs.length === 0}
     <span class="text-xs text-muted-foreground">—</span>
   {:else}
-    <div>
-      <select
-        class="h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
-        disabled={patchingSelection[row.bom_line_item_id]}
-        value={currentSelection?.selected_part_id ?? ''}
-        onclick={(e) => e.stopPropagation()}
-        onchange={(e) => {
-          const val = (e.target as HTMLSelectElement).value;
-          handleChangeSelection(row.bom_line_item_id, val || null);
-        }}
-      >
-        <option value="">Primary</option>
-        {#each subs as sub (sub.part_id)}
-          <option value={sub.part_id}>{sub.part_mpn ?? sub.part_id} ({sub.quantity_on_hand} on hand)</option>
-        {/each}
-      </select>
+    <select
+      class="h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+      disabled={patchingSelection[row.bom_line_item_id]}
+      value={currentSelection?.selected_part_id ?? ''}
+      onclick={(e) => e.stopPropagation()}
+      onchange={(e) => {
+        const val = (e.target as HTMLSelectElement).value;
+        handleChangeSelection(row.bom_line_item_id, val || null);
+      }}
+    >
+      <option value="">Primary</option>
+      {#each subs as sub (sub.part_id)}
+        <option value={sub.part_id}>{sub.part_mpn ?? sub.part_id} ({sub.quantity_on_hand} on hand)</option>
+      {/each}
+    </select>
+  {/if}
+{/snippet}
+
+{#snippet previewActions(row: BuildPreviewItem)}
+  {#if canEditBuild}
+    {@const isShort = row.effective_total_quantity > row.quantity_on_hand}
+    {#if isShort && row.override == null}
+      {#if row.quantity_on_hand > 0}
+        <Button
+          size="sm" variant="outline" class="h-7 text-xs whitespace-nowrap"
+          disabled={!!settingOverride[row.bom_line_item_id]}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); setOverride(row, 'use_available'); }}
+        >Use {row.quantity_on_hand}</Button>
+      {:else}
+        <Button
+          size="sm" variant="outline" class="h-7 text-xs"
+          disabled={!!settingOverride[row.bom_line_item_id]}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); setOverride(row, 'skip'); }}
+        >Skip</Button>
+      {/if}
+    {:else if row.override === 'use_available'}
+      <div class="flex items-center gap-1">
+        <span class="text-muted-foreground text-xs whitespace-nowrap">using {row.available_quantity}</span>
+        <Button
+          size="sm" variant="ghost" class="h-6 text-xs px-1"
+          disabled={!!settingOverride[row.bom_line_item_id]}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); setOverride(row, null); }}
+        >undo</Button>
+      </div>
+    {:else if row.override === 'skip'}
+      <div class="flex items-center gap-1">
+        <span class="text-muted-foreground text-xs">skipped</span>
+        <Button
+          size="sm" variant="ghost" class="h-6 text-xs px-1"
+          disabled={!!settingOverride[row.bom_line_item_id]}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); setOverride(row, null); }}
+        >undo</Button>
+      </div>
+    {/if}
+  {/if}
+{/snippet}
+
+{#snippet previewDetailPanel(row: BuildPreviewItem)}
+  {@const designators = expandDesignators(row.reference_designators ?? '')}
+  {@const total = designators.length}
+  {@const includedCount = designators.filter(d => !excludedDesignators.has(d)).length}
+  <div class="px-4 py-3 bg-muted/20 space-y-3">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex items-center gap-1">
+        <Button size="sm" variant="ghost" class="h-6 text-xs px-2"
+          onclick={() => toggleAllDesignators(designators, true)}>All</Button>
+        <Button size="sm" variant="ghost" class="h-6 text-xs px-2"
+          onclick={() => toggleAllDesignators(designators, false)}>None</Button>
+        <Button size="sm" variant="ghost" class="h-6 text-xs px-2"
+          onclick={() => invertDesignators(designators)}>Invert</Button>
+      </div>
+      <span class="text-xs text-muted-foreground">{includedCount} / {total} included</span>
     </div>
+    <div class="flex flex-wrap gap-1">
+      {#each designators as d (d)}
+        {@const isExcluded = excludedDesignators.has(d)}
+        <button
+          class="px-2 py-0.5 rounded text-xs border transition-colors
+            {isExcluded
+              ? 'border-muted-foreground/30 bg-muted text-muted-foreground line-through opacity-60'
+              : 'border-border bg-background text-foreground hover:bg-accent'}"
+          disabled={!canEditBuild}
+          onclick={() => toggleDesignator(d)}
+        >{d}</button>
+      {/each}
+    </div>
+    {#if canEditBuild && row.effective_total_quantity > row.quantity_on_hand && row.override == null}
+      <div class="flex items-center justify-between rounded-md bg-[#fffbeb] border border-[#fde68a] px-3 py-2 text-xs text-[black]">
+        <span class="flex items-center gap-1.5">
+          <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
+          Still short {row.effective_total_quantity - row.quantity_on_hand} after exclusions
+        </span>
+        {#if row.quantity_on_hand > 0}
+          <Button size="sm" variant="outline" class="h-6 text-xs"
+            onclick={() => setOverride(row, 'use_available')}
+          >Use {row.quantity_on_hand} available</Button>
+        {:else}
+          <Button size="sm" variant="outline" class="h-6 text-xs"
+            onclick={() => setOverride(row, 'skip')}
+          >Skip this part</Button>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet pasteToolbar()}
+  {#if canEditBuild}
+    {@const parsed = parsePasteList(pasteText)}
+    <Popover.Root open={pasteOpen} onOpenChange={(v) => { pasteOpen = v; if (!v) pasteText = ''; }}>
+      <Popover.Trigger>
+        <Button size="sm" variant="outline" class="h-7 text-xs">Exclude designators…</Button>
+      </Popover.Trigger>
+      <Popover.Content class="z-50 w-80 rounded-md border border-border bg-popover p-4 shadow-md space-y-3">
+        <p class="text-sm font-medium">Paste DNP list</p>
+        <p class="text-xs text-muted-foreground">Paste comma, space, or newline-separated designators to exclude (e.g. from a KiCad/Altium DNP export).</p>
+        <textarea
+          bind:value={pasteText}
+          placeholder={"R1, C5, U4\nR3 C10"}
+          class="w-full min-h-20 rounded-md border border-input bg-background px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+        ></textarea>
+        {#if parsed.length > 0}
+          <p class="text-xs text-muted-foreground">{parsed.length} designator{parsed.length !== 1 ? 's' : ''} parsed</p>
+        {/if}
+        <div class="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onclick={() => { pasteOpen = false; pasteText = ''; }}>Cancel</Button>
+          <Button size="sm" disabled={parsed.length === 0} onclick={() => applyPasteExclusions(parsed)}>Apply</Button>
+        </div>
+      </Popover.Content>
+    </Popover.Root>
   {/if}
 {/snippet}
 
@@ -319,13 +498,13 @@
       {/snippet}
       {#snippet actions()}
         {#if build.status === 'draft'}
-          {#if previewQuery.data && allSufficient}
+          {#if previewQuery.data && allReadyForCheckout}
             <Button size="sm" onclick={openCheckout}>
               <CheckCircle class="h-4 w-4 mr-1" /> Checkout
             </Button>
           {/if}
           <Button
-            variant={previewQuery.data && allSufficient ? 'outline' : 'default'}
+            variant={previewQuery.data && allReadyForCheckout ? 'outline' : 'default'}
             size="sm"
             onclick={handleSubmit}
             disabled={submitting}
@@ -360,9 +539,8 @@
             <XCircle class="h-4 w-4 mr-1" /> Cancel Build
           </Button>
         {:else if build.status === 'ready'}
-          <Button size="sm" onclick={openCheckout} disabled={checkoutPreviewing}>
-            <CheckCircle class="h-4 w-4 mr-1" />
-            {checkoutPreviewing ? 'Loading…' : 'Checkout'}
+          <Button size="sm" onclick={openCheckout}>
+            <CheckCircle class="h-4 w-4 mr-1" /> Checkout
           </Button>
           <Button
             variant="outline"
@@ -449,11 +627,8 @@
               <span class="text-yellow-700 dark:text-yellow-400">Substitute selections may be out of date — inventory has changed since last check.</span>
             </div>
             <Button
-              variant="outline"
-              size="sm"
-              disabled={refreshingSelections}
-              onclick={handleRefreshSelections}
-              class="shrink-0"
+              variant="outline" size="sm" disabled={refreshingSelections}
+              onclick={handleRefreshSelections} class="shrink-0"
             >
               <RefreshCw class="h-3.5 w-3.5 mr-1 {refreshingSelections ? 'animate-spin' : ''}" />
               Refresh
@@ -465,28 +640,24 @@
       <!-- Parts section -->
       <section class="space-y-2">
         {#if build.status === 'assembled'}
-          <!-- Deductions for assembled builds -->
           <DataTable
             source={consumedSource}
             getRowKey={(row) => row.inventory_entry_id}
             renderers={{ part_mpn: renderMpn }}
             emptyMessage="No consumed parts recorded."
-            onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.part_id}`);}}
+            onRowClick={(row) => { navigate(`/teams/${teamId}/parts/${row.part_id}`); }}
             title="Consumed Parts"
-          >
-        </DataTable>
+          />
 
         {:else if build.status === 'ordered' || build.status === 'ready'}
-          <!-- Allocation table for ordered/ready builds -->
           <DataTable
             source={allocSource}
             getRowKey={(row) => row.part_id}
             renderers={{ part_mpn: renderMpn, _status: renderAllocStatus }}
             emptyMessage="No allocation data available."
-            onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.part_id}`);}}
+            onRowClick={(row) => { navigate(`/teams/${teamId}/parts/${row.part_id}`); }}
             title="Ordered Parts"
-          >
-        </DataTable>
+          />
 
         {:else}
           <!-- Preview table for draft/pending builds -->
@@ -500,12 +671,18 @@
             <DataTable
               source={previewSource}
               getRowKey={(row) => row.bom_line_item_id}
-              renderers={{ resolved_part_mpn: renderPreviewMpn, sufficient: renderSufficient, substitutes: renderSubstituteSelection }}
+              renderers={{
+                resolved_part_mpn: renderPreviewMpn,
+                reference_designators: renderRefDes,
+                sufficient: renderSufficient,
+                substitutes: renderSubstituteSelection,
+              }}
+              detailPanel={previewDetailPanel}
+              actions={previewActions}
+              toolbarLeft={pasteToolbar}
               emptyMessage="No parts data."
-              onRowClick={(row) => {navigate(`/teams/${teamId}/parts/${row.resolved_part_id}`);}}
               title="Required Parts"
-            >
-            </DataTable>
+            />
             {#if build.status === 'pending'}
               <p class="text-sm text-muted-foreground mt-1">
                 This build is pending fulfilment. Shortfalls will be covered via the shopping cart.
@@ -522,8 +699,7 @@
           <div class="flex flex-wrap gap-2">
             {#each build.linked_order_ids as orderId (orderId)}
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 onclick={() => navigate(`/teams/${teamId}/orders/${orderId}`)}
               >
                 Order {orderId.slice(0, 8)}…
@@ -579,7 +755,7 @@
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
-        {#if checkoutPreviewing}
+        {#if previewQuery.isFetching && !previewQuery.data}
           <div class="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
             <Loader2 class="h-4 w-4 animate-spin" /> Loading preview…
           </div>
@@ -591,36 +767,33 @@
                 <TableHead class="text-right">Per Board</TableHead>
                 <TableHead class="text-right">Total</TableHead>
                 <TableHead class="text-right">On Hand</TableHead>
-                <TableHead>OK?</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {#each checkoutItems as pi (pi.bom_line_item_id)}
+              {#each previewQuery.data?.items ?? [] as pi (pi.bom_line_item_id)}
                 <TableRow>
                   <TableCell class="font-mono text-xs">{pi.resolved_part_mpn ?? '—'}</TableCell>
-                  <TableCell class="text-right tabular-nums">{pi.quantity_per_board}</TableCell>
-                  <TableCell class="text-right tabular-nums">{pi.total_quantity}</TableCell>
+                  <TableCell class="text-right tabular-nums">{pi.effective_quantity_per_board}</TableCell>
+                  <TableCell class="text-right tabular-nums">{pi.effective_total_quantity}</TableCell>
                   <TableCell class="text-right tabular-nums">{pi.quantity_on_hand}</TableCell>
                   <TableCell>
-                    <Badge variant={pi.sufficient ? 'success' : 'destructive'}>
-                      {pi.sufficient ? 'OK' : 'Short'}
-                    </Badge>
+                    {#if pi.override === 'skip'}
+                      <Badge variant="secondary">Skipped</Badge>
+                    {:else if pi.override === 'use_available'}
+                      <Badge variant="warning">Partial ({pi.available_quantity})</Badge>
+                    {:else if pi.effective_total_quantity <= 0}
+                      <Badge variant="secondary">Excluded</Badge>
+                    {:else}
+                      <Badge variant={pi.sufficient ? 'success' : 'destructive'}>
+                        {pi.sufficient ? 'OK' : 'Short'}
+                      </Badge>
+                    {/if}
                   </TableCell>
                 </TableRow>
               {/each}
             </TableBody>
           </Table>
-          {#if hasShortCheckoutItems}
-            <div class="mt-4 space-y-2 rounded-md border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-950/30">
-              <p class="text-sm text-yellow-700 dark:text-yellow-400">
-                Some parts have insufficient stock.
-              </p>
-              <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" bind:checked={checkoutAllowReconciliation} class="h-4 w-4" />
-                Allow stock reconciliation (sets stock to 0 for short items before deducting)
-              </label>
-            </div>
-          {/if}
         {/if}
       </div>
 
@@ -630,7 +803,7 @@
         </Dialog.Close>
         <Button
           onclick={handleCheckout}
-          disabled={checkoutSubmitting || checkoutPreviewing || checkoutAssembledQty < 1 || (hasShortCheckoutItems && !checkoutAllowReconciliation)}
+          disabled={checkoutSubmitting || checkoutAssembledQty < 1}
         >
           {checkoutSubmitting ? 'Checking out…' : 'Confirm Checkout'}
         </Button>

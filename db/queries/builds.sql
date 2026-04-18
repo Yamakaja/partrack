@@ -40,7 +40,7 @@ WHERE team_id = @team_id
 INSERT INTO builds (team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by)
 VALUES ($1, $2, $3, $4, 'draft', $5, NOW(), $6)
 RETURNING id, team_id, project_id, bom_revision_id, quantity, status, notes, created_at, created_by,
-          assembled_at, assembled_by, assembled_quantity, excluded_from_cart;
+          assembled_at, assembled_by, assembled_quantity, excluded_from_cart, excluded_designators;
 
 -- name: GetBuild :one
 SELECT
@@ -48,6 +48,7 @@ SELECT
     b.bom_revision_id, br.label AS bom_revision_label,
     b.quantity, b.status, b.notes,
     b.assembled_at, b.assembled_quantity, b.excluded_from_cart,
+    b.excluded_designators,
     b.created_at, b.created_by,
     b.selections_checked_at,
     u_assembled.display_name AS assembled_by_display_name,
@@ -62,7 +63,7 @@ WHERE b.id = $1 AND b.team_id = $2;
 -- name: GetBuildForUpdate :one
 SELECT id, team_id, project_id, bom_revision_id, quantity, status, notes,
        assembled_at, assembled_by, assembled_quantity, created_at, created_by, excluded_from_cart,
-       selections_checked_at
+       excluded_designators, selections_checked_at
 FROM builds
 WHERE id = $1 AND team_id = $2
 FOR UPDATE;
@@ -95,7 +96,7 @@ WHERE id = $1 AND team_id = $3 AND status = 'pending';
 -- name: GetPendingBuildsForTeam :many
 SELECT b.id, b.team_id, b.project_id, pr.name AS project_name,
        b.bom_revision_id, br.label AS revision_label,
-       b.quantity AS build_quantity, b.excluded_from_cart
+       b.quantity AS build_quantity, b.excluded_from_cart, b.excluded_designators
 FROM builds b
 JOIN projects pr      ON pr.id = b.project_id
 JOIN bom_revisions br ON br.id = b.bom_revision_id
@@ -265,3 +266,24 @@ ORDER BY b.created_at DESC;
 
 -- name: DeleteBuildOrderLink :exec
 DELETE FROM build_orders WHERE build_id = @build_id AND order_id = @order_id;
+
+-- name: SetBuildExcludedDesignators :exec
+UPDATE builds SET excluded_designators = @designators WHERE id = @build_id AND team_id = @team_id;
+
+-- name: GetBuildLineItemOverrides :many
+SELECT build_id, bom_line_item_id, override_type
+FROM build_line_item_overrides
+WHERE build_id = $1;
+
+-- name: GetBuildLineItemOverridesForBuilds :many
+SELECT build_id, bom_line_item_id, override_type
+FROM build_line_item_overrides
+WHERE build_id = ANY(@build_ids::uuid[]);
+
+-- name: UpsertBuildLineItemOverride :exec
+INSERT INTO build_line_item_overrides (build_id, bom_line_item_id, override_type)
+VALUES ($1, $2, $3)
+ON CONFLICT (build_id, bom_line_item_id) DO UPDATE SET override_type = EXCLUDED.override_type;
+
+-- name: DeleteBuildLineItemOverride :exec
+DELETE FROM build_line_item_overrides WHERE build_id = $1 AND bom_line_item_id = $2;

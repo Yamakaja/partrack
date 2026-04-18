@@ -219,6 +219,8 @@ export interface Build {
   selections_checked_at?: string | null;
   selections_stale?: boolean;
   substitute_selections?: import('./projects.js').SubstituteSelection[];
+  excluded_designators?: string[];
+  line_item_overrides?: { bom_line_item_id: string; override_type: 'use_available' | 'skip' }[];
 }
 
 export interface BuildPartAllocation {

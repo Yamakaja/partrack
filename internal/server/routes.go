@@ -156,6 +156,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/builds", h.ListBuilds)
 					r.Get("/builds/pipeline", h.GetBuildPipeline)
 					r.Get("/builds/{buildId}", h.GetBuild)
+					r.Get("/builds/{buildId}/preview", h.GetBuildPreview)
 
 					// Part allocations
 					r.Get("/parts/{partId}/allocations", h.GetPartAllocations)
@@ -215,6 +216,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/builds/{buildId}/checkout", h.CheckoutBuild)
 					r.Patch("/builds/{buildId}", h.UpdateBuild)
 					r.Delete("/builds/{buildId}", h.CancelBuild)
+					r.Put("/builds/{buildId}/excluded-designators", h.SetBuildExcludedDesignators)
+					r.Patch("/builds/{buildId}/line-item-overrides/{itemId}", h.SetBuildLineItemOverride)
 
 					// Checkouts
 					r.Post("/checkouts", h.CreateCheckout)

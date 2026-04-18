@@ -101,6 +101,25 @@ func (h *Handler) recomputeBomShortfalls(
 		return 0, q.ClearBomShortfallItems(ctx, cartID)
 	}
 
+	// Batch-load line item overrides for all pending builds.
+	buildIDs := make([]pgtype.UUID, len(pendingBuilds))
+	for i, pb := range pendingBuilds {
+		buildIDs[i] = pb.ID
+	}
+	allOverrides, err := q.GetBuildLineItemOverridesForBuilds(ctx, buildIDs)
+	if err != nil {
+		return 0, err
+	}
+	// overridesByBuild: build_id → (bom_line_item_id → override_type)
+	overridesByBuild := make(map[string]map[string]string, len(pendingBuilds))
+	for _, ov := range allOverrides {
+		bid := ov.BuildID.String()
+		if overridesByBuild[bid] == nil {
+			overridesByBuild[bid] = make(map[string]string)
+		}
+		overridesByBuild[bid][ov.BomLineItemID.String()] = ov.OverrideType
+	}
+
 	// Aggregate total demand per part across all included pending builds.
 	// Use substitute selections when a build has them locked in.
 	demandByPart := make(map[string]int32)
@@ -120,15 +139,37 @@ func (h *Handler) recomputeBomShortfalls(
 			selectionMap[s.BomLineItemID.String()] = s.SelectedPartID.String()
 		}
 
+		excludedSet := buildExcludedSet(pb.ExcludedDesignators)
+		overrideMap := overridesByBuild[pb.ID.String()]
+
 		for _, li := range lineItems {
 			if !li.ResolvedPartID.Valid || li.Ignored {
 				continue
 			}
+
+			// skip/use_available → this build's demand for this part is covered or omitted.
+			if ov, ok := overrideMap[li.ID.String()]; ok {
+				if ov == "skip" || ov == "use_available" {
+					continue
+				}
+			}
+
+			effectiveQty := li.Quantity
+			if len(excludedSet) > 0 && li.ReferenceDesignators != "" {
+				if total := totalDesignatorCount(li.ReferenceDesignators); total > 0 {
+					included := effectiveDesignatorCount(li.ReferenceDesignators, excludedSet)
+					effectiveQty = int32(min(int(li.Quantity), included))
+				}
+			}
+			if effectiveQty <= 0 {
+				continue
+			}
+
 			partID := li.ResolvedPartID.String()
 			if selectedID, ok := selectionMap[li.ID.String()]; ok {
 				partID = selectedID
 			}
-			demandByPart[partID] += li.Quantity * pb.BuildQuantity
+			demandByPart[partID] += effectiveQty * pb.BuildQuantity
 		}
 	}
 
@@ -859,6 +900,25 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Batch-load overrides for all pending builds to use when creating allocations.
+	allBuildIDs := make([]pgtype.UUID, len(pendingBuilds))
+	for i, pb := range pendingBuilds {
+		allBuildIDs[i] = pb.ID
+	}
+	allOverrides, err := qtx.GetBuildLineItemOverridesForBuilds(r.Context(), allBuildIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	overridesByBuildConvert := make(map[string]map[string]string, len(pendingBuilds))
+	for _, ov := range allOverrides {
+		bid := ov.BuildID.String()
+		if overridesByBuildConvert[bid] == nil {
+			overridesByBuildConvert[bid] = make(map[string]string)
+		}
+		overridesByBuildConvert[bid][ov.BomLineItemID.String()] = ov.OverrideType
+	}
+
 	var transitionedBuildIDs []pgtype.UUID
 
 	for _, pb := range pendingBuilds {
@@ -868,6 +928,9 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+
+		excludedSet := buildExcludedSet(pb.ExcludedDesignators)
+		overrideMap := overridesByBuildConvert[pb.ID.String()]
 
 		// Link build to all created orders.
 		for _, co := range createdOrders {
@@ -893,13 +956,33 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			linkedOrderIDs[co.id.String()] = true
 		}
 
-		// For each resolved BOM line item, create an allocation.
+		// For each resolved BOM line item, create an allocation using effective quantities.
 		for _, li := range lineItems {
 			if !li.ResolvedPartID.Valid || li.Ignored {
 				continue
 			}
+
+			// skip/use_available overrides: no order needed, no allocation created.
+			if ov, ok := overrideMap[li.ID.String()]; ok {
+				if ov == "skip" || ov == "use_available" {
+					continue
+				}
+			}
+
+			// Apply designator exclusions to get effective quantity.
+			effectivePerBoard := li.Quantity
+			if len(excludedSet) > 0 && li.ReferenceDesignators != "" {
+				if total := totalDesignatorCount(li.ReferenceDesignators); total > 0 {
+					included := effectiveDesignatorCount(li.ReferenceDesignators, excludedSet)
+					effectivePerBoard = int32(min(int(li.Quantity), included))
+				}
+			}
+			if effectivePerBoard <= 0 {
+				continue
+			}
+
 			partIDStr := li.ResolvedPartID.String()
-			quantityNeeded := li.Quantity * pb.BuildQuantity
+			quantityNeeded := effectivePerBoard * pb.BuildQuantity
 
 			// Start with what the new orders cover.
 			quantityFromOrder := totalOrderedByPart[partIDStr]

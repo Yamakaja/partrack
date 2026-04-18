@@ -8,9 +8,14 @@ export interface BuildPreviewItem {
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
   quantity_per_board: number;
+  effective_quantity_per_board: number;
   total_quantity: number;
+  effective_total_quantity: number;
   quantity_on_hand: number;
   sufficient: boolean;
+  excluded_designator_count: number;
+  override: 'use_available' | 'skip' | null;
+  available_quantity: number | null;
   substitutes: { part_id: string; part_mpn: string | null; quantity_on_hand: number }[];
 }
 
@@ -59,13 +64,40 @@ export function checkoutBuild(
   body: {
     assembled_quantity?: number;
     substitute_selections?: { bom_line_item_id: string; part_id: string }[];
-    allow_stock_reconciliation?: boolean;
   },
 ) {
   return request<{ id: string; status: string; deduction_count: number }>(
     'POST',
     `/api/v1/teams/${teamId}/builds/${buildId}/checkout`,
     body,
+  );
+}
+
+export function getBuildPreview(teamId: string, buildId: string) {
+  return request<{ items: BuildPreviewItem[] }>(
+    'GET',
+    `/api/v1/teams/${teamId}/builds/${buildId}/preview`,
+  );
+}
+
+export function setExcludedDesignators(teamId: string, buildId: string, designators: string[]) {
+  return request<void>(
+    'PUT',
+    `/api/v1/teams/${teamId}/builds/${buildId}/excluded-designators`,
+    { designators },
+  );
+}
+
+export function setLineItemOverride(
+  teamId: string,
+  buildId: string,
+  itemId: string,
+  overrideType: 'use_available' | 'skip' | null,
+) {
+  return request<void>(
+    'PATCH',
+    `/api/v1/teams/${teamId}/builds/${buildId}/line-item-overrides/${itemId}`,
+    { override_type: overrideType },
   );
 }
 

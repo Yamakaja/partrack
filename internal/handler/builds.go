@@ -25,19 +25,29 @@ type buildDeduction struct {
 	PartMpn              *string
 	ReferenceDesignators string
 	InventoryEntryID     pgtype.UUID
-	Delta                int32 // negative
+	Delta                int32 // negative, based on effective (post-exclusion) quantity
 	QuantityOnHand       int32
 	QuantityPerBoard     int32
+	EffectivePerBoard    int32 // after designator exclusions
+	AllowShortfall       bool  // true for "use_available" override: cap deduction at on_hand
+}
+
+// buildDeductionOpts carries per-build exclusion/override state for computeDeductions.
+type buildDeductionOpts struct {
+	ExcludedSet map[string]struct{} // individual excluded designators
+	Overrides   map[string]string   // bom_line_item_id → "skip" | "use_available"
 }
 
 // computeDeductions calculates per-part stock deltas for a build.
 // substituteSelections maps bom_line_item_id → part_id override.
+// opts is optional; nil means no exclusions/overrides.
 func (h *Handler) computeDeductions(
 	r *http.Request,
 	teamID pgtype.UUID,
 	revID pgtype.UUID,
 	boardsBuilt int32,
 	substituteSelections []buildDeductionInput,
+	opts *buildDeductionOpts,
 ) ([]buildDeduction, error) {
 	lineItems, err := h.Queries.ListBOMLineItems(r.Context(), revID)
 	if err != nil {
@@ -56,6 +66,35 @@ func (h *Handler) computeDeductions(
 
 	var result []buildDeduction
 	for _, li := range lineItems {
+		if li.Ignored {
+			continue
+		}
+
+		// Apply override: "skip" means do not deduct this line item at all.
+		allowShortfall := false
+		if opts != nil {
+			if ov, ok := opts.Overrides[li.ID.String()]; ok {
+				switch ov {
+				case "skip":
+					continue
+				case "use_available":
+					allowShortfall = true
+				}
+			}
+		}
+
+		// Compute effective quantity per board after designator exclusions.
+		effectivePerBoard := li.Quantity
+		if opts != nil && len(opts.ExcludedSet) > 0 && li.ReferenceDesignators != "" {
+			if total := totalDesignatorCount(li.ReferenceDesignators); total > 0 {
+				included := effectiveDesignatorCount(li.ReferenceDesignators, opts.ExcludedSet)
+				effectivePerBoard = int32(min(int(li.Quantity), included))
+			}
+		}
+		if effectivePerBoard <= 0 {
+			continue // all designators excluded
+		}
+
 		var partID pgtype.UUID
 		if override, ok := subOverride[li.ID.String()]; ok {
 			partID = override
@@ -82,9 +121,11 @@ func (h *Handler) computeDeductions(
 			PartMpn:              li.ResolvedPartMpn,
 			ReferenceDesignators: li.ReferenceDesignators,
 			InventoryEntryID:     entry.ID,
-			Delta:                -(li.Quantity * boardsBuilt),
+			Delta:                -(effectivePerBoard * boardsBuilt),
 			QuantityOnHand:       entry.QuantityOnHand,
 			QuantityPerBoard:     li.Quantity,
+			EffectivePerBoard:    effectivePerBoard,
+			AllowShortfall:       allowShortfall,
 		})
 	}
 
@@ -297,7 +338,7 @@ func (h *Handler) PreviewBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deductions, err := h.computeDeductions(r, teamID, revID, body.Quantity, body.SubstituteSelections)
+	deductions, err := h.computeDeductions(r, teamID, revID, body.Quantity, body.SubstituteSelections, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -330,6 +371,310 @@ func (h *Handler) PreviewBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// GetBuildPreview handles GET /api/v1/teams/{teamId}/builds/{buildId}/preview
+// Returns per-line-item preview for a saved build, incorporating its excluded_designators
+// and line_item_overrides to show effective quantities and stock status.
+func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var buildID pgtype.UUID
+	if err := buildID.Scan(chi.URLParam(r, "buildId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid build id", "BAD_REQUEST")
+		return
+	}
+
+	build, err := h.Queries.GetBuild(r.Context(), dbgen.GetBuildParams{ID: buildID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "build not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	overrideRows, err := h.Queries.GetBuildLineItemOverrides(r.Context(), buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	overrideMap := make(map[string]string, len(overrideRows))
+	for _, ov := range overrideRows {
+		overrideMap[ov.BomLineItemID.String()] = ov.OverrideType
+	}
+
+	excludedSet := buildExcludedSet(build.ExcludedDesignators)
+
+	lineItems, err := h.Queries.ListBOMLineItems(r.Context(), build.BomRevisionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	storedSels, err := h.Queries.GetBuildSubstituteSelections(r.Context(), buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	subSelMap := make(map[string]pgtype.UUID, len(storedSels))
+	for _, s := range storedSels {
+		subSelMap[s.BomLineItemID.String()] = s.SelectedPartID
+	}
+
+	type subItem struct {
+		PartID        string  `json:"part_id"`
+		PartMpn       *string `json:"part_mpn"`
+		QuantityOnHand int32  `json:"quantity_on_hand"`
+	}
+	type previewItem struct {
+		BomLineItemID             string    `json:"bom_line_item_id"`
+		ReferenceDesignators      string    `json:"reference_designators"`
+		ResolvedPartID            *string   `json:"resolved_part_id"`
+		ResolvedPartMpn           *string   `json:"resolved_part_mpn"`
+		QuantityPerBoard          int32     `json:"quantity_per_board"`
+		EffectiveQuantityPerBoard int32     `json:"effective_quantity_per_board"`
+		TotalQuantity             int32     `json:"total_quantity"`
+		EffectiveTotalQuantity    int32     `json:"effective_total_quantity"`
+		QuantityOnHand            int32     `json:"quantity_on_hand"`
+		Sufficient                bool      `json:"sufficient"`
+		ExcludedDesignatorCount   int       `json:"excluded_designator_count"`
+		Override                  *string   `json:"override"`
+		AvailableQuantity         *int32    `json:"available_quantity"`
+		Substitutes               []subItem `json:"substitutes"`
+	}
+
+	var items []previewItem
+	for _, li := range lineItems {
+		if li.Ignored {
+			continue
+		}
+
+		effectivePerBoard := li.Quantity
+		excludedCount := 0
+		if len(excludedSet) > 0 && li.ReferenceDesignators != "" {
+			if total := totalDesignatorCount(li.ReferenceDesignators); total > 0 {
+				included := effectiveDesignatorCount(li.ReferenceDesignators, excludedSet)
+				excludedCount = total - included
+				effectivePerBoard = int32(min(int(li.Quantity), included))
+			}
+		}
+
+		override := overrideMap[li.ID.String()]
+
+		// Resolve part: substitute selection overrides primary.
+		var resolvedPartID *string
+		var resolvedPartMpn *string
+		partID := li.ResolvedPartID
+		if sub, ok := subSelMap[li.ID.String()]; ok {
+			partID = sub
+		}
+
+		var qtyOnHand int32
+		if li.ResolvedPartID.Valid {
+			s := li.ResolvedPartID.String()
+			resolvedPartID = &s
+			resolvedPartMpn = li.ResolvedPartMpn
+		}
+		if partID.Valid {
+			entry, err := h.Queries.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
+				TeamID: teamID,
+				PartID: partID,
+			})
+			if err == nil {
+				qtyOnHand = entry.QuantityOnHand
+			}
+		}
+
+		effectiveTotal := effectivePerBoard * build.Quantity
+		sufficient := qtyOnHand >= effectiveTotal || override == "skip" || override == "use_available"
+
+		var overridePtr *string
+		var availQty *int32
+		if override != "" {
+			overridePtr = &override
+			if override == "use_available" {
+				avail := min(qtyOnHand, effectiveTotal)
+				availQty = &avail
+			}
+		}
+
+		// Fetch substitutes for this line item.
+		subs, err := h.Queries.ListSubstitutesForLineItem(r.Context(), dbgen.ListSubstitutesForLineItemParams{
+			BomLineItemID: li.ID,
+			TeamID:        teamID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		subItems := make([]subItem, len(subs))
+		for j, s := range subs {
+			var subQty int32
+			if s.QuantityOnHand != nil {
+				subQty = *s.QuantityOnHand
+			}
+			subItems[j] = subItem{
+				PartID:         s.PartID.String(),
+				PartMpn:        s.PartMpn,
+				QuantityOnHand: subQty,
+			}
+		}
+
+		items = append(items, previewItem{
+			BomLineItemID:             li.ID.String(),
+			ReferenceDesignators:      li.ReferenceDesignators,
+			ResolvedPartID:            resolvedPartID,
+			ResolvedPartMpn:           resolvedPartMpn,
+			QuantityPerBoard:          li.Quantity,
+			EffectiveQuantityPerBoard: effectivePerBoard,
+			TotalQuantity:             li.Quantity * build.Quantity,
+			EffectiveTotalQuantity:    effectiveTotal,
+			QuantityOnHand:            qtyOnHand,
+			Sufficient:                sufficient,
+			ExcludedDesignatorCount:   excludedCount,
+			Override:                  overridePtr,
+			AvailableQuantity:         availQty,
+			Substitutes:               subItems,
+		})
+	}
+
+	if items == nil {
+		items = []previewItem{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// SetBuildExcludedDesignators handles PUT /api/v1/teams/{teamId}/builds/{buildId}/excluded-designators
+// Replaces the full set of excluded designators for this build.
+// Body: {"designators": ["C1", "R5", "U4"]}
+func (h *Handler) SetBuildExcludedDesignators(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var buildID pgtype.UUID
+	if err := buildID.Scan(chi.URLParam(r, "buildId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid build id", "BAD_REQUEST")
+		return
+	}
+
+	var body struct {
+		Designators []string `json:"designators"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	if body.Designators == nil {
+		body.Designators = []string{}
+	}
+
+	build, err := h.Queries.GetBuild(r.Context(), dbgen.GetBuildParams{ID: buildID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "build not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if build.Status != "draft" && build.Status != "pending" {
+		writeError(w, http.StatusConflict, "excluded designators can only be changed on draft or pending builds", "INVALID_STATUS")
+		return
+	}
+
+	if err := h.Queries.SetBuildExcludedDesignators(r.Context(), dbgen.SetBuildExcludedDesignatorsParams{
+		BuildID:     buildID,
+		TeamID:      teamID,
+		Designators: body.Designators,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if build.Status == "pending" {
+		h.CartResolver.Invalidate(teamID.String())
+	}
+	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SetBuildLineItemOverride handles PATCH /api/v1/teams/{teamId}/builds/{buildId}/line-item-overrides/{itemId}
+// Sets or clears the stock override for one BOM line item on this build.
+// Body: {"override_type": "use_available" | "skip" | null}
+func (h *Handler) SetBuildLineItemOverride(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var buildID pgtype.UUID
+	if err := buildID.Scan(chi.URLParam(r, "buildId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid build id", "BAD_REQUEST")
+		return
+	}
+	var itemID pgtype.UUID
+	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+
+	var body struct {
+		OverrideType *string `json:"override_type"` // null = remove override
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	if body.OverrideType != nil && *body.OverrideType != "use_available" && *body.OverrideType != "skip" {
+		writeError(w, http.StatusBadRequest, "override_type must be 'use_available', 'skip', or null", "BAD_REQUEST")
+		return
+	}
+
+	build, err := h.Queries.GetBuild(r.Context(), dbgen.GetBuildParams{ID: buildID, TeamID: teamID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "build not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if build.Status != "draft" && build.Status != "pending" {
+		writeError(w, http.StatusConflict, "overrides can only be changed on draft or pending builds", "INVALID_STATUS")
+		return
+	}
+
+	if body.OverrideType == nil {
+		if err := h.Queries.DeleteBuildLineItemOverride(r.Context(), dbgen.DeleteBuildLineItemOverrideParams{
+			BuildID:         buildID,
+			BomLineItemID:   itemID,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	} else {
+		if err := h.Queries.UpsertBuildLineItemOverride(r.Context(), dbgen.UpsertBuildLineItemOverrideParams{
+			BuildID:         buildID,
+			BomLineItemID:   itemID,
+			OverrideType:    *body.OverrideType,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	if build.Status == "pending" {
+		h.CartResolver.Invalidate(teamID.String())
+	}
+	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // CreateBuild handles POST /api/v1/teams/{teamId}/builds
@@ -528,6 +873,23 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	lineItemOverrides, err := h.Queries.GetBuildLineItemOverrides(r.Context(), buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	type overrideResp struct {
+		BomLineItemID string `json:"bom_line_item_id"`
+		OverrideType  string `json:"override_type"`
+	}
+	overrideResps := make([]overrideResp, len(lineItemOverrides))
+	for i, ov := range lineItemOverrides {
+		overrideResps[i] = overrideResp{
+			BomLineItemID: ov.BomLineItemID.String(),
+			OverrideType:  ov.OverrideType,
+		}
+	}
+
 	resp := map[string]any{
 		"id":                        build.ID.String(),
 		"project_id":                build.ProjectID.String(),
@@ -538,15 +900,17 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		"status":                    build.Status,
 		"notes":                     build.Notes,
 		"excluded_from_cart":        build.ExcludedFromCart,
+		"excluded_designators":      build.ExcludedDesignators,
 		"created_at":                build.CreatedAt.Time.UTC().Format(time.RFC3339),
 		"created_by_display_name":   build.CreatedByDisplayName,
 		"assembled_by_display_name": build.AssembledByDisplayName,
-		"assembled_quantity":         build.AssembledQuantity,
-		"allocations":                allocs,
-		"order_ids":                  orderIDStrs,
-		"items":                      consumedItems,
-		"selections_stale":           selectionsStale,
-		"substitute_selections":      subSelResp,
+		"assembled_quantity":        build.AssembledQuantity,
+		"allocations":               allocs,
+		"order_ids":                 orderIDStrs,
+		"items":                     consumedItems,
+		"selections_stale":          selectionsStale,
+		"substitute_selections":     subSelResp,
+		"line_item_overrides":       overrideResps,
 	}
 	if build.AssembledAt.Valid {
 		resp["assembled_at"] = build.AssembledAt.Time.UTC().Format(time.RFC3339)
@@ -717,10 +1081,8 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		AssembledQuantity          *int32                `json:"assembled_quantity"`
-		SubstituteSelections       []buildDeductionInput `json:"substitute_selections"`
-		AllowStockReconciliation   bool                  `json:"allow_stock_reconciliation"`
-		AllowOrphanedSelections    bool                  `json:"allow_orphaned_selections"`
+		AssembledQuantity    *int32                `json:"assembled_quantity"`
+		SubstituteSelections []buildDeductionInput `json:"substitute_selections"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -764,6 +1126,7 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If no substitute selections provided in the request body, load stored selections.
+	// Orphaned selections (no longer approved substitutes) silently fall back to primary.
 	effectiveSelections := body.SubstituteSelections
 	if len(effectiveSelections) == 0 {
 		storedSels, err := qtx.GetBuildSubstituteSelections(r.Context(), buildID)
@@ -771,13 +1134,6 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		// Validate for orphans: confirm each selected part is still an approved substitute.
-		type orphanResp struct {
-			BomLineItemID  string  `json:"bom_line_item_id"`
-			SelectedPartID string  `json:"selected_part_id"`
-			SelectedPartMpn *string `json:"selected_part_mpn"`
-		}
-		var orphans []orphanResp
 		for _, sel := range storedSels {
 			subs, err := qtx.ListSubstitutesForLineItem(r.Context(), dbgen.ListSubstitutesForLineItemParams{
 				BomLineItemID: sel.BomLineItemID,
@@ -787,38 +1143,35 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return
 			}
-			found := false
 			for _, s := range subs {
 				if s.PartID == sel.SelectedPartID {
-					found = true
+					effectiveSelections = append(effectiveSelections, buildDeductionInput{
+						BomLineItemID: sel.BomLineItemID.String(),
+						PartID:        sel.SelectedPartID.String(),
+					})
 					break
 				}
 			}
-			if !found {
-				orphans = append(orphans, orphanResp{
-					BomLineItemID:   sel.BomLineItemID.String(),
-					SelectedPartID:  sel.SelectedPartID.String(),
-					SelectedPartMpn: sel.SelectedPartMpn,
-				})
-			} else {
-				effectiveSelections = append(effectiveSelections, buildDeductionInput{
-					BomLineItemID: sel.BomLineItemID.String(),
-					PartID:        sel.SelectedPartID.String(),
-				})
-			}
+			// Orphaned selections (part no longer approved) fall back to primary — not added.
 		}
-		if len(orphans) > 0 && !body.AllowOrphanedSelections {
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"error":   "some substitute selections reference parts no longer approved",
-				"code":    "ORPHANED_SUBSTITUTE_SELECTIONS",
-				"orphans": orphans,
-			})
-			return
-		}
-		// If allow_orphaned_selections, orphaned line items simply fall back to primary (not added to effectiveSelections).
 	}
 
-	deductions, err := h.computeDeductions(r, teamID, build.BomRevisionID, assembledQty, effectiveSelections)
+	// Load per-build exclusions and overrides.
+	lineItemOverrides, err := qtx.GetBuildLineItemOverrides(r.Context(), buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	overrideMap := make(map[string]string, len(lineItemOverrides))
+	for _, ov := range lineItemOverrides {
+		overrideMap[ov.BomLineItemID.String()] = ov.OverrideType
+	}
+	deductOpts := &buildDeductionOpts{
+		ExcludedSet: buildExcludedSet(build.ExcludedDesignators),
+		Overrides:   overrideMap,
+	}
+
+	deductions, err := h.computeDeductions(r, teamID, build.BomRevisionID, assembledQty, effectiveSelections, deductOpts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -833,7 +1186,8 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	var insufficientItems []insufficientItem
 
-	for _, d := range deductions {
+	for i := range deductions {
+		d := &deductions[i]
 		locked, err := qtx.GetInventoryEntryForUpdate(r.Context(), d.InventoryEntryID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -842,7 +1196,10 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 
 		totalQty := -d.Delta
 		if locked.QuantityOnHand < totalQty {
-			if !body.AllowStockReconciliation {
+			if d.AllowShortfall {
+				// Cap deduction at what is actually on hand (re-validated under lock).
+				d.Delta = -locked.QuantityOnHand
+			} else {
 				insufficientItems = append(insufficientItems, insufficientItem{
 					BomLineItemID:    d.BomLineItemID.String(),
 					PartID:           d.PartID.String(),
@@ -852,48 +1209,32 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			reconcileDelta := totalQty - locked.QuantityOnHand
-			reconcileReason := "Stock reconciliation: corrected before build"
-			if _, err := qtx.CreateStockAdjustment(r.Context(), dbgen.CreateStockAdjustmentParams{
+		}
+
+		if d.Delta < 0 {
+			if _, err := qtx.CreateBuildStockAdjustment(r.Context(), dbgen.CreateBuildStockAdjustmentParams{
 				InventoryEntryID: d.InventoryEntryID,
-				Delta:            reconcileDelta,
-				Reason:           &reconcileReason,
+				Delta:            d.Delta,
 				CreatedBy:        userID,
+				BuildID:          buildID,
 			}); err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return
 			}
 			if _, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
 				ID:             d.InventoryEntryID,
-				QuantityOnHand: reconcileDelta,
+				QuantityOnHand: d.Delta,
 			}); err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return
 			}
 		}
-
-		if _, err := qtx.CreateBuildStockAdjustment(r.Context(), dbgen.CreateBuildStockAdjustmentParams{
-			InventoryEntryID: d.InventoryEntryID,
-			Delta:            d.Delta,
-			CreatedBy:        userID,
-			BuildID:          buildID,
-		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		if _, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-			ID:             d.InventoryEntryID,
-			QuantityOnHand: d.Delta,
-		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
 	}
 
 	if len(insufficientItems) > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":              "some parts have insufficient stock; set allow_stock_reconciliation to auto-correct",
-			"code":               "INSUFFICIENT_STOCK",
+			"error": "insufficient stock for some items; use per-item overrides before checking out",
+			"code":  "INSUFFICIENT_STOCK",
 			"insufficient_items": insufficientItems,
 		})
 		return
