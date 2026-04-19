@@ -14,11 +14,13 @@
   let {
     partId,
     teamId,
+    initialKeywords = null,
     open = $bindable(false),
     onadded,
   }: {
     partId: string;
     teamId: string;
+    initialKeywords?: string | null;
     open?: boolean;
     onadded?: () => void;
   } = $props();
@@ -49,7 +51,7 @@
   // Reset state when dialog opens.
   $effect(() => {
     if (open) {
-      keywords = '';
+      keywords = initialKeywords ?? '';
       searchResults = [];
       selectedResult = null;
     }

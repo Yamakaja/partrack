@@ -209,6 +209,20 @@ func (q *Queue) publishError(job Job, msg string) {
 	})
 }
 
+// HasSubscriber reports whether the given user has at least one active SSE
+// subscription on the given team. Used by scan endpoints to detect whether the
+// desktop is connected before delivering a focus event.
+func (q *Queue) HasSubscriber(teamID, userID string) bool {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	for _, sub := range q.subscribers[teamID] {
+		if sub.userID == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (q *Queue) publishProgress(job Job, eventType string, data any) {
 	b, _ := json.Marshal(data)
 	q.Publish(Event{Type: eventType, Data: b, JobID: job.ID, TeamID: job.TeamID})

@@ -14,6 +14,7 @@
   import ListingPicker from '$lib/components/mobile-scanner/ListingPicker.svelte';
   import LocationInventory from '$lib/components/mobile-scanner/LocationInventory.svelte';
   import StorageAssignment from '$lib/components/mobile-scanner/StorageAssignment.svelte';
+  import BuildKitting from '$lib/components/mobile-scanner/BuildKitting.svelte';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -110,10 +111,18 @@
       try {
         const msg = JSON.parse(e.data) as Record<string, unknown>;
         if (msg.type === 'scan_context_changed') {
-          contextOrderId = (msg.context_order_id as string) ?? null;
-          contextOrderRef = (msg.context_order_ref as string) ?? null;
-          if (contextOrderId && current.screen === 'menu') {
-            goTo({ screen: 'receive_order' });
+          if (msg.context_type === 'kitting') {
+            const ksId = msg.context_kitting_session_id as string | undefined;
+            const ref = msg.context_build_ref as string | undefined;
+            if (ksId && current.screen === 'menu') {
+              goTo({ screen: 'build_kitting', kittingSessionId: ksId, buildRef: ref ?? '' });
+            }
+          } else {
+            contextOrderId = (msg.context_order_id as string) ?? null;
+            contextOrderRef = (msg.context_order_ref as string) ?? null;
+            if (contextOrderId && current.screen === 'menu') {
+              goTo({ screen: 'receive_order' });
+            }
           }
         }
       } catch {}
@@ -127,8 +136,11 @@
   async function pollSession() {
     if (!token) return;
     try {
-      await checkSession(token);
+      const s = await checkSession(token);
       if (topLevel === 'loading') topLevel = null;
+      if (s.active_kitting_session_id && current.screen === 'menu') {
+        goTo({ screen: 'build_kitting', kittingSessionId: s.active_kitting_session_id, buildRef: s.active_kitting_build_ref ?? '' });
+      }
     } catch (e) {
       if (e instanceof ScanExpiredError) { handleExpired(); return; }
       // network error — keep polling
@@ -338,6 +350,17 @@
     <StorageAssignment
       {token}
       {locations}
+      onBack={goBack}
+      onExpired={handleExpired}
+    />
+
+  <!-- ── BUILD KITTING ─────────────────────────────────────────────────────── -->
+  {:else if current.screen === 'build_kitting'}
+    <BuildKitting
+      {token}
+      {locations}
+      kittingSessionId={current.kittingSessionId}
+      buildRef={current.buildRef}
       onBack={goBack}
       onExpired={handleExpired}
     />

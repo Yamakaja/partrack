@@ -8,6 +8,9 @@
  */
 import type { QueryClient } from '@tanstack/svelte-query';
 import { subscribeSSEType } from '$lib/api/sse.js';
+import { navigate } from '$lib/router/index.svelte.js';
+import { pushToast } from '$lib/stores/toasts.svelte.js';
+import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
 
 let qc: QueryClient | null = null;
 let unsubscribers: Array<() => void> = [];
@@ -84,6 +87,47 @@ export function activateTeamInvalidation(teamId: string) {
 
     subscribeSSEType(teamId, 'checkout_changed', () => {
       qc!.invalidateQueries({ queryKey: ['checkouts', teamId] });
+    }),
+
+    subscribeSSEType(teamId, 'scan_audit_changed', () => {
+      qc!.invalidateQueries({ queryKey: ['scan-audit-log', teamId] });
+    }),
+
+    subscribeSSEType(teamId, 'build_kitting_changed', (ev) => {
+      const kittingSessionId = ev.data.kitting_session_id as string | undefined;
+      const buildId = ev.data.build_id as string | undefined;
+      if (kittingSessionId) qc!.invalidateQueries({ queryKey: ['kitting', teamId, kittingSessionId] });
+      if (buildId) qc!.invalidateQueries({ queryKey: ['build', buildId] });
+      qc!.invalidateQueries({ queryKey: ['builds', teamId] });
+    }),
+
+    subscribeSSEType(teamId, 'scan_focus_requested', (ev) => {
+      const entityType = ev.data.entity_type as string | undefined;
+      const entityId = ev.data.entity_id as string | undefined;
+      if (!entityType || !entityId) return;
+
+      const tid = activeTeamStore.current?.teamId;
+      if (!tid) return;
+
+      let path = '';
+      switch (entityType) {
+        case 'part':
+          path = `/teams/${tid}/parts/${entityId}`;
+          break;
+        case 'order':
+          path = `/teams/${tid}/orders/${entityId}`;
+          break;
+        case 'storage':
+          path = `/teams/${tid}/storage/${entityId}`;
+          break;
+        case 'build':
+          path = `/teams/${tid}/builds/${entityId}`;
+          break;
+      }
+      if (path) {
+        navigate(path);
+        pushToast('info', 'Scanner: navigated to ' + entityType);
+      }
     }),
   ];
 }

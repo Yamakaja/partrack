@@ -6,6 +6,8 @@
     refreshBuildSubstituteSelections, patchBuildSubstituteSelections,
     type BuildPreviewItem,
   } from '$lib/api/builds.js';
+  import { startKittingSession, getKittingSession, getKittingItems } from '$lib/api/buildKitting.js';
+  import { scanSessionStore } from '$lib/stores/scanSession.svelte.js';
   import { ApiError } from '$lib/api/client.js';
   import { expandDesignators } from '$lib/utils/designators.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -248,6 +250,45 @@
   const canEditBuild = $derived(
     buildQuery.data?.status === 'draft' || buildQuery.data?.status === 'pending'
   );
+
+  // ── Kitting ─────────────────────────────────────────────────────────────────
+
+  const scanSession = $derived(scanSessionStore.current);
+  const canSendToScanner = $derived(
+    !!scanSession?.liveConnected &&
+    ['pending', 'ordered', 'ready'].includes(buildQuery.data?.status ?? '')
+  );
+
+  let activeKittingSessionId = $state<string | null>(null);
+  let kittingLoading = $state(false);
+
+  const kittingSessionQuery = createQuery(() => ({
+    queryKey: ['kitting', teamId, activeKittingSessionId],
+    queryFn: () => getKittingSession(teamId, activeKittingSessionId!),
+    enabled: !!activeKittingSessionId,
+    refetchInterval: false,
+  }));
+
+  const kittingItemsQuery = createQuery(() => ({
+    queryKey: ['kitting', teamId, activeKittingSessionId, 'items'],
+    queryFn: () => getKittingItems(teamId, activeKittingSessionId!),
+    enabled: !!activeKittingSessionId,
+    refetchInterval: false,
+  }));
+
+  async function handleSendToScanner() {
+    if (!scanSession || kittingLoading) return;
+    kittingLoading = true;
+    try {
+      const res = await startKittingSession(teamId, scanSession.id, buildId);
+      activeKittingSessionId = res.kitting_session_id;
+      pushToast('success', 'Kitting session started on scanner');
+    } catch (err: any) {
+      pushToast('error', 'Failed to start kitting', err.message);
+    } finally {
+      kittingLoading = false;
+    }
+  }
 
   // DataTable sources
   const consumedColumns: ColumnSpec<BuildConsumedItem>[] = [
@@ -497,6 +538,16 @@
         <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
       {/snippet}
       {#snippet actions()}
+        {#if canSendToScanner && !activeKittingSessionId}
+          <Button
+            size="sm"
+            variant="outline"
+            onclick={handleSendToScanner}
+            disabled={kittingLoading}
+          >
+            {kittingLoading ? 'Starting…' : 'Send to Scanner'}
+          </Button>
+        {/if}
         {#if build.status === 'draft'}
           {#if previewQuery.data && allReadyForCheckout}
             <Button size="sm" onclick={openCheckout}>
@@ -612,6 +663,55 @@
           {/if}
         </div>
       </MetadataCard>
+
+      <!-- Kitting progress -->
+      {#if activeKittingSessionId}
+        {@const ks = kittingSessionQuery.data}
+        {@const ki = kittingItemsQuery.data?.items ?? []}
+        {@const prog = ks?.progress}
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Kitting in Progress</h3>
+            {#if prog}
+              <span class="text-xs text-muted-foreground">
+                {prog.confirmed + prog.shortfall + prog.skipped} / {prog.pending + prog.confirmed + prog.shortfall + prog.skipped} done
+              </span>
+            {/if}
+          </div>
+
+          {#if prog && (prog.pending + prog.confirmed + prog.shortfall + prog.skipped) > 0}
+            {@const total = prog.pending + prog.confirmed + prog.shortfall + prog.skipped}
+            {@const done = prog.confirmed + prog.shortfall + prog.skipped}
+            <div class="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div class="h-full bg-emerald-500 transition-all" style="width: {Math.round((done / total) * 100)}%"></div>
+            </div>
+            <div class="flex gap-4 text-xs">
+              {#if prog.confirmed > 0}<span class="text-emerald-600 dark:text-emerald-400">✓ {prog.confirmed} confirmed</span>{/if}
+              {#if prog.shortfall > 0}<span class="text-amber-600 dark:text-amber-400">⚠ {prog.shortfall} shortfall</span>{/if}
+              {#if prog.pending > 0}<span class="text-muted-foreground">· {prog.pending} pending</span>{/if}
+            </div>
+          {/if}
+
+          {#if ki.length > 0}
+            <div class="space-y-1 max-h-48 overflow-y-auto">
+              {#each [...ki].sort((a, b) => {
+                const order: Record<string, number> = { pending: 0, shortfall: 1, confirmed: 2, skipped: 3 };
+                return (order[a.status] ?? 0) - (order[b.status] ?? 0);
+              }) as item (item.part_id)}
+                <div class="flex items-center gap-2 py-1 px-2 rounded text-xs
+                  {item.status === 'confirmed' ? 'bg-emerald-500/10' : item.status === 'shortfall' ? 'bg-amber-500/10' : ''}">
+                  <span class="shrink-0 w-4 text-center
+                    {item.status === 'confirmed' ? 'text-emerald-500' : item.status === 'shortfall' ? 'text-amber-500' : 'text-muted-foreground'}">
+                    {item.status === 'confirmed' ? '✓' : item.status === 'shortfall' ? '⚠' : '·'}
+                  </span>
+                  <span class="flex-1 font-mono truncate">{item.part_mpn ?? item.part_id}</span>
+                  <span class="shrink-0 text-muted-foreground tabular-nums">{item.quantity_confirmed}/{item.quantity_needed}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Substitute selections staleness banner (draft builds only) -->
       {#if build.status === 'draft'}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { type Snippet } from 'svelte';
   import Sidebar from './Sidebar.svelte';
+  import ActivityFeedPanel from './ActivityFeedPanel.svelte';
   import { scanSessionStore, setScanSession, markScanSessionConnected, markScanSessionDisconnected } from '$lib/stores/scanSession.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { request } from '$lib/api/client.js';
@@ -64,3 +65,7 @@
     {@render children()}
   </main>
 </div>
+
+{#if scanSessionStore.current && teamId}
+  <ActivityFeedPanel {teamId} />
+{/if}

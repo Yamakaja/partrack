@@ -7,7 +7,7 @@
   import type { StorageLocation } from '$lib/types/inventory.js';
   import {
     listOrders, scanBarcode, confirmReceipt, skipItem, patchInventoryEntry,
-    ScanExpiredError, type ScanMatchedResponse,
+    scanFocus, ScanExpiredError, type ScanMatchedResponse,
   } from '$lib/api/scanner.js';
   import MobileLocationPicker from './MobileLocationPicker.svelte';
 
@@ -182,7 +182,15 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-      <p class="font-medium">Select Order</p>
+      <p class="font-medium flex-1">Select Order</p>
+      {#if currentOrderId}
+        <button
+          onclick={() => scanFocus(token, 'order', currentOrderId).catch(() => {})}
+          class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+        >
+          Open ↗
+        </button>
+      {/if}
     </div>
 
     <div class="flex-1 overflow-y-auto p-4 space-y-2">

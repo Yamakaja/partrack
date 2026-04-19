@@ -322,6 +322,7 @@
   <AddListingDialog
     {partId}
     {teamId}
+    initialKeywords={mpn}
     bind:open={addListingOpen}
     onadded={() => { addListingOpen = false; onadd?.(); }}
   />

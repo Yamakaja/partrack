@@ -3,7 +3,7 @@
   import type { ScanPart, PartLocation } from './types.js';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import { recordVisit } from '$lib/stores/scannerHistory.svelte.js';
-  import { getPartDetail, patchInventoryEntry, ScanExpiredError } from '$lib/api/scanner.js';
+  import { getPartDetail, patchInventoryEntry, scanFocus, ScanExpiredError } from '$lib/api/scanner.js';
   import { fullLocationLabel } from './locationUtils.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import MobileLocationPicker from './MobileLocationPicker.svelte';
@@ -152,7 +152,14 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
       </svg>
     </button>
-    <p class="font-medium">Part Details</p>
+    <p class="font-medium flex-1">Part Details</p>
+    <button
+      onclick={() => scanFocus(token, 'part', part.id).catch(() => {})}
+      class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+      aria-label="Open on Desktop"
+    >
+      Open ↗
+    </button>
   </div>
 
   <!-- Loading -->

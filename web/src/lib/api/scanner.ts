@@ -176,8 +176,15 @@ export interface ConfirmReceiptResponse {
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
-export function checkSession(token: string): Promise<unknown> {
-  return scanRequest<unknown>(token, 'GET', '/api/v1/scan/session');
+export interface ScanSessionState {
+  id: string;
+  phone_connected: boolean;
+  active_kitting_session_id: string | null;
+  active_kitting_build_ref: string | null;
+}
+
+export function checkSession(token: string): Promise<ScanSessionState> {
+  return scanRequest<ScanSessionState>(token, 'GET', '/api/v1/scan/session');
 }
 
 export function searchParts(token: string, q: string): Promise<{ parts: ScanPart[] }> {
@@ -277,4 +284,92 @@ export function patchInventoryEntry(
   return scanRequest(token, 'PATCH', `/api/v1/scan/inventory-entries/${inventoryEntryId}`, {
     storage_location: storageLocation,
   });
+}
+
+// ── Scan-to-Focus ──────────────────────────────────────────────────────────────
+
+export function scanFocus(
+  token: string,
+  entityType: 'part' | 'order' | 'storage' | 'build',
+  entityId: string,
+): Promise<void> {
+  return scanRequest(token, 'POST', '/api/v1/scan/focus', {
+    entity_type: entityType,
+    entity_id: entityId,
+  });
+}
+
+// ── Build Kitting ─────────────────────────────────────────────────────────────
+
+export interface KittingProgress {
+  pending: number;
+  confirmed: number;
+  shortfall: number;
+  skipped: number;
+}
+
+export interface KittingSession {
+  session: {
+    id: string;
+    build_id: string;
+    build_ref: string;
+    status: string;
+  };
+  progress: KittingProgress;
+}
+
+export interface KittingItem {
+  part_id: string;
+  part_mpn: string | null;
+  part_manufacturer: string | null;
+  part_description: string | null;
+  quantity_needed: number;
+  quantity_confirmed: number;
+  status: 'pending' | 'confirmed' | 'shortfall' | 'skipped';
+  storage_location_id: string | null;
+  storage_location_path: string | null;
+  storage_coordinate: number[] | null;
+}
+
+export function getKittingSession(token: string, kittingSessionId: string): Promise<KittingSession> {
+  return scanRequest(token, 'GET', `/api/v1/scan/kitting/${kittingSessionId}`);
+}
+
+export function getKittingItems(token: string, kittingSessionId: string): Promise<{ items: KittingItem[] }> {
+  return scanRequest(token, 'GET', `/api/v1/scan/kitting/${kittingSessionId}/items`);
+}
+
+export function kittingConfirm(
+  token: string,
+  kittingSessionId: string,
+  partId: string,
+  quantityConfirmed: number,
+): Promise<{ item: unknown; progress: KittingProgress }> {
+  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/confirm`, {
+    part_id: partId,
+    quantity_confirmed: quantityConfirmed,
+  });
+}
+
+export function kittingShortfall(
+  token: string,
+  kittingSessionId: string,
+  partId: string,
+  quantityAvailable: number,
+): Promise<{ item: unknown; progress: KittingProgress }> {
+  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/shortfall`, {
+    part_id: partId,
+    quantity_available: quantityAvailable,
+  });
+}
+
+export function kittingComplete(
+  token: string,
+  kittingSessionId: string,
+): Promise<{ progress: KittingProgress }> {
+  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/complete`);
+}
+
+export function kittingAbandon(token: string, kittingSessionId: string): Promise<void> {
+  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/abandon`);
 }

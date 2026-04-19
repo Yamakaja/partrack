@@ -45,6 +45,13 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Get("/scan/storage-locations", h.ListScanStorageLocations)
 			r.Get("/scan/storage/{locationId}/inventory", h.ListScanStorageInventory)
 			r.Patch("/scan/inventory-entries/{id}", h.PatchScanInventoryEntry)
+			r.Post("/scan/focus", h.ScanFocus)
+			r.Get("/scan/kitting/{kittingSessionId}", h.GetKittingSessionHandler)
+			r.Get("/scan/kitting/{kittingSessionId}/items", h.GetKittingItemsHandler)
+			r.Post("/scan/kitting/{kittingSessionId}/confirm", h.KittingConfirm)
+			r.Post("/scan/kitting/{kittingSessionId}/shortfall", h.KittingShortfall)
+			r.Post("/scan/kitting/{kittingSessionId}/complete", h.KittingComplete)
+			r.Post("/scan/kitting/{kittingSessionId}/abandon", h.KittingAbandon)
 		})
 
 		// ── Authenticated-only routes ────────────────────────────────────────
@@ -170,6 +177,13 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// 17. Global search
 					r.Get("/search", h.GlobalSearch)
+
+					// 18. Scan audit log (viewer+)
+					r.Get("/scan-audit-log", h.ListScanAuditLog)
+
+					// 19. Kitting session read (viewer+)
+					r.Get("/kitting/{kittingSessionId}", h.GetKittingSessionDesktop)
+					r.Get("/kitting/{kittingSessionId}/items", h.GetKittingItemsDesktop)
 				})
 
 				// Member+
@@ -225,6 +239,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// Scan sessions (member+) — literal path before wildcard
 					r.Post("/scan-sessions", h.CreateScanSession)
 					r.Get("/scan-sessions/active", h.GetActiveScanSession)
+
+					// Build kitting (member+)
+					r.Post("/scan-sessions/{sessionId}/kitting", h.StartKitting)
 				})
 
 				// Purchaser+

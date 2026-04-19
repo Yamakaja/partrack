@@ -295,6 +295,10 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | GET | `/teams/{teamId}/scan-sessions/active` | member+ | Get current user's active scan session. Returns `{id, phone_connected, context_type, context_order_id, context_order_ref, phone_ip, phone_ua}` or 204 if none. |
 | DELETE | `/teams/{teamId}/scan-sessions/{sessionId}` | purchaser+ | Delete scan session. |
 | PATCH | `/teams/{teamId}/scan-sessions/{sessionId}/context` | purchaser+ | Push order context to phone. Body: `{order_id}`. Returns `{ok, context_order_ref}`. Sends SSE to connected phone immediately. |
+| POST | `/teams/{teamId}/scan-sessions/{sessionId}/kitting` | member+ | Start kitting session for a build. Body: `{build_id}`. Seeds confirmations from build allocations, pushes `scan_context_changed` to phone. Returns `{kitting_session_id}`. |
+| GET | `/teams/{teamId}/scan-audit-log` | viewer+ | Paginated scan activity log for the current user. Query: `event_type` (comma-separated), `cursor_time`, `cursor_id`, `limit` (default 50). Returns `{items:[...], next_cursor_time, next_cursor_id}`. |
+| GET | `/teams/{teamId}/kitting/{kittingSessionId}` | viewer+ | Desktop view of kitting session (team auth). Returns same shape as phone `/scan/kitting/{id}`. |
+| GET | `/teams/{teamId}/kitting/{kittingSessionId}/items` | viewer+ | Desktop view of kitting items (team auth). Returns same shape as phone `/scan/kitting/{id}/items`. |
 
 ### Phone-facing (scan token auth — `Authorization: Bearer scan_...`)
 
@@ -303,7 +307,7 @@ Phone endpoints accept the scan token either as `Authorization: Bearer` header (
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/scan/stream` | SSE stream for phone. Token via `?token=`. Server publishes `scan_context_changed` events when desktop pushes context. Marks phone connected on open, disconnected on close. |
-| GET | `/scan/session` | Fallback poll — returns `{session_id, context_type, context_order_id, context_order_ref, pending_scan}`. Returns 410 when session expired. |
+| GET | `/scan/session` | Fallback poll — returns `{session_id, context_type, context_order_id, context_order_ref, pending_scan, active_kitting_session_id, active_kitting_build_ref}`. Returns 410 when session expired. |
 | POST | `/scan/context` | Phone sets own context. Body: `{order_id}`. |
 | GET | `/scan/orders` | List receivable orders (status `placed` or `partially_received`). Returns `{orders: [{id, ref, status, distributor_name, item_count}]}`. |
 | GET | `/scan/parts?q=` | Search parts catalog (global + team). Returns `{parts: [{id, mpn, description, inventory_entry_id, quantity_on_hand, storage_location}]}`. |
@@ -316,8 +320,20 @@ Phone endpoints accept the scan token either as `Authorization: Bearer` header (
 | POST | `/scan/parts/import` | Import part from a single distributor SKU. Body: `{distributor_id, sku}`. Returns `{part_id}`. Member+ only. |
 | POST | `/scan/parts/import-multi` | Import part from multiple distributor listings (≥1). Body: `{listings:[{distributor_id,sku}]}`. Returns `{part_id, failed:[{distributor_id,sku,reason}]}`. All listings with the same MPN+manufacturer deduplicate to one part. Member+ only. |
 | GET | `/scan/distributor-search` | Search a configured distributor. Query: `distributor_id`, `q`, `limit?`. Returns `{items:[{mpn,manufacturer,description,category,primary_sku,package,unit_price,stock_available}], total, exact_match_indices}`. |
+| POST | `/scan/focus` | Send-to-desktop navigation. Body: `{entity_type: part|order|storage|build, entity_id}`. Returns 204. Returns 409 if no desktop subscriber is connected. |
+| GET | `/scan/kitting/{kittingSessionId}` | Get kitting session info + progress counts. Returns `{session:{id,build_id,build_ref,status}, progress:{pending,confirmed,shortfall,skipped}}`. |
+| GET | `/scan/kitting/{kittingSessionId}/items` | List kitting items with storage location. Returns `{items:[{part_id,part_mpn,part_manufacturer,part_description,quantity_needed,quantity_confirmed,status,storage_location_id,storage_location_path,storage_coordinate}]}`. |
+| POST | `/scan/kitting/{kittingSessionId}/confirm` | Mark item confirmed. Body: `{part_id, quantity_confirmed}`. Returns `{item, progress}`. |
+| POST | `/scan/kitting/{kittingSessionId}/shortfall` | Mark item shortfall. Body: `{part_id, quantity_available}`. Returns `{item, progress}`. |
+| POST | `/scan/kitting/{kittingSessionId}/complete` | Complete kitting session. Returns `{progress}`. |
+| POST | `/scan/kitting/{kittingSessionId}/abandon` | Abandon kitting session. Returns 204. |
 
 SSE events from scan session changes are published to the owning user's desktop channel as `scan_session_changed` with `{session_id, phone_connected, context_order_ref?}`.
+
+SSE events published to the desktop user channel:
+- `scan_audit_changed` — a new audit log entry was written; invalidate `scan-audit-log` queries
+- `scan_focus_requested` — phone triggered navigation; payload `{entity_type, entity_id}`
+- `build_kitting_changed` — kitting progress updated; payload `{build_id, kitting_session_id}`
 
 ---
 

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -441,11 +442,20 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"session_id":   sess.ID.String(),
-		"pending_scan": nil,
+		"session_id":                 sess.ID.String(),
+		"pending_scan":               nil,
+		"active_kitting_session_id":  nil,
+		"active_kitting_build_ref":   nil,
 	}
 	if len(sess.PendingScan) > 0 {
 		resp["pending_scan"] = json.RawMessage(sess.PendingScan)
+	}
+	// Include active kitting session so the phone can resume after reconnect.
+	if aks, err := h.Queries.GetActiveKittingSessionForScanSession(r.Context(), sess.ID); err == nil {
+		resp["active_kitting_session_id"] = aks.ID.String()
+		if ksInfo, err2 := h.Queries.GetKittingSession(r.Context(), aks.ID); err2 == nil {
+			resp["active_kitting_build_ref"] = ksInfo.ProjectName + " " + ksInfo.BomRevisionLabel
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -703,6 +713,16 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 	})
 	h.Worker.Publish(worker.Event{Type: "inventory_changed", TeamID: sess.TeamID.String(), Data: d})
 
+	// Audit log for stock_adjusted.
+	delta := body.Delta
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "stock_adjusted",
+		EntityType: strPtr("part"),
+		EntityID:   entry.PartID,
+		Quantity:   &delta,
+		Metadata:   map[string]any{"reason": body.Reason, "inventory_entry_id": entryID.String()},
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                   true,
 		"new_quantity_on_hand": newQty,
@@ -763,7 +783,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 				DistributorName: parsed.Distributor,
 			})
 			if err == nil {
-				h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+				h.writeLookupFound(w, r, sess, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 					&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand,
 					row.StorageLocationID, row.StorageCoordinate, parsed)
 				return
@@ -780,7 +800,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 			TeamID: sess.TeamID,
 		})
 		if err == nil {
-			h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+			h.writeLookupFound(w, r, sess, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 				&row.Sku, &row.DistributorName, row.InventoryEntryID, row.QuantityOnHand,
 				row.StorageLocationID, row.StorageCoordinate, parsed)
 			return
@@ -802,7 +822,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 				TeamID:       sess.TeamID,
 			})
 			if err == nil {
-				h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+				h.writeLookupFound(w, r, sess, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 					nil, nil, row.InventoryEntryID, row.QuantityOnHand,
 					row.StorageLocationID, row.StorageCoordinate, parsed)
 				return
@@ -818,7 +838,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 			TeamID: sess.TeamID,
 		})
 		if err == nil {
-			h.writeLookupFound(w, r, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
+			h.writeLookupFound(w, r, sess, sess.TeamID, row.ID, row.Mpn, row.Manufacturer, row.Description, row.ShortDescription,
 				nil, nil, row.InventoryEntryID, row.QuantityOnHand,
 				row.StorageLocationID, row.StorageCoordinate, parsed)
 			return
@@ -866,6 +886,16 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Audit log for part_not_found (barcode info present but part not in catalog).
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:           "part_not_found",
+		ParsedSku:           strPtr(parsed.SKU),
+		ParsedDistributorID: parsedDistributorID,
+		ParsedMpn:           strPtr(parsed.MPN),
+		ParsedManufacturer:  strPtr(parsed.Manufacturer),
+		Metadata:            map[string]any{"raw_barcode": body.Barcode},
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":                     "not_found_in_db",
 		"parsed_mpn":                 parsed.MPN,
@@ -885,6 +915,7 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 // writeLookupFound writes the "found" response for LookupScanBarcode,
 // auto-creating the team's inventory entry at quantity 0 if one does not exist.
 func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
+	sess *dbgen.ScanSession,
 	teamID pgtype.UUID, partID pgtype.UUID, mpn, manufacturer, desc, shortDesc *string,
 	sku, distributorName *string, invEntryID pgtype.UUID, qoh *int32,
 	storageLocationID pgtype.UUID, storageCoordinate []int32,
@@ -946,6 +977,16 @@ func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
 	if distributorName != nil {
 		resp["distributor_name"] = *distributorName
 	}
+
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "bag_scanned",
+		EntityType: strPtr("part"),
+		EntityID:   partID,
+		EntityName: mpn,
+		ParsedSku:  sku,
+		Metadata:   map[string]any{"newly_created": newlyCreated},
+	})
+
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1343,6 +1384,17 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit log for order_received.
+	qtyAudit := qty
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "order_received",
+		EntityType: strPtr("part"),
+		EntityID:   li.PartID,
+		EntityName: strPtr(ps.MPN),
+		Quantity:   &qtyAudit,
+		Metadata:   map[string]any{"order_id": orderID.String(), "line_item_id": lineItemID.String()},
+	})
+
 	// Clear pending_scan.
 	h.Queries.ClearScanSessionPendingScan(r.Context(), sess.ID) //nolint:errcheck
 
@@ -1708,6 +1760,37 @@ func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publishEvent(r, "part_changed", sess.TeamID.String(), map[string]string{"part_id": partID.String()})
+
+	// Audit log for part_imported.
+	part, partErr := h.Queries.GetPart(r.Context(), partID)
+	var partMPN *string
+	if partErr == nil {
+		partMPN = part.Mpn
+	}
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "part_imported",
+		EntityType: strPtr("part"),
+		EntityID:   partID,
+		EntityName: partMPN,
+		ParsedSku:  &req.SKU,
+	})
+	// Resolve any part_not_found audit rows that match this SKU.
+	distID := req.DistributorID
+	_ = h.Queries.ResolvePartNotFoundBySKU(r.Context(), dbgen.ResolvePartNotFoundBySKUParams{
+		PartID:              partID,
+		PartName:            partMPN,
+		ParsedSku:           &req.SKU,
+		ParsedDistributorID: &distID,
+	})
+	if partErr == nil && part.Mpn != nil && part.Manufacturer != nil {
+		_ = h.Queries.ResolvePartNotFoundByMPN(r.Context(), dbgen.ResolvePartNotFoundByMPNParams{
+			PartID:             partID,
+			PartName:           part.Mpn,
+			ParsedMpn:          part.Mpn,
+			ParsedManufacturer: part.Manufacturer,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
 }
 
@@ -1775,6 +1858,36 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 		}
 		lastPartID = pid
 		anySuccess = true
+
+		// Audit log per successfully imported part.
+		listingCopy := listing
+		importedPart, partErr := h.Queries.GetPart(r.Context(), pid)
+		var importedMPN *string
+		if partErr == nil {
+			importedMPN = importedPart.Mpn
+		}
+		distID := listingCopy.DistributorID
+		h.writeAuditLog(r.Context(), sess, auditLogEntry{
+			EventType:  "part_imported",
+			EntityType: strPtr("part"),
+			EntityID:   pid,
+			EntityName: importedMPN,
+			ParsedSku:  &listingCopy.SKU,
+		})
+		_ = h.Queries.ResolvePartNotFoundBySKU(r.Context(), dbgen.ResolvePartNotFoundBySKUParams{
+			PartID:              pid,
+			PartName:            importedMPN,
+			ParsedSku:           &listingCopy.SKU,
+			ParsedDistributorID: &distID,
+		})
+		if partErr == nil && importedPart.Mpn != nil && importedPart.Manufacturer != nil {
+			_ = h.Queries.ResolvePartNotFoundByMPN(r.Context(), dbgen.ResolvePartNotFoundByMPNParams{
+				PartID:             pid,
+				PartName:           importedPart.Mpn,
+				ParsedMpn:          importedPart.Mpn,
+				ParsedManufacturer: importedPart.Manufacturer,
+			})
+		}
 	}
 
 	if !anySuccess {
@@ -1969,6 +2082,18 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 		"part_id":  entry.PartID.String(),
 	})
 
+	// Audit log for storage_assigned.
+	meta := map[string]any{"inventory_entry_id": entry.ID.String()}
+	if entry.StorageLocationID.Valid {
+		meta["location_id"] = entry.StorageLocationID.String()
+	}
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "storage_assigned",
+		EntityType: strPtr("part"),
+		EntityID:   entry.PartID,
+		Metadata:   meta,
+	})
+
 	var storageLocation any
 	if entry.StorageLocationID.Valid {
 		storageLocation = map[string]any{
@@ -1980,4 +2105,867 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 		"id":               entry.ID.String(),
 		"storage_location": storageLocation,
 	})
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+// auditLogEntry holds the fields for a single scan audit log write.
+type auditLogEntry struct {
+	EventType           string
+	EntityType          *string
+	EntityID            pgtype.UUID
+	EntityName          *string
+	Quantity            *int32
+	ParsedSku           *string
+	ParsedDistributorID *string
+	ParsedMpn           *string
+	ParsedManufacturer  *string
+	Metadata            map[string]any
+}
+
+// writeAuditLog persists a scan_audit_log row and publishes scan_audit_changed
+// to the desktop. Errors are silently dropped — audit failures must not affect
+// the primary operation.
+func (h *Handler) writeAuditLog(ctx context.Context, sess *dbgen.ScanSession, e auditLogEntry) {
+	var metadata []byte
+	if len(e.Metadata) > 0 {
+		metadata, _ = json.Marshal(e.Metadata)
+	}
+	_, _ = h.Queries.CreateScanAuditLog(ctx, dbgen.CreateScanAuditLogParams{
+		TeamID:              sess.TeamID,
+		UserID:              sess.UserID,
+		SessionID:           sess.ID,
+		EventType:           e.EventType,
+		EntityType:          e.EntityType,
+		EntityID:            e.EntityID,
+		EntityName:          e.EntityName,
+		Quantity:            e.Quantity,
+		ParsedSku:           e.ParsedSku,
+		ParsedDistributorID: e.ParsedDistributorID,
+		ParsedMpn:           e.ParsedMpn,
+		ParsedManufacturer:  e.ParsedManufacturer,
+		Metadata:            metadata,
+	})
+	d, _ := json.Marshal(map[string]string{"event_type": e.EventType})
+	h.Worker.Publish(worker.Event{
+		Type:         "scan_audit_changed",
+		TeamID:       sess.TeamID.String(),
+		TargetUserID: sess.UserID.String(),
+		Data:         d,
+	})
+}
+
+// strPtr returns a pointer to s if s is non-empty, else nil.
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// ── Desktop endpoint: scan audit log ─────────────────────────────────────────
+
+// ListScanAuditLog handles GET /api/v1/teams/{teamId}/scan-audit-log.
+// Returns the authenticated user's own scan activity with cursor-based pagination.
+func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// Parse query params.
+	var eventTypes []string
+	if raw := r.URL.Query().Get("event_type"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			if t := strings.TrimSpace(s); t != "" {
+				eventTypes = append(eventTypes, t)
+			}
+		}
+	}
+
+	limit := int32(50)
+	if s := r.URL.Query().Get("limit"); s != "" {
+		var v int32
+		if _, err := fmt.Sscanf(s, "%d", &v); err == nil && v > 0 {
+			limit = min(v, 100)
+		}
+	}
+
+	var cursorTime pgtype.Timestamptz
+	var cursorID pgtype.UUID
+	if ct := r.URL.Query().Get("cursor_time"); ct != "" {
+		t, err := time.Parse(time.RFC3339Nano, ct)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid cursor_time", "BAD_REQUEST")
+			return
+		}
+		cursorTime.Scan(t) //nolint:errcheck
+		if ci := r.URL.Query().Get("cursor_id"); ci != "" {
+			cursorID.Scan(ci) //nolint:errcheck
+		}
+	}
+
+	rows, err := h.Queries.ListScanAuditLog(r.Context(), dbgen.ListScanAuditLogParams{
+		TeamID:     teamID,
+		UserID:     userID,
+		EventTypes: eventTypes,
+		CursorTime: cursorTime,
+		CursorID:   cursorID,
+		Limit:      limit + 1, // fetch one extra to determine if there's a next page
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type auditItem struct {
+		ID                  string          `json:"id"`
+		EventType           string          `json:"event_type"`
+		EntityType          *string         `json:"entity_type"`
+		EntityID            *string         `json:"entity_id"`
+		EntityName          *string         `json:"entity_name"`
+		Quantity            *int32          `json:"quantity"`
+		ParsedSku           *string         `json:"parsed_sku"`
+		ParsedDistributorID *string         `json:"parsed_distributor_id"`
+		ParsedMpn           *string         `json:"parsed_mpn"`
+		ParsedManufacturer  *string         `json:"parsed_manufacturer"`
+		Metadata            json.RawMessage `json:"metadata"`
+		CreatedAt           string          `json:"created_at"`
+	}
+
+	hasMore := len(rows) > int(limit)
+	if hasMore {
+		rows = rows[:limit]
+	}
+
+	items := make([]auditItem, len(rows))
+	for i, r := range rows {
+		item := auditItem{
+			ID:                  r.ID.String(),
+			EventType:           r.EventType,
+			EntityType:          r.EntityType,
+			EntityName:          r.EntityName,
+			Quantity:            r.Quantity,
+			ParsedSku:           r.ParsedSku,
+			ParsedDistributorID: r.ParsedDistributorID,
+			ParsedMpn:           r.ParsedMpn,
+			ParsedManufacturer:  r.ParsedManufacturer,
+			Metadata:            r.Metadata,
+			CreatedAt:           r.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		}
+		if r.EntityID.Valid {
+			s := r.EntityID.String()
+			item.EntityID = &s
+		}
+		items[i] = item
+	}
+
+	var nextCursorTime, nextCursorID *string
+	if hasMore && len(items) > 0 {
+		last := rows[len(rows)-1]
+		t := last.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+		id := last.ID.String()
+		nextCursorTime = &t
+		nextCursorID = &id
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":            items,
+		"next_cursor_time": nextCursorTime,
+		"next_cursor_id":   nextCursorID,
+	})
+}
+
+// ── Scan-to-Focus ─────────────────────────────────────────────────────────────
+
+// ScanFocus handles POST /api/v1/scan/focus.
+// Phone sends an entity type + ID; the backend publishes a focus event to the
+// desktop SSE channel. Returns 409 if the desktop is not currently connected.
+func (h *Handler) ScanFocus(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+
+	var body struct {
+		EntityType string `json:"entity_type"`
+		EntityID   string `json:"entity_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.EntityType == "" || body.EntityID == "" {
+		writeError(w, http.StatusBadRequest, "entity_type and entity_id are required", "BAD_REQUEST")
+		return
+	}
+
+	validTypes := map[string]bool{"part": true, "order": true, "storage": true, "build": true}
+	if !validTypes[body.EntityType] {
+		writeError(w, http.StatusBadRequest, "entity_type must be part, order, storage, or build", "BAD_REQUEST")
+		return
+	}
+
+	if !h.Worker.HasSubscriber(sess.TeamID.String(), sess.UserID.String()) {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "desktop is not connected",
+			"code":  "DESKTOP_NOT_CONNECTED",
+		})
+		return
+	}
+
+	d, _ := json.Marshal(map[string]string{
+		"entity_type": body.EntityType,
+		"entity_id":   body.EntityID,
+	})
+	h.Worker.Publish(worker.Event{
+		Type:         "scan_focus_requested",
+		TeamID:       sess.TeamID.String(),
+		TargetUserID: sess.UserID.String(),
+		Data:         d,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Build Kitting ─────────────────────────────────────────────────────────────
+
+// StartKitting handles POST /api/v1/teams/{teamId}/scan-sessions/{sessionId}/kitting.
+// Desktop initiates a kitting session for a build; pushes context to the phone.
+func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var sessionID pgtype.UUID
+	if err := sessionID.Scan(chi.URLParam(r, "sessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid session id", "BAD_REQUEST")
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	var body struct {
+		BuildID string `json:"build_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.BuildID == "" {
+		writeError(w, http.StatusBadRequest, "build_id is required", "BAD_REQUEST")
+		return
+	}
+	var buildID pgtype.UUID
+	if err := buildID.Scan(body.BuildID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid build_id", "BAD_REQUEST")
+		return
+	}
+
+	// Look up the scan session and verify it belongs to this team + user.
+	sess, err := h.Queries.GetScanSession(r.Context(), dbgen.GetScanSessionParams{
+		ID:     sessionID,
+		TeamID: teamID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess.UserID != userID {
+		writeError(w, http.StatusForbidden, "can only start kitting on your own scan session", "FORBIDDEN")
+		return
+	}
+
+	// Look up build and validate status.
+	build, err := h.Queries.GetBuildForUpdate(r.Context(), dbgen.GetBuildForUpdateParams{
+		ID:     buildID,
+		TeamID: teamID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "build not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	validStatuses := map[string]bool{"pending": true, "ordered": true, "ready": true}
+	if !validStatuses[string(build.Status)] {
+		writeError(w, http.StatusConflict, "build must be in pending, ordered, or ready status", "INVALID_BUILD_STATUS")
+		return
+	}
+
+	// Check for an existing in-progress kitting session for this build.
+	existing, err := h.Queries.GetActiveKittingSessionForBuild(r.Context(), buildID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err == nil {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":              "kitting already in progress for this build",
+			"code":               "KITTING_ALREADY_IN_PROGRESS",
+			"kitting_session_id": existing.ID.String(),
+		})
+		return
+	}
+
+	// Create kitting session and seed confirmations.
+	ks, err := h.Queries.CreateKittingSession(r.Context(), dbgen.CreateKittingSessionParams{
+		ScanSessionID: sessionID,
+		BuildID:       buildID,
+		TeamID:        teamID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := h.Queries.SeedKittingConfirmations(r.Context(), dbgen.SeedKittingConfirmationsParams{
+		KittingSessionID: ks.ID,
+		BuildID:          buildID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	// Push to phone.
+	buildRef := fmt.Sprintf("%s × %d", "Build", build.Quantity)
+	msg, _ := json.Marshal(map[string]any{
+		"type":                        "scan_context_changed",
+		"context_type":                "kitting",
+		"context_kitting_session_id":  ks.ID.String(),
+		"build_ref":                   buildRef,
+	})
+	h.ScanHub.Send(sessionID.String(), msg)
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"kitting_session_id": ks.ID.String(),
+	})
+}
+
+// kittingSessionFromToken fetches the kitting session and validates that the
+// current scan token's session owns it. Returns nil if validation fails.
+func (h *Handler) kittingSessionFromToken(r *http.Request, kittingSessionID pgtype.UUID) (*dbgen.ScanSession, *dbgen.GetKittingSessionRow, error) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sess == nil {
+		return nil, nil, nil //nolint:nilnil
+	}
+	ks, err := h.Queries.GetKittingSession(r.Context(), kittingSessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sess, nil, nil //nolint:nilnil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if ks.ScanSessionID != sess.ID {
+		return sess, nil, nil //nolint:nilnil
+	}
+	return sess, &ks, nil
+}
+
+// kittingProgress fetches progress counts and returns them as a map.
+func (h *Handler) kittingProgress(ctx context.Context, kittingSessionID pgtype.UUID) (map[string]int32, error) {
+	rows, err := h.Queries.GetKittingProgress(ctx, kittingSessionID)
+	if err != nil {
+		return nil, err
+	}
+	m := map[string]int32{"pending": 0, "confirmed": 0, "shortfall": 0, "skipped": 0}
+	for _, row := range rows {
+		m[row.Status] = row.Count
+	}
+	return m, nil
+}
+
+// publishKittingChanged sends a build_kitting_changed SSE event to the desktop.
+func (h *Handler) publishKittingChanged(sess *dbgen.ScanSession, ks *dbgen.GetKittingSessionRow) {
+	d, _ := json.Marshal(map[string]string{
+		"build_id":           ks.BuildID.String(),
+		"kitting_session_id": ks.ID.String(),
+	})
+	h.Worker.Publish(worker.Event{
+		Type:         "build_kitting_changed",
+		TeamID:       sess.TeamID.String(),
+		TargetUserID: sess.UserID.String(),
+		Data:         d,
+	})
+}
+
+// GetKittingSessionHandler handles GET /api/v1/scan/kitting/{kittingSessionId}.
+func (h *Handler) GetKittingSessionHandler(w http.ResponseWriter, r *http.Request) {
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	sess, ks, err := h.kittingSessionFromToken(r, ksID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if ks == nil {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	progress, err := h.kittingProgress(r.Context(), ks.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	buildRef := fmt.Sprintf("%s %s × %d", ks.ProjectName, ks.BomRevisionLabel, ks.BuildQuantity)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": map[string]any{
+			"id":        ks.ID.String(),
+			"build_id":  ks.BuildID.String(),
+			"build_ref": buildRef,
+			"status":    ks.Status,
+		},
+		"progress": progress,
+	})
+}
+
+// GetKittingItemsHandler handles GET /api/v1/scan/kitting/{kittingSessionId}/items.
+func (h *Handler) GetKittingItemsHandler(w http.ResponseWriter, r *http.Request) {
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	sess, ks, err := h.kittingSessionFromToken(r, ksID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if ks == nil {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	items, err := h.Queries.GetKittingItems(r.Context(), dbgen.GetKittingItemsParams{
+		TeamID:           sess.TeamID,
+		KittingSessionID: ks.ID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type kittingItemResp struct {
+		PartID              string  `json:"part_id"`
+		PartMPN             *string `json:"part_mpn"`
+		PartManufacturer    *string `json:"part_manufacturer"`
+		PartDescription     *string `json:"part_description"`
+		QuantityNeeded      int32   `json:"quantity_needed"`
+		QuantityConfirmed   int32   `json:"quantity_confirmed"`
+		Status              string  `json:"status"`
+		StorageLocationID   *string `json:"storage_location_id"`
+		StorageLocationPath *string `json:"storage_location_path"`
+		StorageCoordinate   []int32 `json:"storage_coordinate"`
+	}
+
+	resp := make([]kittingItemResp, len(items))
+	for i, item := range items {
+		ki := kittingItemResp{
+			PartID:            item.PartID.String(),
+			PartMPN:           item.PartMpn,
+			PartManufacturer:  item.PartManufacturer,
+			PartDescription:   item.PartDescription,
+			QuantityNeeded:    item.QuantityNeeded,
+			QuantityConfirmed: item.QuantityConfirmed,
+			Status:            item.Status,
+			StorageCoordinate: item.StorageCoordinate,
+		}
+		if item.StorageLocationID.Valid {
+			s := item.StorageLocationID.String()
+			ki.StorageLocationID = &s
+			path := item.StorageLocationPath
+			ki.StorageLocationPath = &path
+		}
+		resp[i] = ki
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": resp})
+}
+
+// KittingConfirm handles POST /api/v1/scan/kitting/{kittingSessionId}/confirm.
+func (h *Handler) KittingConfirm(w http.ResponseWriter, r *http.Request) {
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	sess, ks, err := h.kittingSessionFromToken(r, ksID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if ks == nil {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	var body struct {
+		PartID            string `json:"part_id"`
+		QuantityConfirmed int32  `json:"quantity_confirmed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PartID == "" {
+		writeError(w, http.StatusBadRequest, "part_id is required", "BAD_REQUEST")
+		return
+	}
+	var partID pgtype.UUID
+	if err := partID.Scan(body.PartID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part_id", "BAD_REQUEST")
+		return
+	}
+
+	item, err := h.Queries.UpsertKittingConfirmation(r.Context(), dbgen.UpsertKittingConfirmationParams{
+		KittingSessionID:  ks.ID,
+		PartID:            partID,
+		Status:            "confirmed",
+		QuantityConfirmed: body.QuantityConfirmed,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "kitting item not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	qty := item.QuantityConfirmed
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "kitting_confirmed",
+		EntityType: strPtr("part"),
+		EntityID:   partID,
+		Quantity:   &qty,
+		Metadata:   map[string]any{"kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String()},
+	})
+	h.publishKittingChanged(sess, ks)
+
+	progress, err := h.kittingProgress(r.Context(), ks.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"item": map[string]any{
+			"part_id":            item.PartID.String(),
+			"quantity_needed":    item.QuantityNeeded,
+			"quantity_confirmed": item.QuantityConfirmed,
+			"status":             item.Status,
+		},
+		"progress": progress,
+	})
+}
+
+// KittingShortfall handles POST /api/v1/scan/kitting/{kittingSessionId}/shortfall.
+func (h *Handler) KittingShortfall(w http.ResponseWriter, r *http.Request) {
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	sess, ks, err := h.kittingSessionFromToken(r, ksID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if ks == nil {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	var body struct {
+		PartID            string `json:"part_id"`
+		QuantityAvailable int32  `json:"quantity_available"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PartID == "" {
+		writeError(w, http.StatusBadRequest, "part_id is required", "BAD_REQUEST")
+		return
+	}
+	var partID pgtype.UUID
+	if err := partID.Scan(body.PartID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part_id", "BAD_REQUEST")
+		return
+	}
+
+	item, err := h.Queries.UpsertKittingConfirmation(r.Context(), dbgen.UpsertKittingConfirmationParams{
+		KittingSessionID:  ks.ID,
+		PartID:            partID,
+		Status:            "shortfall",
+		QuantityConfirmed: body.QuantityAvailable,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "kitting item not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	qty := item.QuantityConfirmed
+	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+		EventType:  "kitting_shortfall",
+		EntityType: strPtr("part"),
+		EntityID:   partID,
+		Quantity:   &qty,
+		Metadata:   map[string]any{"kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String(), "quantity_needed": item.QuantityNeeded},
+	})
+	h.publishKittingChanged(sess, ks)
+
+	progress, err := h.kittingProgress(r.Context(), ks.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"item": map[string]any{
+			"part_id":            item.PartID.String(),
+			"quantity_needed":    item.QuantityNeeded,
+			"quantity_confirmed": item.QuantityConfirmed,
+			"status":             item.Status,
+		},
+		"progress": progress,
+	})
+}
+
+// KittingComplete handles POST /api/v1/scan/kitting/{kittingSessionId}/complete.
+func (h *Handler) KittingComplete(w http.ResponseWriter, r *http.Request) {
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	sess, ks, err := h.kittingSessionFromToken(r, ksID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if ks == nil {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	if err := h.Queries.CompleteKittingSession(r.Context(), ks.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.publishKittingChanged(sess, ks)
+
+	progress, err := h.kittingProgress(r.Context(), ks.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"progress": progress})
+}
+
+// KittingAbandon handles POST /api/v1/scan/kitting/{kittingSessionId}/abandon.
+func (h *Handler) KittingAbandon(w http.ResponseWriter, r *http.Request) {
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	sess, ks, err := h.kittingSessionFromToken(r, ksID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if ks == nil {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	if err := h.Queries.AbandonKittingSession(r.Context(), ks.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.publishKittingChanged(sess, ks)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Desktop-facing kitting read endpoints ─────────────────────────────────────
+
+// GetKittingSessionDesktop handles GET /api/v1/teams/{teamId}/kitting/{kittingSessionId}.
+func (h *Handler) GetKittingSessionDesktop(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	ks, err := h.Queries.GetKittingSession(r.Context(), ksID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if ks.TeamID != teamID {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	progress, err := h.kittingProgress(r.Context(), ks.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	buildRef := fmt.Sprintf("%s %s × %d", ks.ProjectName, ks.BomRevisionLabel, ks.BuildQuantity)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": map[string]any{
+			"id":        ks.ID.String(),
+			"build_id":  ks.BuildID.String(),
+			"build_ref": buildRef,
+			"status":    ks.Status,
+		},
+		"progress": progress,
+	})
+}
+
+// GetKittingItemsDesktop handles GET /api/v1/teams/{teamId}/kitting/{kittingSessionId}/items.
+func (h *Handler) GetKittingItemsDesktop(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var ksID pgtype.UUID
+	if err := ksID.Scan(chi.URLParam(r, "kittingSessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid kitting session id", "BAD_REQUEST")
+		return
+	}
+
+	ks, err := h.Queries.GetKittingSession(r.Context(), ksID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if ks.TeamID != teamID {
+		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+
+	items, err := h.Queries.GetKittingItems(r.Context(), dbgen.GetKittingItemsParams{
+		TeamID:           teamID,
+		KittingSessionID: ks.ID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type kittingItemResp struct {
+		PartID              string  `json:"part_id"`
+		PartMPN             *string `json:"part_mpn"`
+		PartManufacturer    *string `json:"part_manufacturer"`
+		PartDescription     *string `json:"part_description"`
+		QuantityNeeded      int32   `json:"quantity_needed"`
+		QuantityConfirmed   int32   `json:"quantity_confirmed"`
+		Status              string  `json:"status"`
+		StorageLocationID   *string `json:"storage_location_id"`
+		StorageLocationPath *string `json:"storage_location_path"`
+		StorageCoordinate   []int32 `json:"storage_coordinate"`
+	}
+
+	resp := make([]kittingItemResp, len(items))
+	for i, item := range items {
+		ki := kittingItemResp{
+			PartID:            item.PartID.String(),
+			PartMPN:           item.PartMpn,
+			PartManufacturer:  item.PartManufacturer,
+			PartDescription:   item.PartDescription,
+			QuantityNeeded:    item.QuantityNeeded,
+			QuantityConfirmed: item.QuantityConfirmed,
+			Status:            item.Status,
+			StorageCoordinate: item.StorageCoordinate,
+		}
+		if item.StorageLocationID.Valid {
+			s := item.StorageLocationID.String()
+			ki.StorageLocationID = &s
+			path := item.StorageLocationPath
+			ki.StorageLocationPath = &path
+		}
+		resp[i] = ki
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": resp})
 }

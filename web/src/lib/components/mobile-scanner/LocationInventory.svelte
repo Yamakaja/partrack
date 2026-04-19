@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import type { ScanPart } from './types.js';
-  import { listScanStorageInventory, ScanExpiredError, type StorageInventoryEntry } from '$lib/api/scanner.js';
+  import { listScanStorageInventory, scanFocus, ScanExpiredError, type StorageInventoryEntry } from '$lib/api/scanner.js';
   import MobileGridVisualiser from './MobileGridVisualiser.svelte';
 
   interface Props {
@@ -146,6 +146,12 @@
         <p class="text-xs text-zinc-500 truncate">Cell: {coordLabel(coordinate)}</p>
       {/if}
     </div>
+    <button
+      onclick={() => scanFocus(token, 'storage', locationId).catch(() => {})}
+      class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+    >
+      Open ↗
+    </button>
   </div>
 
   <!-- Readonly grid visualiser for coordinate context -->

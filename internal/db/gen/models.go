@@ -419,6 +419,26 @@ type Build struct {
 	ExcludedDesignators []string           `json:"excluded_designators"`
 }
 
+type BuildKittingConfirmation struct {
+	ID                pgtype.UUID        `json:"id"`
+	KittingSessionID  pgtype.UUID        `json:"kitting_session_id"`
+	PartID            pgtype.UUID        `json:"part_id"`
+	QuantityNeeded    int32              `json:"quantity_needed"`
+	QuantityConfirmed int32              `json:"quantity_confirmed"`
+	Status            string             `json:"status"`
+	ConfirmedAt       pgtype.Timestamptz `json:"confirmed_at"`
+}
+
+type BuildKittingSession struct {
+	ID            pgtype.UUID        `json:"id"`
+	ScanSessionID pgtype.UUID        `json:"scan_session_id"`
+	BuildID       pgtype.UUID        `json:"build_id"`
+	TeamID        pgtype.UUID        `json:"team_id"`
+	Status        string             `json:"status"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+}
+
 type BuildLineItemOverride struct {
 	BuildID       pgtype.UUID `json:"build_id"`
 	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
@@ -664,6 +684,24 @@ type Project struct {
 	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
 	SourceUrl              *string            `json:"source_url"`
 	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
+}
+
+type ScanAuditLog struct {
+	ID                  pgtype.UUID        `json:"id"`
+	TeamID              pgtype.UUID        `json:"team_id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	SessionID           pgtype.UUID        `json:"session_id"`
+	EventType           string             `json:"event_type"`
+	EntityType          *string            `json:"entity_type"`
+	EntityID            pgtype.UUID        `json:"entity_id"`
+	EntityName          *string            `json:"entity_name"`
+	Quantity            *int32             `json:"quantity"`
+	ParsedSku           *string            `json:"parsed_sku"`
+	ParsedDistributorID *string            `json:"parsed_distributor_id"`
+	ParsedMpn           *string            `json:"parsed_mpn"`
+	ParsedManufacturer  *string            `json:"parsed_manufacturer"`
+	Metadata            []byte             `json:"metadata"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 type ScanSession struct {
