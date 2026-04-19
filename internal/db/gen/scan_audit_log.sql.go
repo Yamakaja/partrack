@@ -89,6 +89,7 @@ SELECT sal.id, sal.team_id, sal.user_id, sal.session_id, sal.event_type,
        sal.metadata, sal.created_at,
        p.manufacturer      AS part_manufacturer,
        p.short_description AS part_short_description,
+       p.image_url         AS part_image_url,
        c.display_name      AS part_category_name,
        ie.id               AS inventory_entry_id,
        ie.quantity_on_hand AS inventory_quantity_on_hand
@@ -139,6 +140,7 @@ type ListScanAuditLogRow struct {
 	CreatedAt               pgtype.Timestamptz `json:"created_at"`
 	PartManufacturer        *string            `json:"part_manufacturer"`
 	PartShortDescription    *string            `json:"part_short_description"`
+	PartImageUrl            *string            `json:"part_image_url"`
 	PartCategoryName        *string            `json:"part_category_name"`
 	InventoryEntryID        pgtype.UUID        `json:"inventory_entry_id"`
 	InventoryQuantityOnHand *int32             `json:"inventory_quantity_on_hand"`
@@ -178,6 +180,7 @@ func (q *Queries) ListScanAuditLog(ctx context.Context, arg ListScanAuditLogPara
 			&i.CreatedAt,
 			&i.PartManufacturer,
 			&i.PartShortDescription,
+			&i.PartImageUrl,
 			&i.PartCategoryName,
 			&i.InventoryEntryID,
 			&i.InventoryQuantityOnHand,

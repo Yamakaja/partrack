@@ -2245,6 +2245,7 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 		CreatedAt                string          `json:"created_at"`
 		PartManufacturer         *string         `json:"part_manufacturer"`
 		PartShortDescription     *string         `json:"part_short_description"`
+		PartImageURL             *string         `json:"part_image_url"`
 		PartCategoryName         *string         `json:"part_category_name"`
 		InventoryEntryID         *string         `json:"inventory_entry_id"`
 		InventoryQuantityOnHand  *int32          `json:"inventory_quantity_on_hand"`
@@ -2269,9 +2270,10 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 			ParsedManufacturer:  r.ParsedManufacturer,
 			Metadata:            r.Metadata,
 			CreatedAt:           r.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-			PartManufacturer:    r.PartManufacturer,
+			PartManufacturer:     r.PartManufacturer,
 			PartShortDescription: r.PartShortDescription,
-			PartCategoryName:    r.PartCategoryName,
+			PartImageURL:         r.PartImageUrl,
+			PartCategoryName:     r.PartCategoryName,
 		}
 		if r.EntityID.Valid {
 			s := r.EntityID.String()

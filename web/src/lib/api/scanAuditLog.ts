@@ -15,6 +15,7 @@ export interface ScanAuditEntry {
   created_at: string;
   part_manufacturer: string | null;
   part_short_description: string | null;
+  part_image_url: string | null;
   part_category_name: string | null;
   inventory_entry_id: string | null;
   inventory_quantity_on_hand: number | null;

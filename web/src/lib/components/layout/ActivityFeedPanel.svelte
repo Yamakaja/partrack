@@ -163,11 +163,11 @@
   }
 </script>
 
-<!-- Collapsed: small floating badge -->
+<!-- Collapsed: floating tab (no layout space) -->
 {#if collapsed}
   <button
     onclick={toggleCollapsed}
-    class="fixed right-0 top-1/2 z-50 -translate-y-1/2 flex flex-col items-center gap-1 rounded-l-lg bg-card border border-border border-r-0 px-2 py-3 text-muted-foreground hover:text-foreground transition-colors shadow-lg"
+    class="fixed right-0 top-1/2 z-50 -translate-y-1/2 hidden lg:flex flex-col items-center gap-1 rounded-l-lg bg-card border border-border border-r-0 px-2 py-3 text-muted-foreground hover:text-foreground transition-colors shadow-lg"
     aria-label="Open scan activity"
   >
     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -177,9 +177,9 @@
     <span class="text-[10px] font-medium tracking-wide" style="writing-mode: vertical-lr">Activity</span>
   </button>
 
-<!-- Expanded: full panel -->
+<!-- Expanded: inline panel -->
 {:else}
-  <div class="fixed right-0 top-0 z-50 hidden lg:flex h-full w-[380px] flex-col border-l border-border bg-card shadow-2xl">
+  <div class="hidden lg:flex h-full w-[380px] shrink-0 flex-col border-l border-border bg-card">
     <!-- Header -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
       <span class="text-sm font-semibold text-foreground">Scan Activity</span>
@@ -227,16 +227,26 @@
         {#each allItems as item (item.id)}
           {@const url = entityUrl(item)}
           {@const isNotFound = item.event_type === 'part_not_found'}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
           <div
+            role={url ? 'button' : undefined}
+            tabindex={url ? 0 : undefined}
+            onclick={() => url && navigate(url)}
+            onkeydown={(e) => e.key === 'Enter' && url && navigate(url)}
             class="group flex gap-3 px-4 py-3 border-b border-border transition-colors
-              {isNotFound ? 'bg-amber-50 dark:bg-amber-950/30' : 'hover:bg-accent/50'}"
+              {isNotFound ? 'bg-amber-50 dark:bg-amber-950/30' : 'hover:bg-accent/50'}
+              {url ? 'cursor-pointer' : ''}"
           >
-            <!-- Icon -->
-            <div class="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs
+            <!-- Icon / part image -->
+            <div class="shrink-0 w-10 h-10 rounded-full overflow-hidden flex items-center justify-center text-xs
               {isNotFound
                 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
                 : 'bg-muted text-muted-foreground'}">
-              {eventIcon(item.event_type)}
+              {#if item.part_image_url}
+                <img src={item.part_image_url} alt="" class="w-full h-full object-contain" />
+              {:else}
+                {eventIcon(item.event_type)}
+              {/if}
             </div>
 
             <!-- Content -->
@@ -272,28 +282,23 @@
               {/if}
 
               <!-- Quick actions row -->
-              <div class="mt-1 flex items-center gap-3">
-                {#if url}
-                  <button
-                    onclick={() => navigate(url)}
-                    class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    View →
-                  </button>
-                {:else if isNotFound && (item.parsed_sku || item.parsed_mpn)}
-                  <span class="text-[10px] text-amber-600 dark:text-amber-500">
-                    {item.entity_id ? 'Resolved ✓' : 'Unresolved'}
-                  </span>
-                {/if}
-                {#if item.inventory_entry_id}
-                  <button
-                    onclick={() => openAdjust(item.inventory_entry_id!, item.inventory_quantity_on_hand, item.entity_name, item.part_manufacturer)}
-                    class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    ± Adjust
-                  </button>
-                {/if}
-              </div>
+              {#if (isNotFound && (item.parsed_sku || item.parsed_mpn)) || item.inventory_entry_id}
+                <div class="mt-1.5 flex items-center gap-2">
+                  {#if isNotFound && (item.parsed_sku || item.parsed_mpn)}
+                    <span class="text-[10px] text-amber-600 dark:text-amber-500">
+                      {item.entity_id ? 'Resolved ✓' : 'Unresolved'}
+                    </span>
+                  {/if}
+                  {#if item.inventory_entry_id}
+                    <button
+                      onclick={(e) => { e.stopPropagation(); openAdjust(item.inventory_entry_id!, item.inventory_quantity_on_hand, item.entity_name, item.part_manufacturer); }}
+                      class="text-[10px] px-2 py-0.5 rounded border border-border bg-muted text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    >
+                      ± Adjust
+                    </button>
+                  {/if}
+                </div>
+              {/if}
             </div>
           </div>
         {/each}

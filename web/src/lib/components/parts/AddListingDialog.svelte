@@ -104,7 +104,7 @@
       <div class="space-y-3">
         <div class="space-y-1">
           <Label>Distributor</Label>
-          <Select bind:value={selectedDistributorId} onchange={() => { keywords = ''; searchResults = []; selectedResult = null; }}>
+          <Select bind:value={selectedDistributorId} onchange={() => { searchResults = []; selectedResult = null; }}>
             {#each enabledConfigs as cfg (cfg.distributor_id)}
               <option value={cfg.distributor_id}>{cfg.distributor_name}{cfg.preferred ? ' (preferred)' : ''}</option>
             {/each}

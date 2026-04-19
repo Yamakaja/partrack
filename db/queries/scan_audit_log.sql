@@ -22,6 +22,7 @@ SELECT sal.id, sal.team_id, sal.user_id, sal.session_id, sal.event_type,
        sal.metadata, sal.created_at,
        p.manufacturer      AS part_manufacturer,
        p.short_description AS part_short_description,
+       p.image_url         AS part_image_url,
        c.display_name      AS part_category_name,
        ie.id               AS inventory_entry_id,
        ie.quantity_on_hand AS inventory_quantity_on_hand
