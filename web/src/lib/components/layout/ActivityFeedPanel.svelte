@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { createInfiniteQuery, type InfiniteData } from '@tanstack/svelte-query';
+  import { createInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/svelte-query';
   import { listScanAuditLog, type ScanAuditEntry, type ScanAuditLogPage } from '$lib/api/scanAuditLog.js';
+  import AdjustStockDialog from '$lib/components/inventory/AdjustStockDialog.svelte';
   import { navigate } from '$lib/router/index.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
 
@@ -71,6 +72,27 @@
   }));
 
   const allItems = $derived((query.data?.pages ?? []).flatMap((p) => p.items));
+
+  // ── Quick stock adjust state ──────────────────────────────────────────────
+
+  const queryClient = useQueryClient();
+  let adjustDialogOpen = $state(false);
+  let adjustEntryId = $state<string | null>(null);
+  let adjustCurrentQty = $state<number | undefined>(undefined);
+  let adjustMpn = $state<string | undefined>(undefined);
+  let adjustManufacturer = $state<string | undefined>(undefined);
+
+  function openAdjust(entryId: string, currentQuantity: number | null, mpn: string | null, manufacturer: string | null) {
+    adjustEntryId = entryId;
+    adjustCurrentQty = currentQuantity ?? undefined;
+    adjustMpn = mpn ?? undefined;
+    adjustManufacturer = manufacturer ?? undefined;
+    adjustDialogOpen = true;
+  }
+
+  function handleAdjustSuccess() {
+    queryClient.invalidateQueries({ queryKey: ['scan-audit-log', teamId] });
+  }
 
   // ── Infinite scroll sentinel ──────────────────────────────────────────────
 
@@ -235,23 +257,43 @@
                 <p class="text-xs text-muted-foreground font-mono truncate mt-0.5">{item.parsed_sku}</p>
               {/if}
 
+              {#if item.part_manufacturer || item.part_category_name}
+                <p class="text-[10px] text-muted-foreground truncate mt-0.5">
+                  {[item.part_manufacturer, item.part_category_name].filter(Boolean).join(' · ')}
+                </p>
+              {/if}
+
+              {#if item.part_short_description}
+                <p class="text-[10px] text-muted-foreground truncate">{item.part_short_description}</p>
+              {/if}
+
               {#if item.quantity != null}
                 <p class="text-[10px] text-muted-foreground mt-0.5">qty {item.quantity}</p>
               {/if}
 
-              <!-- Quick action -->
-              {#if url}
-                <button
-                  onclick={() => navigate(url)}
-                  class="mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  View →
-                </button>
-              {:else if isNotFound && (item.parsed_sku || item.parsed_mpn)}
-                <span class="mt-1 text-[10px] text-amber-600 dark:text-amber-500">
-                  {item.entity_id ? 'Resolved ✓' : 'Unresolved'}
-                </span>
-              {/if}
+              <!-- Quick actions row -->
+              <div class="mt-1 flex items-center gap-3">
+                {#if url}
+                  <button
+                    onclick={() => navigate(url)}
+                    class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    View →
+                  </button>
+                {:else if isNotFound && (item.parsed_sku || item.parsed_mpn)}
+                  <span class="text-[10px] text-amber-600 dark:text-amber-500">
+                    {item.entity_id ? 'Resolved ✓' : 'Unresolved'}
+                  </span>
+                {/if}
+                {#if item.inventory_entry_id}
+                  <button
+                    onclick={() => openAdjust(item.inventory_entry_id!, item.inventory_quantity_on_hand, item.entity_name, item.part_manufacturer)}
+                    class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    ± Adjust
+                  </button>
+                {/if}
+              </div>
             </div>
           </div>
         {/each}
@@ -264,4 +306,16 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if adjustEntryId}
+  <AdjustStockDialog
+    bind:open={adjustDialogOpen}
+    {teamId}
+    entryId={adjustEntryId}
+    currentQuantity={adjustCurrentQty}
+    mpn={adjustMpn}
+    manufacturer={adjustManufacturer}
+    onSuccess={handleAdjustSuccess}
+  />
 {/if}

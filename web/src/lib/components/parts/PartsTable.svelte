@@ -3,6 +3,7 @@
   import { untrack } from 'svelte';
   import { Popover } from 'bits-ui';
   import { X, Hash, ListFilter } from 'lucide-svelte';
+  import { currentRoute } from '$lib/router/index.svelte.js';
   import { listParts, getCategoryParameters, type ParamFilter } from '$lib/api/parts.js';
   import { listCategories, listPartCategories } from '$lib/api/categories.js';
   import { listStorageLocations } from '$lib/api/storage.js';
@@ -205,6 +206,36 @@
     if (pg) source.page = Number(pg);
   }
 
+  // Re-apply hash params when navigate() changes the hash while component stays mounted
+  // (e.g. command palette category navigation, or clicking nav "Parts" link to clear filters)
+  // svelte-ignore state_referenced_locally
+  const mountRouteId = untrack(() => currentRoute().id);
+
+  $effect(() => {
+    const route = currentRoute();
+    if (route.id <= mountRouteId || !syncUrl) return;
+
+    // untrack the body so reads of source.filters don't make this effect depend on
+    // filter state — otherwise each setFilter call would re-trigger the effect.
+    untrack(() => {
+      const params = new URLSearchParams(route.hash.slice(1));
+
+      source.setFilter('stock_status', new Set(params.get('stock_status')?.split(',') ?? []));
+      source.setFilter('lifecycle_status', new Set(params.get('lifecycle_status')?.split(',') ?? []));
+      source.setFilter('category_id', new Set(params.has('category_id') ? [params.get('category_id')!] : []));
+      source.setFilter('storage_location_id', new Set(params.has('storage_location_id') ? [params.get('storage_location_id')!] : []));
+      source.setFilter('storage_cells', new Set(params.get('storage_cells')?.split('|') ?? []));
+      for (const key of [...source.filters.keys()]) {
+        if (key.startsWith('param_')) source.setFilter(key, new Set());
+      }
+      for (const [key, val] of params.entries()) {
+        if (key.startsWith('param_') && val) source.setFilter(key, new Set([val]));
+      }
+      searchValue = params.get('q') ?? '';
+      source.page = params.has('page') ? Number(params.get('page')) : 1;
+    });
+  });
+
   // Rebuild columns whenever category parameters change
   $effect(() => {
     const params = categoryParamsQuery.data ?? [];
@@ -290,7 +321,7 @@
     if (source.page > 1) params.set('page', String(source.page));
     if (!syncUrl) return;
     const hash = params.toString();
-    history.replaceState(null, '', window.location.pathname + (hash ? '#' + hash : ''));
+    history.pushState(null, '', window.location.pathname + (hash ? '#' + hash : ''));
   });
 
   function applyParamFilter(slug: string, filterKey: string, unitSymbol?: string) {

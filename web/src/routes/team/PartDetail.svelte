@@ -5,7 +5,8 @@
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import { listCategories } from '$lib/api/categories.js';
   import type { LifecycleStatus } from '$lib/types/parts.js';
-  import { createInventoryEntry, updateInventoryEntry, createAdjustment } from '$lib/api/inventory.js';
+  import { createInventoryEntry, updateInventoryEntry } from '$lib/api/inventory.js';
+  import AdjustStockDialog from '$lib/components/inventory/AdjustStockDialog.svelte';
   import { addCartItem, getCartPartQuantity } from '$lib/api/cart.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { listStorageLocations } from '$lib/api/storage.js';
@@ -40,9 +41,6 @@
 
   // Adjust stock dialog
   let adjustOpen = $state(false);
-  let adjustDelta = $state('');
-  let adjustReason = $state('');
-  let adjusting = $state(false);
 
   // Edit settings dialog
   let editOpen = $state(false);
@@ -189,8 +187,6 @@
   }
 
   function openAdjust() {
-    adjustDelta = '';
-    adjustReason = '';
     adjustOpen = true;
   }
 
@@ -238,23 +234,8 @@
     }
   }
 
-  async function handleAdjust(e: Event) {
-    e.preventDefault();
-    const delta = parseInt(adjustDelta, 10);
-    if (isNaN(delta) || delta === 0) return;
-    adjusting = true;
-    try {
-      await createAdjustment(teamId, entryId, { delta, reason: adjustReason.trim() });
-      adjustOpen = false;
-      qc.invalidateQueries({ queryKey: ['part', partId, teamId] });
-      qc.invalidateQueries({ queryKey: ['adjustments', teamId, entryId] });
-      qc.invalidateQueries({ queryKey: ['parts', teamId] });
-      pushToast('success', `Stock adjusted (${delta >= 0 ? '+' : ''}${delta})`);
-    } catch (err: any) {
-      pushToast('error', 'Failed to adjust stock', err.message);
-    } finally {
-      adjusting = false;
-    }
+  function handleAdjustSuccess() {
+    qc.invalidateQueries({ queryKey: ['part', partId, teamId] });
   }
 
   async function openAddToCartDialog(opts?: {
@@ -547,36 +528,9 @@
 </div>
 
 <!-- Adjust Stock Dialog -->
-<Dialog.Root bind:open={adjustOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
-      <Dialog.Title class="text-lg font-semibold mb-4">Adjust Stock</Dialog.Title>
-      <form onsubmit={handleAdjust} class="space-y-3">
-        <div class="space-y-1">
-          <Label for="adj-delta">Delta <span class="text-muted-foreground text-xs">(positive or negative)</span></Label>
-          <Input
-            id="adj-delta"
-            type="number"
-            bind:value={adjustDelta}
-            placeholder="e.g. +10 or -5"
-            required
-          />
-        </div>
-        <div class="space-y-1">
-          <Label for="adj-reason">Reason</Label>
-          <Input id="adj-reason" bind:value={adjustReason} placeholder="Optional reason" />
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <Button variant="outline" type="button" onclick={() => adjustOpen = false}>Cancel</Button>
-          <Button type="submit" disabled={adjusting || !adjustDelta || adjustDelta === '0'}>
-            {adjusting ? 'Adjusting…' : 'Apply'}
-          </Button>
-        </div>
-      </form>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+{#if entryId}
+  <AdjustStockDialog bind:open={adjustOpen} {teamId} {entryId} currentQuantity={partQuery.data?.quantity_on_hand ?? undefined} mpn={partQuery.data?.mpn ?? undefined} manufacturer={partQuery.data?.manufacturer ?? undefined} onSuccess={handleAdjustSuccess} />
+{/if}
 
 <!-- Edit Part Dialog -->
 <Dialog.Root bind:open={editPartOpen}>

@@ -83,22 +83,32 @@ func (q *Queries) CreateScanAuditLog(ctx context.Context, arg CreateScanAuditLog
 }
 
 const listScanAuditLog = `-- name: ListScanAuditLog :many
-SELECT id, team_id, user_id, session_id, event_type,
-       entity_type, entity_id, entity_name, quantity,
-       parsed_sku, parsed_distributor_id, parsed_mpn, parsed_manufacturer,
-       metadata, created_at
-FROM scan_audit_log
-WHERE team_id = $1
-  AND user_id = $2
+SELECT sal.id, sal.team_id, sal.user_id, sal.session_id, sal.event_type,
+       sal.entity_type, sal.entity_id, sal.entity_name, sal.quantity,
+       sal.parsed_sku, sal.parsed_distributor_id, sal.parsed_mpn, sal.parsed_manufacturer,
+       sal.metadata, sal.created_at,
+       p.manufacturer      AS part_manufacturer,
+       p.short_description AS part_short_description,
+       c.display_name      AS part_category_name,
+       ie.id               AS inventory_entry_id,
+       ie.quantity_on_hand AS inventory_quantity_on_hand
+FROM scan_audit_log sal
+LEFT JOIN parts p              ON sal.entity_type = 'part' AND sal.entity_id = p.id
+LEFT JOIN categories c         ON p.category_id = c.id
+LEFT JOIN inventory_entries ie ON sal.entity_type = 'part'
+                               AND sal.entity_id = ie.part_id
+                               AND ie.team_id = sal.team_id
+WHERE sal.team_id = $1
+  AND sal.user_id = $2
   AND (
     array_length($3::text[], 1) IS NULL
-    OR event_type = ANY($3::text[])
+    OR sal.event_type = ANY($3::text[])
   )
   AND (
     $4::timestamptz IS NULL
-    OR (created_at, id) < ($4::timestamptz, $5::uuid)
+    OR (sal.created_at, sal.id) < ($4::timestamptz, $5::uuid)
   )
-ORDER BY created_at DESC, id DESC
+ORDER BY sal.created_at DESC, sal.id DESC
 LIMIT $6
 `
 
@@ -111,7 +121,30 @@ type ListScanAuditLogParams struct {
 	Limit      int32              `json:"limit"`
 }
 
-func (q *Queries) ListScanAuditLog(ctx context.Context, arg ListScanAuditLogParams) ([]ScanAuditLog, error) {
+type ListScanAuditLogRow struct {
+	ID                      pgtype.UUID        `json:"id"`
+	TeamID                  pgtype.UUID        `json:"team_id"`
+	UserID                  pgtype.UUID        `json:"user_id"`
+	SessionID               pgtype.UUID        `json:"session_id"`
+	EventType               string             `json:"event_type"`
+	EntityType              *string            `json:"entity_type"`
+	EntityID                pgtype.UUID        `json:"entity_id"`
+	EntityName              *string            `json:"entity_name"`
+	Quantity                *int32             `json:"quantity"`
+	ParsedSku               *string            `json:"parsed_sku"`
+	ParsedDistributorID     *string            `json:"parsed_distributor_id"`
+	ParsedMpn               *string            `json:"parsed_mpn"`
+	ParsedManufacturer      *string            `json:"parsed_manufacturer"`
+	Metadata                []byte             `json:"metadata"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	PartManufacturer        *string            `json:"part_manufacturer"`
+	PartShortDescription    *string            `json:"part_short_description"`
+	PartCategoryName        *string            `json:"part_category_name"`
+	InventoryEntryID        pgtype.UUID        `json:"inventory_entry_id"`
+	InventoryQuantityOnHand *int32             `json:"inventory_quantity_on_hand"`
+}
+
+func (q *Queries) ListScanAuditLog(ctx context.Context, arg ListScanAuditLogParams) ([]ListScanAuditLogRow, error) {
 	rows, err := q.db.Query(ctx, listScanAuditLog,
 		arg.TeamID,
 		arg.UserID,
@@ -124,9 +157,9 @@ func (q *Queries) ListScanAuditLog(ctx context.Context, arg ListScanAuditLogPara
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ScanAuditLog
+	var items []ListScanAuditLogRow
 	for rows.Next() {
-		var i ScanAuditLog
+		var i ListScanAuditLogRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TeamID,
@@ -143,6 +176,11 @@ func (q *Queries) ListScanAuditLog(ctx context.Context, arg ListScanAuditLogPara
 			&i.ParsedManufacturer,
 			&i.Metadata,
 			&i.CreatedAt,
+			&i.PartManufacturer,
+			&i.PartShortDescription,
+			&i.PartCategoryName,
+			&i.InventoryEntryID,
+			&i.InventoryQuantityOnHand,
 		); err != nil {
 			return nil, err
 		}

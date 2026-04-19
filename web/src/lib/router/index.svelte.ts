@@ -8,14 +8,17 @@ export interface RouteParams {
 
 export interface Route {
   path: string;
+  hash: string;
   params: RouteParams;
+  /** Increments on every push navigation and popstate; use to detect same-path hash changes. */
+  id: number;
 }
 
 // ---------------------------------------------------------------------------
 // Reactive current route (Svelte 5 runes-compatible module state)
 // ---------------------------------------------------------------------------
 
-let _route = $state<Route>({ path: window.location.pathname, params: {} });
+let _route = $state<Route>({ path: window.location.pathname, hash: window.location.hash, params: {}, id: 0 });
 
 export function currentRoute(): Route {
   return _route;
@@ -59,11 +62,13 @@ export function navigate(path: string, replace = false) {
   } else {
     history.pushState(null, '', path);
   }
-  _route = { path: window.location.pathname, params: {} }; // params resolved by Router component
+  // params resolved by Router component; id increments only on push so replace-state
+  // URL syncs (e.g. filter writes) don't re-trigger hash-watching effects.
+  _route = { path: window.location.pathname, hash: window.location.hash, params: {}, id: replace ? _route.id : _route.id + 1 };
 }
 
 window.addEventListener('popstate', () => {
-  _route = { path: window.location.pathname, params: {} };
+  _route = { path: window.location.pathname, hash: window.location.hash, params: {}, id: _route.id + 1 };
 });
 
 // ---------------------------------------------------------------------------

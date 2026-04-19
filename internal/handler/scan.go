@@ -2231,18 +2231,23 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type auditItem struct {
-		ID                  string          `json:"id"`
-		EventType           string          `json:"event_type"`
-		EntityType          *string         `json:"entity_type"`
-		EntityID            *string         `json:"entity_id"`
-		EntityName          *string         `json:"entity_name"`
-		Quantity            *int32          `json:"quantity"`
-		ParsedSku           *string         `json:"parsed_sku"`
-		ParsedDistributorID *string         `json:"parsed_distributor_id"`
-		ParsedMpn           *string         `json:"parsed_mpn"`
-		ParsedManufacturer  *string         `json:"parsed_manufacturer"`
-		Metadata            json.RawMessage `json:"metadata"`
-		CreatedAt           string          `json:"created_at"`
+		ID                       string          `json:"id"`
+		EventType                string          `json:"event_type"`
+		EntityType               *string         `json:"entity_type"`
+		EntityID                 *string         `json:"entity_id"`
+		EntityName               *string         `json:"entity_name"`
+		Quantity                 *int32          `json:"quantity"`
+		ParsedSku                *string         `json:"parsed_sku"`
+		ParsedDistributorID      *string         `json:"parsed_distributor_id"`
+		ParsedMpn                *string         `json:"parsed_mpn"`
+		ParsedManufacturer       *string         `json:"parsed_manufacturer"`
+		Metadata                 json.RawMessage `json:"metadata"`
+		CreatedAt                string          `json:"created_at"`
+		PartManufacturer         *string         `json:"part_manufacturer"`
+		PartShortDescription     *string         `json:"part_short_description"`
+		PartCategoryName         *string         `json:"part_category_name"`
+		InventoryEntryID         *string         `json:"inventory_entry_id"`
+		InventoryQuantityOnHand  *int32          `json:"inventory_quantity_on_hand"`
 	}
 
 	hasMore := len(rows) > int(limit)
@@ -2264,10 +2269,18 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 			ParsedManufacturer:  r.ParsedManufacturer,
 			Metadata:            r.Metadata,
 			CreatedAt:           r.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+			PartManufacturer:    r.PartManufacturer,
+			PartShortDescription: r.PartShortDescription,
+			PartCategoryName:    r.PartCategoryName,
 		}
 		if r.EntityID.Valid {
 			s := r.EntityID.String()
 			item.EntityID = &s
+		}
+		if r.InventoryEntryID.Valid {
+			s := r.InventoryEntryID.String()
+			item.InventoryEntryID = &s
+			item.InventoryQuantityOnHand = r.InventoryQuantityOnHand
 		}
 		items[i] = item
 	}
