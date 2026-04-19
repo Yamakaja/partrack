@@ -542,7 +542,7 @@
       <CategoryPicker
         value={categoryFilter}
         categories={categoriesQuery.data ?? []}
-        availableIds={partCategoriesQuery.data}
+        availableIds={partCategoriesQuery.data ? new Set(partCategoriesQuery.data.map(c => c.id)) : undefined}
         placeholder="All categories"
         onSelect={(id) => {
           source.setFilter('category_id', id != null ? new Set([String(id)]) : new Set());

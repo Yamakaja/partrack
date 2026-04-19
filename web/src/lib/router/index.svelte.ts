@@ -59,7 +59,7 @@ export function navigate(path: string, replace = false) {
   } else {
     history.pushState(null, '', path);
   }
-  _route = { path, params: {} }; // params resolved by Router component
+  _route = { path: window.location.pathname, params: {} }; // params resolved by Router component
 }
 
 window.addEventListener('popstate', () => {

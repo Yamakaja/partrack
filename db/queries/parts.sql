@@ -1,12 +1,13 @@
 -- Parts catalog, parameters, and distributor listing queries.
 
--- name: ListPartCategoryIDs :many
--- Returns distinct category IDs present in the team's parts catalog
+-- name: ListPartCategoryCounts :many
+-- Returns direct part counts per category for the team's catalog
 -- (global parts + team-scoped parts). Used to populate the category filter picker.
-SELECT DISTINCT category_id
+SELECT category_id, COUNT(*)::int AS count
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
-  AND category_id IS NOT NULL;
+  AND category_id IS NOT NULL
+GROUP BY category_id;
 
 -- name: ListParts :many
 WITH RECURSIVE cat_tree AS (

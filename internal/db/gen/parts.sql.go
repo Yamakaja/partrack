@@ -768,30 +768,36 @@ func (q *Queries) ListParameters(ctx context.Context, partID pgtype.UUID) ([]Lis
 	return items, nil
 }
 
-const listPartCategoryIDs = `-- name: ListPartCategoryIDs :many
+const listPartCategoryCounts = `-- name: ListPartCategoryCounts :many
 
-SELECT DISTINCT category_id
+SELECT category_id, COUNT(*)::int AS count
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
   AND category_id IS NOT NULL
+GROUP BY category_id
 `
 
+type ListPartCategoryCountsRow struct {
+	CategoryID *int32 `json:"category_id"`
+	Count      int32  `json:"count"`
+}
+
 // Parts catalog, parameters, and distributor listing queries.
-// Returns distinct category IDs present in the team's parts catalog
+// Returns direct part counts per category for the team's catalog
 // (global parts + team-scoped parts). Used to populate the category filter picker.
-func (q *Queries) ListPartCategoryIDs(ctx context.Context, teamID pgtype.UUID) ([]*int32, error) {
-	rows, err := q.db.Query(ctx, listPartCategoryIDs, teamID)
+func (q *Queries) ListPartCategoryCounts(ctx context.Context, teamID pgtype.UUID) ([]ListPartCategoryCountsRow, error) {
+	rows, err := q.db.Query(ctx, listPartCategoryCounts, teamID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []*int32
+	var items []ListPartCategoryCountsRow
 	for rows.Next() {
-		var category_id *int32
-		if err := rows.Scan(&category_id); err != nil {
+		var i ListPartCategoryCountsRow
+		if err := rows.Scan(&i.CategoryID, &i.Count); err != nil {
 			return nil, err
 		}
-		items = append(items, category_id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

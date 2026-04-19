@@ -1,11 +1,13 @@
 <script lang="ts">
   import { Dialog } from 'bits-ui';
-  import { Cpu, FileText, ShoppingCart, Wrench, Package, Clock, Search, LayoutDashboard, Receipt, ClipboardList, Users, Settings, Shield, SlidersHorizontal, UserRound } from 'lucide-svelte';
+  import { Cpu, FileText, ShoppingCart, Wrench, Package, Clock, Search, LayoutDashboard, Receipt, ClipboardList, Users, Settings, Shield, SlidersHorizontal, UserRound, Tag } from 'lucide-svelte';
   import { navigate } from '$lib/router/index.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { authStore } from '$lib/stores/auth.svelte.js';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
   import { globalSearch, type SearchResults } from '$lib/api/search.js';
+  import { listCategories, listPartCategories } from '$lib/api/categories.js';
+  import type { Category } from '$lib/types/categories.js';
 
   let teamId = $derived(activeTeamStore.current?.teamId ?? '');
 
@@ -17,10 +19,72 @@
   let selectedIndex = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
 
+  // ── Category state ───────────────────────────────────────────────────────
+
+  let allCategories = $state<Category[]>([]);
+  let directCounts = $state<Map<number, number>>(new Map());
+  let totalCounts = $state<Map<number, number>>(new Map());
+  let loadedForTeam = $state('');
+
+  function buildTotalCounts(cats: Category[], direct: Map<number, number>): Map<number, number> {
+    const total = new Map<number, number>();
+    const children = new Map<number | null, number[]>();
+    for (const c of cats) {
+      const key = c.parent_id ?? null;
+      if (!children.has(key)) children.set(key, []);
+      children.get(key)!.push(c.id);
+    }
+    function sum(id: number): number {
+      let t = direct.get(id) ?? 0;
+      for (const childId of children.get(id) ?? []) t += sum(childId);
+      total.set(id, t);
+      return t;
+    }
+    for (const c of cats) {
+      if (c.parent_id == null) sum(c.id);
+    }
+    return total;
+  }
+
+  function categoryPath(cat: Category): string {
+    const parts: string[] = [];
+    let cur: Category | undefined = cat;
+    while (cur) {
+      parts.unshift(cur.display_name);
+      cur = cur.parent_id != null ? allCategories.find(c => c.id === cur!.parent_id) : undefined;
+    }
+    return parts.join(' › ');
+  }
+
+  let categoryItems = $derived.by((): ResultItem[] => {
+    const q = query.trim().toLowerCase();
+    if (!q || !allCategories.length) return [];
+    const nameMatches: ResultItem[] = [];
+    const pathMatches: ResultItem[] = [];
+    for (const c of allCategories) {
+      const count = totalCounts.get(c.id) ?? 0;
+      if (count === 0) continue;
+      const nameHit = c.display_name.toLowerCase().includes(q);
+      const path = categoryPath(c);
+      const pathHit = !nameHit && path.toLowerCase().includes(q);
+      if (!nameHit && !pathHit) continue;
+      const item: ResultItem = {
+        type: 'category',
+        id: String(c.id),
+        primary: path,
+        secondary: `${count} part${count === 1 ? '' : 's'}`,
+        url: `/teams/${teamId}/parts#category_id=${c.id}`,
+      };
+      if (nameHit) nameMatches.push(item);
+      else pathMatches.push(item);
+    }
+    return [...nameMatches, ...pathMatches].slice(0, 3);
+  });
+
   // ── Recent items (localStorage) ──────────────────────────────────────────
 
   interface RecentItem {
-    type: 'part' | 'project' | 'order' | 'build' | 'storage' | 'page';
+    type: 'part' | 'project' | 'order' | 'build' | 'storage' | 'page' | 'category';
     id: string;
     primary: string;
     secondary: string;
@@ -52,7 +116,7 @@
   // ── Flat result list for keyboard navigation ──────────────────────────────
 
   interface ResultItem {
-    type: 'part' | 'project' | 'order' | 'build' | 'storage' | 'page';
+    type: 'part' | 'project' | 'order' | 'build' | 'storage' | 'page' | 'category';
     id: string;
     primary: string;
     secondary: string;
@@ -100,11 +164,11 @@
       return [...recent, ...pageItems];
     }
     if (!results) {
-      // query too short for API — filter pages by name/description
+      // query too short for API — filter pages and categories by name/description
       const q = query.trim().toLowerCase();
-      return q.length > 0
-        ? pageItems.filter(p => p.primary.toLowerCase().includes(q) || p.secondary.toLowerCase().includes(q))
-        : [] as ResultItem[];
+      if (q.length === 0) return [] as ResultItem[];
+      const pages = pageItems.filter(p => p.primary.toLowerCase().includes(q) || p.secondary.toLowerCase().includes(q));
+      return [...pages, ...categoryItems];
     }
     const items: ResultItem[] = [];
 
@@ -118,6 +182,7 @@
         url: `/teams/${teamId}/parts/${p.id}`,
       });
     }
+    for (const c of categoryItems) items.push(c);
     for (const p of results.projects) {
       items.push({
         type: 'project',
@@ -188,12 +253,17 @@
       ];
     }
     if (!results) {
-      // filtered pages only
+      // filtered pages + categories
       const pages = flatItems.filter(i => i.type === 'page');
-      return pages.length > 0 ? [{ label: 'Pages', items: pages, startIndex: 0 }] : [];
+      const cats = flatItems.filter(i => i.type === 'category');
+      const out: Section[] = [];
+      if (pages.length > 0) out.push({ label: 'Pages', items: pages, startIndex: 0 });
+      if (cats.length > 0) out.push({ label: 'Categories', items: cats, startIndex: pages.length });
+      return out;
     }
     const groups: { label: string; type: ResultItem['type'] }[] = [
       { label: 'Parts', type: 'part' },
+      { label: 'Categories', type: 'category' },
       { label: 'Projects', type: 'project' },
       { label: 'Orders', type: 'order' },
       { label: 'Builds', type: 'build' },
@@ -236,7 +306,7 @@
     }, 200);
   });
 
-  // ── Reset state on open ───────────────────────────────────────────────────
+  // ── Reset state on open + fetch categories ────────────────────────────────
 
   $effect(() => {
     if (paletteStore.open) {
@@ -244,6 +314,16 @@
       results = null;
       selectedIndex = 0;
       setTimeout(() => inputEl?.focus(), 0);
+      if (teamId && loadedForTeam !== teamId) {
+        Promise.all([listCategories(), listPartCategories(teamId)])
+          .then(([cats, counts]) => {
+            allCategories = cats;
+            directCounts = new Map(counts.map(c => [c.id, c.count]));
+            totalCounts = buildTotalCounts(cats, directCounts);
+            loadedForTeam = teamId;
+          })
+          .catch(() => {});
+      }
     }
   });
 
@@ -286,6 +366,7 @@
     build: Wrench,
     storage: Package,
     page: LayoutDashboard,
+    category: Tag,
   };
 </script>
 

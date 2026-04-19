@@ -208,23 +208,27 @@ func (h *Handler) writeImportError(w http.ResponseWriter, op, sku string, err er
 }
 
 // ListPartCategories handles GET /api/v1/teams/{teamId}/parts/categories
-// Returns the distinct set of category IDs present in the team's parts catalog.
+// Returns direct part counts per category present in the team's parts catalog.
 func (h *Handler) ListPartCategories(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
 		return
 	}
-	rows, err := h.Queries.ListPartCategoryIDs(r.Context(), teamID)
+	rows, err := h.Queries.ListPartCategoryCounts(r.Context(), teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	ids := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		if id != nil {
-			ids = append(ids, *id)
+	type catCount struct {
+		ID    int32 `json:"id"`
+		Count int32 `json:"count"`
+	}
+	cats := make([]catCount, 0, len(rows))
+	for _, row := range rows {
+		if row.CategoryID != nil {
+			cats = append(cats, catCount{ID: *row.CategoryID, Count: row.Count})
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"category_ids": ids})
+	writeJSON(w, http.StatusOK, map[string]any{"categories": cats})
 }
