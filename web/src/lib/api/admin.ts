@@ -78,6 +78,10 @@ export function updateParameterDefinition(
   return request<ParameterDefinition>('PATCH', `/api/v1/admin/parameter-definitions/${id}`, body);
 }
 
+export function deleteParameterDefinition(id: number) {
+  return request<void>('DELETE', `/api/v1/admin/parameter-definitions/${id}`);
+}
+
 export function listDistributorParamMappings(params: { distributor_id?: string; unmapped?: boolean } = {}) {
   return request<DistributorParamMapping[]>(
     'GET',

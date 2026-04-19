@@ -4,6 +4,7 @@
     listParameterDefinitions,
     createParameterDefinition,
     updateParameterDefinition,
+    deleteParameterDefinition,
     listDistributorParamMappings,
     updateDistributorParamMapping,
   } from '$lib/api/admin.js';
@@ -16,7 +17,8 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Dialog, Popover } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Plus, Link, EyeOff, Wand2 } from 'lucide-svelte';
+  import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+  import { Plus, Link, EyeOff, Wand2, Trash2 } from 'lucide-svelte';
 
   const qc = useQueryClient();
 
@@ -135,6 +137,31 @@
       pushToast('error', 'Failed to update parameter', err.message);
     } finally {
       editing = false;
+    }
+  }
+
+  // ── Delete parameter definition ──────────────────────────────────────────────
+  let deleteConfirmOpen = $state(false);
+  let deletingDef = $state<ParameterDefinition | null>(null);
+  let deleting = $state(false);
+
+  function promptDeleteDef(d: ParameterDefinition) {
+    deletingDef = d;
+    deleteConfirmOpen = true;
+  }
+
+  async function handleDeleteDef() {
+    if (!deletingDef) return;
+    deleting = true;
+    try {
+      await deleteParameterDefinition(deletingDef.id);
+      qc.invalidateQueries({ queryKey: ['admin', 'parameter-definitions'] });
+      pushToast('success', `Deleted "${deletingDef.display_name}"`);
+    } catch (err: any) {
+      pushToast('error', 'Failed to delete parameter definition', err.message);
+    } finally {
+      deleting = false;
+      deletingDef = null;
     }
   }
 
@@ -306,7 +333,17 @@
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm" onclick={() => openEdit(d)}>Edit</Button>
+                      <div class="flex items-center gap-1 justify-end">
+                        <Button variant="ghost" size="sm" onclick={() => openEdit(d)}>Edit</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class="text-destructive hover:text-destructive"
+                          onclick={() => promptDeleteDef(d)}
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 {/each}
@@ -552,6 +589,18 @@
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>
+
+<!-- Delete Parameter Confirmation -->
+<ConfirmDialog
+  bind:open={deleteConfirmOpen}
+  title="Delete Parameter Definition"
+  description={deletingDef
+    ? `Delete "${deletingDef.display_name}"? Distributor mappings and part parameters referencing it will lose their structured link.`
+    : ''}
+  confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+  destructive
+  onconfirm={handleDeleteDef}
+/>
 
 <!-- Edit Parameter Dialog -->
 <Dialog.Root bind:open={editOpen}>

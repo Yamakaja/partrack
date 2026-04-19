@@ -263,6 +263,20 @@ func (h *Handler) AdminUpdateParameterDefinition(w http.ResponseWriter, r *http.
 	})
 }
 
+// AdminDeleteParameterDefinition handles DELETE /api/v1/admin/parameter-definitions/{id}
+func (h *Handler) AdminDeleteParameterDefinition(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || n <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid parameter definition ID", "BAD_REQUEST")
+		return
+	}
+	if err := h.Queries.DeleteParameterDefinition(r.Context(), int32(n)); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // AdminListDistributorParamMappings handles GET /api/v1/admin/distributor-parameter-mappings
 // Query params: distributor_id (optional), unmapped=true (optional)
 func (h *Handler) AdminListDistributorParamMappings(w http.ResponseWriter, r *http.Request) {

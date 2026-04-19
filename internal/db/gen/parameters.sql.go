@@ -45,6 +45,15 @@ func (q *Queries) CreateParameterDefinition(ctx context.Context, arg CreateParam
 	return i, err
 }
 
+const deleteParameterDefinition = `-- name: DeleteParameterDefinition :exec
+DELETE FROM parameter_definitions WHERE id = $1
+`
+
+func (q *Queries) DeleteParameterDefinition(ctx context.Context, id int32) error {
+	_, err := q.db.Exec(ctx, deleteParameterDefinition, id)
+	return err
+}
+
 const findPartIDsByParameterRange = `-- name: FindPartIDsByParameterRange :many
 SELECT DISTINCT pp.part_id
 FROM part_parameters pp

@@ -80,6 +80,7 @@ Higher roles inherit all permissions of lower roles.
 | GET | `/admin/parameter-definitions` | List parameter definitions |
 | POST | `/admin/parameter-definitions` | `{slug, display_name, unit?, unit_symbol?, value_type}` |
 | PATCH | `/admin/parameter-definitions/{id}` | Update definition fields |
+| DELETE | `/admin/parameter-definitions/{id}` | Delete definition; linked part parameters and distributor mappings have their `parameter_id` set to null |
 | GET | `/admin/distributor-parameter-mappings` | Query: `distributor_id?`, `unmapped=true?` |
 | PATCH | `/admin/distributor-parameter-mappings/{id}` | `{parameter_id?, ignored?}` |
 

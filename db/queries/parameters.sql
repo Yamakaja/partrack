@@ -142,3 +142,6 @@ WHERE p.category_id IN (SELECT ct2.id FROM cat_tree ct2)
   AND (sqlc.narg('team_id')::uuid IS NULL OR p.scope = 'global' OR p.team_id = sqlc.narg('team_id'))
 GROUP BY pd.id, pd.slug, pd.display_name, pd.unit, pd.unit_symbol, pd.value_type
 ORDER BY pd.display_name;
+
+-- name: DeleteParameterDefinition :exec
+DELETE FROM parameter_definitions WHERE id = $1;
