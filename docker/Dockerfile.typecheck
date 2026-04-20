@@ -1,0 +1,10 @@
+# Lightweight image just for running svelte-check + tsc.
+# Used by docker-compose.ci.yml test-frontend service.
+FROM node:22-alpine
+WORKDIR /app/web
+
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
+
+COPY web/ ./

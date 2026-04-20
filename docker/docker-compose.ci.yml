@@ -1,0 +1,40 @@
+services:
+  # Shared Postgres instance for all test services
+  test-postgres:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.postgres
+    environment:
+      POSTGRES_DB: partrack-test
+      POSTGRES_USER: partrack
+      POSTGRES_PASSWORD: partrack
+    tmpfs:
+      - /var/lib/postgresql/data  # in-memory for speed; data is ephemeral
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U partrack"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+  # Go backend tests
+  test-backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: backend
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+    environment:
+      PARTRACK_TEST_DB_URL: "postgres://partrack:partrack@test-postgres/partrack-test?sslmode=disable"
+    working_dir: /app
+    entrypoint: ["go", "test", "-p", "1", "-count=1", "./..."]
+
+  # Frontend type-check (no browser required)
+  test-frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.typecheck
+    working_dir: /app/web
+    entrypoint: ["npm", "run", "check"]

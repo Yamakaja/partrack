@@ -33,12 +33,12 @@ partrack tracks parts inventory for PCB design teams. It covers the full lifecyc
                │                           │  Orders (by distributor) │
                │                           │   │                      │
                │                           │   ▼                      │
-               │  Inventory ◄──────────────┴─ Receive                 │
-               │  (ledger, storage               │                    │
-               │   locations, min stock)         │                    │
+               │  Inventory ◄──────────────┴─ Receive ◄──── Mobile    │
+               │  (ledger, storage               │          Scanner   │
+               │   locations, min stock)         │          (QR auth) │
                │                                 ▼                    │
-               │                           Build ──► Assemble         │
-               │                          (deduct stock)              │
+               │                           Build ──► Kitting ──► Assemble │
+               │                          (reserve)   (scanner)  (deduct) │
                └──────────────────────────────────────────────────────┘
 ```
 
@@ -58,19 +58,36 @@ Register a build before you're ready to assemble. Once submitted, pending builds
 
 ### Shopping Cart & Orders
 
-The team shares a single persistent cart. Items come from BOM shortfalls, low-stock replenishment scans, or manual additions. When you're ready to order, the cart groups items by distributor and generates draft orders. Orders can be submitted directly via distributor API, exported as CSV for manual placement, or linked to an externally placed order by reference number. Receiving is per line item and supports partial deliveries.
+The team shares a single persistent cart. Items come from BOM shortfalls, low-stock replenishment scans, or manual additions. When you're ready to order, the cart groups items by distributor and generates draft orders. Orders can be submitted directly via distributor API, exported as CSV for manual placement, or linked to an externally placed order by reference number. Receiving is per line item and supports partial deliveries. DigiKey orders can be imported directly — partrack fetches the line items and links them to open builds automatically.
 
 ### Inventory Tracking
 
 Every stock change — receipt, build, withdrawal, manual correction — is recorded as an immutable ledger entry. Quantity on hand is the running total, always reconcilable against the full history. Each part in a team's inventory has a storage location, a preferred distributor listing, and configurable minimum stock and reorder quantity thresholds.
 
+### Storage Locations
+
+Storage locations support a grid coordinate system for physical organisation of bins, drawers, and shelves. Each location has an optional grid layout so you can track exactly which cell within a storage unit holds a given part. The mobile scanner can scan location barcodes to show everything stored there and reassign parts to new locations.
+
 ### Parts Catalog
 
-Parts store manufacturer info, lifecycle status, datasheets, categories, and electrical/mechanical parameters. Data can be pulled from distributor APIs — currently DigiKey, with the integration designed to support additional distributors. When multiple sources report different parameter values, you can set a preferred source or override with your own.
+Parts store manufacturer info, lifecycle status, datasheets, categories, and electrical/mechanical parameters. Data can be pulled from distributor APIs — DigiKey, Mouser, and LCSC are supported, with the integration designed to add more. When multiple sources report different parameter values, you can set a preferred source or override with your own.
 
 ### Part Substitutes
 
 Designate approved replacement parts per BOM line item. Stock checks and order calculations cover all approved alternatives, so you can take advantage of whatever is available. Substitutes can be imported from prior BOM revisions when parts carry over.
+
+### Mobile Scanner
+
+A dedicated mobile interface at `/scan` turns a phone into a handheld scanner for warehouse-style inventory work. Sessions are authenticated by scanning a QR code generated from the desktop — no login required on the phone. Once connected, the scanner offers:
+
+- **Bag scan** — scan a distributor barcode on a parts bag; partrack resolves the SKU to a known part or opens the listing picker to import a new one and set the initial stock count.
+- **Receive order** — work through an open order line by line, scanning bags and recording received quantities into the correct storage location.
+- **Find part** — search the catalog by name or MPN, then view stock, location, reservations, and make stock adjustments directly.
+- **Location inventory** — scan a location barcode to see all parts stored there and navigate to individual parts.
+- **Storage assignment** — reassign a part from one location to another by scanning both.
+- **Build kitting** — pick components for a specific build; the desktop initiates a kitting session and the scanner guides the operator through each line item.
+
+The mobile UI is optimised for one-handed use with large touch targets, pinch-zoom prevention, and a stack-based navigation model that mirrors a native app feel. Scan activity is recorded in a persistent audit log visible from the desktop.
 
 ### Team Access Control
 
@@ -91,73 +108,44 @@ partrack supports OpenID Connect (Google, Okta, Keycloak, etc.) with optional au
 
 ### Docker Compose
 
-The quickest way to run partrack. Create a `Dockerfile`:
-
-```dockerfile
-# Stage 1: build frontend
-FROM node:20-alpine AS frontend
-WORKDIR /app/web
-COPY web/package*.json ./
-RUN npm ci
-COPY web/ ./
-RUN npm run build
-
-# Stage 2: build Go binary
-FROM golang:1.25-alpine AS backend
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-COPY --from=frontend /app/web/dist ./web/dist
-RUN go build -o partrack ./cmd/partrack
-
-# Stage 3: minimal runtime image
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
-WORKDIR /app
-COPY --from=backend /app/partrack .
-EXPOSE 8080
-ENTRYPOINT ["./partrack"]
-```
-
-And a `docker-compose.yml`:
-
-```yaml
-services:
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: partrack
-      POSTGRES_USER: partrack
-      POSTGRES_PASSWORD: partrack
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U partrack"]
-      interval: 5s
-      retries: 5
-
-  partrack:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      PARTRACK_DB_URL: postgres://partrack:partrack@db/partrack?sslmode=disable
-      PARTRACK_SESSION_SECRET: change-me
-      PARTRACK_APP_BASE_URL: http://localhost:8080
-    depends_on:
-      db:
-        condition: service_healthy
-
-volumes:
-  pgdata:
-```
+All Docker files live in the `docker/` directory. Copy `.env.example` to `.env` and fill in the required values, then:
 
 ```bash
-docker compose up --build
+docker compose -f docker/docker-compose.yml up --build
 ```
 
+The database image is a custom Arch Linux build that includes the `pg_uuidv7` extension (required for time-ordered primary keys). It is built automatically by Compose — no manual setup needed.
+
+Required environment variables (set in `.env` or the shell):
+
+| Variable | Description |
+|---|---|
+| `PARTRACK_DB_PASSWORD` | Postgres password |
+| `PARTRACK_SESSION_SECRET` | Random secret for session signing |
+| `PARTRACK_APP_BASE_URL` | Public URL (e.g. `https://partrack.example.com`) |
+
+Optional:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PARTRACK_PORT` | `8080` | Host port to expose |
+
 Database migrations run automatically on startup. The compiled frontend is embedded in the Go binary — no separate asset server needed.
+
+**OIDC providers** cannot be configured via environment variables alone — register them in a `config.yaml` and mount it into the container:
+
+```yaml
+# config.yaml
+oidc:
+  - name: google
+    issuer: https://accounts.google.com
+    client_id: 1234567890-abc.apps.googleusercontent.com
+    # client_secret set via PARTRACK_OIDC_GOOGLE_SECRET env var
+    auto_provision: true
+    default_team_id: 00000000-0000-0000-0000-000000000001
+```
+
+Uncomment the `volumes` and `PARTRACK_CONFIG` entries in `docker/docker-compose.yml` and point them at your config file.
 
 ### Standalone Binary
 
@@ -281,6 +269,7 @@ The frontend dev server runs on `http://localhost:5173` and proxies `/api` to th
 | Database | PostgreSQL 15+ |
 | Query layer | [sqlc](https://sqlc.dev) — type-safe SQL code generation |
 | Migrations | [golang-migrate](https://github.com/golang-migrate/migrate) — auto-run at startup |
+| Distributors | DigiKey, Mouser, LCSC (pluggable `distributor.Client` interface) |
 | Auth | go-oidc v3, bcrypt, signed session cookies |
 | Frontend | Svelte 5 + TypeScript |
 | Build tool | Vite 7 |

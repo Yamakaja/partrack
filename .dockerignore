@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+
+# Frontend build output (built inside Docker, not from host)
+web/dist
+web/node_modules
+
+# Go tooling artifacts
+*.test
+*.out
+
+# Dev config and secrets
+config.yaml
+config.local.yaml
+.env
+.env.local
+.env.*.local
+
+# Docs and reference material (not needed in image)
+doc/
+reference_material/
+*.md
+getting-started.md
+
+# IDE / OS
+.vscode
+.idea
+*.DS_Store

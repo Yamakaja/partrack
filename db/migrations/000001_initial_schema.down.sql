@@ -53,3 +53,5 @@ DROP TYPE IF EXISTS
     part_lifecycle_status,
     part_scope,
     team_role;
+
+DROP EXTENSION IF EXISTS pg_uuidv7;

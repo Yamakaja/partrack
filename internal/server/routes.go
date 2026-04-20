@@ -9,6 +9,8 @@ import (
 // registerRoutes mounts all API routes on r under /api/v1.
 // Routes match the spec in api.md exactly.
 func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware) {
+	r.Get("/api/v1/health", h.Health)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		// ── 1. Authentication (no session required) ─────────────────────────
 		r.Post("/auth/login", h.Login)

@@ -1,0 +1,28 @@
+FROM archlinux:latest
+
+RUN pacman -Syu --noconfirm postgresql \
+    && pacman -S --noconfirm git base-devel \
+    && useradd -m build \
+    && echo "build ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers \
+    && cd /tmp \
+    && git clone https://aur.archlinux.org/pg_uuidv7.git \
+    && chown -R build:build pg_uuidv7 \
+    && su build -c "cd /tmp/pg_uuidv7 && makepkg -si --noconfirm" \
+    && userdel -r build \
+    && rm -rf /tmp/pg_uuidv7 \
+    && pacman -Rns --noconfirm git base-devel \
+    && pacman -Sc --noconfirm \
+    && rm -rf /var/cache/pacman/pkg/*
+
+COPY docker/postgres-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+RUN mkdir -p /var/lib/postgres/data /run/postgresql \
+    && chown postgres:postgres /var/lib/postgres/data /run/postgresql
+
+VOLUME /var/lib/postgres/data
+EXPOSE 5432
+
+USER postgres
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["postgres", "-D", "/var/lib/postgres/data"]

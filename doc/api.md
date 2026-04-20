@@ -14,6 +14,7 @@ Higher roles inherit all permissions of lower roles.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/health` | Liveness check — returns `{"status":"ok"}` with 200 |
 | GET | `/categories` | All categories (flat list; build tree from `parent_id`) |
 | GET | `/parameter-definitions` | All canonical parameter definitions |
 

@@ -21,6 +21,11 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// Health responds 200 OK; used by Docker and load-balancer health checks.
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
 	DB           *pgxpool.Pool
