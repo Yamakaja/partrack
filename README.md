@@ -23,23 +23,23 @@ partrack tracks parts inventory for PCB design teams. It covers the full lifecyc
                  │   datasheets)               │                            │
                  └─────────────────────────────┼────────────────────────────┘
                                                │
-               ┌───────────────────────────────┼──────────────────────┐
-               │                    TEAM       │                      │
-               │                               ▼                      │
-               │  Manual additions ────► Shopping Cart ◄──── Restock  │
-               │                               │              scan    │
-               │  Build (reserve) ─────────┐   │                      │
-               │                           │   ▼                      │
-               │                           │  Orders (by distributor) │
-               │                           │   │                      │
-               │                           │   ▼                      │
-               │  Inventory ◄──────────────┴─ Receive ◄──── Mobile    │
-               │  (ledger, storage               │          Scanner   │
-               │   locations, min stock)         │          (QR auth) │
-               │                                 ▼                    │
+               ┌───────────────────────────────┼──────────────────────────┐
+               │                    TEAM       │                          │
+               │                               ▼                          │
+               │  Manual additions ────► Shopping Cart ◄──── Restock      │
+               │                               │              scan        │
+               │  Build (reserve) ─────────┐   │                          │
+               │                           │   ▼                          │
+               │                           │  Orders (by distributor)     │
+               │                           │   │                          │
+               │                           │   ▼                          │
+               │  Inventory ◄──────────────┴─ Receive ◄──── Mobile        │
+               │  (ledger, storage               │          Scanner       │
+               │   locations, min stock)         │          (QR auth)     │
+               │                                 ▼                        │
                │                           Build ──► Kitting ──► Assemble │
                │                          (reserve)   (scanner)  (deduct) │
-               └──────────────────────────────────────────────────────┘
+               └──────────────────────────────────────────────────────────┘
 ```
 
 ## Features
