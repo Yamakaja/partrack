@@ -301,6 +301,12 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | GET | `/teams/{teamId}/scan-audit-log` | viewer+ | Paginated scan activity log for the current user. Query: `event_type` (comma-separated), `cursor_time`, `cursor_id`, `limit` (default 50). Returns `{items:[...], next_cursor_time, next_cursor_id}`. |
 | GET | `/teams/{teamId}/kitting/{kittingSessionId}` | viewer+ | Desktop view of kitting session (team auth). Returns same shape as phone `/scan/kitting/{id}`. |
 | GET | `/teams/{teamId}/kitting/{kittingSessionId}/items` | viewer+ | Desktop view of kitting items (team auth). Returns same shape as phone `/scan/kitting/{id}/items`. |
+| GET | `/teams/{teamId}/bulk-scan-sessions` | member+ | List non-deleted bulk scan sessions for current user with per-status counts. Returns `{sessions:[{id, created_at, closed_at, counts:{pending_enrichment,enriched,error,reviewed,dismissed}}]}`. |
+| GET | `/teams/{teamId}/bulk-scan-badge` | member+ | Badge count: sum of pending+enriched+error items across all non-deleted sessions for current user. Returns `{count}`. |
+| GET | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items` | member+ | List all items in a session with enrichment data and joined part info. Returns `{items:[BulkScanItem]}`. |
+| PATCH | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}` | member+ | Set item status to `reviewed` or `dismissed`. Body: `{status}`. First-write-wins: returns 409 if already reviewed or dismissed. |
+| POST | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}/retry` | member+ | Re-enqueue enrichment for `error` status items. Returns 202. |
+| DELETE | `/teams/{teamId}/bulk-scan-sessions/{sessionId}` | member+ | Soft delete session (`deleted_at = now()`). Returns 204. |
 
 ### Phone-facing (scan token auth — `Authorization: Bearer scan_...`)
 
@@ -322,7 +328,12 @@ Phone endpoints accept the scan token either as `Authorization: Bearer` header (
 | POST | `/scan/parts/import` | Import part from a single distributor SKU. Body: `{distributor_id, sku}`. Returns `{part_id}`. Member+ only. |
 | POST | `/scan/parts/import-multi` | Import part from multiple distributor listings (≥1). Body: `{listings:[{distributor_id,sku}]}`. Returns `{part_id, failed:[{distributor_id,sku,reason}]}`. All listings with the same MPN+manufacturer deduplicate to one part. Member+ only. |
 | GET | `/scan/distributor-search` | Search a configured distributor. Query: `distributor_id`, `q`, `limit?`. Returns `{items:[{mpn,manufacturer,description,category,primary_sku,package,unit_price,stock_available}], total, exact_match_indices}`. |
-| POST | `/scan/focus` | Send-to-desktop navigation. Body: `{entity_type: part|order|storage|build, entity_id}`. Returns 204. Returns 409 if no desktop subscriber is connected. |
+| POST | `/scan/focus` | Send-to-desktop navigation. Body: `{entity_type: part|order|storage|build|bulk_scan_session, entity_id}`. Returns 204. Returns 409 if no desktop subscriber is connected. |
+| POST | `/scan/bulk/start` | Create bulk scan session. Returns `{session_id, item_count}`. |
+| POST | `/scan/bulk/sessions/{sessionId}/items` | Add a scanned barcode to the bulk session. Body: `{barcode}`. Inserts with ON CONFLICT DO NOTHING (dedup by barcode). Enqueues enrichment job. Returns `{item_id, new: bool, found_in_db: bool, encoded_qty: int\|null}`. |
+| PATCH | `/scan/bulk/sessions/{sessionId}/items/{itemId}` | Set initial quantity. Body: `{initial_qty: int\|null}`. Returns 204. |
+| POST | `/scan/bulk/sessions/{sessionId}/close` | Close session (exit bulk mode). Sets `closed_at`. Returns 204. |
+| POST | `/scan/bulk/sessions/{sessionId}/navigate` | Push `scan_focus_requested` to desktop with `entity_type=bulk_scan_session`. Returns 204 or 409 if offline. |
 | GET | `/scan/kitting/{kittingSessionId}` | Get kitting session info + progress counts. Returns `{session:{id,build_id,build_ref,status}, progress:{pending,confirmed,shortfall,skipped}}`. |
 | GET | `/scan/kitting/{kittingSessionId}/items` | List kitting items with storage location. Returns `{items:[{part_id,part_mpn,part_manufacturer,part_description,quantity_needed,quantity_confirmed,status,storage_location_id,storage_location_path,storage_coordinate}]}`. |
 | POST | `/scan/kitting/{kittingSessionId}/confirm` | Mark item confirmed. Body: `{part_id, quantity_confirmed}`. Returns `{item, progress}`. |
@@ -334,8 +345,11 @@ SSE events from scan session changes are published to the owning user's desktop 
 
 SSE events published to the desktop user channel:
 - `scan_audit_changed` — a new audit log entry was written; invalidate `scan-audit-log` queries
-- `scan_focus_requested` — phone triggered navigation; payload `{entity_type, entity_id}`
+- `scan_focus_requested` — phone triggered navigation; payload `{entity_type, entity_id}` (entity_type includes `bulk_scan_session`)
 - `build_kitting_changed` — kitting progress updated; payload `{build_id, kitting_session_id}`
+- `bulk_scan_changed` — bulk scan item enriched/errored/retried; payload `{session_id, item_id}`; targeted to session owner only
+
+`GET /scan/session` response now includes `bulk_session: {id, item_count, state: "active"|"timed_out"} | null` for the most recent non-deleted, non-closed session for the authenticated user. State is `timed_out` when `last_item_at > 15 minutes ago`.
 
 ---
 

@@ -101,6 +101,12 @@ export function activateTeamInvalidation(teamId: string) {
       qc!.invalidateQueries({ queryKey: ['builds', teamId] });
     }),
 
+    subscribeSSEType(teamId, 'bulk_scan_changed', (ev) => {
+      const sessionId = ev.data.session_id as string | undefined;
+      qc!.invalidateQueries({ queryKey: ['bulk-scan-sessions', teamId] });
+      if (sessionId) qc!.invalidateQueries({ queryKey: ['bulk-scan-items', teamId, sessionId] });
+    }),
+
     subscribeSSEType(teamId, 'scan_focus_requested', (ev) => {
       const entityType = ev.data.entity_type as string | undefined;
       const entityId = ev.data.entity_id as string | undefined;
@@ -122,6 +128,9 @@ export function activateTeamInvalidation(teamId: string) {
           break;
         case 'build':
           path = `/teams/${tid}/builds/${entityId}`;
+          break;
+        case 'bulk_scan_session':
+          path = `/teams/${tid}/bulk-scan/${entityId}`;
           break;
       }
       if (path) {

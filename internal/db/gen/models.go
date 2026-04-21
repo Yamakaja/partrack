@@ -465,6 +465,32 @@ type BuildSubstituteSelection struct {
 	SelectedPartID pgtype.UUID `json:"selected_part_id"`
 }
 
+type BulkScanItem struct {
+	ID              pgtype.UUID        `json:"id"`
+	SessionID       pgtype.UUID        `json:"session_id"`
+	Barcode         string             `json:"barcode"`
+	Status          string             `json:"status"`
+	TaskType        *string            `json:"task_type"`
+	ParsedFields    []byte             `json:"parsed_fields"`
+	InitialQty      *int32             `json:"initial_qty"`
+	PartID          pgtype.UUID        `json:"part_id"`
+	EnrichmentData  []byte             `json:"enrichment_data"`
+	EnrichmentJobID pgtype.UUID        `json:"enrichment_job_id"`
+	ErrorMessage    *string            `json:"error_message"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	EnrichedAt      pgtype.Timestamptz `json:"enriched_at"`
+}
+
+type BulkScanSession struct {
+	ID         pgtype.UUID        `json:"id"`
+	UserID     pgtype.UUID        `json:"user_id"`
+	TeamID     pgtype.UUID        `json:"team_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ClosedAt   pgtype.Timestamptz `json:"closed_at"`
+	LastItemAt pgtype.Timestamptz `json:"last_item_at"`
+	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+}
+
 type CartLineItem struct {
 	ID                  pgtype.UUID    `json:"id"`
 	ShoppingCartID      pgtype.UUID    `json:"shopping_cart_id"`

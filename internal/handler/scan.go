@@ -446,6 +446,7 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 		"pending_scan":               nil,
 		"active_kitting_session_id":  nil,
 		"active_kitting_build_ref":   nil,
+		"bulk_session":               nil,
 	}
 	if len(sess.PendingScan) > 0 {
 		resp["pending_scan"] = json.RawMessage(sess.PendingScan)
@@ -455,6 +456,20 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 		resp["active_kitting_session_id"] = aks.ID.String()
 		if ksInfo, err2 := h.Queries.GetKittingSession(r.Context(), aks.ID); err2 == nil {
 			resp["active_kitting_build_ref"] = ksInfo.ProjectName + " " + ksInfo.BomRevisionLabel
+		}
+	}
+	// Include the most recent open bulk scan session so the phone can detect desyncs.
+	if bs, err := h.Queries.GetActiveBulkScanSessionForUser(r.Context(), sess.UserID); err == nil {
+		counts, _ := h.Queries.GetBulkScanSessionCounts(r.Context(), dbgen.GetBulkScanSessionCountsParams{
+			ID:     bs.ID,
+			TeamID: bs.TeamID,
+		})
+		total := counts.CountPending + counts.CountEnriched + counts.CountError
+		state := bulkSessionState(bs)
+		resp["bulk_session"] = map[string]any{
+			"id":         bs.ID.String(),
+			"item_count": total,
+			"state":      state,
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -2328,7 +2343,7 @@ func (h *Handler) ScanFocus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validTypes := map[string]bool{"part": true, "order": true, "storage": true, "build": true}
+	validTypes := map[string]bool{"part": true, "order": true, "storage": true, "build": true, "bulk_scan_session": true}
 	if !validTypes[body.EntityType] {
 		writeError(w, http.StatusBadRequest, "entity_type must be part, order, storage, or build", "BAD_REQUEST")
 		return

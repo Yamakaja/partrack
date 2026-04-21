@@ -14,6 +14,7 @@
   import { paletteStore } from '$lib/stores/palette.svelte.js';
   import { createQuery } from '@tanstack/svelte-query';
   import { getCartCount } from '$lib/api/cart.js';
+  import { getBulkScanBadgeCount } from '$lib/api/bulkScan.js';
   import { Popover } from 'bits-ui';
   import { scanSessionStore, clearScanSession } from '$lib/stores/scanSession.svelte.js';
   import { request } from '$lib/api/client.js';
@@ -60,6 +61,15 @@
   }));
 
   const cartCount = $derived(cartCountQuery.data?.count ?? 0);
+
+  const bulkScanBadgeQuery = createQuery(() => ({
+    queryKey: ['bulk-scan-sessions', activeTeam?.teamId, 'badge'],
+    queryFn: () => getBulkScanBadgeCount(activeTeam!.teamId),
+    enabled: !!activeTeam,
+    staleTime: 30_000,
+  }));
+
+  const bulkScanCount = $derived(bulkScanBadgeQuery.data?.count ?? 0);
 
   const session = $derived(scanSessionStore.current);
   const teamId = $derived(activeTeam?.teamId ?? '');
@@ -110,6 +120,14 @@
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
           {isActive(teamPath('storage')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Storage
+      </a>
+      <a href={teamPath('bulk-scan')} use:linkAction
+        class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
+          {isActive(teamPath('bulk-scan')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
+        Bulk Scan Review
+        {#if bulkScanCount > 0}
+          <span class="ml-auto text-xs font-medium tabular-nums bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 leading-none">{bulkScanCount}</span>
+        {/if}
       </a>
 
       <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</div>

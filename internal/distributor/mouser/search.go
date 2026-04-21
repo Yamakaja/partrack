@@ -214,8 +214,12 @@ func mapListing(p mouserPart) distributor.Listing {
 	}
 
 	stock := parseInt32(p.AvailabilityInStock)
+	sku := p.MouserPartNumber
+	if sku == "N/A" {
+		sku = ""
+	}
 	return distributor.Listing{
-		SKU:            p.MouserPartNumber,
+		SKU:            sku,
 		PackagingType:  packagingType,
 		Moq:            moq,
 		PriceBreaks:    breaks,

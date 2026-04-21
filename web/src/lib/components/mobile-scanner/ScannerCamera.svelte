@@ -1,11 +1,13 @@
 <script lang="ts">
   import { createScanner } from './scanner.svelte.js';
   import CameraSelector from './CameraSelector.svelte';
+  import type { Snippet } from 'svelte';
 
-  let { onBack, onScan, label }: {
+  let { onBack, onScan, label, topRightControls }: {
     onBack: () => void;
     onScan: (raw: string) => Promise<void>;
     label?: string | null;
+    topRightControls?: Snippet;
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -31,7 +33,8 @@
     </svg>
   </button>
 
-  <div class="absolute top-3 right-3 z-10">
+  <div class="absolute top-3 right-3 z-10 flex items-center gap-2">
+    {@render topRightControls?.()}
     <CameraSelector {scanner} />
   </div>
 

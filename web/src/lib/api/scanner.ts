@@ -176,11 +176,18 @@ export interface ConfirmReceiptResponse {
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
+export interface BulkSessionInfo {
+  id: string;
+  item_count: number;
+  state: 'active' | 'timed_out';
+}
+
 export interface ScanSessionState {
   id: string;
   phone_connected: boolean;
   active_kitting_session_id: string | null;
   active_kitting_build_ref: string | null;
+  bulk_session: BulkSessionInfo | null;
 }
 
 export function checkSession(token: string): Promise<ScanSessionState> {
@@ -372,4 +379,53 @@ export function kittingComplete(
 
 export function kittingAbandon(token: string, kittingSessionId: string): Promise<void> {
   return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/abandon`);
+}
+
+// ── Bulk scan (phone side) ─────────────────────────────────────────────────────
+
+export interface StartBulkSessionResponse {
+  session_id: string;
+  item_count: number;
+}
+
+export interface AddBulkScanItemResponse {
+  item_id: string;
+  new: boolean;
+  found_in_db: boolean;
+  encoded_qty: number | null;
+}
+
+export function startBulkSession(token: string): Promise<StartBulkSessionResponse> {
+  return scanRequest(token, 'POST', '/api/v1/scan/bulk/start');
+}
+
+export function addBulkScanItem(
+  token: string,
+  sessionId: string,
+  barcode: string,
+): Promise<AddBulkScanItemResponse> {
+  return scanRequest(token, 'POST', `/api/v1/scan/bulk/sessions/${sessionId}/items`, { barcode });
+}
+
+export function patchBulkScanItem(
+  token: string,
+  sessionId: string,
+  itemId: string,
+  body: { initial_qty: number | null },
+): Promise<void> {
+  return scanRequest(token, 'PATCH', `/api/v1/scan/bulk/sessions/${sessionId}/items/${itemId}`, body);
+}
+
+export function closeBulkSession(token: string, sessionId: string): Promise<void> {
+  return scanRequest(token, 'POST', `/api/v1/scan/bulk/sessions/${sessionId}/close`);
+}
+
+export async function navigateBulkSession(token: string, sessionId: string): Promise<void> {
+  const res = await fetch(`/api/v1/scan/bulk/sessions/${sessionId}/navigate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401 || res.status === 410) throw new ScanExpiredError();
+  if (res.status === 409) throw new Error('desktop_offline');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }

@@ -24,6 +24,7 @@ const (
 	JobOrderLink                 JobType = "order_link"
 	JobBuildSubstituteSelections JobType = "build_substitute_selections"
 	JobRetryUnresolved           JobType = "retry_unresolved"
+	JobBulkScanEnrich            JobType = "bulk_scan_enrich"
 )
 
 // Job is a unit of work submitted to the Queue.
@@ -189,6 +190,8 @@ func (q *Queue) process(job Job) {
 		handler = q.handleBuildSubstituteSelections
 	case JobRetryUnresolved:
 		handler = q.handleRetryUnresolved
+	case JobBulkScanEnrich:
+		handler = q.handleBulkScanEnrich
 	default:
 		handler = q.handleUnknown
 	}

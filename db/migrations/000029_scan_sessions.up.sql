@@ -1,5 +1,5 @@
 CREATE TABLE scan_sessions (
-  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  id               UUID        PRIMARY KEY DEFAULT uuidv7(),
   token_hash       TEXT        NOT NULL UNIQUE,
   user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   team_id          UUID        NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
