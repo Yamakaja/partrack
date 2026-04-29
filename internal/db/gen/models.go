@@ -688,6 +688,23 @@ type PartParameter struct {
 	NumericValueMax     *float64            `json:"numeric_value_max"`
 }
 
+type PartResolveItem struct {
+	ID             pgtype.UUID        `json:"id"`
+	TeamID         pgtype.UUID        `json:"team_id"`
+	SourceType     string             `json:"source_type"`
+	SourceID       pgtype.UUID        `json:"source_id"`
+	Status         string             `json:"status"`
+	TaskType       *string            `json:"task_type"`
+	InputFields    []byte             `json:"input_fields"`
+	EnrichmentData []byte             `json:"enrichment_data"`
+	ResolvedPartID pgtype.UUID        `json:"resolved_part_id"`
+	ErrorMessage   *string            `json:"error_message"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	EnrichedAt     pgtype.Timestamptz `json:"enriched_at"`
+	CommittedAt    pgtype.Timestamptz `json:"committed_at"`
+}
+
 type PasswordResetToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`

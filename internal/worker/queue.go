@@ -4,11 +4,15 @@
 package worker
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
+	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,6 +29,7 @@ const (
 	JobBuildSubstituteSelections JobType = "build_substitute_selections"
 	JobRetryUnresolved           JobType = "retry_unresolved"
 	JobBulkScanEnrich            JobType = "bulk_scan_enrich"
+	JobPartResolve               JobType = "part_resolve"
 )
 
 // Job is a unit of work submitted to the Queue.
@@ -93,7 +98,19 @@ func New(workers int, db *pgxpool.Pool, reg distributor.Registry) *Queue {
 	for i := 0; i < workers; i++ {
 		go q.run()
 	}
+	go q.runCleanup()
 	return q
+}
+
+// runCleanup periodically deletes committed and failed part_resolve_items older than 30 days.
+func (q *Queue) runCleanup() {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if err := dbgen.New(q.db).DeleteOldPartResolveItems(context.Background()); err != nil {
+			slog.Warn("part resolve cleanup failed", "err", err)
+		}
+	}
 }
 
 // newUUID returns a random UUID v4 string.
@@ -192,6 +209,8 @@ func (q *Queue) process(job Job) {
 		handler = q.handleRetryUnresolved
 	case JobBulkScanEnrich:
 		handler = q.handleBulkScanEnrich
+	case JobPartResolve:
+		handler = q.handlePartResolve
 	default:
 		handler = q.handleUnknown
 	}

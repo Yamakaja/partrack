@@ -223,6 +223,12 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Patch("/builds/{buildId}/substitute-selections", h.PatchBuildSubstituteSelections)
 					r.Post("/builds/{buildId}/substitute-selections/refresh", h.RefreshBuildSubstituteSelections)
 
+					// Part resolution queue
+					r.Post("/parts/resolve", h.CreatePartResolveItem)
+					r.Get("/parts/resolve/{resolveItemId}", h.GetPartResolveItem)
+					r.Post("/parts/resolve/{resolveItemId}/commit", h.CommitPartResolveItem)
+					r.Post("/parts/resolve/{resolveItemId}/retry-distributors", h.RetryPartResolveDistributors)
+
 					// Parts (team-scoped mutations)
 					r.Post("/parts/import", h.ImportPart)
 					r.Post("/parts/enrich-all", h.ReEnrichAll)

@@ -14,7 +14,7 @@ import (
 func TestCreatePart_Global(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
-	userID := testutil.CreateUser(t, testDB, "parts-global@example.com", "pw", "Parts")
+	userID := testutil.CreateAdminUser(t, testDB, "parts-global@example.com", "pw", "Parts")
 	token := testutil.CreateSession(t, testDB, userID)
 
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/parts",

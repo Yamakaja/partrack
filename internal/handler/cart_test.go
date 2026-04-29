@@ -238,6 +238,7 @@ func TestBuildDrivenShortfall(t *testing.T) {
 	buildID := created["id"].(string)
 
 	// Submit the build → pending; cart shortfall should now show 1 item.
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
 	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
 	if submitStatus != http.StatusOK {
@@ -295,6 +296,7 @@ func TestUnallocatedOnOrderReducesShortfall(t *testing.T) {
 	buildBID := created["id"].(string)
 
 	// Submit Build B → cart shortfall should be 0 (excess order covers demand).
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildBID, token)
 	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildBID), nil, token)
 	if submitStatus != http.StatusOK {

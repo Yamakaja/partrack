@@ -3,10 +3,12 @@ package testutil
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // Do sends a JSON request to srv, optionally authenticated with a Bearer token,
@@ -22,6 +24,22 @@ func Do(t *testing.T, srv *httptest.Server, method, path string, body any, token
 		json.Unmarshal(data, &result) //nolint:errcheck
 	}
 	return result, resp.StatusCode
+}
+
+// WaitForBuildSelections polls GET /api/v1/teams/{teamID}/builds/{buildID} until
+// selections_checked_at is non-null or the 3-second timeout elapses. Fatal on timeout.
+func WaitForBuildSelections(t *testing.T, srv *httptest.Server, teamID, buildID, token string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		body, status := Do(t, srv, http.MethodGet,
+			fmt.Sprintf("/api/v1/teams/%s/builds/%s", teamID, buildID), nil, token)
+		if status == http.StatusOK && body["selections_checked_at"] != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for build substitute selections to be computed")
 }
 
 // DoRaw sends a JSON request and returns the raw *http.Response.

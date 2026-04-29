@@ -272,7 +272,8 @@ func TestCheckout_PendingBuild_Rejected(t *testing.T) {
 	}
 	buildID := created["id"].(string)
 
-	// Submit → pending.
+	// Wait for substitute selections to be computed, then submit → pending.
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
 	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
 	if submitStatus != http.StatusOK {
@@ -310,6 +311,7 @@ func TestCancelBuild_ClearsShortfall(t *testing.T) {
 		map[string]any{"project_id": projectID, "bom_revision_id": revID, "quantity": 1}, token)
 	buildID := created["id"].(string)
 
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
 	testutil.Do(t, testEnv.Server, http.MethodPost, //nolint:errcheck
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
 
@@ -357,6 +359,7 @@ func TestToggleBuildCartInclusion(t *testing.T) {
 		map[string]any{"project_id": projectID, "bom_revision_id": revID, "quantity": 1}, token)
 	buildID := created["id"].(string)
 
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
 	testutil.Do(t, testEnv.Server, http.MethodPost, //nolint:errcheck
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
 
@@ -537,6 +540,7 @@ func TestConvertCart_TransitionsBuildToReady(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %v", status, created)
 	}
 	buildID := created["id"].(string)
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
 	testutil.Do(t, testEnv.Server, http.MethodPost, //nolint:errcheck
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
 

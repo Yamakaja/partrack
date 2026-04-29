@@ -228,10 +228,10 @@ func TestHandleListingRefresh_LM317(t *testing.T) {
 	defer cancel()
 
 	q.process(Job{
-		ID:      "j-refresh",
-		Type:    JobListingRefresh,
-		TeamID:  teamID,
-		Payload: map[string]string{"listing_id": listingID},
+		ID:     "j-refresh",
+		Type:   JobListingRefresh,
+		TeamID: teamID,
+		Payload: ListingRefreshPayload{ListingID: listingID},
 	})
 
 	if d := drainEvents(ch, "done", 2*time.Second); d == nil {

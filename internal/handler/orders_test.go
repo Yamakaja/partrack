@@ -189,6 +189,7 @@ func TestReceiveOrderItem(t *testing.T) {
 	listingID := testutil.CreateListing(t, testDB, partID, distID, "ORD-RECV-SKU-01")
 	orderID := testutil.CreateOrder(t, testDB, teamID, distID, userID)
 	lineItemID := testutil.CreateOrderLineItem(t, testDB, orderID, listingID, 10)
+	testutil.PlaceOrder(t, testDB, orderID)
 	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
 	token := testutil.CreateSession(t, testDB, userID)
 

@@ -194,7 +194,11 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/parts/{partId}/allocations` | viewer | Build allocations for part across pending/ordered builds |
-| POST | `/parts/import` | member | `{sku, distributor_id}` → `{part_id}` — atomic import: part + listings + inventory |
+| POST | `/parts/resolve` | member | `{sku?, distributor_id?, mpn?, manufacturer?}` → `202 {resolve_item_id, job_id}` — create a resolution job; worker fans out to all enabled distributors |
+| GET | `/parts/resolve/{resolveItemId}` | member | Poll resolution status → `{id, status, task_type, resolved_part_id, enrichment_data, error_message, enriched_at, committed_at}` |
+| POST | `/parts/resolve/{resolveItemId}/commit` | member | `{primary_distributor_id, primary_sku, additional_distributor_ids?}` → `{part_id}` — write part/listings/inventory from cached enrichment; no API re-call |
+| POST | `/parts/resolve/{resolveItemId}/retry-distributors` | member | `{distributor_ids:[]}` → `202 {job_id}` — re-query only failed distributors; merges into existing results |
+| POST | `/parts/import` | member | `{sku, distributor_id}` → `{part_id}` — atomic synchronous import: part + listings + inventory (single distributor) |
 | POST | `/parts/enrich-all` | member | Enqueue enrichment for all parts with listings → 202 `{job_count}` |
 | POST | `/parts/{partId}/enrich` | member | `{sku, distributor_id}` → 202 `{job_id}` |
 | POST | `/parts/{partId}/listings` | member | `{sku, distributor_id}` → 202 `{job_id}` |
