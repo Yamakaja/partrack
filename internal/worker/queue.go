@@ -14,6 +14,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,7 +29,6 @@ const (
 	JobOrderLink                 JobType = "order_link"
 	JobBuildSubstituteSelections JobType = "build_substitute_selections"
 	JobRetryUnresolved           JobType = "retry_unresolved"
-	JobBulkScanEnrich            JobType = "bulk_scan_enrich"
 	JobPartResolve               JobType = "part_resolve"
 )
 
@@ -102,14 +102,57 @@ func New(workers int, db *pgxpool.Pool, reg distributor.Registry) *Queue {
 	return q
 }
 
-// runCleanup periodically deletes committed and failed part_resolve_items older than 30 days.
+// stalePendingCutoff is how long a resolve item must have been pending before
+// the recovery sweep considers it orphaned (no running job). Must comfortably
+// exceed the worst-case job duration: enrichmentTimeout (60s) × distributors + overhead.
+const stalePendingCutoff = 5 * time.Minute
+
+// runCleanup periodically deletes committed and failed part_resolve_items older
+// than 30 days, and re-enqueues any pending items that have been waiting longer
+// than stalePendingCutoff (orphaned by a server restart or a job panic).
 func (q *Queue) runCleanup() {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-	for range ticker.C {
-		if err := dbgen.New(q.db).DeleteOldPartResolveItems(context.Background()); err != nil {
-			slog.Warn("part resolve cleanup failed", "err", err)
+	// Run recovery immediately on startup, then every 5 minutes.
+	q.recoverStalePendingItems()
+
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	recoveryTicker := time.NewTicker(stalePendingCutoff)
+	defer cleanupTicker.Stop()
+	defer recoveryTicker.Stop()
+
+	for {
+		select {
+		case <-cleanupTicker.C:
+			if err := dbgen.New(q.db).DeleteOldPartResolveItems(context.Background()); err != nil {
+				slog.Warn("part resolve cleanup failed", "err", err)
+			}
+		case <-recoveryTicker.C:
+			q.recoverStalePendingItems()
 		}
+	}
+}
+
+// recoverStalePendingItems finds pending resolve items that have no running job
+// (older than stalePendingCutoff) and re-enqueues them.
+func (q *Queue) recoverStalePendingItems() {
+	ctx := context.Background()
+	cutoff := pgtype.Timestamptz{}
+	cutoff.Scan(time.Now().Add(-stalePendingCutoff)) //nolint:errcheck
+
+	items, err := dbgen.New(q.db).GetStalePendingResolveItems(ctx, cutoff)
+	if err != nil {
+		slog.Warn("part resolve recovery: query failed", "err", err)
+		return
+	}
+	for _, item := range items {
+		slog.Info("part resolve recovery: re-enqueuing orphaned pending item", "item_id", item.ID.String())
+		q.Enqueue(JobPartResolve, item.TeamID.String(), map[string]string{
+			"resolve_item_id": item.ID.String(),
+			"team_id":         item.TeamID.String(),
+			"user_id":         item.CreatedBy.String(),
+		})
+	}
+	if len(items) > 0 {
+		slog.Info("part resolve recovery: re-enqueued orphaned items", "count", len(items))
 	}
 }
 
@@ -207,8 +250,6 @@ func (q *Queue) process(job Job) {
 		handler = q.handleBuildSubstituteSelections
 	case JobRetryUnresolved:
 		handler = q.handleRetryUnresolved
-	case JobBulkScanEnrich:
-		handler = q.handleBulkScanEnrich
 	case JobPartResolve:
 		handler = q.handlePartResolve
 	default:
@@ -248,6 +289,41 @@ func (q *Queue) HasSubscriber(teamID, userID string) bool {
 func (q *Queue) publishProgress(job Job, eventType string, data any) {
 	b, _ := json.Marshal(data)
 	q.Publish(Event{Type: eventType, Data: b, JobID: job.ID, TeamID: job.TeamID})
+}
+
+// CreateAndEnqueueResolveItem creates a part_resolve_item linked to the given
+// bulk scan item and enqueues JobPartResolve. Called synchronously from
+// AddBulkScanItem when the DB lookup yields no match.
+func (q *Queue) CreateAndEnqueueResolveItem(
+	ctx context.Context,
+	teamID pgtype.UUID,
+	userID pgtype.UUID,
+	scanItemID pgtype.UUID,
+	inputFields []byte,
+) (pgtype.UUID, error) {
+	queries := dbgen.New(q.db)
+	item, err := queries.CreatePartResolveItem(ctx, dbgen.CreatePartResolveItemParams{
+		TeamID:      teamID,
+		SourceType:  "bulk_scan_item",
+		SourceID:    pgtype.UUID{Bytes: scanItemID.Bytes, Valid: true},
+		InputFields: inputFields,
+		CreatedBy:   userID,
+	})
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	if err := queries.SetBulkScanItemResolveID(ctx, dbgen.SetBulkScanItemResolveIDParams{
+		ID:            scanItemID,
+		ResolveItemID: item.ID,
+	}); err != nil {
+		return pgtype.UUID{}, err
+	}
+	q.Enqueue(JobPartResolve, teamID.String(), map[string]string{
+		"resolve_item_id": item.ID.String(),
+		"team_id":         teamID.String(),
+		"user_id":         userID.String(),
+	})
+	return item.ID, nil
 }
 
 func (q *Queue) handleUnknown(job Job) {

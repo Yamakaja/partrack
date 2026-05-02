@@ -29,8 +29,41 @@ func (q *Queries) CloseBulkScanSession(ctx context.Context, arg CloseBulkScanSes
 	return err
 }
 
+const countBulkScanSessionItems = `-- name: CountBulkScanSessionItems :one
+SELECT
+    COUNT(*) FILTER (WHERE bsi.status = 'pending_review') AS pending_count,
+    COUNT(*) FILTER (WHERE bsi.status = 'reviewed')       AS reviewed_count,
+    COUNT(*) FILTER (WHERE bsi.status = 'dismissed')      AS dismissed_count,
+    COUNT(*) FILTER (
+        WHERE bsi.status = 'pending_review'
+          AND (bsi.resolve_item_id IS NULL OR pri.status IN ('enriched','failed'))
+    ) AS ready_count
+FROM bulk_scan_items bsi
+LEFT JOIN part_resolve_items pri ON pri.id = bsi.resolve_item_id
+WHERE bsi.session_id = $1
+`
+
+type CountBulkScanSessionItemsRow struct {
+	PendingCount   int64 `json:"pending_count"`
+	ReviewedCount  int64 `json:"reviewed_count"`
+	DismissedCount int64 `json:"dismissed_count"`
+	ReadyCount     int64 `json:"ready_count"`
+}
+
+func (q *Queries) CountBulkScanSessionItems(ctx context.Context, sessionID pgtype.UUID) (CountBulkScanSessionItemsRow, error) {
+	row := q.db.QueryRow(ctx, countBulkScanSessionItems, sessionID)
+	var i CountBulkScanSessionItemsRow
+	err := row.Scan(
+		&i.PendingCount,
+		&i.ReviewedCount,
+		&i.DismissedCount,
+		&i.ReadyCount,
+	)
+	return i, err
+}
+
 const getActiveBulkScanItemByBarcode = `-- name: GetActiveBulkScanItemByBarcode :one
-SELECT id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
+SELECT id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, created_at, resolve_item_id
 FROM bulk_scan_items
 WHERE session_id = $1 AND barcode = $2
   AND status NOT IN ('dismissed', 'reviewed')
@@ -55,11 +88,8 @@ func (q *Queries) GetActiveBulkScanItemByBarcode(ctx context.Context, arg GetAct
 		&i.ParsedFields,
 		&i.InitialQty,
 		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
 		&i.CreatedAt,
-		&i.EnrichedAt,
+		&i.ResolveItemID,
 	)
 	return i, err
 }
@@ -89,8 +119,33 @@ func (q *Queries) GetActiveBulkScanSessionForUser(ctx context.Context, userID pg
 	return i, err
 }
 
+const getBulkScanBadgeCount = `-- name: GetBulkScanBadgeCount :one
+SELECT COUNT(*) FROM bulk_scan_items bsi
+LEFT JOIN part_resolve_items pri ON pri.id = bsi.resolve_item_id
+WHERE bsi.session_id IN (
+    SELECT bss.id FROM bulk_scan_sessions bss
+    WHERE bss.team_id = $1 AND bss.deleted_at IS NULL
+      AND bss.user_id = $2
+)
+AND bsi.status = 'pending_review'
+AND (bsi.resolve_item_id IS NULL OR pri.status IN ('enriched', 'failed'))
+`
+
+type GetBulkScanBadgeCountParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+// Items awaiting user action: pending_review items where enrichment is done or not needed.
+func (q *Queries) GetBulkScanBadgeCount(ctx context.Context, arg GetBulkScanBadgeCountParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getBulkScanBadgeCount, arg.TeamID, arg.UserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getBulkScanItem = `-- name: GetBulkScanItem :one
-SELECT id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
+SELECT id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, created_at, resolve_item_id
 FROM bulk_scan_items
 WHERE id = $1
 `
@@ -107,11 +162,63 @@ func (q *Queries) GetBulkScanItem(ctx context.Context, id pgtype.UUID) (BulkScan
 		&i.ParsedFields,
 		&i.InitialQty,
 		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
 		&i.CreatedAt,
-		&i.EnrichedAt,
+		&i.ResolveItemID,
+	)
+	return i, err
+}
+
+const getBulkScanItemWithResolveData = `-- name: GetBulkScanItemWithResolveData :one
+SELECT
+    bsi.id, bsi.session_id, bsi.barcode, bsi.status, bsi.task_type, bsi.parsed_fields, bsi.initial_qty, bsi.part_id, bsi.created_at, bsi.resolve_item_id,
+    pri.status          AS resolve_status,
+    pri.task_type       AS resolve_task_type,
+    pri.enrichment_data AS resolve_enrichment_data,
+    pri.error_message   AS resolve_error_message,
+    pri.enriched_at     AS resolve_enriched_at
+FROM bulk_scan_items bsi
+LEFT JOIN part_resolve_items pri ON pri.id = bsi.resolve_item_id
+WHERE bsi.id = $1
+`
+
+type GetBulkScanItemWithResolveDataRow struct {
+	ID                    pgtype.UUID        `json:"id"`
+	SessionID             pgtype.UUID        `json:"session_id"`
+	Barcode               string             `json:"barcode"`
+	Status                string             `json:"status"`
+	TaskType              *string            `json:"task_type"`
+	ParsedFields          []byte             `json:"parsed_fields"`
+	InitialQty            *int32             `json:"initial_qty"`
+	PartID                pgtype.UUID        `json:"part_id"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	ResolveItemID         pgtype.UUID        `json:"resolve_item_id"`
+	ResolveStatus         *string            `json:"resolve_status"`
+	ResolveTaskType       *string            `json:"resolve_task_type"`
+	ResolveEnrichmentData []byte             `json:"resolve_enrichment_data"`
+	ResolveErrorMessage   *string            `json:"resolve_error_message"`
+	ResolveEnrichedAt     pgtype.Timestamptz `json:"resolve_enriched_at"`
+}
+
+// Fetches scan item + resolve item data in a single query for the review UI.
+func (q *Queries) GetBulkScanItemWithResolveData(ctx context.Context, id pgtype.UUID) (GetBulkScanItemWithResolveDataRow, error) {
+	row := q.db.QueryRow(ctx, getBulkScanItemWithResolveData, id)
+	var i GetBulkScanItemWithResolveDataRow
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.Barcode,
+		&i.Status,
+		&i.TaskType,
+		&i.ParsedFields,
+		&i.InitialQty,
+		&i.PartID,
+		&i.CreatedAt,
+		&i.ResolveItemID,
+		&i.ResolveStatus,
+		&i.ResolveTaskType,
+		&i.ResolveEnrichmentData,
+		&i.ResolveErrorMessage,
+		&i.ResolveEnrichedAt,
 	)
 	return i, err
 }
@@ -144,88 +251,36 @@ func (q *Queries) GetBulkScanSession(ctx context.Context, arg GetBulkScanSession
 	return i, err
 }
 
-const getBulkScanSessionBadgeCount = `-- name: GetBulkScanSessionBadgeCount :one
-SELECT COALESCE(SUM(cnt), 0)::int AS badge_count
-FROM (
-    SELECT COUNT(i.id) AS cnt
-    FROM bulk_scan_sessions s
-    JOIN bulk_scan_items i ON i.session_id = s.id
-    WHERE s.user_id    = $1
-      AND s.team_id    = $2
-      AND s.deleted_at IS NULL
-      AND i.status IN ('pending_enrichment', 'enriched', 'error')
-    GROUP BY s.id
-) sub
-`
-
-type GetBulkScanSessionBadgeCountParams struct {
-	UserID pgtype.UUID `json:"user_id"`
-	TeamID pgtype.UUID `json:"team_id"`
-}
-
-func (q *Queries) GetBulkScanSessionBadgeCount(ctx context.Context, arg GetBulkScanSessionBadgeCountParams) (int32, error) {
-	row := q.db.QueryRow(ctx, getBulkScanSessionBadgeCount, arg.UserID, arg.TeamID)
-	var badge_count int32
-	err := row.Scan(&badge_count)
-	return badge_count, err
-}
-
-const getBulkScanSessionCounts = `-- name: GetBulkScanSessionCounts :one
-SELECT
-    COUNT(i.id) FILTER (WHERE i.status = 'pending_enrichment') AS count_pending,
-    COUNT(i.id) FILTER (WHERE i.status = 'enriched')           AS count_enriched,
-    COUNT(i.id) FILTER (WHERE i.status = 'error')              AS count_error,
-    COUNT(i.id) FILTER (WHERE i.status = 'reviewed')           AS count_reviewed,
-    COUNT(i.id) FILTER (WHERE i.status = 'dismissed')          AS count_dismissed
-FROM bulk_scan_sessions s
-LEFT JOIN bulk_scan_items i ON i.session_id = s.id
-WHERE s.id      = $1
-  AND s.team_id = $2
-  AND s.deleted_at IS NULL
-GROUP BY s.id
-`
-
-type GetBulkScanSessionCountsParams struct {
-	ID     pgtype.UUID `json:"id"`
-	TeamID pgtype.UUID `json:"team_id"`
-}
-
-type GetBulkScanSessionCountsRow struct {
-	CountPending   int64 `json:"count_pending"`
-	CountEnriched  int64 `json:"count_enriched"`
-	CountError     int64 `json:"count_error"`
-	CountReviewed  int64 `json:"count_reviewed"`
-	CountDismissed int64 `json:"count_dismissed"`
-}
-
-func (q *Queries) GetBulkScanSessionCounts(ctx context.Context, arg GetBulkScanSessionCountsParams) (GetBulkScanSessionCountsRow, error) {
-	row := q.db.QueryRow(ctx, getBulkScanSessionCounts, arg.ID, arg.TeamID)
-	var i GetBulkScanSessionCountsRow
-	err := row.Scan(
-		&i.CountPending,
-		&i.CountEnriched,
-		&i.CountError,
-		&i.CountReviewed,
-		&i.CountDismissed,
-	)
-	return i, err
-}
-
 const insertBulkScanItem = `-- name: InsertBulkScanItem :one
-INSERT INTO bulk_scan_items (session_id, barcode, parsed_fields)
-VALUES ($1, $2, $3)
+INSERT INTO bulk_scan_items
+    (session_id, barcode, status, task_type, part_id, parsed_fields, initial_qty, resolve_item_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (session_id, barcode) WHERE status NOT IN ('dismissed', 'reviewed') DO NOTHING
-RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
+RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, created_at, resolve_item_id
 `
 
 type InsertBulkScanItemParams struct {
-	SessionID    pgtype.UUID `json:"session_id"`
-	Barcode      string      `json:"barcode"`
-	ParsedFields []byte      `json:"parsed_fields"`
+	SessionID     pgtype.UUID `json:"session_id"`
+	Barcode       string      `json:"barcode"`
+	Status        string      `json:"status"`
+	TaskType      *string     `json:"task_type"`
+	PartID        pgtype.UUID `json:"part_id"`
+	ParsedFields  []byte      `json:"parsed_fields"`
+	InitialQty    *int32      `json:"initial_qty"`
+	ResolveItemID pgtype.UUID `json:"resolve_item_id"`
 }
 
 func (q *Queries) InsertBulkScanItem(ctx context.Context, arg InsertBulkScanItemParams) (BulkScanItem, error) {
-	row := q.db.QueryRow(ctx, insertBulkScanItem, arg.SessionID, arg.Barcode, arg.ParsedFields)
+	row := q.db.QueryRow(ctx, insertBulkScanItem,
+		arg.SessionID,
+		arg.Barcode,
+		arg.Status,
+		arg.TaskType,
+		arg.PartID,
+		arg.ParsedFields,
+		arg.InitialQty,
+		arg.ResolveItemID,
+	)
 	var i BulkScanItem
 	err := row.Scan(
 		&i.ID,
@@ -236,11 +291,8 @@ func (q *Queries) InsertBulkScanItem(ctx context.Context, arg InsertBulkScanItem
 		&i.ParsedFields,
 		&i.InitialQty,
 		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
 		&i.CreatedAt,
-		&i.EnrichedAt,
+		&i.ResolveItemID,
 	)
 	return i, err
 }
@@ -271,46 +323,57 @@ func (q *Queries) InsertBulkScanSession(ctx context.Context, arg InsertBulkScanS
 	return i, err
 }
 
-const listBulkScanItems = `-- name: ListBulkScanItems :many
+const listBulkScanItemsWithResolveData = `-- name: ListBulkScanItemsWithResolveData :many
 SELECT
-    i.id, i.session_id, i.barcode, i.status, i.task_type, i.parsed_fields, i.initial_qty, i.part_id, i.enrichment_data, i.enrichment_job_id, i.error_message, i.created_at, i.enriched_at,
+    bsi.id, bsi.session_id, bsi.barcode, bsi.status, bsi.task_type, bsi.parsed_fields, bsi.initial_qty, bsi.part_id, bsi.created_at, bsi.resolve_item_id,
     p.mpn           AS part_mpn,
     p.manufacturer  AS part_manufacturer,
-    p.description   AS part_description
-FROM bulk_scan_items i
-LEFT JOIN parts p ON p.id = i.part_id
-WHERE i.session_id = $1
-ORDER BY i.created_at ASC
+    p.description   AS part_description,
+    pri.id          AS resolve_item_id_col,
+    pri.status      AS resolve_status,
+    pri.task_type   AS resolve_task_type,
+    pri.enrichment_data AS resolve_enrichment_data,
+    pri.error_message   AS resolve_error_message,
+    pri.enriched_at     AS resolve_enriched_at
+FROM bulk_scan_items bsi
+LEFT JOIN parts p ON p.id = bsi.part_id
+LEFT JOIN part_resolve_items pri ON pri.id = bsi.resolve_item_id
+WHERE bsi.session_id = $1
+ORDER BY bsi.created_at
 `
 
-type ListBulkScanItemsRow struct {
-	ID               pgtype.UUID        `json:"id"`
-	SessionID        pgtype.UUID        `json:"session_id"`
-	Barcode          string             `json:"barcode"`
-	Status           string             `json:"status"`
-	TaskType         *string            `json:"task_type"`
-	ParsedFields     []byte             `json:"parsed_fields"`
-	InitialQty       *int32             `json:"initial_qty"`
-	PartID           pgtype.UUID        `json:"part_id"`
-	EnrichmentData   []byte             `json:"enrichment_data"`
-	EnrichmentJobID  pgtype.UUID        `json:"enrichment_job_id"`
-	ErrorMessage     *string            `json:"error_message"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	EnrichedAt       pgtype.Timestamptz `json:"enriched_at"`
-	PartMpn          *string            `json:"part_mpn"`
-	PartManufacturer *string            `json:"part_manufacturer"`
-	PartDescription  *string            `json:"part_description"`
+type ListBulkScanItemsWithResolveDataRow struct {
+	ID                    pgtype.UUID        `json:"id"`
+	SessionID             pgtype.UUID        `json:"session_id"`
+	Barcode               string             `json:"barcode"`
+	Status                string             `json:"status"`
+	TaskType              *string            `json:"task_type"`
+	ParsedFields          []byte             `json:"parsed_fields"`
+	InitialQty            *int32             `json:"initial_qty"`
+	PartID                pgtype.UUID        `json:"part_id"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	ResolveItemID         pgtype.UUID        `json:"resolve_item_id"`
+	PartMpn               *string            `json:"part_mpn"`
+	PartManufacturer      *string            `json:"part_manufacturer"`
+	PartDescription       *string            `json:"part_description"`
+	ResolveItemIDCol      pgtype.UUID        `json:"resolve_item_id_col"`
+	ResolveStatus         *string            `json:"resolve_status"`
+	ResolveTaskType       *string            `json:"resolve_task_type"`
+	ResolveEnrichmentData []byte             `json:"resolve_enrichment_data"`
+	ResolveErrorMessage   *string            `json:"resolve_error_message"`
+	ResolveEnrichedAt     pgtype.Timestamptz `json:"resolve_enriched_at"`
 }
 
-func (q *Queries) ListBulkScanItems(ctx context.Context, sessionID pgtype.UUID) ([]ListBulkScanItemsRow, error) {
-	rows, err := q.db.Query(ctx, listBulkScanItems, sessionID)
+// Returns all items for a session with their resolve item data joined.
+func (q *Queries) ListBulkScanItemsWithResolveData(ctx context.Context, sessionID pgtype.UUID) ([]ListBulkScanItemsWithResolveDataRow, error) {
+	rows, err := q.db.Query(ctx, listBulkScanItemsWithResolveData, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListBulkScanItemsRow
+	var items []ListBulkScanItemsWithResolveDataRow
 	for rows.Next() {
-		var i ListBulkScanItemsRow
+		var i ListBulkScanItemsWithResolveDataRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SessionID,
@@ -320,14 +383,17 @@ func (q *Queries) ListBulkScanItems(ctx context.Context, sessionID pgtype.UUID) 
 			&i.ParsedFields,
 			&i.InitialQty,
 			&i.PartID,
-			&i.EnrichmentData,
-			&i.EnrichmentJobID,
-			&i.ErrorMessage,
 			&i.CreatedAt,
-			&i.EnrichedAt,
+			&i.ResolveItemID,
 			&i.PartMpn,
 			&i.PartManufacturer,
 			&i.PartDescription,
+			&i.ResolveItemIDCol,
+			&i.ResolveStatus,
+			&i.ResolveTaskType,
+			&i.ResolveEnrichmentData,
+			&i.ResolveErrorMessage,
+			&i.ResolveEnrichedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -342,18 +408,25 @@ func (q *Queries) ListBulkScanItems(ctx context.Context, sessionID pgtype.UUID) 
 const listBulkScanSessionsForUser = `-- name: ListBulkScanSessionsForUser :many
 SELECT
     s.id, s.user_id, s.team_id, s.created_at, s.closed_at, s.last_item_at, s.deleted_at,
-    COUNT(i.id) FILTER (WHERE i.status = 'pending_enrichment') AS count_pending,
-    COUNT(i.id) FILTER (WHERE i.status = 'enriched')           AS count_enriched,
-    COUNT(i.id) FILTER (WHERE i.status = 'error')              AS count_error,
-    COUNT(i.id) FILTER (WHERE i.status = 'reviewed')           AS count_reviewed,
-    COUNT(i.id) FILTER (WHERE i.status = 'dismissed')          AS count_dismissed
+    COUNT(i.id) FILTER (
+        WHERE i.status = 'pending_review'
+          AND i.resolve_item_id IS NOT NULL
+          AND pri.status NOT IN ('enriched', 'failed')
+    )                                                                                                                    AS count_pending,
+    COUNT(i.id) FILTER (WHERE i.status = 'reviewed')                                                                    AS count_reviewed,
+    COUNT(i.id) FILTER (WHERE i.status = 'dismissed')                                                                   AS count_dismissed,
+    COUNT(i.id) FILTER (
+        WHERE i.status = 'pending_review'
+          AND (i.resolve_item_id IS NULL OR pri.status IN ('enriched','failed'))
+    )                                                                                                                    AS count_ready
 FROM bulk_scan_sessions s
 LEFT JOIN bulk_scan_items i ON i.session_id = s.id
+LEFT JOIN part_resolve_items pri ON pri.id = i.resolve_item_id
 WHERE s.user_id  = $1
   AND s.team_id  = $2
   AND s.deleted_at IS NULL
 GROUP BY s.id
-HAVING COUNT(i.id) FILTER (WHERE i.status IN ('pending_enrichment', 'enriched', 'error')) > 0
+HAVING COUNT(i.id) FILTER (WHERE i.status = 'pending_review') > 0
     OR $3::bool
 ORDER BY s.created_at DESC
 `
@@ -373,10 +446,9 @@ type ListBulkScanSessionsForUserRow struct {
 	LastItemAt     pgtype.Timestamptz `json:"last_item_at"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
 	CountPending   int64              `json:"count_pending"`
-	CountEnriched  int64              `json:"count_enriched"`
-	CountError     int64              `json:"count_error"`
 	CountReviewed  int64              `json:"count_reviewed"`
 	CountDismissed int64              `json:"count_dismissed"`
+	CountReady     int64              `json:"count_ready"`
 }
 
 func (q *Queries) ListBulkScanSessionsForUser(ctx context.Context, arg ListBulkScanSessionsForUserParams) ([]ListBulkScanSessionsForUserRow, error) {
@@ -397,10 +469,9 @@ func (q *Queries) ListBulkScanSessionsForUser(ctx context.Context, arg ListBulkS
 			&i.LastItemAt,
 			&i.DeletedAt,
 			&i.CountPending,
-			&i.CountEnriched,
-			&i.CountError,
 			&i.CountReviewed,
 			&i.CountDismissed,
+			&i.CountReady,
 		); err != nil {
 			return nil, err
 		}
@@ -412,22 +483,16 @@ func (q *Queries) ListBulkScanSessionsForUser(ctx context.Context, arg ListBulkS
 	return items, nil
 }
 
-const setBulkScanItemDistributorRetryPending = `-- name: SetBulkScanItemDistributorRetryPending :one
+const setBulkScanItemDismissed = `-- name: SetBulkScanItemDismissed :one
 UPDATE bulk_scan_items
-SET status            = 'pending_enrichment',
-    enrichment_job_id = $2
+SET status = 'dismissed'
 WHERE id     = $1
-  AND status = 'enriched'
-RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
+  AND status = 'pending_review'
+RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, created_at, resolve_item_id
 `
 
-type SetBulkScanItemDistributorRetryPendingParams struct {
-	ID              pgtype.UUID `json:"id"`
-	EnrichmentJobID pgtype.UUID `json:"enrichment_job_id"`
-}
-
-func (q *Queries) SetBulkScanItemDistributorRetryPending(ctx context.Context, arg SetBulkScanItemDistributorRetryPendingParams) (BulkScanItem, error) {
-	row := q.db.QueryRow(ctx, setBulkScanItemDistributorRetryPending, arg.ID, arg.EnrichmentJobID)
+func (q *Queries) SetBulkScanItemDismissed(ctx context.Context, id pgtype.UUID) (BulkScanItem, error) {
+	row := q.db.QueryRow(ctx, setBulkScanItemDismissed, id)
 	var i BulkScanItem
 	err := row.Scan(
 		&i.ID,
@@ -438,93 +503,10 @@ func (q *Queries) SetBulkScanItemDistributorRetryPending(ctx context.Context, ar
 		&i.ParsedFields,
 		&i.InitialQty,
 		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
 		&i.CreatedAt,
-		&i.EnrichedAt,
+		&i.ResolveItemID,
 	)
 	return i, err
-}
-
-const setBulkScanItemEnriched = `-- name: SetBulkScanItemEnriched :one
-UPDATE bulk_scan_items
-SET status           = 'enriched',
-    task_type        = $2,
-    part_id          = $3,
-    enrichment_data  = $4,
-    enriched_at      = NOW(),
-    enrichment_job_id = NULL,
-    error_message    = NULL
-WHERE id = $1
-RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
-`
-
-type SetBulkScanItemEnrichedParams struct {
-	ID             pgtype.UUID `json:"id"`
-	TaskType       *string     `json:"task_type"`
-	PartID         pgtype.UUID `json:"part_id"`
-	EnrichmentData []byte      `json:"enrichment_data"`
-}
-
-func (q *Queries) SetBulkScanItemEnriched(ctx context.Context, arg SetBulkScanItemEnrichedParams) (BulkScanItem, error) {
-	row := q.db.QueryRow(ctx, setBulkScanItemEnriched,
-		arg.ID,
-		arg.TaskType,
-		arg.PartID,
-		arg.EnrichmentData,
-	)
-	var i BulkScanItem
-	err := row.Scan(
-		&i.ID,
-		&i.SessionID,
-		&i.Barcode,
-		&i.Status,
-		&i.TaskType,
-		&i.ParsedFields,
-		&i.InitialQty,
-		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
-		&i.CreatedAt,
-		&i.EnrichedAt,
-	)
-	return i, err
-}
-
-const setBulkScanItemEnrichmentJobID = `-- name: SetBulkScanItemEnrichmentJobID :exec
-UPDATE bulk_scan_items
-SET enrichment_job_id = $2
-WHERE id = $1
-`
-
-type SetBulkScanItemEnrichmentJobIDParams struct {
-	ID              pgtype.UUID `json:"id"`
-	EnrichmentJobID pgtype.UUID `json:"enrichment_job_id"`
-}
-
-func (q *Queries) SetBulkScanItemEnrichmentJobID(ctx context.Context, arg SetBulkScanItemEnrichmentJobIDParams) error {
-	_, err := q.db.Exec(ctx, setBulkScanItemEnrichmentJobID, arg.ID, arg.EnrichmentJobID)
-	return err
-}
-
-const setBulkScanItemError = `-- name: SetBulkScanItemError :exec
-UPDATE bulk_scan_items
-SET status            = 'error',
-    error_message     = $2,
-    enrichment_job_id = NULL
-WHERE id = $1
-`
-
-type SetBulkScanItemErrorParams struct {
-	ID           pgtype.UUID `json:"id"`
-	ErrorMessage *string     `json:"error_message"`
-}
-
-func (q *Queries) SetBulkScanItemError(ctx context.Context, arg SetBulkScanItemErrorParams) error {
-	_, err := q.db.Exec(ctx, setBulkScanItemError, arg.ID, arg.ErrorMessage)
-	return err
 }
 
 const setBulkScanItemInitialQty = `-- name: SetBulkScanItemInitialQty :exec
@@ -545,25 +527,41 @@ func (q *Queries) SetBulkScanItemInitialQty(ctx context.Context, arg SetBulkScan
 	return err
 }
 
-const setBulkScanItemRetry = `-- name: SetBulkScanItemRetry :one
+const setBulkScanItemResolveID = `-- name: SetBulkScanItemResolveID :exec
 UPDATE bulk_scan_items
-SET status            = 'pending_enrichment',
-    error_message     = NULL,
-    enrichment_job_id = $2
-WHERE id         = $1
-  AND session_id = $3
-  AND status     = 'error'
-RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
+SET resolve_item_id = $1
+WHERE id = $2
 `
 
-type SetBulkScanItemRetryParams struct {
-	ID              pgtype.UUID `json:"id"`
-	EnrichmentJobID pgtype.UUID `json:"enrichment_job_id"`
-	SessionID       pgtype.UUID `json:"session_id"`
+type SetBulkScanItemResolveIDParams struct {
+	ResolveItemID pgtype.UUID `json:"resolve_item_id"`
+	ID            pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) SetBulkScanItemRetry(ctx context.Context, arg SetBulkScanItemRetryParams) (BulkScanItem, error) {
-	row := q.db.QueryRow(ctx, setBulkScanItemRetry, arg.ID, arg.EnrichmentJobID, arg.SessionID)
+// Called after the resolve item is created; links the scan item to its resolve item.
+func (q *Queries) SetBulkScanItemResolveID(ctx context.Context, arg SetBulkScanItemResolveIDParams) error {
+	_, err := q.db.Exec(ctx, setBulkScanItemResolveID, arg.ResolveItemID, arg.ID)
+	return err
+}
+
+const setBulkScanItemReviewed = `-- name: SetBulkScanItemReviewed :one
+UPDATE bulk_scan_items
+SET status  = 'reviewed',
+    part_id = COALESCE($1, part_id)
+WHERE id     = $2
+  AND status = 'pending_review'
+RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, created_at, resolve_item_id
+`
+
+type SetBulkScanItemReviewedParams struct {
+	PartID pgtype.UUID `json:"part_id"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+// Marks a scan item reviewed and optionally sets part_id.
+// Returns 0 rows if already terminal (concurrent-safe).
+func (q *Queries) SetBulkScanItemReviewed(ctx context.Context, arg SetBulkScanItemReviewedParams) (BulkScanItem, error) {
+	row := q.db.QueryRow(ctx, setBulkScanItemReviewed, arg.PartID, arg.ID)
 	var i BulkScanItem
 	err := row.Scan(
 		&i.ID,
@@ -574,47 +572,8 @@ func (q *Queries) SetBulkScanItemRetry(ctx context.Context, arg SetBulkScanItemR
 		&i.ParsedFields,
 		&i.InitialQty,
 		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
 		&i.CreatedAt,
-		&i.EnrichedAt,
-	)
-	return i, err
-}
-
-const setBulkScanItemStatus = `-- name: SetBulkScanItemStatus :one
-UPDATE bulk_scan_items
-SET status = $2
-WHERE id   = $1
-  AND session_id = $3
-  AND status NOT IN ('reviewed', 'dismissed')
-RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
-`
-
-type SetBulkScanItemStatusParams struct {
-	ID        pgtype.UUID `json:"id"`
-	Status    string      `json:"status"`
-	SessionID pgtype.UUID `json:"session_id"`
-}
-
-func (q *Queries) SetBulkScanItemStatus(ctx context.Context, arg SetBulkScanItemStatusParams) (BulkScanItem, error) {
-	row := q.db.QueryRow(ctx, setBulkScanItemStatus, arg.ID, arg.Status, arg.SessionID)
-	var i BulkScanItem
-	err := row.Scan(
-		&i.ID,
-		&i.SessionID,
-		&i.Barcode,
-		&i.Status,
-		&i.TaskType,
-		&i.ParsedFields,
-		&i.InitialQty,
-		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
-		&i.CreatedAt,
-		&i.EnrichedAt,
+		&i.ResolveItemID,
 	)
 	return i, err
 }
@@ -639,40 +598,24 @@ func (q *Queries) SoftDeleteBulkScanSession(ctx context.Context, arg SoftDeleteB
 	return err
 }
 
-const updateBulkScanItemEnrichmentData = `-- name: UpdateBulkScanItemEnrichmentData :one
+const updateBulkScanItemTaskType = `-- name: UpdateBulkScanItemTaskType :exec
 UPDATE bulk_scan_items
-SET enrichment_data = $2,
-    status          = 'enriched',
-    enriched_at     = NOW()
-WHERE id = $1
-  AND status IN ('enriched', 'pending_enrichment')
-RETURNING id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, enrichment_data, enrichment_job_id, error_message, created_at, enriched_at
+SET task_type = $1,
+    part_id   = $2
+WHERE id = $3
 `
 
-type UpdateBulkScanItemEnrichmentDataParams struct {
-	ID             pgtype.UUID `json:"id"`
-	EnrichmentData []byte      `json:"enrichment_data"`
+type UpdateBulkScanItemTaskTypeParams struct {
+	TaskType *string     `json:"task_type"`
+	PartID   pgtype.UUID `json:"part_id"`
+	ID       pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) UpdateBulkScanItemEnrichmentData(ctx context.Context, arg UpdateBulkScanItemEnrichmentDataParams) (BulkScanItem, error) {
-	row := q.db.QueryRow(ctx, updateBulkScanItemEnrichmentData, arg.ID, arg.EnrichmentData)
-	var i BulkScanItem
-	err := row.Scan(
-		&i.ID,
-		&i.SessionID,
-		&i.Barcode,
-		&i.Status,
-		&i.TaskType,
-		&i.ParsedFields,
-		&i.InitialQty,
-		&i.PartID,
-		&i.EnrichmentData,
-		&i.EnrichmentJobID,
-		&i.ErrorMessage,
-		&i.CreatedAt,
-		&i.EnrichedAt,
-	)
-	return i, err
+// Called by handlePartResolve when source_type='bulk_scan_item' to propagate
+// the resolved task_type and part_id back to the scan item.
+func (q *Queries) UpdateBulkScanItemTaskType(ctx context.Context, arg UpdateBulkScanItemTaskTypeParams) error {
+	_, err := q.db.Exec(ctx, updateBulkScanItemTaskType, arg.TaskType, arg.PartID, arg.ID)
+	return err
 }
 
 const updateBulkScanSessionLastItemAt = `-- name: UpdateBulkScanSessionLastItemAt :exec

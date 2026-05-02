@@ -207,4 +207,4 @@ Currently the server will send query invalidation notifications within a team on
 
 # Others
 
-- Handle cancelled order with linked builds
+- Fix resolution of unresolved scans.

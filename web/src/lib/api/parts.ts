@@ -119,3 +119,7 @@ export interface PartAllocation {
 export function getPartAllocations(partId: string, teamId: string) {
   return request<{ items: PartAllocation[] }>('GET', `/api/v1/teams/${teamId}/parts/${partId}/allocations`);
 }
+
+export function deletePart(partId: string) {
+  return request<void>("DELETE", `/api/v1/parts/${partId}`);
+}

@@ -2,11 +2,11 @@
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import {
     listBulkScanSessions, deleteBulkScanSession,
-    type BulkScanSession, type BulkScanSessionCounts,
+    type BulkScanSessionCounts,
   } from '$lib/api/bulkScan.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
-  import { navigate, linkAction } from '$lib/router/index.svelte.js';
+  import { linkAction } from '$lib/router/index.svelte.js';
 
   let { teamId }: { teamId: string } = $props();
 
@@ -31,19 +31,20 @@
     }
   }
 
-  function countActionable(counts: BulkScanSessionCounts): number {
-    return counts.pending_enrichment + counts.enriched + counts.error;
+  // A session is "active" if it has items still processing or ready to review.
+  function countActive(counts: BulkScanSessionCounts): number {
+    return counts.pending + counts.ready;
   }
 
   function countTotal(counts: BulkScanSessionCounts): number {
-    return counts.pending_enrichment + counts.enriched + counts.error + counts.reviewed + counts.dismissed;
+    return counts.pending + counts.ready + counts.reviewed + counts.dismissed;
   }
 
   const sessions = $derived(sessionsQuery.data?.sessions ?? []);
   // Hide sessions with no actionable items by default
   let showCompleted = $state(false);
   const visible = $derived(
-    showCompleted ? sessions : sessions.filter(s => countActionable(s.counts) > 0)
+    showCompleted ? sessions : sessions.filter(s => countActive(s.counts) > 0)
   );
 </script>
 
@@ -63,7 +64,7 @@
             &mdash; {sessions.length - visible.length} completed hidden
           {/if}
         </p>
-        {#if sessions.some(s => countActionable(s.counts) === 0)}
+        {#if sessions.some(s => countActive(s.counts) === 0)}
           <button
             onclick={() => { showCompleted = !showCompleted; }}
             class="text-xs text-muted-foreground hover:text-foreground underline"
@@ -81,7 +82,6 @@
       {:else}
         <div class="space-y-3">
           {#each visible as session (session.id)}
-            {@const actionable = countActionable(session.counts)}
             {@const total = countTotal(session.counts)}
             <div class="rounded-lg border border-border bg-card p-4">
               <div class="flex items-start justify-between gap-4">
@@ -99,22 +99,16 @@
 
                   <!-- Count breakdown -->
                   <div class="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                    {#if session.counts.pending_enrichment > 0}
+                    {#if session.counts.pending > 0}
                       <span class="flex items-center gap-1">
                         <span class="h-1.5 w-1.5 rounded-full bg-yellow-500"></span>
-                        {session.counts.pending_enrichment} pending
+                        {session.counts.pending} processing
                       </span>
                     {/if}
-                    {#if session.counts.enriched > 0}
+                    {#if session.counts.ready > 0}
                       <span class="flex items-center gap-1">
                         <span class="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
-                        {session.counts.enriched} ready
-                      </span>
-                    {/if}
-                    {#if session.counts.error > 0}
-                      <span class="flex items-center gap-1">
-                        <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
-                        {session.counts.error} error{session.counts.error === 1 ? '' : 's'}
+                        {session.counts.ready} ready
                       </span>
                     {/if}
                     {#if session.counts.reviewed > 0}
@@ -133,7 +127,7 @@
                 </div>
 
                 <div class="flex items-center gap-2 shrink-0">
-                  {#if actionable > 0}
+                  {#if session.counts.ready > 0}
                     <a
                       href={`/teams/${teamId}/bulk-scan/${session.id}`}
                       use:linkAction

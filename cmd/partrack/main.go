@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/Yamakaja/partrack/internal/config"
@@ -16,6 +17,12 @@ import (
 )
 
 func main() {
+	level := slog.LevelInfo
+	if os.Getenv("PARTRACK_LOG_LEVEL") == "debug" {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+
 	cfg := config.Load()
 	pool := db.Connect(cfg)
 	defer pool.Close()

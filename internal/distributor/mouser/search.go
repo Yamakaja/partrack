@@ -196,6 +196,7 @@ func mapPartToEnrichment(p *mouserPart) *distributor.EnrichmentResult {
 }
 
 // mapListing converts a mouserPart to a distributor.Listing.
+// listingURL is the per-SKU product page URL, sourced from ProductDetailUrl.
 func mapListing(p mouserPart) distributor.Listing {
 	packagingType := "Tube"
 	if p.Reeling {
@@ -226,6 +227,7 @@ func mapListing(p mouserPart) distributor.Listing {
 		UnitPrice:      unitPrice,
 		StockAvailable: &stock,
 		FixedOrderCost: "0.0000",
+		ListingURL:     p.ProductDetailUrl,
 	}
 }
 

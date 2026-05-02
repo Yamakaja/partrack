@@ -96,16 +96,23 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 SELECT COUNT(*) FROM stock_adjustments WHERE inventory_entry_id = $1;
 
 -- name: CreateStockAdjustment :one
-INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by,
-          order_line_item_id, build_id, general_checkout_id;
-
--- name: ApplyStockDelta :one
-UPDATE inventory_entries
-SET quantity_on_hand = quantity_on_hand + $2
-WHERE id = $1
-RETURNING quantity_on_hand;
+WITH adj AS (
+    INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by,
+              order_line_item_id, build_id, general_checkout_id
+), updated AS (
+    UPDATE inventory_entries
+    SET quantity_on_hand = quantity_on_hand + adj.delta
+    FROM adj
+    WHERE inventory_entries.id = adj.inventory_entry_id
+    RETURNING inventory_entries.quantity_on_hand
+)
+SELECT adj.id, adj.inventory_entry_id, adj.delta, adj.adjusted_at, adj.reason,
+       adj.created_by, adj.order_line_item_id, adj.build_id, adj.general_checkout_id,
+       updated.quantity_on_hand AS new_quantity_on_hand
+FROM adj
+JOIN updated ON TRUE;
 
 -- name: ReplenishPreview :many
 SELECT

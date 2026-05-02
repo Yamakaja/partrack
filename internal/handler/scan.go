@@ -460,15 +460,11 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 	}
 	// Include the most recent open bulk scan session so the phone can detect desyncs.
 	if bs, err := h.Queries.GetActiveBulkScanSessionForUser(r.Context(), sess.UserID); err == nil {
-		counts, _ := h.Queries.GetBulkScanSessionCounts(r.Context(), dbgen.GetBulkScanSessionCountsParams{
-			ID:     bs.ID,
-			TeamID: bs.TeamID,
-		})
-		total := counts.CountPending + counts.CountEnriched + counts.CountError
+		counts, _ := h.Queries.CountBulkScanSessionItems(r.Context(), bs.ID)
 		state := bulkSessionState(bs)
 		resp["bulk_session"] = map[string]any{
 			"id":         bs.ID.String(),
-			"item_count": total,
+			"item_count": counts.PendingCount,
 			"state":      state,
 		}
 	}
@@ -693,19 +689,11 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 
 	qtx := h.Queries.WithTx(tx)
 
-	if _, err := qtx.CreateStockAdjustment(r.Context(), dbgen.CreateStockAdjustmentParams{
+	adj, err := qtx.CreateStockAdjustment(r.Context(), dbgen.CreateStockAdjustmentParams{
 		InventoryEntryID: entryID,
 		Delta:            body.Delta,
 		Reason:           &reason,
 		CreatedBy:        sess.UserID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	newQty, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-		ID:             entryID,
-		QuantityOnHand: body.Delta,
 	})
 	if err != nil {
 		// Likely a check constraint violation (stock went negative).
@@ -715,6 +703,7 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+	newQty := adj.NewQuantityOnHand
 
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -1296,25 +1285,18 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reason := fmt.Sprintf("Received from order %s (scan)", orderID.String())
-	if _, err := qtx.CreateOrderStockAdjustment(r.Context(), dbgen.CreateOrderStockAdjustmentParams{
+	orderAdj, err := qtx.CreateOrderStockAdjustment(r.Context(), dbgen.CreateOrderStockAdjustmentParams{
 		InventoryEntryID: invEntry.ID,
 		Delta:            qty,
 		Reason:           &reason,
 		CreatedBy:        userID,
 		OrderLineItemID:  lineItemID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	newQty, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-		ID:             invEntry.ID,
-		QuantityOnHand: qty,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	newQty := orderAdj.NewQuantityOnHand
 
 	// Determine order status transition.
 	receiptStatus, err := qtx.GetOrderReceiptStatus(r.Context(), orderID)

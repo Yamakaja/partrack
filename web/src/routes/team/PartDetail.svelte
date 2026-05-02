@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-  import { getPart, updatePart, getPartAllocations, type PartAllocation } from '$lib/api/parts.js';
+  import { getPart, updatePart, getPartAllocations, deletePart, type PartAllocation } from '$lib/api/parts.js';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import { listCategories } from '$lib/api/categories.js';
@@ -30,9 +30,11 @@
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
-  import { ArrowLeft, PackagePlus, Pencil, QrCode, ShoppingCart } from 'lucide-svelte';
+  import { ArrowLeft, PackagePlus, Pencil, QrCode, ShoppingCart, Trash2 } from 'lucide-svelte';
   import { generatePartQRPayload } from '$lib/utils/ipc2d.js';
   import QRDialog from '$lib/components/common/QRDialog.svelte';
+  import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+  import { authStore } from '$lib/stores/auth.svelte.js';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
 
@@ -84,6 +86,22 @@
 
   // Part QR code dialog
   let partQrOpen = $state(false);
+
+  // Delete part dialog (global admins only)
+  let deletePartOpen = $state(false);
+  let deletingPart = $state(false);
+
+  async function handleDeletePart() {
+    deletingPart = true;
+    try {
+      await deletePart(partId);
+      navigate(`/teams/${teamId}/parts`);
+    } catch (err: any) {
+      pushToast('error', 'Failed to delete part', err.message);
+    } finally {
+      deletingPart = false;
+    }
+  }
 
   // Edit part dialog
   let editPartOpen = $state(false);
@@ -355,6 +373,11 @@
       {#if tracked}
         <Button variant="outline" size="sm" onclick={openEdit}>Edit Settings</Button>
         <Button variant="outline" size="sm" onclick={openAdjust}>Adjust Stock</Button>
+      {/if}
+      {#if authStore.user?.is_admin && partQuery.data}
+        <Button variant="outline" size="sm" disabled={deletingPart} onclick={() => (deletePartOpen = true)}>
+          <Trash2 class="h-4 w-4 text-destructive" />
+        </Button>
       {/if}
     {/snippet}
   </Topbar>
@@ -656,4 +679,13 @@
   description={partQrDescription}
   payload={partQrPayload}
   filename={partQrFilename}
+/>
+
+<ConfirmDialog
+  bind:open={deletePartOpen}
+  title="Delete part?"
+  description="This will permanently delete the part and all associated data including inventory entries, listings, BOM references, stock history, and order history. This cannot be undone."
+  confirmLabel="Delete"
+  destructive
+  onconfirm={handleDeletePart}
 />

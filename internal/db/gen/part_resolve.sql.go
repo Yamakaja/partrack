@@ -187,6 +187,41 @@ func (q *Queries) GetPartResolveItem(ctx context.Context, id pgtype.UUID) (PartR
 	return i, err
 }
 
+const getStalePendingResolveItems = `-- name: GetStalePendingResolveItems :many
+SELECT id, team_id, created_by
+FROM part_resolve_items
+WHERE status = 'pending'
+  AND created_at < $1
+`
+
+type GetStalePendingResolveItemsRow struct {
+	ID        pgtype.UUID `json:"id"`
+	TeamID    pgtype.UUID `json:"team_id"`
+	CreatedBy pgtype.UUID `json:"created_by"`
+}
+
+// Returns pending items older than the given cutoff so the worker can re-enqueue them.
+// Includes the team_id and created_by so the job payload can be reconstructed.
+func (q *Queries) GetStalePendingResolveItems(ctx context.Context, cutoff pgtype.Timestamptz) ([]GetStalePendingResolveItemsRow, error) {
+	rows, err := q.db.Query(ctx, getStalePendingResolveItems, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetStalePendingResolveItemsRow
+	for rows.Next() {
+		var i GetStalePendingResolveItemsRow
+		if err := rows.Scan(&i.ID, &i.TeamID, &i.CreatedBy); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updatePartResolveItemEnriched = `-- name: UpdatePartResolveItemEnriched :one
 UPDATE part_resolve_items
 SET    status           = 'enriched',
@@ -212,42 +247,6 @@ func (q *Queries) UpdatePartResolveItemEnriched(ctx context.Context, arg UpdateP
 		arg.ResolvedPartID,
 		arg.ID,
 	)
-	var i PartResolveItem
-	err := row.Scan(
-		&i.ID,
-		&i.TeamID,
-		&i.SourceType,
-		&i.SourceID,
-		&i.Status,
-		&i.TaskType,
-		&i.InputFields,
-		&i.EnrichmentData,
-		&i.ResolvedPartID,
-		&i.ErrorMessage,
-		&i.CreatedBy,
-		&i.CreatedAt,
-		&i.EnrichedAt,
-		&i.CommittedAt,
-	)
-	return i, err
-}
-
-const updatePartResolveItemEnrichmentData = `-- name: UpdatePartResolveItemEnrichmentData :one
-UPDATE part_resolve_items
-SET    enrichment_data = $1,
-       enriched_at     = NOW()
-WHERE  id = $2
-RETURNING id, team_id, source_type, source_id, status, task_type, input_fields, enrichment_data, resolved_part_id, error_message, created_by, created_at, enriched_at, committed_at
-`
-
-type UpdatePartResolveItemEnrichmentDataParams struct {
-	EnrichmentData []byte      `json:"enrichment_data"`
-	ID             pgtype.UUID `json:"id"`
-}
-
-// Used by partial retry: merges new distributor results into existing enrichment_data.
-func (q *Queries) UpdatePartResolveItemEnrichmentData(ctx context.Context, arg UpdatePartResolveItemEnrichmentDataParams) (PartResolveItem, error) {
-	row := q.db.QueryRow(ctx, updatePartResolveItemEnrichmentData, arg.EnrichmentData, arg.ID)
 	var i PartResolveItem
 	err := row.Scan(
 		&i.ID,

@@ -24,6 +24,8 @@ func New() *Client {
 	return &Client{}
 }
 
+func (c *Client) Name() string { return "TestDistributor" }
+
 // CredentialSpec returns a minimal credential spec so the test distributor exercises
 // the credential form UI in development environments.
 func (c *Client) CredentialSpec() []distributor.CredentialField {

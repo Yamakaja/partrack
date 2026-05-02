@@ -107,6 +107,11 @@ export function activateTeamInvalidation(teamId: string) {
       if (sessionId) qc!.invalidateQueries({ queryKey: ['bulk-scan-items', teamId, sessionId] });
     }),
 
+    subscribeSSEType(teamId, 'part_resolve_changed', () => {
+      qc!.invalidateQueries({ queryKey: ['bulk-scan-items', teamId] });
+      qc!.invalidateQueries({ queryKey: ['bulk-scan-sessions', teamId] });
+    }),
+
     subscribeSSEType(teamId, 'scan_focus_requested', (ev) => {
       const entityType = ev.data.entity_type as string | undefined;
       const entityId = ev.data.entity_id as string | undefined;

@@ -1221,13 +1221,6 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return
 			}
-			if _, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-				ID:             d.InventoryEntryID,
-				QuantityOnHand: d.Delta,
-			}); err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-				return
-			}
 		}
 	}
 

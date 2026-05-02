@@ -767,3 +767,16 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, toPartFullResponse(part))
 }
+
+func (h *Handler) DeletePart(w http.ResponseWriter, r *http.Request) {
+	var partID pgtype.UUID
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
+	if err := h.Queries.DeletePart(r.Context(), partID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete part", "INTERNAL")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

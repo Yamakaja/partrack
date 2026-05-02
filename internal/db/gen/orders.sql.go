@@ -176,9 +176,22 @@ func (q *Queries) CreateOrderLineItemForImport(ctx context.Context, arg CreateOr
 }
 
 const createOrderStockAdjustment = `-- name: CreateOrderStockAdjustment :one
-INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, order_line_item_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, order_line_item_id
+WITH adj AS (
+    INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, order_line_item_id)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, order_line_item_id
+), updated AS (
+    UPDATE inventory_entries
+    SET quantity_on_hand = quantity_on_hand + adj.delta
+    FROM adj
+    WHERE inventory_entries.id = adj.inventory_entry_id
+    RETURNING inventory_entries.quantity_on_hand
+)
+SELECT adj.id, adj.inventory_entry_id, adj.delta, adj.adjusted_at, adj.reason,
+       adj.created_by, adj.order_line_item_id,
+       updated.quantity_on_hand AS new_quantity_on_hand
+FROM adj
+JOIN updated ON TRUE
 `
 
 type CreateOrderStockAdjustmentParams struct {
@@ -190,13 +203,14 @@ type CreateOrderStockAdjustmentParams struct {
 }
 
 type CreateOrderStockAdjustmentRow struct {
-	ID               pgtype.UUID        `json:"id"`
-	InventoryEntryID pgtype.UUID        `json:"inventory_entry_id"`
-	Delta            int32              `json:"delta"`
-	AdjustedAt       pgtype.Timestamptz `json:"adjusted_at"`
-	Reason           *string            `json:"reason"`
-	CreatedBy        pgtype.UUID        `json:"created_by"`
-	OrderLineItemID  pgtype.UUID        `json:"order_line_item_id"`
+	ID                pgtype.UUID        `json:"id"`
+	InventoryEntryID  pgtype.UUID        `json:"inventory_entry_id"`
+	Delta             int32              `json:"delta"`
+	AdjustedAt        pgtype.Timestamptz `json:"adjusted_at"`
+	Reason            *string            `json:"reason"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	OrderLineItemID   pgtype.UUID        `json:"order_line_item_id"`
+	NewQuantityOnHand int32              `json:"new_quantity_on_hand"`
 }
 
 func (q *Queries) CreateOrderStockAdjustment(ctx context.Context, arg CreateOrderStockAdjustmentParams) (CreateOrderStockAdjustmentRow, error) {
@@ -216,6 +230,7 @@ func (q *Queries) CreateOrderStockAdjustment(ctx context.Context, arg CreateOrde
 		&i.Reason,
 		&i.CreatedBy,
 		&i.OrderLineItemID,
+		&i.NewQuantityOnHand,
 	)
 	return i, err
 }

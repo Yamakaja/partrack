@@ -211,12 +211,8 @@
       const res = await addBulkScanItem(token, bulkSessionId, raw);
       if (res.new) {
         bulkItemCount++;
-        if (!res.found_in_db) {
-          pushToast('success', 'Scanned — looking up part…');
-          showQtyCaptureFor(res.item_id, bulkSessionId, res.encoded_qty);
-        } else {
-          pushToast('success', 'Scanned');
-        }
+        pushToast('success', res.found_in_db ? 'Scanned' : 'Scanned — looking up part…');
+        showQtyCaptureFor(res.item_id, bulkSessionId, res.encoded_qty);
       } else {
         pushToast('info', 'Scanned');
       }

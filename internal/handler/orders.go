@@ -703,28 +703,19 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create the stock adjustment.
 	defaultReason := fmt.Sprintf("Received from order %s", orderID.String())
-	if _, err := qtx.CreateOrderStockAdjustment(r.Context(), dbgen.CreateOrderStockAdjustmentParams{
+	adj, err := qtx.CreateOrderStockAdjustment(r.Context(), dbgen.CreateOrderStockAdjustmentParams{
 		InventoryEntryID: invEntry.ID,
 		Delta:            body.QuantityReceived,
 		Reason:           &defaultReason,
 		CreatedBy:        userID,
 		OrderLineItemID:  lineItemID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	// Apply the stock delta.
-	newQty, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-		ID:             invEntry.ID,
-		QuantityOnHand: body.QuantityReceived,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	newQty := adj.NewQuantityOnHand
 
 	// Check if order is now fully or partially received and transition status.
 	receiptStatus, err := qtx.GetOrderReceiptStatus(r.Context(), orderID)

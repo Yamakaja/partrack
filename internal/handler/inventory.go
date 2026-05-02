@@ -484,15 +484,6 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newQty, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-		ID:             entryID,
-		QuantityOnHand: req.Delta,
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -502,7 +493,7 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 
 	// If stock increased, re-evaluate readiness of any ordered builds that need this part.
 	if req.Delta > 0 {
-		h.reevaluateOrderedBuildsForPart(r, invEntry.PartID, teamID, newQty)
+		h.reevaluateOrderedBuildsForPart(r, invEntry.PartID, teamID, adj.NewQuantityOnHand)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -512,7 +503,7 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 		"adjusted_at":        adj.AdjustedAt.Time.UTC().Format(time.RFC3339),
 		"reason":             adj.Reason,
 		"created_by":         adj.CreatedBy.String(),
-		"quantity_on_hand":   newQty,
+		"quantity_on_hand":   adj.NewQuantityOnHand,
 	})
 }
 

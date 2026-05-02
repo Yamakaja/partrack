@@ -41,6 +41,8 @@ func New() *Client {
 	}
 }
 
+func (c *Client) Name() string { return "Mouser" }
+
 // CredentialSpec describes the fields required to configure a Mouser API integration.
 func (c *Client) CredentialSpec() []distributor.CredentialField {
 	return []distributor.CredentialField{

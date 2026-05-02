@@ -164,13 +164,29 @@ func (h *Handler) CommitPartResolveItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var body struct {
-		PrimaryDistributorID     string   `json:"primary_distributor_id"`
-		PrimarySKU               string   `json:"primary_sku"`
-		AdditionalDistributorIDs []string `json:"additional_distributor_ids"`
+		PrimaryDistributorID string `json:"primary_distributor_id"`
+		PrimarySKU           string `json:"primary_sku"`
+		AdditionalListings   []struct {
+			DistributorID string `json:"distributor_id"`
+			SKU           string `json:"sku"`
+		} `json:"additional_listings"`
+		InitialQty        *int32  `json:"initial_qty"`
+		InitialQtyReason  string  `json:"initial_qty_reason"`
+		StorageLocationID string  `json:"storage_location_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "invalid_body")
 		return
+	}
+
+	var storageLocID pgtype.UUID
+	if body.StorageLocationID != "" {
+		storageLocID.Scan(body.StorageLocationID) //nolint:errcheck
+	}
+
+	additionalListings := make([]worker.AdditionalListing, len(body.AdditionalListings))
+	for i, al := range body.AdditionalListings {
+		additionalListings[i] = worker.AdditionalListing{DistributorID: al.DistributorID, SKU: al.SKU}
 	}
 
 	userID := userIDFromContext(r)
@@ -181,8 +197,11 @@ func (h *Handler) CommitPartResolveItem(w http.ResponseWriter, r *http.Request) 
 		resolveItemID,
 		body.PrimaryDistributorID,
 		body.PrimarySKU,
-		body.AdditionalDistributorIDs,
+		additionalListings,
 		userID,
+		body.InitialQty,
+		body.InitialQtyReason,
+		storageLocID,
 	)
 	if err != nil {
 		switch {

@@ -41,14 +41,18 @@ type resolveListing struct {
 	Moq            int32                    `json:"moq"`
 	FixedOrderCost string                   `json:"fixed_order_cost"`
 	PriceBreaks    []distributor.PriceBreak `json:"price_breaks"`
+	ListingURL     string                   `json:"listing_url,omitempty"`
 }
 
 // resolveEnrichmentEntry is one distributor's result stored in part_resolve_items.enrichment_data.
+// Results holds the candidate products returned for this distributor; there is one entry per
+// distinct product (e.g. chip vs eval board). SKU-based lookups always produce exactly one
+// candidate; MPN-based searches may surface several exact matches.
 type resolveEnrichmentEntry struct {
-	DistributorID string                   `json:"distributor_id"`
-	Name          string                   `json:"name"`
-	Result        *resolveEnrichmentResult `json:"result,omitempty"`
-	Error         string                   `json:"error,omitempty"`
+	DistributorID string                    `json:"distributor_id"`
+	Name          string                    `json:"name"`
+	Results       []*resolveEnrichmentResult `json:"results,omitempty"`
+	Error         string                    `json:"error,omitempty"`
 }
 
 // resolveEnrichmentData is the top-level envelope stored in part_resolve_items.enrichment_data.
@@ -96,6 +100,7 @@ func toResolveResult(r *distributor.EnrichmentResult) *resolveEnrichmentResult {
 			Moq:            l.Moq,
 			FixedOrderCost: l.FixedOrderCost,
 			PriceBreaks:    l.PriceBreaks,
+			ListingURL:     l.ListingURL,
 		})
 	}
 	return out
@@ -141,6 +146,7 @@ func fromResolveResult(r *resolveEnrichmentResult) *distributor.EnrichmentResult
 			Moq:            l.Moq,
 			FixedOrderCost: l.FixedOrderCost,
 			PriceBreaks:    l.PriceBreaks,
+			ListingURL:     l.ListingURL,
 		})
 	}
 	return out

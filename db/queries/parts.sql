@@ -384,3 +384,6 @@ WHERE ie.team_id = @team_id
 ORDER BY ie.part_id,
     (ie.preferred_listing_id = dl.id) DESC NULLS LAST,
     dl.id DESC;
+
+-- name: DeletePart :exec
+DELETE FROM parts WHERE id = $1;

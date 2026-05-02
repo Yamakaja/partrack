@@ -226,6 +226,15 @@ func (q *Queries) DeleteParameter(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const deletePart = `-- name: DeletePart :exec
+DELETE FROM parts WHERE id = $1
+`
+
+func (q *Queries) DeletePart(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deletePart, id)
+	return err
+}
+
 const getListing = `-- name: GetListing :one
 SELECT id, part_id, distributor_id, sku FROM distributor_listings WHERE id = $1
 `

@@ -11,25 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const applyStockDelta = `-- name: ApplyStockDelta :one
-UPDATE inventory_entries
-SET quantity_on_hand = quantity_on_hand + $2
-WHERE id = $1
-RETURNING quantity_on_hand
-`
-
-type ApplyStockDeltaParams struct {
-	ID             pgtype.UUID `json:"id"`
-	QuantityOnHand int32       `json:"quantity_on_hand"`
-}
-
-func (q *Queries) ApplyStockDelta(ctx context.Context, arg ApplyStockDeltaParams) (int32, error) {
-	row := q.db.QueryRow(ctx, applyStockDelta, arg.ID, arg.QuantityOnHand)
-	var quantity_on_hand int32
-	err := row.Scan(&quantity_on_hand)
-	return quantity_on_hand, err
-}
-
 const countAdjustments = `-- name: CountAdjustments :one
 SELECT COUNT(*) FROM stock_adjustments WHERE inventory_entry_id = $1
 `
@@ -117,10 +98,23 @@ func (q *Queries) CreateInventoryEntry(ctx context.Context, arg CreateInventoryE
 }
 
 const createStockAdjustment = `-- name: CreateStockAdjustment :one
-INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by)
-VALUES ($1, $2, $3, $4)
-RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by,
-          order_line_item_id, build_id, general_checkout_id
+WITH adj AS (
+    INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by,
+              order_line_item_id, build_id, general_checkout_id
+), updated AS (
+    UPDATE inventory_entries
+    SET quantity_on_hand = quantity_on_hand + adj.delta
+    FROM adj
+    WHERE inventory_entries.id = adj.inventory_entry_id
+    RETURNING inventory_entries.quantity_on_hand
+)
+SELECT adj.id, adj.inventory_entry_id, adj.delta, adj.adjusted_at, adj.reason,
+       adj.created_by, adj.order_line_item_id, adj.build_id, adj.general_checkout_id,
+       updated.quantity_on_hand AS new_quantity_on_hand
+FROM adj
+JOIN updated ON TRUE
 `
 
 type CreateStockAdjustmentParams struct {
@@ -130,14 +124,27 @@ type CreateStockAdjustmentParams struct {
 	CreatedBy        pgtype.UUID `json:"created_by"`
 }
 
-func (q *Queries) CreateStockAdjustment(ctx context.Context, arg CreateStockAdjustmentParams) (StockAdjustment, error) {
+type CreateStockAdjustmentRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	InventoryEntryID  pgtype.UUID        `json:"inventory_entry_id"`
+	Delta             int32              `json:"delta"`
+	AdjustedAt        pgtype.Timestamptz `json:"adjusted_at"`
+	Reason            *string            `json:"reason"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	OrderLineItemID   pgtype.UUID        `json:"order_line_item_id"`
+	BuildID           pgtype.UUID        `json:"build_id"`
+	GeneralCheckoutID pgtype.UUID        `json:"general_checkout_id"`
+	NewQuantityOnHand int32              `json:"new_quantity_on_hand"`
+}
+
+func (q *Queries) CreateStockAdjustment(ctx context.Context, arg CreateStockAdjustmentParams) (CreateStockAdjustmentRow, error) {
 	row := q.db.QueryRow(ctx, createStockAdjustment,
 		arg.InventoryEntryID,
 		arg.Delta,
 		arg.Reason,
 		arg.CreatedBy,
 	)
-	var i StockAdjustment
+	var i CreateStockAdjustmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.InventoryEntryID,
@@ -148,6 +155,7 @@ func (q *Queries) CreateStockAdjustment(ctx context.Context, arg CreateStockAdju
 		&i.OrderLineItemID,
 		&i.BuildID,
 		&i.GeneralCheckoutID,
+		&i.NewQuantityOnHand,
 	)
 	return i, err
 }

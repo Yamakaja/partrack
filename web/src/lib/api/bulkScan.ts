@@ -2,25 +2,19 @@ import { request, ApiError } from './client.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type BulkScanItemStatus =
-  | 'pending_enrichment'
-  | 'enriched'
-  | 'reviewed'
-  | 'dismissed'
-  | 'error';
+export type BulkScanItemStatus = 'pending_review' | 'reviewed' | 'dismissed';
 
 export type BulkScanTaskType =
   | 'unknown_part_import'
   | 'known_part_create_entry'
   | 'known_part_stock_adjustment'
-  | 'unrecognized_barcode';
+  | 'unrecognized';
 
 export interface BulkScanSessionCounts {
-  pending_enrichment: number;
-  enriched: number;
-  error: number;
+  pending: number;
   reviewed: number;
   dismissed: number;
+  ready: number;
 }
 
 export interface BulkScanSession {
@@ -39,33 +33,48 @@ export interface BulkScanParsedFields {
   encoded_qty?: number;
 }
 
+export interface EnrichmentListing {
+  sku: string;
+  packaging_type: string;
+  unit_price: string;
+  stock_available: number | null;
+  moq: number;
+  fixed_order_cost?: string;
+  price_breaks: Array<{ quantity: number; unit_price: string }>;
+  listing_url?: string;
+}
+
+export interface EnrichmentResult {
+  mpn: string;
+  manufacturer: string;
+  description: string;
+  short_description: string;
+  package: string;
+  datasheet_url: string;
+  product_url: string;
+  image_url: string;
+  lifecycle_status: string;
+  listings: EnrichmentListing[];
+}
+
 export interface EnrichmentDistributorResult {
   distributor_id: string;
   name: string;
-  result?: {
-    mpn: string;
-    manufacturer: string;
-    description: string;
-    short_description: string;
-    package: string;
-    datasheet_url: string;
-    product_url: string;
-    image_url: string;
-    lifecycle_status: string;
-    listings: Array<{
-      sku: string;
-      packaging_type: string;
-      unit_price: string;
-      stock_available: number | null;
-      moq: number;
-      price_breaks: Array<{ quantity: number; unit_price: string }>;
-    }>;
-  };
+  results?: EnrichmentResult[];
   error?: string;
 }
 
 export interface EnrichmentDataAggregate {
   distributors: EnrichmentDistributorResult[];
+}
+
+export interface PartResolveItem {
+  id: string;
+  status: 'pending' | 'enriched' | 'failed' | 'committed';
+  task_type: BulkScanTaskType | null;
+  enrichment_data: EnrichmentDataAggregate | null;
+  error_message: string | null;
+  enriched_at: string | null;
 }
 
 export interface BulkScanItemPart {
@@ -84,10 +93,8 @@ export interface BulkScanItem {
   initial_qty: number | null;
   part_id: string | null;
   part: BulkScanItemPart | null;
-  enrichment_data: EnrichmentDataAggregate | null;
-  error_message: string | null;
+  resolve_item: PartResolveItem | null;
   created_at: string;
-  enriched_at: string | null;
 }
 
 // ── API functions ──────────────────────────────────────────────────────────────
@@ -111,10 +118,12 @@ export async function markBulkScanItemReviewed(
   teamId: string,
   sessionId: string,
   itemId: string,
+  partId?: string,
 ): Promise<void> {
   try {
     await request('PATCH', `/api/v1/teams/${teamId}/bulk-scan-sessions/${sessionId}/items/${itemId}`, {
       status: 'reviewed',
+      ...(partId ? { part_id: partId } : {}),
     });
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) throw e;
@@ -136,7 +145,7 @@ export function retryBulkScanItem(
   teamId: string,
   sessionId: string,
   itemId: string,
-): Promise<void> {
+): Promise<{ job_id: string }> {
   return request('POST', `/api/v1/teams/${teamId}/bulk-scan-sessions/${sessionId}/items/${itemId}/retry`);
 }
 
@@ -145,7 +154,7 @@ export function retryBulkScanItemDistributors(
   sessionId: string,
   itemId: string,
   distributorIds: string[],
-): Promise<void> {
+): Promise<{ job_id: string }> {
   return request('POST', `/api/v1/teams/${teamId}/bulk-scan-sessions/${sessionId}/items/${itemId}/retry-distributors`, { distributor_ids: distributorIds });
 }
 

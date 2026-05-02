@@ -41,6 +41,8 @@ func New() *Client {
 }
 
 // CredentialSpec returns nil — LCSC requires no credentials.
+func (c *Client) Name() string { return "LCSC" }
+
 func (c *Client) CredentialSpec() []distributor.CredentialField {
 	return nil
 }

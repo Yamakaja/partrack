@@ -244,9 +244,22 @@ WHERE sa.build_id = $1
 ORDER BY sa.id;
 
 -- name: CreateBuildStockAdjustment :one
-INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, build_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, build_id;
+WITH adj AS (
+    INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, build_id)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, build_id
+), updated AS (
+    UPDATE inventory_entries
+    SET quantity_on_hand = quantity_on_hand + adj.delta
+    FROM adj
+    WHERE inventory_entries.id = adj.inventory_entry_id
+    RETURNING inventory_entries.quantity_on_hand
+)
+SELECT adj.id, adj.inventory_entry_id, adj.delta, adj.adjusted_at, adj.reason,
+       adj.created_by, adj.build_id,
+       updated.quantity_on_hand AS new_quantity_on_hand
+FROM adj
+JOIN updated ON TRUE;
 
 -- name: GetBuildPipeline :many
 SELECT b.id, b.project_id, b.status, b.quantity,

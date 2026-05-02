@@ -1,3 +1,11 @@
+-- name: GetStalePendingResolveItems :many
+-- Returns pending items older than the given cutoff so the worker can re-enqueue them.
+-- Includes the team_id and created_by so the job payload can be reconstructed.
+SELECT id, team_id, created_by
+FROM part_resolve_items
+WHERE status = 'pending'
+  AND created_at < @cutoff;
+
 -- name: CreatePartResolveItem :one
 INSERT INTO part_resolve_items (team_id, source_type, source_id, input_fields, created_by)
 VALUES (@team_id, @source_type, @source_id, @input_fields, @created_by)
@@ -44,13 +52,6 @@ SET    status = 'pending'
 WHERE  id = @id
   AND  status IN ('enriched', 'failed');
 
--- name: UpdatePartResolveItemEnrichmentData :one
--- Used by partial retry: merges new distributor results into existing enrichment_data.
-UPDATE part_resolve_items
-SET    enrichment_data = @enrichment_data,
-       enriched_at     = NOW()
-WHERE  id = @id
-RETURNING *;
 
 -- name: CommitPartResolveItem :one
 -- Atomic test-and-set. Only succeeds when status = 'enriched'.

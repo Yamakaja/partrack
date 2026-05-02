@@ -4,6 +4,7 @@ package scanner
 
 import (
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -80,8 +81,9 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	// distributor, resolved after all fields are extracted.
 	var (
 		has30P              bool   // 30P is DigiKey-specific; definitive DigiKey signal
+		has10K              bool   // 10K = DigiKey inventory number; not emitted by Mouser
 		digikeySO           string // 1K = DigiKey sales order number
-		mouserInv           string // 11K = Mouser invoice number (same field ID is DigiKey packing list)
+		mouserInv           string // 11K = Mouser invoice number (also used by DigiKey as packing list — not a unique Mouser signal)
 		explicitDistributor string // XD = explicit distributor name (partrack-generated QR codes)
 	)
 
@@ -121,7 +123,7 @@ func Parse(raw string) (*ParsedBarcode, error) {
 			mouserInv = strings.TrimPrefix(field, "11K")
 
 		case strings.HasPrefix(field, "10K"):
-			// DigiKey inventory number — not mapped.
+			has10K = true
 
 		case strings.HasPrefix(field, "1K"):
 			digikeySO = strings.TrimPrefix(field, "1K")
@@ -164,17 +166,15 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	case explicitDistributor != "":
 		// XD is an explicit distributor name — takes precedence over all heuristics.
 		result.Distributor = explicitDistributor
-	case has30P:
-		// 30P is DigiKey-specific — definitive.
+	case has30P || has10K || digikeySO != "":
+		// 30P and 10K are DigiKey-specific fields. 1K (sales order) is not emitted by Mouser.
 		result.Distributor = "DigiKey"
-	case mouserInv != "" || fmtID == "12":
-		// 11K (invoice number) and format-12 are definitive Mouser signals.
+	case fmtID == "12":
+		// Format-12 is a definitive Mouser signal.
 		// 1V (manufacturer name) is intentionally NOT used as a Mouser heuristic
 		// because partrack-generated part-level QR codes also emit 1V.
+		// 11K is intentionally NOT used — DigiKey also emits it as a packing list number.
 		result.Distributor = "Mouser"
-	case digikeySO != "":
-		// 1K (DigiKey sales order) is not present on Mouser labels.
-		result.Distributor = "DigiKey"
 	}
 
 	// Map the distributor-specific order reference to SalesOrderNo.
@@ -184,6 +184,18 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	case "Mouser":
 		result.SalesOrderNo = mouserInv
 	}
+
+	slog.Debug("barcode parsed",
+		"raw", raw,
+		"fmt_id", fmtID,
+		"distributor", result.Distributor,
+		"sku", result.SKU,
+		"mpn", result.MPN,
+		"has_30p", has30P,
+		"digikey_so", digikeySO,
+		"mouser_inv", mouserInv,
+		"explicit_distributor", explicitDistributor,
+	)
 
 	return result, nil
 }

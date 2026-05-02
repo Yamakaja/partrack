@@ -72,9 +72,22 @@ func (q *Queries) CreateCheckoutLineItem(ctx context.Context, arg CreateCheckout
 }
 
 const createCheckoutStockAdjustment = `-- name: CreateCheckoutStockAdjustment :one
-INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, general_checkout_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, general_checkout_id
+WITH adj AS (
+    INSERT INTO stock_adjustments (inventory_entry_id, delta, reason, created_by, general_checkout_id)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, inventory_entry_id, delta, adjusted_at, reason, created_by, general_checkout_id
+), updated AS (
+    UPDATE inventory_entries
+    SET quantity_on_hand = quantity_on_hand + adj.delta
+    FROM adj
+    WHERE inventory_entries.id = adj.inventory_entry_id
+    RETURNING inventory_entries.quantity_on_hand
+)
+SELECT adj.id, adj.inventory_entry_id, adj.delta, adj.adjusted_at, adj.reason,
+       adj.created_by, adj.general_checkout_id,
+       updated.quantity_on_hand AS new_quantity_on_hand
+FROM adj
+JOIN updated ON TRUE
 `
 
 type CreateCheckoutStockAdjustmentParams struct {
@@ -93,6 +106,7 @@ type CreateCheckoutStockAdjustmentRow struct {
 	Reason            *string            `json:"reason"`
 	CreatedBy         pgtype.UUID        `json:"created_by"`
 	GeneralCheckoutID pgtype.UUID        `json:"general_checkout_id"`
+	NewQuantityOnHand int32              `json:"new_quantity_on_hand"`
 }
 
 func (q *Queries) CreateCheckoutStockAdjustment(ctx context.Context, arg CreateCheckoutStockAdjustmentParams) (CreateCheckoutStockAdjustmentRow, error) {
@@ -112,6 +126,7 @@ func (q *Queries) CreateCheckoutStockAdjustment(ctx context.Context, arg CreateC
 		&i.Reason,
 		&i.CreatedBy,
 		&i.GeneralCheckoutID,
+		&i.NewQuantityOnHand,
 	)
 	return i, err
 }

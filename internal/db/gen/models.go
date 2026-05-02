@@ -466,19 +466,16 @@ type BuildSubstituteSelection struct {
 }
 
 type BulkScanItem struct {
-	ID              pgtype.UUID        `json:"id"`
-	SessionID       pgtype.UUID        `json:"session_id"`
-	Barcode         string             `json:"barcode"`
-	Status          string             `json:"status"`
-	TaskType        *string            `json:"task_type"`
-	ParsedFields    []byte             `json:"parsed_fields"`
-	InitialQty      *int32             `json:"initial_qty"`
-	PartID          pgtype.UUID        `json:"part_id"`
-	EnrichmentData  []byte             `json:"enrichment_data"`
-	EnrichmentJobID pgtype.UUID        `json:"enrichment_job_id"`
-	ErrorMessage    *string            `json:"error_message"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	EnrichedAt      pgtype.Timestamptz `json:"enriched_at"`
+	ID            pgtype.UUID        `json:"id"`
+	SessionID     pgtype.UUID        `json:"session_id"`
+	Barcode       string             `json:"barcode"`
+	Status        string             `json:"status"`
+	TaskType      *string            `json:"task_type"`
+	ParsedFields  []byte             `json:"parsed_fields"`
+	InitialQty    *int32             `json:"initial_qty"`
+	PartID        pgtype.UUID        `json:"part_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ResolveItemID pgtype.UUID        `json:"resolve_item_id"`
 }
 
 type BulkScanSession struct {

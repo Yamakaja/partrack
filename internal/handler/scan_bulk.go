@@ -33,7 +33,6 @@ func bulkSessionState(s dbgen.BulkScanSession) string {
 // ── Phone handlers (scan token auth) ─────────────────────────────────────────
 
 // StartBulkSession handles POST /api/v1/scan/bulk/start.
-// Creates a new bulk scan session for the current scan-token user.
 func (h *Handler) StartBulkSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
@@ -61,8 +60,8 @@ func (h *Handler) StartBulkSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // AddBulkScanItem handles POST /api/v1/scan/bulk/sessions/{sessionId}/items.
-// Inserts the scanned barcode into the session (deduped by unique constraint),
-// kicks off background enrichment, and returns whether the part already exists.
+// Performs a synchronous DB lookup. For known parts it sets task_type immediately.
+// For unknown parts it creates a part_resolve_item and enqueues enrichment.
 func (h *Handler) AddBulkScanItem(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
@@ -98,151 +97,176 @@ func (h *Handler) AddBulkScanItem(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("bulk scan: barcode parsed", "session_id", sessionID.String(), "distributor", parsed.Distributor, "sku", parsed.SKU, "mpn", parsed.MPN, "manufacturer", parsed.Manufacturer)
 	}
 
-	// Resolve the parsed distributor short-name to its canonical DB name and ID
-	// by doing a case-insensitive substring match against the team's enabled
-	// distributor configs. This handles mismatches like parser "LCSC" vs DB
-	// "LCSC / JLCPCB". The canonical name and ID are stored in parsed_fields so
-	// the enrichment worker can match by UUID rather than by name.
+	// Resolve distributor short-name → canonical DB name + UUID.
 	var resolvedDistributorName string
-	var resolvedDistributorID string
+	var resolvedDistributorID pgtype.UUID
 	if parseErr == nil && parsed != nil && parsed.Distributor != "" {
 		if cfgs, err := h.Queries.ListEnabledDistributorConfigsForTeam(ctx, sess.TeamID); err == nil {
 			lowerParsed := strings.ToLower(parsed.Distributor)
 			for _, cfg := range cfgs {
 				if strings.Contains(strings.ToLower(cfg.DistributorName), lowerParsed) {
 					resolvedDistributorName = cfg.DistributorName
-					resolvedDistributorID = cfg.DistributorID.String()
+					resolvedDistributorID = cfg.DistributorID
 					break
 				}
 			}
 		}
-		if resolvedDistributorName != "" {
-			slog.Debug("bulk scan: distributor resolved", "session_id", sessionID.String(), "parsed_name", parsed.Distributor, "canonical_name", resolvedDistributorName, "distributor_id", resolvedDistributorID)
-		} else {
-			slog.Debug("bulk scan: distributor not resolved", "session_id", sessionID.String(), "parsed_name", parsed.Distributor)
-		}
 	}
 
-	// Build parsed_fields JSON to store alongside the item.
+	// Build parsed_fields JSON.
 	var parsedFields []byte
-	var encodedQty *int
+	var encodedQty *int32
+	var sku, mpn, manufacturer string
 	if parseErr == nil && parsed != nil {
+		sku = parsed.SKU
+		mpn = parsed.MPN
+		manufacturer = parsed.Manufacturer
 		distName := resolvedDistributorName
 		if distName == "" {
 			distName = parsed.Distributor
 		}
 		pf := map[string]any{
 			"distributor":    distName,
-			"distributor_id": resolvedDistributorID,
-			"sku":            parsed.SKU,
-			"mpn":            parsed.MPN,
-			"manufacturer":   parsed.Manufacturer,
+			"distributor_id": resolvedDistributorID.String(),
+			"sku":            sku,
+			"mpn":            mpn,
+			"manufacturer":   manufacturer,
 			"encoded_qty":    parsed.Quantity,
 		}
 		parsedFields, _ = json.Marshal(pf)
 		if parsed.Quantity > 0 {
-			q := parsed.Quantity
+			q := int32(parsed.Quantity)
 			encodedQty = &q
 		}
 	}
 
-	// Synchronous DB lookup to determine found_in_db for the phone response.
-	distNameForLookup := resolvedDistributorName
-	if distNameForLookup == "" && parsed != nil {
-		distNameForLookup = parsed.Distributor
+	// ── Phase 1: synchronous DB lookup ───────────────────────────────────────
+
+	var foundPartID pgtype.UUID
+	var hasInventory bool
+
+	if sku != "" && resolvedDistributorID.Valid {
+		row, err := h.Queries.GetPartBySKUAndDistributorIDWithInventory(ctx, dbgen.GetPartBySKUAndDistributorIDWithInventoryParams{
+			Sku: sku, TeamID: sess.TeamID, DistributorID: resolvedDistributorID,
+		})
+		if err == nil {
+			foundPartID = row.ID
+			hasInventory = row.InventoryEntryID.Valid
+		}
 	}
-	foundInDB := false
-	if parseErr == nil && parsed != nil {
-		if parsed.SKU != "" && distNameForLookup != "" {
-			_, lookErr := h.Queries.GetPartBySKUAndDistributorWithInventory(ctx, dbgen.GetPartBySKUAndDistributorWithInventoryParams{
-				Sku: parsed.SKU, TeamID: sess.TeamID, DistributorName: distNameForLookup,
-			})
-			if lookErr == nil {
-				foundInDB = true
-			}
+	if !foundPartID.Valid && sku != "" {
+		row, err := h.Queries.GetPartBySKUWithInventory(ctx, dbgen.GetPartBySKUWithInventoryParams{
+			Sku: sku, TeamID: sess.TeamID,
+		})
+		if err == nil {
+			foundPartID = row.ID
+			hasInventory = row.InventoryEntryID.Valid
 		}
-		if !foundInDB && parsed.SKU != "" {
-			_, lookErr := h.Queries.GetPartBySKUWithInventory(ctx, dbgen.GetPartBySKUWithInventoryParams{
-				Sku: parsed.SKU, TeamID: sess.TeamID,
-			})
-			if lookErr == nil {
-				foundInDB = true
-			}
+	}
+	if !foundPartID.Valid && mpn != "" && manufacturer != "" {
+		row, err := h.Queries.GetPartByMPNAndManufacturerWithInventory(ctx, dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
+			Mpn: &mpn, Manufacturer: &manufacturer, TeamID: sess.TeamID,
+		})
+		if err == nil {
+			foundPartID = row.ID
+			hasInventory = row.InventoryEntryID.Valid
 		}
-		if !foundInDB && parsed.MPN != "" && parsed.Manufacturer != "" {
-			_, lookErr := h.Queries.GetPartByMPNAndManufacturerWithInventory(ctx, dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
-				Mpn: &parsed.MPN, Manufacturer: &parsed.Manufacturer, TeamID: sess.TeamID,
-			})
-			if lookErr == nil {
-				foundInDB = true
-			}
-		}
-		if !foundInDB && parsed.MPN != "" {
-			_, lookErr := h.Queries.GetPartByMPNWithInventory(ctx, dbgen.GetPartByMPNWithInventoryParams{
-				Mpn: &parsed.MPN, TeamID: sess.TeamID,
-			})
-			if lookErr == nil {
-				foundInDB = true
-			}
+	}
+	if !foundPartID.Valid && mpn != "" {
+		row, err := h.Queries.GetPartByMPNWithInventory(ctx, dbgen.GetPartByMPNWithInventoryParams{
+			Mpn: &mpn, TeamID: sess.TeamID,
+		})
+		if err == nil {
+			foundPartID = row.ID
+			hasInventory = row.InventoryEntryID.Valid
 		}
 	}
 
-	slog.Debug("bulk scan: db lookup result", "session_id", sessionID.String(), "found_in_db", foundInDB)
+	slog.Debug("bulk scan: db lookup", "session_id", sessionID.String(), "found", foundPartID.Valid, "has_inventory", hasInventory)
 
-	// Insert the item (ON CONFLICT DO NOTHING).
+	// Determine task type for known-part paths.
+	var taskType *string
+	if foundPartID.Valid {
+		tt := "known_part_stock_adjustment"
+		if !hasInventory {
+			tt = "known_part_create_entry"
+		}
+		taskType = &tt
+	} else if sku == "" && mpn == "" {
+		// No identifiers at all — unrecognized barcode.
+		tt := "unrecognized"
+		taskType = &tt
+	}
+
+	// Insert the item (ON CONFLICT DO NOTHING for dedup).
 	item, insertErr := h.Queries.InsertBulkScanItem(ctx, dbgen.InsertBulkScanItemParams{
 		SessionID:    sessionID,
 		Barcode:      body.Barcode,
+		Status:       "pending_review",
+		TaskType:     taskType,
+		PartID:       foundPartID,
 		ParsedFields: parsedFields,
+		InitialQty:   encodedQty,
 	})
 
 	newItem := insertErr == nil && item.ID.Valid
 	slog.Debug("bulk scan: item inserted", "session_id", sessionID.String(), "new", newItem, "item_id", item.ID.String())
 
-	if newItem {
-		// Update last_item_at on the session.
-		h.Queries.UpdateBulkScanSessionLastItemAt(ctx, sessionID) //nolint:errcheck
-
-		// Enqueue background enrichment.
-		jobID := h.Worker.Enqueue(worker.JobBulkScanEnrich, sess.TeamID.String(), map[string]string{
-			"item_id":    item.ID.String(),
-			"session_id": sessionID.String(),
-			"user_id":    sess.UserID.String(),
-			"team_id":    sess.TeamID.String(),
+	if !newItem {
+		// Duplicate barcode — return existing item info.
+		existing, err := h.Queries.GetActiveBulkScanItemByBarcode(ctx, dbgen.GetActiveBulkScanItemByBarcodeParams{
+			SessionID: sessionID,
+			Barcode:   body.Barcode,
 		})
-
-		// Store the job ID back on the item (best effort).
-		var jobUUID pgtype.UUID
-		if err := jobUUID.Scan(jobID); err == nil {
-			h.Queries.SetBulkScanItemEnrichmentJobID(ctx, dbgen.SetBulkScanItemEnrichmentJobIDParams{ //nolint:errcheck
-				ID:              item.ID,
-				EnrichmentJobID: jobUUID,
-			})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
 		}
-
+		var existingResolveID *string
+		if existing.ResolveItemID.Valid {
+			s := existing.ResolveItemID.String()
+			existingResolveID = &s
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"item_id":      item.ID.String(),
-			"new":          true,
-			"found_in_db":  foundInDB,
-			"encoded_qty":  encodedQty,
+			"item_id":         existing.ID.String(),
+			"new":             false,
+			"found_in_db":     foundPartID.Valid,
+			"task_type":       existing.TaskType,
+			"encoded_qty":     encodedQty,
+			"resolve_item_id": existingResolveID,
 		})
 		return
 	}
 
-	// Item already existed (dedup) — return the existing item's ID.
-	existing, err := h.Queries.GetActiveBulkScanItemByBarcode(ctx, dbgen.GetActiveBulkScanItemByBarcodeParams{
-		SessionID: sessionID,
-		Barcode:   body.Barcode,
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
+	// Update last_item_at on the session.
+	h.Queries.UpdateBulkScanSessionLastItemAt(ctx, sessionID) //nolint:errcheck
+
+	// For unknown parts with identifiers, kick off the resolve job.
+	var resolveItemID *string
+	if taskType == nil {
+		// Unknown part — needs distributor fan-out.
+		inputFields, _ := json.Marshal(map[string]string{
+			"sku":           sku,
+			"distributor_id": resolvedDistributorID.String(),
+			"mpn":           mpn,
+			"manufacturer":  manufacturer,
+		})
+		rid, err := h.Worker.CreateAndEnqueueResolveItem(ctx, sess.TeamID, sess.UserID, item.ID, inputFields)
+		if err != nil {
+			slog.Warn("bulk scan: failed to create resolve item", "item_id", item.ID.String(), "err", err)
+		} else {
+			s := rid.String()
+			resolveItemID = &s
+		}
 	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"item_id":     existing.ID.String(),
-		"new":         false,
-		"found_in_db": foundInDB,
-		"encoded_qty": encodedQty,
+		"item_id":         item.ID.String(),
+		"new":             true,
+		"found_in_db":     foundPartID.Valid,
+		"task_type":       taskType,
+		"encoded_qty":     encodedQty,
+		"resolve_item_id": resolveItemID,
 	})
 }
 
@@ -318,7 +342,6 @@ func (h *Handler) CloseBulkScanSessionHandler(w http.ResponseWriter, r *http.Req
 }
 
 // NavigateBulkSession handles POST /api/v1/scan/bulk/sessions/{sessionId}/navigate.
-// Pushes a scan_focus_requested event to the desktop so it navigates to the review page.
 func (h *Handler) NavigateBulkSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
@@ -389,17 +412,17 @@ func (h *Handler) ListBulkScanSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type countsOut struct {
+		Pending   int64 `json:"pending"`
+		Reviewed  int64 `json:"reviewed"`
+		Dismissed int64 `json:"dismissed"`
+		Ready     int64 `json:"ready"`
+	}
 	type sessionItem struct {
-		ID        string  `json:"id"`
-		CreatedAt string  `json:"created_at"`
-		ClosedAt  *string `json:"closed_at"`
-		Counts    struct {
-			Pending   int64 `json:"pending_enrichment"`
-			Enriched  int64 `json:"enriched"`
-			Error     int64 `json:"error"`
-			Reviewed  int64 `json:"reviewed"`
-			Dismissed int64 `json:"dismissed"`
-		} `json:"counts"`
+		ID        string    `json:"id"`
+		CreatedAt string    `json:"created_at"`
+		ClosedAt  *string   `json:"closed_at"`
+		Counts    countsOut `json:"counts"`
 	}
 
 	out := make([]sessionItem, 0, len(sessions))
@@ -407,16 +430,17 @@ func (h *Handler) ListBulkScanSessions(w http.ResponseWriter, r *http.Request) {
 		si := sessionItem{
 			ID:        s.ID.String(),
 			CreatedAt: s.CreatedAt.Time.Format(time.RFC3339),
+			Counts: countsOut{
+				Pending:   s.CountPending,
+				Reviewed:  s.CountReviewed,
+				Dismissed: s.CountDismissed,
+				Ready:     s.CountReady,
+			},
 		}
 		if s.ClosedAt.Valid {
 			t := s.ClosedAt.Time.Format(time.RFC3339)
 			si.ClosedAt = &t
 		}
-		si.Counts.Pending = s.CountPending
-		si.Counts.Enriched = s.CountEnriched
-		si.Counts.Error = s.CountError
-		si.Counts.Reviewed = s.CountReviewed
-		si.Counts.Dismissed = s.CountDismissed
 		out = append(out, si)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
@@ -440,7 +464,7 @@ func (h *Handler) GetBulkScanBadgeCount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	count, err := h.Queries.GetBulkScanSessionBadgeCount(r.Context(), dbgen.GetBulkScanSessionBadgeCountParams{
+	count, err := h.Queries.GetBulkScanBadgeCount(r.Context(), dbgen.GetBulkScanBadgeCountParams{
 		UserID: userID,
 		TeamID: teamID,
 	})
@@ -448,7 +472,7 @@ func (h *Handler) GetBulkScanBadgeCount(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int32{"count": count})
+	writeJSON(w, http.StatusOK, map[string]int64{"count": count})
 }
 
 // ListBulkScanItemsHandler handles GET /api/v1/teams/{teamId}/bulk-scan-sessions/{sessionId}/items.
@@ -478,31 +502,37 @@ func (h *Handler) ListBulkScanItemsHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	items, err := h.Queries.ListBulkScanItems(r.Context(), sessionID)
+	items, err := h.Queries.ListBulkScanItemsWithResolveData(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
+	type resolveItemOut struct {
+		ID             string          `json:"id"`
+		Status         string          `json:"status"`
+		TaskType       *string         `json:"task_type"`
+		EnrichmentData json.RawMessage `json:"enrichment_data,omitempty"`
+		ErrorMessage   *string         `json:"error_message,omitempty"`
+		EnrichedAt     *string         `json:"enriched_at,omitempty"`
+	}
 	type partInfo struct {
 		MPN          *string `json:"mpn"`
 		Manufacturer *string `json:"manufacturer"`
 		Description  *string `json:"description"`
 	}
 	type itemOut struct {
-		ID             string           `json:"id"`
-		SessionID      string           `json:"session_id"`
-		Barcode        string           `json:"barcode"`
-		Status         string           `json:"status"`
-		TaskType       *string          `json:"task_type"`
-		ParsedFields   json.RawMessage  `json:"parsed_fields"`
-		InitialQty     *int32           `json:"initial_qty"`
-		PartID         *string          `json:"part_id"`
-		Part           *partInfo        `json:"part"`
-		EnrichmentData json.RawMessage  `json:"enrichment_data"`
-		ErrorMessage   *string          `json:"error_message"`
-		CreatedAt      string           `json:"created_at"`
-		EnrichedAt     *string          `json:"enriched_at"`
+		ID           string          `json:"id"`
+		SessionID    string          `json:"session_id"`
+		Barcode      string          `json:"barcode"`
+		Status       string          `json:"status"`
+		TaskType     *string         `json:"task_type"`
+		ParsedFields json.RawMessage `json:"parsed_fields"`
+		InitialQty   *int32          `json:"initial_qty"`
+		PartID       *string         `json:"part_id"`
+		Part         *partInfo       `json:"part"`
+		ResolveItem  *resolveItemOut `json:"resolve_item"`
+		CreatedAt    string          `json:"created_at"`
 	}
 
 	out := make([]itemOut, 0, len(items))
@@ -515,11 +545,7 @@ func (h *Handler) ListBulkScanItemsHandler(w http.ResponseWriter, r *http.Reques
 			TaskType:     it.TaskType,
 			ParsedFields: json.RawMessage(it.ParsedFields),
 			InitialQty:   it.InitialQty,
-			ErrorMessage: it.ErrorMessage,
 			CreatedAt:    it.CreatedAt.Time.Format(time.RFC3339),
-		}
-		if len(it.EnrichmentData) > 0 {
-			io.EnrichmentData = json.RawMessage(it.EnrichmentData)
 		}
 		if it.PartID.Valid {
 			s := it.PartID.String()
@@ -530,9 +556,21 @@ func (h *Handler) ListBulkScanItemsHandler(w http.ResponseWriter, r *http.Reques
 				Description:  it.PartDescription,
 			}
 		}
-		if it.EnrichedAt.Valid {
-			t := it.EnrichedAt.Time.Format(time.RFC3339)
-			io.EnrichedAt = &t
+		if it.ResolveItemIDCol.Valid && it.ResolveStatus != nil {
+			ri := &resolveItemOut{
+				ID:             it.ResolveItemIDCol.String(),
+				Status:         *it.ResolveStatus,
+				TaskType:       it.ResolveTaskType,
+				ErrorMessage:   it.ResolveErrorMessage,
+			}
+			if len(it.ResolveEnrichmentData) > 0 {
+				ri.EnrichmentData = json.RawMessage(it.ResolveEnrichmentData)
+			}
+			if it.ResolveEnrichedAt.Valid {
+				t := it.ResolveEnrichedAt.Time.Format(time.RFC3339)
+				ri.EnrichedAt = &t
+			}
+			io.ResolveItem = ri
 		}
 		out = append(out, io)
 	}
@@ -540,7 +578,7 @@ func (h *Handler) ListBulkScanItemsHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // SetBulkScanItemStatusHandler handles PATCH /api/v1/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}.
-// Sets status to reviewed or dismissed. First-write-wins: returns 409 if already terminal.
+// Accepts status "reviewed" or "dismissed". Optional part_id sets the resolved part on review.
 func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -560,6 +598,7 @@ func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Re
 
 	var body struct {
 		Status string `json:"status"`
+		PartID string `json:"part_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -570,7 +609,7 @@ func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Verify session belongs to team first.
+	// Verify session belongs to team.
 	_, err := h.Queries.GetBulkScanSession(r.Context(), dbgen.GetBulkScanSessionParams{
 		ID:     sessionID,
 		TeamID: teamID,
@@ -584,31 +623,49 @@ func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	updated, err := h.Queries.SetBulkScanItemStatus(r.Context(), dbgen.SetBulkScanItemStatusParams{
-		ID:        itemID,
-		Status:    body.Status,
-		SessionID: sessionID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		// Item already reviewed/dismissed (first-write-wins).
-		writeError(w, http.StatusConflict, "item already processed", "CONFLICT")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	// Publish SSE so other open tabs / desktop update.
-	d, _ := json.Marshal(map[string]string{
-		"session_id": sessionID.String(),
-		"item_id":    updated.ID.String(),
-	})
 	user := middleware.UserFromContext(r.Context())
 	var userID string
 	if user != nil {
 		userID = user.ID
 	}
+
+	var updatedID pgtype.UUID
+	if body.Status == "reviewed" {
+		var partID pgtype.UUID
+		if body.PartID != "" {
+			partID.Scan(body.PartID) //nolint:errcheck
+		}
+		updated, err := h.Queries.SetBulkScanItemReviewed(r.Context(), dbgen.SetBulkScanItemReviewedParams{
+			ID:     itemID,
+			PartID: partID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusConflict, "item already processed", "CONFLICT")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		updatedID = updated.ID
+	} else {
+		updated, err := h.Queries.SetBulkScanItemDismissed(r.Context(), itemID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusConflict, "item already processed", "CONFLICT")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		updatedID = updated.ID
+	}
+
+	// Publish SSE so other open tabs / desktop update.
+	d, _ := json.Marshal(map[string]string{
+		"session_id": sessionID.String(),
+		"item_id":    updatedID.String(),
+	})
 	h.Worker.Publish(worker.Event{
 		Type:         "bulk_scan_changed",
 		TeamID:       teamID.String(),
@@ -619,7 +676,8 @@ func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RetryBulkScanItemHandler handles POST /api/v1/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}/retry.
+// RetryBulkScanItemHandler handles POST .../items/{itemId}/retry.
+// Resets the linked resolve item to pending and re-enqueues the resolve job.
 func (h *Handler) RetryBulkScanItemHandler(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -637,21 +695,17 @@ func (h *Handler) RetryBulkScanItemHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Verify session belongs to team.
-	sess, err := h.Queries.GetBulkScanSession(r.Context(), dbgen.GetBulkScanSessionParams{
-		ID:     sessionID,
-		TeamID: teamID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "session not found", "NOT_FOUND")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+	if _, err := h.Queries.GetBulkScanSession(r.Context(), dbgen.GetBulkScanSessionParams{
+		ID: sessionID, TeamID: teamID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "session not found", "NOT_FOUND")
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		}
 		return
 	}
 
-	// Get item to retrieve parsed fields for the job payload.
 	item, err := h.Queries.GetBulkScanItem(r.Context(), itemID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
@@ -661,6 +715,15 @@ func (h *Handler) RetryBulkScanItemHandler(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	if !item.ResolveItemID.Valid {
+		writeError(w, http.StatusUnprocessableEntity, "item has no linked resolve job", "NO_RESOLVE_ITEM")
+		return
+	}
+
+	if err := h.Queries.UpdatePartResolveItemRetryPending(r.Context(), item.ResolveItemID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reset resolve item", "INTERNAL_ERROR")
+		return
+	}
 
 	user := middleware.UserFromContext(r.Context())
 	userIDStr := ""
@@ -668,38 +731,17 @@ func (h *Handler) RetryBulkScanItemHandler(w http.ResponseWriter, r *http.Reques
 		userIDStr = user.ID
 	}
 
-	jobID := h.Worker.Enqueue(worker.JobBulkScanEnrich, teamID.String(), map[string]string{
-		"item_id":    item.ID.String(),
-		"session_id": sessionID.String(),
-		"user_id":    userIDStr,
-		"team_id":    sess.TeamID.String(),
+	jobID := h.Worker.Enqueue(worker.JobPartResolve, teamID.String(), map[string]string{
+		"resolve_item_id": item.ResolveItemID.String(),
+		"team_id":         teamID.String(),
+		"user_id":         userIDStr,
 	})
 
-	var jobUUID pgtype.UUID
-	if err := jobUUID.Scan(jobID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enqueue job", "INTERNAL_ERROR")
-		return
-	}
-
-	_, err = h.Queries.SetBulkScanItemRetry(r.Context(), dbgen.SetBulkScanItemRetryParams{
-		ID:              itemID,
-		EnrichmentJobID: jobUUID,
-		SessionID:       sessionID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusConflict, "item is not in error state", "CONFLICT")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // RetryBulkScanItemDistributorsHandler handles POST .../items/{itemId}/retry-distributors.
-// Re-runs enrichment for a specific subset of distributors on an already-enriched
-// item, merging new results into the existing enrichment_data without resetting status.
+// Re-queries a specific subset of distributors on the linked resolve item.
 func (h *Handler) RetryBulkScanItemDistributorsHandler(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -736,42 +778,49 @@ func (h *Handler) RetryBulkScanItemDistributorsHandler(w http.ResponseWriter, r 
 		return
 	}
 
+	item, err := h.Queries.GetBulkScanItem(r.Context(), itemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if !item.ResolveItemID.Valid {
+		writeError(w, http.StatusUnprocessableEntity, "item has no linked resolve job", "NO_RESOLVE_ITEM")
+		return
+	}
+
+	resolveItem, err := h.Queries.GetPartResolveItem(r.Context(), item.ResolveItemID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if resolveItem.Status != "enriched" && resolveItem.Status != "failed" {
+		writeError(w, http.StatusUnprocessableEntity, "resolve item not eligible for retry", "NOT_ELIGIBLE")
+		return
+	}
+
+	if err := h.Queries.UpdatePartResolveItemRetryPending(r.Context(), item.ResolveItemID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reset resolve item", "INTERNAL_ERROR")
+		return
+	}
+
 	user := middleware.UserFromContext(r.Context())
 	userIDStr := ""
 	if user != nil {
 		userIDStr = user.ID
 	}
 
-	jobID := h.Worker.Enqueue(worker.JobBulkScanEnrich, teamID.String(), map[string]string{
-		"item_id":               itemID.String(),
-		"session_id":            sessionID.String(),
-		"user_id":               userIDStr,
-		"team_id":               teamID.String(),
+	jobID := h.Worker.Enqueue(worker.JobPartResolve, teamID.String(), map[string]string{
+		"resolve_item_id":      item.ResolveItemID.String(),
+		"team_id":              teamID.String(),
+		"user_id":              userIDStr,
 		"retry_distributor_ids": strings.Join(body.DistributorIDs, ","),
 	})
 
-	// Reset item to pending_enrichment immediately so the UI shows a spinner
-	// while the retry job is in flight.
-	var jobUUID pgtype.UUID
-	if err := jobUUID.Scan(jobID); err == nil {
-		if _, err := h.Queries.SetBulkScanItemDistributorRetryPending(r.Context(), dbgen.SetBulkScanItemDistributorRetryPendingParams{
-			ID:              itemID,
-			EnrichmentJobID: jobUUID,
-		}); err == nil {
-			data, _ := json.Marshal(map[string]string{
-				"session_id": sessionID.String(),
-				"item_id":    itemID.String(),
-			})
-			h.Worker.Publish(worker.Event{
-				Type:         "bulk_scan_changed",
-				TeamID:       teamID.String(),
-				TargetUserID: userIDStr,
-				Data:         data,
-			})
-		}
-	}
-
-	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
 // DeleteBulkScanSessionHandler handles DELETE /api/v1/teams/{teamId}/bulk-scan-sessions/{sessionId}.

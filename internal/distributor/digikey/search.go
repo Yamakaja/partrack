@@ -14,6 +14,8 @@ import (
 
 // ---- distributor.Client implementation ----
 
+func (c *Client) Name() string { return "DigiKey" }
+
 // CredentialSpec describes the fields required to configure a DigiKey API integration.
 func (c *Client) CredentialSpec() []distributor.CredentialField {
 	return []distributor.CredentialField{
@@ -91,6 +93,7 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 			v.QuantityAvailableforPackageType, v.MinimumOrderQuantity,
 			v.StandardPricing, v.MyPricing, v.DigiReelFee,
 		)
+		listing.ListingURL = p.ProductUrl
 		result.Listings = append(result.Listings, listing)
 	}
 

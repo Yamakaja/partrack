@@ -8,12 +8,93 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const enrichmentTimeout = 60 * time.Second
+
+// enrichByMPN queries a distributor for all products matching an MPN.
+// It calls SearchParts to discover candidates, then EnrichPart for each exact-match
+// product (up to maxResults). Falls back to a direct EnrichPart(mpn) call when
+// SearchParts returns nothing or is unsupported.
+func enrichByMPN(ctx context.Context, c distributor.Client, mpn string, creds json.RawMessage, maxResults int) ([]*distributor.EnrichmentResult, error) {
+	distName := c.Name()
+	slog.Debug("enrichByMPN: SearchParts", "distributor", distName, "mpn", mpn)
+	sr, err := c.SearchParts(ctx, distributor.SearchQuery{Keywords: mpn, Limit: 20}, creds)
+	if err != nil {
+		slog.Debug("enrichByMPN: SearchParts error, falling back to EnrichPart", "distributor", distName, "mpn", mpn, "err", err)
+	} else if sr == nil || len(sr.Products) == 0 {
+		slog.Debug("enrichByMPN: SearchParts returned no results, falling back to EnrichPart", "distributor", distName, "mpn", mpn)
+	} else {
+		slog.Debug("enrichByMPN: SearchParts returned results", "distributor", distName, "mpn", mpn, "total", sr.TotalCount, "page", len(sr.Products), "exact_matches", len(sr.ExactMatchIndices))
+
+		// Prefer distributor-provided exact-match indices; fall back to MPN comparison.
+		indices := sr.ExactMatchIndices
+		if len(indices) == 0 {
+			for i, p := range sr.Products {
+				if strings.EqualFold(p.MPN, mpn) {
+					indices = append(indices, i)
+				}
+			}
+		}
+		// If still no exact match, use the top result as a best-effort fallback.
+		if len(indices) == 0 {
+			slog.Debug("enrichByMPN: no exact match found, using top result", "distributor", distName, "mpn", mpn, "top_mpn", sr.Products[0].MPN)
+			indices = []int{0}
+		}
+
+		var results []*distributor.EnrichmentResult
+		for _, idx := range indices {
+			if idx >= len(sr.Products) || len(results) >= maxResults {
+				break
+			}
+			sku := sr.Products[idx].PrimarySKU
+			if sku == "" {
+				continue
+			}
+			slog.Debug("enrichByMPN: EnrichPart for candidate", "distributor", distName, "mpn", mpn, "candidate_mpn", sr.Products[idx].MPN, "sku", sku)
+			r, err := c.EnrichPart(ctx, sku, creds)
+			if err != nil {
+				slog.Debug("enrichByMPN: EnrichPart error", "distributor", distName, "sku", sku, "err", err)
+				continue
+			}
+			if r == nil {
+				slog.Debug("enrichByMPN: EnrichPart returned nil", "distributor", distName, "sku", sku)
+				continue
+			}
+			results = append(results, r)
+		}
+		if len(results) > 0 {
+			slog.Debug("enrichByMPN: done via SearchParts", "distributor", distName, "mpn", mpn, "products", len(results))
+			return results, nil
+		}
+	}
+
+	// Fall back to direct EnrichPart lookup (e.g. when SearchParts is unsupported or empty).
+	slog.Debug("enrichByMPN: EnrichPart fallback", "distributor", distName, "mpn", mpn)
+	r, err := c.EnrichPart(ctx, mpn, creds)
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		slog.Debug("enrichByMPN: EnrichPart fallback returned nil", "distributor", distName, "mpn", mpn)
+		return nil, nil
+	}
+	slog.Debug("enrichByMPN: done via EnrichPart fallback", "distributor", distName, "mpn", mpn)
+	return []*distributor.EnrichmentResult{r}, nil
+}
+
+// AdditionalListing identifies a specific distributor listing (by distributor + SKU)
+// to import alongside the primary listing at commit time.
+type AdditionalListing struct {
+	DistributorID string
+	SKU           string
+}
 
 // resolveInputFields is the shape stored in part_resolve_items.input_fields.
 type resolveInputFields struct {
@@ -127,6 +208,7 @@ func (q *Queue) handlePartResolve(job Job) {
 			TaskType:       &taskType,
 			ResolvedPartID: foundPartID,
 		})
+		q.propagateTaskTypeToBulkScanItem(ctx, queries, item, taskType, foundPartID)
 		q.publishPartResolveChanged(item, userIDStr, teamIDStr)
 		return
 	}
@@ -140,6 +222,7 @@ func (q *Queue) handlePartResolve(job Job) {
 			ID:       itemID,
 			TaskType: &taskType,
 		})
+		q.propagateTaskTypeToBulkScanItem(ctx, queries, item, taskType, pgtype.UUID{})
 		q.publishPartResolveChanged(item, userIDStr, teamIDStr)
 		return
 	}
@@ -189,7 +272,7 @@ func (q *Queue) handlePartResolve(job Job) {
 	type distResult struct {
 		distID   string
 		distName string
-		result   *distributor.EnrichmentResult
+		results  []*distributor.EnrichmentResult
 		errMsg   string
 	}
 
@@ -213,13 +296,13 @@ func (q *Queue) handlePartResolve(job Job) {
 				defer wg.Done()
 				enrichCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 				defer cancel()
-				result, err := c.EnrichPart(enrichCtx, pf.MPN, json.RawMessage(cfg.ApiCredentials))
-				dr := distResult{distID: cfg.DistributorID.String(), distName: cfg.DistributorName, result: result}
+				results, err := enrichByMPN(enrichCtx, c, pf.MPN, json.RawMessage(cfg.ApiCredentials), 5)
+				dr := distResult{distID: cfg.DistributorID.String(), distName: cfg.DistributorName, results: results}
 				if err != nil {
 					dr.errMsg = err.Error()
 					slog.Debug("part resolve: secondary distributor error", "item_id", itemIDStr, "distributor", cfg.DistributorName, "err", err)
-				} else if result != nil {
-					slog.Debug("part resolve: secondary distributor result", "item_id", itemIDStr, "distributor", cfg.DistributorName, "listings", len(result.Listings))
+				} else {
+					slog.Debug("part resolve: secondary distributor result", "item_id", itemIDStr, "distributor", cfg.DistributorName, "products", len(results))
 				}
 				mu.Lock()
 				otherResults = append(otherResults, dr)
@@ -234,7 +317,7 @@ func (q *Queue) handlePartResolve(job Job) {
 	if primaryDistID != "" {
 		e := resolveEnrichmentEntry{DistributorID: primaryDistID, Name: primaryDistName}
 		if primaryResult != nil {
-			e.Result = toResolveResult(primaryResult)
+			e.Results = []*resolveEnrichmentResult{toResolveResult(primaryResult)}
 		} else {
 			e.Error = "not found"
 		}
@@ -242,8 +325,10 @@ func (q *Queue) handlePartResolve(job Job) {
 	}
 	for _, dr := range otherResults {
 		e := resolveEnrichmentEntry{DistributorID: dr.distID, Name: dr.distName}
-		if dr.result != nil {
-			e.Result = toResolveResult(dr.result)
+		for _, r := range dr.results {
+			if r != nil {
+				e.Results = append(e.Results, toResolveResult(r))
+			}
 		}
 		if dr.errMsg != "" {
 			e.Error = dr.errMsg
@@ -255,7 +340,7 @@ func (q *Queue) handlePartResolve(job Job) {
 	if !allFailed {
 		allFailed = true
 		for _, e := range entries {
-			if e.Result != nil {
+			if len(e.Results) > 0 {
 				allFailed = false
 				break
 			}
@@ -315,7 +400,27 @@ func (q *Queue) handlePartResolve(job Job) {
 		EnrichmentData: edJSON,
 		ResolvedPartID: foundPartID,
 	})
+	q.propagateTaskTypeToBulkScanItem(ctx, queries, item, taskType, foundPartID)
 	q.publishPartResolveChanged(item, userIDStr, teamIDStr)
+}
+
+// propagateTaskTypeToBulkScanItem writes the resolved task_type and part_id back
+// to the bulk_scan_items row that initiated this resolve job, when applicable.
+func (q *Queue) propagateTaskTypeToBulkScanItem(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	item dbgen.PartResolveItem,
+	taskType string,
+	partID pgtype.UUID,
+) {
+	if item.SourceType != "bulk_scan_item" || !item.SourceID.Valid {
+		return
+	}
+	queries.UpdateBulkScanItemTaskType(ctx, dbgen.UpdateBulkScanItemTaskTypeParams{ //nolint:errcheck
+		ID:       item.SourceID,
+		TaskType: &taskType,
+		PartID:   partID,
+	})
 }
 
 func (q *Queue) handlePartResolveRetryDistributors(
@@ -377,12 +482,14 @@ func (q *Queue) handlePartResolveRetryDistributors(
 			defer wg.Done()
 			enrichCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 			defer cancel()
-			result, err := c.EnrichPart(enrichCtx, pf.MPN, json.RawMessage(cfg.ApiCredentials))
+			results, err := enrichByMPN(enrichCtx, c, pf.MPN, json.RawMessage(cfg.ApiCredentials), 5)
 			e := resolveEnrichmentEntry{DistributorID: cfg.DistributorID.String(), Name: cfg.DistributorName}
 			if err != nil {
 				e.Error = err.Error()
-			} else if result != nil {
-				e.Result = toResolveResult(result)
+			} else if len(results) > 0 {
+				for _, r := range results {
+					e.Results = append(e.Results, toResolveResult(r))
+				}
 			} else {
 				e.Error = "not found"
 			}
@@ -407,32 +514,39 @@ func (q *Queue) handlePartResolveRetryDistributors(
 	}
 
 	edJSON, _ := json.Marshal(resolveEnrichmentData{Distributors: merged})
-	queries.UpdatePartResolveItemEnrichmentData(ctx, dbgen.UpdatePartResolveItemEnrichmentDataParams{ //nolint:errcheck
+	queries.UpdatePartResolveItemEnriched(ctx, dbgen.UpdatePartResolveItemEnrichedParams{ //nolint:errcheck
 		ID:             itemID,
+		TaskType:       item.TaskType,
 		EnrichmentData: edJSON,
+		ResolvedPartID: item.ResolvedPartID,
 	})
 	q.publishPartResolveChanged(item, userIDStr, teamIDStr)
 }
 
 var (
-	ErrResolveItemNotReady    = errors.New("resolve item is not in enriched state")
+	ErrResolveItemNotReady     = errors.New("resolve item is not in enriched state")
 	ErrResolveItemUnrecognized = errors.New("cannot commit an unrecognized item")
-	ErrResolveItemConflict    = errors.New("resolve item was already committed")
-	ErrResolveItemNoResult    = errors.New("primary distributor has no enrichment result")
+	ErrResolveItemConflict     = errors.New("resolve item was already committed")
+	ErrResolveItemNoResult     = errors.New("primary distributor has no enrichment result")
 )
 
 // CommitResolveItem writes the enrichment results stored in a part_resolve_items row
 // into the parts/listings/inventory tables without making any distributor API calls.
 // primarySKU is used only to set preferred_listing_id when the original request
 // included an explicit distributor_id (i.e. the caller chose a specific SKU).
+// initialQty, initialQtyReason, and storageLocationID are optional commit-time
+// parameters that are never stored on the resolve item itself.
 func (q *Queue) CommitResolveItem(
 	ctx context.Context,
 	teamID pgtype.UUID,
 	resolveItemID pgtype.UUID,
 	primaryDistributorID string,
 	primarySKU string,
-	additionalDistributorIDs []string,
+	additionalListings []AdditionalListing,
 	userID string,
+	initialQty *int32,
+	initialQtyReason string,
+	storageLocationID pgtype.UUID,
 ) (pgtype.UUID, error) {
 	queries := dbgen.New(q.db)
 
@@ -480,16 +594,17 @@ func (q *Queue) CommitResolveItem(
 		// Persist any available listing data without overriding metadata/parameters.
 		partID = item.ResolvedPartID
 		for _, entry := range ed.Distributors {
-			if entry.Result == nil {
+			if len(entry.Results) == 0 {
 				continue
 			}
 			var distID pgtype.UUID
 			if distID.Scan(entry.DistributorID) != nil {
 				continue
 			}
-			result := fromResolveResult(entry.Result)
-			if err := persistEnrichmentResult(ctx, qtx, partID, distID, result, false, false); err != nil {
-				return pgtype.UUID{}, fmt.Errorf("persist listings for known part: %w", err)
+			for _, r := range entry.Results {
+				if err := persistEnrichmentResult(ctx, qtx, partID, distID, fromResolveResult(r), false, false); err != nil {
+					return pgtype.UUID{}, fmt.Errorf("persist listings for known part: %w", err)
+				}
 			}
 		}
 	} else {
@@ -501,21 +616,93 @@ func (q *Queue) CommitResolveItem(
 				break
 			}
 		}
-		if primaryEntry == nil || primaryEntry.Result == nil {
+		if primaryEntry == nil || len(primaryEntry.Results) == 0 {
 			return pgtype.UUID{}, ErrResolveItemNoResult
 		}
 
-		primaryResult := fromResolveResult(primaryEntry.Result)
+		// Collect selected SKUs from the primary distributor (primary SKU + any additional
+		// listings from the same distributor that the user also included).
+		primaryDistSKUs := map[string]bool{primarySKU: true}
+		for _, al := range additionalListings {
+			if al.DistributorID == primaryDistributorID {
+				primaryDistSKUs[al.SKU] = true
+			}
+		}
+
+		// Find the product within the primary distributor's results that contains the
+		// primary SKU. Fall back to first result if not found (shouldn't happen).
+		var primaryResultEntry *resolveEnrichmentResult
+		for _, r := range primaryEntry.Results {
+			for _, l := range r.Listings {
+				if l.SKU == primarySKU {
+					primaryResultEntry = r
+					break
+				}
+			}
+			if primaryResultEntry != nil {
+				break
+			}
+		}
+		if primaryResultEntry == nil {
+			primaryResultEntry = primaryEntry.Results[0]
+		}
+
+		// Filter listings from the selected product to only those the user included.
+		filteredPrimary := *primaryResultEntry
+		var filteredPrimaryListings []resolveListing
+		for _, l := range primaryResultEntry.Listings {
+			if primaryDistSKUs[l.SKU] {
+				filteredPrimaryListings = append(filteredPrimaryListings, l)
+				delete(primaryDistSKUs, l.SKU)
+			}
+		}
+		filteredPrimary.Listings = filteredPrimaryListings
+
+		primaryResult := fromResolveResult(&filteredPrimary)
 		partID, err = ApplyEnrichmentResult(ctx, q.db, queries, teamID, primaryDistUUID, primaryResult, nil, nil)
 		if err != nil {
 			return pgtype.UUID{}, fmt.Errorf("apply primary enrichment: %w", err)
 		}
 
-		// Persist additional distributors' listings without metadata authority.
-		for _, addDistIDStr := range additionalDistributorIDs {
-			if addDistIDStr == primaryDistributorID {
+		// Handle any remaining selected SKUs from other products within the primary
+		// distributor (e.g. user included a listing from a different candidate product).
+		for _, r := range primaryEntry.Results {
+			if r == primaryResultEntry || len(primaryDistSKUs) == 0 {
 				continue
 			}
+			var extra []resolveListing
+			for _, l := range r.Listings {
+				if primaryDistSKUs[l.SKU] {
+					extra = append(extra, l)
+					delete(primaryDistSKUs, l.SKU)
+				}
+			}
+			if len(extra) == 0 {
+				continue
+			}
+			fr := *r
+			fr.Listings = extra
+			if err := persistEnrichmentResult(ctx, qtx, partID, primaryDistUUID, fromResolveResult(&fr), false, false); err != nil {
+				slog.Warn("part resolve commit: failed to persist extra primary-dist listing", "err", err)
+			}
+		}
+
+		// Group additional listings by other distributors.
+		type skuSet = map[string]bool
+		additionalByDist := map[string]skuSet{}
+		for _, al := range additionalListings {
+			if al.DistributorID == primaryDistributorID {
+				continue
+			}
+			if additionalByDist[al.DistributorID] == nil {
+				additionalByDist[al.DistributorID] = skuSet{}
+			}
+			additionalByDist[al.DistributorID][al.SKU] = true
+		}
+
+		// Persist each additional distributor's selected listings without metadata authority.
+		// Listings may span multiple candidate products within the distributor's results.
+		for addDistIDStr, skus := range additionalByDist {
 			var addEntry *resolveEnrichmentEntry
 			for i := range ed.Distributors {
 				if ed.Distributors[i].DistributorID == addDistIDStr {
@@ -523,18 +710,33 @@ func (q *Queue) CommitResolveItem(
 					break
 				}
 			}
-			if addEntry == nil || addEntry.Result == nil {
+			if addEntry == nil || len(addEntry.Results) == 0 {
 				continue
 			}
-			var addDistID pgtype.UUID
-			if addDistID.Scan(addDistIDStr) != nil {
-				continue
+			remaining := make(skuSet, len(skus))
+			for k := range skus {
+				remaining[k] = true
 			}
-			addResult := fromResolveResult(addEntry.Result)
-			// Reuse the same transaction-scoped queries.
-			qtxForAdd := queries.WithTx(tx)
-			if err := persistEnrichmentResult(ctx, qtxForAdd, partID, addDistID, addResult, false, false); err != nil {
-				slog.Warn("part resolve commit: failed to persist additional distributor", "distributor_id", addDistIDStr, "err", err)
+			for _, r := range addEntry.Results {
+				var filtered []resolveListing
+				for _, l := range r.Listings {
+					if remaining[l.SKU] {
+						filtered = append(filtered, l)
+						delete(remaining, l.SKU)
+					}
+				}
+				if len(filtered) == 0 {
+					continue
+				}
+				fr := *r
+				fr.Listings = filtered
+				var addDistID pgtype.UUID
+				if addDistID.Scan(addDistIDStr) != nil {
+					continue
+				}
+				if err := persistEnrichmentResult(ctx, queries.WithTx(tx), partID, addDistID, fromResolveResult(&fr), false, false); err != nil {
+					slog.Warn("part resolve commit: failed to persist additional listing", "distributor_id", addDistIDStr, "err", err)
+				}
 			}
 		}
 	}
@@ -558,16 +760,42 @@ func (q *Queue) CommitResolveItem(
 	}
 
 	// Ensure an inventory entry exists.
-	_, err = queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
+	var entryID pgtype.UUID
+	existingEntry, err := queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
 		TeamID: teamID, PartID: partID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		if _, err = qtx.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+		newEntry, createErr := qtx.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
 			TeamID:             teamID,
 			PartID:             partID,
+			StorageLocationID:  storageLocationID,
 			PreferredListingID: preferredListingID,
+		})
+		if createErr != nil {
+			return pgtype.UUID{}, fmt.Errorf("create inventory entry: %w", createErr)
+		}
+		entryID = newEntry.ID
+	} else if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("get inventory entry: %w", err)
+	} else {
+		entryID = existingEntry.ID
+	}
+
+	// Apply optional initial stock adjustment.
+	if initialQty != nil && *initialQty != 0 {
+		var userUUID pgtype.UUID
+		userUUID.Scan(userID) //nolint:errcheck
+		reason := initialQtyReason
+		if reason == "" {
+			reason = "initial_count"
+		}
+		if _, err := qtx.CreateStockAdjustment(ctx, dbgen.CreateStockAdjustmentParams{
+			InventoryEntryID: entryID,
+			Delta:            *initialQty,
+			Reason:           &reason,
+			CreatedBy:        userUUID,
 		}); err != nil {
-			return pgtype.UUID{}, fmt.Errorf("create inventory entry: %w", err)
+			return pgtype.UUID{}, fmt.Errorf("create stock adjustment: %w", err)
 		}
 	}
 

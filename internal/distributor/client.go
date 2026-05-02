@@ -49,6 +49,7 @@ type Listing struct {
 	Moq            int32
 	FixedOrderCost string       // decimal string, default "0.0000"
 	PriceBreaks    []PriceBreak // sorted ascending by BreakQty; may be empty
+	ListingURL     string       // direct URL to this listing's product page; empty if unavailable
 }
 
 // SearchQuery describes a free-text distributor search request.
@@ -128,6 +129,8 @@ type CredentialField struct {
 // credentials is the raw JSONB from distributor_configs.api_credentials;
 // it is nil for distributors that require no authentication.
 type Client interface {
+	// Name returns the human-readable display name for this distributor (e.g. "DigiKey").
+	Name() string
 	// CredentialSpec returns the list of fields required to configure this distributor.
 	// The frontend uses this to render a typed form instead of a raw JSON textarea.
 	// Return nil or an empty slice when no credentials are needed.

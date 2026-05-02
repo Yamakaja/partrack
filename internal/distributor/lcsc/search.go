@@ -210,6 +210,7 @@ func mapListing(c *component) distributor.Listing {
 		UnitPrice:      unitPrice,
 		StockAvailable: &stock,
 		FixedOrderCost: "0.0000",
+		ListingURL:     c.LcscGoodsUrl,
 	}
 }
 

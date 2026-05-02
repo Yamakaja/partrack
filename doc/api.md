@@ -106,6 +106,7 @@ Higher roles inherit all permissions of lower roles.
 | POST | `/parts` | Create part. Body: `{scope, team_id?, mpn?, manufacturer?, description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?}`. `scope` required (`global` requires admin; `team` requires team membership + `team_id`). Returns 409 `PART_EXISTS` with existing part if MPN+manufacturer match found. 201. |
 | GET | `/parts/{partId}` | Part details with parameters (user + distributor-sourced) and listings. Query: `team_id?` (adds inventory fields). |
 | PATCH | `/parts/{partId}` | `{description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?, preferred_parameter_source_id?}`. Team-scoped parts require team membership. |
+| DELETE | `/parts/{partId}` | **Global admin only.** Permanently deletes the part and all associated data (inventory entries, listings, parameters, BOM references, stock history, order history). Irreversible. 204. |
 | GET | `/parts/{partId}/parameters` | User + distributor-sourced parameters |
 | POST | `/parts/{partId}/parameters` | `{name, value, unit?}` — create/upsert user parameter |
 | DELETE | `/parts/{partId}/parameters/{parameterId}` | Delete user parameter |
@@ -196,7 +197,7 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | GET | `/parts/{partId}/allocations` | viewer | Build allocations for part across pending/ordered builds |
 | POST | `/parts/resolve` | member | `{sku?, distributor_id?, mpn?, manufacturer?}` → `202 {resolve_item_id, job_id}` — create a resolution job; worker fans out to all enabled distributors |
 | GET | `/parts/resolve/{resolveItemId}` | member | Poll resolution status → `{id, status, task_type, resolved_part_id, enrichment_data, error_message, enriched_at, committed_at}` |
-| POST | `/parts/resolve/{resolveItemId}/commit` | member | `{primary_distributor_id, primary_sku, additional_distributor_ids?}` → `{part_id}` — write part/listings/inventory from cached enrichment; no API re-call |
+| POST | `/parts/resolve/{resolveItemId}/commit` | member | `{primary_distributor_id, primary_sku, additional_listings?:[{distributor_id,sku}], initial_qty?, initial_qty_reason?, storage_location_id?}` → `{part_id}` — write part/listings/inventory from cached enrichment; no API re-call. `primary_distributor_id`+`primary_sku` identify the preferred listing (used for enrichment/metadata authority); only the selected SKUs from that distributor are persisted. `additional_listings` selects individual listings from any distributor at SKU granularity (can include extra SKUs from the primary distributor). `initial_qty` creates a stock adjustment; `storage_location_id` sets the inventory entry location. |
 | POST | `/parts/resolve/{resolveItemId}/retry-distributors` | member | `{distributor_ids:[]}` → `202 {job_id}` — re-query only failed distributors; merges into existing results |
 | POST | `/parts/import` | member | `{sku, distributor_id}` → `{part_id}` — atomic synchronous import: part + listings + inventory (single distributor) |
 | POST | `/parts/enrich-all` | member | Enqueue enrichment for all parts with listings → 202 `{job_count}` |
@@ -305,11 +306,12 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | GET | `/teams/{teamId}/scan-audit-log` | viewer+ | Paginated scan activity log for the current user. Query: `event_type` (comma-separated), `cursor_time`, `cursor_id`, `limit` (default 50). Returns `{items:[...], next_cursor_time, next_cursor_id}`. |
 | GET | `/teams/{teamId}/kitting/{kittingSessionId}` | viewer+ | Desktop view of kitting session (team auth). Returns same shape as phone `/scan/kitting/{id}`. |
 | GET | `/teams/{teamId}/kitting/{kittingSessionId}/items` | viewer+ | Desktop view of kitting items (team auth). Returns same shape as phone `/scan/kitting/{id}/items`. |
-| GET | `/teams/{teamId}/bulk-scan-sessions` | member+ | List non-deleted bulk scan sessions for current user with per-status counts. Returns `{sessions:[{id, created_at, closed_at, counts:{pending_enrichment,enriched,error,reviewed,dismissed}}]}`. |
-| GET | `/teams/{teamId}/bulk-scan-badge` | member+ | Badge count: sum of pending+enriched+error items across all non-deleted sessions for current user. Returns `{count}`. |
-| GET | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items` | member+ | List all items in a session with enrichment data and joined part info. Returns `{items:[BulkScanItem]}`. |
-| PATCH | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}` | member+ | Set item status to `reviewed` or `dismissed`. Body: `{status}`. First-write-wins: returns 409 if already reviewed or dismissed. |
-| POST | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}/retry` | member+ | Re-enqueue enrichment for `error` status items. Returns 202. |
+| GET | `/teams/{teamId}/bulk-scan-sessions` | member+ | List non-deleted bulk scan sessions for current user with per-status counts. Returns `{sessions:[{id, created_at, closed_at, counts:{pending, reviewed, dismissed, ready}}]}`. `ready` = items with status `pending_review` where enrichment is done or not needed. |
+| GET | `/teams/{teamId}/bulk-scan-badge` | member+ | Badge count: `pending_review` items that are ready for user action (enriched or no resolve item). Returns `{count}`. |
+| GET | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items` | member+ | List all items in a session with nested resolve item data. Returns `{items:[{id, session_id, barcode, status, task_type, parsed_fields, initial_qty, part_id, part, resolve_item:{id,status,task_type,enrichment_data,error_message,enriched_at}\|null, created_at}]}`. |
+| PATCH | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}` | member+ | Set item status to `reviewed` or `dismissed`. Body: `{status, part_id?}`. First-write-wins: returns 409 if already terminal. |
+| POST | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}/retry` | member+ | Re-enqueue the linked resolve job for `failed`/`enriched` items. Returns `202 {job_id}`. Returns 422 if item has no resolve item. |
+| POST | `/teams/{teamId}/bulk-scan-sessions/{sessionId}/items/{itemId}/retry-distributors` | member+ | Re-query a specific set of distributors on the linked resolve item. Body: `{distributor_ids:[]}`. Returns `202 {job_id}`. |
 | DELETE | `/teams/{teamId}/bulk-scan-sessions/{sessionId}` | member+ | Soft delete session (`deleted_at = now()`). Returns 204. |
 
 ### Phone-facing (scan token auth — `Authorization: Bearer scan_...`)
@@ -334,7 +336,7 @@ Phone endpoints accept the scan token either as `Authorization: Bearer` header (
 | GET | `/scan/distributor-search` | Search a configured distributor. Query: `distributor_id`, `q`, `limit?`. Returns `{items:[{mpn,manufacturer,description,category,primary_sku,package,unit_price,stock_available}], total, exact_match_indices}`. |
 | POST | `/scan/focus` | Send-to-desktop navigation. Body: `{entity_type: part|order|storage|build|bulk_scan_session, entity_id}`. Returns 204. Returns 409 if no desktop subscriber is connected. |
 | POST | `/scan/bulk/start` | Create bulk scan session. Returns `{session_id, item_count}`. |
-| POST | `/scan/bulk/sessions/{sessionId}/items` | Add a scanned barcode to the bulk session. Body: `{barcode}`. Inserts with ON CONFLICT DO NOTHING (dedup by barcode). Enqueues enrichment job. Returns `{item_id, new: bool, found_in_db: bool, encoded_qty: int\|null}`. |
+| POST | `/scan/bulk/sessions/{sessionId}/items` | Add a scanned barcode to the bulk session. Body: `{barcode}`. Deduped by barcode within active items. Performs synchronous DB lookup; creates a resolve job for unknown parts. Returns `{scan_item_id, found_in_db: bool, task_type: string\|null, encoded_qty: int\|null, resolve_item_id: uuid\|null}`. |
 | PATCH | `/scan/bulk/sessions/{sessionId}/items/{itemId}` | Set initial quantity. Body: `{initial_qty: int\|null}`. Returns 204. |
 | POST | `/scan/bulk/sessions/{sessionId}/close` | Close session (exit bulk mode). Sets `closed_at`. Returns 204. |
 | POST | `/scan/bulk/sessions/{sessionId}/navigate` | Push `scan_focus_requested` to desktop with `entity_type=bulk_scan_session`. Returns 204 or 409 if offline. |

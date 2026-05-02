@@ -343,13 +343,6 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 					return
 				}
-				if _, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-					ID:             ri.InventoryEntryID,
-					QuantityOnHand: reconcileDelta,
-				}); err != nil {
-					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-					return
-				}
 			}
 
 			delta := -ri.Quantity
@@ -359,13 +352,6 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 				Reason:            reason,
 				CreatedBy:         userID,
 				GeneralCheckoutID: checkout.ID,
-			}); err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-				return
-			}
-			if _, err := qtx.ApplyStockDelta(r.Context(), dbgen.ApplyStockDeltaParams{
-				ID:             ri.InventoryEntryID,
-				QuantityOnHand: int32(delta),
 			}); err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 				return
