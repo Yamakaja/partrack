@@ -220,6 +220,7 @@ func (h *Handler) CommitPartResolveItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": partID.String()})
 	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
 }
 

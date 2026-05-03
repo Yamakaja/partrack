@@ -4,11 +4,12 @@
   import { currentRoute, linkAction, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
-  import { openForTeam, closeSSE } from '$lib/api/sse.js';
+  import { openForTeam, closeSSE, setReconnectHandler } from '$lib/api/sse.js';
   import {
     initCacheInvalidation,
     activateTeamInvalidation,
     deactivateTeamInvalidation,
+    invalidateAll,
   } from '$lib/cache/invalidation.js';
   import { ModeWatcher } from 'mode-watcher';
   import AppShell from '$lib/components/layout/AppShell.svelte';
@@ -49,6 +50,7 @@
   });
 
   initCacheInvalidation(queryClient);
+  setReconnectHandler(() => { invalidateAll(); });
 
   // Route table: ordered most-specific first.
   const ROUTES = [

@@ -17,6 +17,7 @@
   import { getBulkScanBadgeCount } from '$lib/api/bulkScan.js';
   import { Popover } from 'bits-ui';
   import { scanSessionStore, clearScanSession } from '$lib/stores/scanSession.svelte.js';
+  import SSEConnectionIndicator from './SSEConnectionIndicator.svelte';
   import { request } from '$lib/api/client.js';
 
   function handleKeydown(e: KeyboardEvent) {
@@ -199,6 +200,13 @@
           {isActive('/admin/parameters') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Parameters
       </a>
+    </div>
+  {/if}
+
+  <!-- SSE connection indicator -->
+  {#if teamId}
+    <div class="border-t border-border px-2 py-0.5">
+      <SSEConnectionIndicator />
     </div>
   {/if}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -37,11 +38,17 @@ func (h *Handler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	events, cancel := h.Worker.Subscribe(teamID, user.ID)
 	defer cancel()
 
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case ev := <-events:
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
 			wrapper := map[string]any{
 				"type":   ev.Type,
 				"job_id": ev.JobID,
@@ -49,6 +56,10 @@ func (h *Handler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			wrapperJSON, _ := json.Marshal(wrapper)
 			fmt.Fprintf(w, "data: %s\n\n", wrapperJSON)
+			flusher.Flush()
+		case <-ticker.C:
+			pingJSON, _ := json.Marshal(map[string]any{"type": "ping"})
+			fmt.Fprintf(w, "data: %s\n\n", pingJSON)
 			flusher.Flush()
 		}
 	}

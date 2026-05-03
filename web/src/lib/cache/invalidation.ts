@@ -150,3 +150,8 @@ export function deactivateTeamInvalidation() {
   unsubscribers.forEach((unsub) => unsub());
   unsubscribers = [];
 }
+
+export function invalidateAll(): Promise<void> {
+  if (!qc) return Promise.resolve();
+  return qc.invalidateQueries();
+}
