@@ -31,6 +31,8 @@ func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.
 	// Global middleware
 	r.Use(chimw.RequestID)
 	r.Use(mw.RealIP) // trust X-Real-IP/X-Forwarded-For only from configured proxy CIDRs
+	r.Use(maxBodyBytes)
+	r.Use(mw.CSRF) // same-origin check for cookie-authenticated mutations
 	r.Use(timing.Middleware)
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
@@ -45,6 +47,19 @@ func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.
 		Addr:    cfg.Server.ListenAddr,
 		Handler: r,
 	}
+}
+
+// maxRequestBodyBytes caps request bodies to bound memory use and blunt
+// body-flooding DoS. Generous enough for large BOM/order imports.
+const maxRequestBodyBytes = 16 << 20 // 16 MiB
+
+// maxBodyBytes wraps each request body in an http.MaxBytesReader so handlers that
+// read it abort once the cap is exceeded.
+func maxBodyBytes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // spaHandler serves the embedded frontend from web/dist.

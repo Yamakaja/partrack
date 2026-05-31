@@ -338,6 +338,20 @@ func (h *Handler) ListAdjustments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The adjustment-list queries are keyed by entry id only; confirm the entry
+	// belongs to this team before exposing its stock ledger.
+	if _, err := h.Queries.GetInventoryEntry(r.Context(), dbgen.GetInventoryEntryParams{
+		ID:     entryID,
+		TeamID: teamID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "inventory entry not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	limit, offset := parsePaginationParams(r)
 
 	total, err := h.Queries.CountAdjustments(r.Context(), entryID)

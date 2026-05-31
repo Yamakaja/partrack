@@ -190,6 +190,26 @@ export interface ScanSessionState {
   bulk_session: BulkSessionInfo | null;
 }
 
+// pairScanSession exchanges a single-use pairing ticket (from the QR code) for
+// the durable scan token. Unauthenticated — the ticket is the credential.
+export async function pairScanSession(
+  ticket: string,
+): Promise<{ token: string; session_id: string; team_id: string; expires_at: string }> {
+  const res = await fetch('/api/v1/scan/pair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket }),
+  });
+  if (!res.ok) throw new ScanExpiredError(); // invalid/expired/spent pairing ticket
+  return res.json();
+}
+
+// createStreamTicket mints a single-use ticket for opening the SSE stream, so the
+// durable token never appears in the stream URL.
+export function createStreamTicket(token: string): Promise<{ ticket: string; expires_in: number }> {
+  return scanRequest(token, 'POST', '/api/v1/scan/stream-ticket');
+}
+
 export function checkSession(token: string): Promise<ScanSessionState> {
   return scanRequest<ScanSessionState>(token, 'GET', '/api/v1/scan/session');
 }

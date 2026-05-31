@@ -30,6 +30,30 @@ func bulkSessionState(s dbgen.BulkScanSession) string {
 	return "active"
 }
 
+// requireBulkSessionOwned verifies the bulk scan session named by sessionID
+// belongs to the scan token's team and user. Bulk sessions are per-user scanning
+// workspaces, so a scan token may only touch its own. Writes 404 and returns
+// false otherwise.
+func (h *Handler) requireBulkSessionOwned(w http.ResponseWriter, r *http.Request, sessionID pgtype.UUID, sess *dbgen.ScanSession) bool {
+	bs, err := h.Queries.GetBulkScanSession(r.Context(), dbgen.GetBulkScanSessionParams{
+		ID:     sessionID,
+		TeamID: sess.TeamID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "bulk scan session not found", "NOT_FOUND")
+			return false
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return false
+	}
+	if bs.UserID != sess.UserID {
+		writeError(w, http.StatusNotFound, "bulk scan session not found", "NOT_FOUND")
+		return false
+	}
+	return true
+}
+
 // ── Phone handlers (scan token auth) ─────────────────────────────────────────
 
 // StartBulkSession handles POST /api/v1/scan/bulk/start.
@@ -76,6 +100,9 @@ func (h *Handler) AddBulkScanItem(w http.ResponseWriter, r *http.Request) {
 	var sessionID pgtype.UUID
 	if err := sessionID.Scan(chi.URLParam(r, "sessionId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid session id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireBulkSessionOwned(w, r, sessionID, sess) {
 		return
 	}
 
@@ -291,6 +318,9 @@ func (h *Handler) PatchBulkScanItem(w http.ResponseWriter, r *http.Request) {
 	var itemID pgtype.UUID
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireBulkSessionOwned(w, r, sessionID, sess) {
 		return
 	}
 

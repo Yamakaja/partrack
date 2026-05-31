@@ -28,6 +28,10 @@ type DatabaseConfig struct {
 
 type AuthConfig struct {
 	SessionSecret string `yaml:"session_secret"`
+	// RateLimitPerMinute is the per-IP request budget for unauthenticated
+	// credential endpoints (login, password reset, token creation). 0 disables
+	// rate limiting (used in tests).
+	RateLimitPerMinute int `yaml:"rate_limit_per_minute"`
 }
 
 type OIDCProvider struct {
@@ -45,6 +49,10 @@ type LogConfig struct {
 
 type AppConfig struct {
 	BaseURL string `yaml:"base_url"`
+	// SecureCookies controls the Secure flag on session/auth cookies. Defaults to
+	// true; set false only for local HTTP development. TLS is expected to be
+	// terminated by a reverse proxy in front of the app.
+	SecureCookies bool `yaml:"secure_cookies"`
 }
 
 func defaults() *Config {
@@ -54,6 +62,12 @@ func defaults() *Config {
 		},
 		Log: LogConfig{
 			Level: "info",
+		},
+		App: AppConfig{
+			SecureCookies: true,
+		},
+		Auth: AuthConfig{
+			RateLimitPerMinute: 10,
 		},
 	}
 }
@@ -94,6 +108,9 @@ func Load() *Config {
 	if v := os.Getenv("PARTRACK_APP_BASE_URL"); v != "" {
 		cfg.App.BaseURL = v
 	}
+	if v := os.Getenv("PARTRACK_SECURE_COOKIES"); v != "" {
+		cfg.App.SecureCookies = v != "false" && v != "0"
+	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET
 	for i := range cfg.OIDC {
@@ -101,6 +118,13 @@ func Load() *Config {
 		if v := os.Getenv(envKey); v != "" {
 			cfg.OIDC[i].ClientSecret = v
 		}
+	}
+
+	// The session secret is the HMAC key for OAuth state and signed link tokens;
+	// a weak/empty value makes them forgeable. Fail fast rather than start insecure.
+	if len(cfg.Auth.SessionSecret) < 32 {
+		fmt.Fprintln(os.Stderr, "config: auth.session_secret must be set and at least 32 bytes (env PARTRACK_SESSION_SECRET)")
+		os.Exit(1)
 	}
 
 	return cfg

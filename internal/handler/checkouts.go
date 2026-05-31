@@ -146,6 +146,13 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err == nil {
+				// Inventory entries are loaded by bare id here; confirm the entry
+				// belongs to this team so a checkout can't deduct/reconcile another
+				// team's stock (the ledger is not cross-team writable).
+				if entry.TeamID != teamID {
+					writeError(w, http.StatusNotFound, "inventory entry not found", "NOT_FOUND")
+					return
+				}
 				ri.InventoryEntryID = entry.ID
 				ri.PartID = entry.PartID
 				ri.HasInventory = true

@@ -235,7 +235,8 @@ func TestEnrichPart_NonMemberForbidden(t *testing.T) {
 func TestCreateAndDeleteUserParameter(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
-	userID := testutil.CreateUser(t, testDB, "params@example.com", "pw", "Params")
+	// Manual (user-specified) parameters on a global part require instance admin.
+	userID := testutil.CreateAdminUser(t, testDB, "params@example.com", "pw", "Params")
 	token := testutil.CreateSession(t, testDB, userID)
 	partID := testutil.CreatePart(t, testDB, "global", "CUSTOM-PART", nil)
 

@@ -51,4 +51,3 @@ Make sure that Parts arrivals are still be booked to the appropriate build line 
 # Others
 
 - Fix resolution of unresolved scans.
-- Monitor SS3E connection. Reconnect and warn.

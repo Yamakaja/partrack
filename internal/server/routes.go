@@ -1,9 +1,13 @@
 package server
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/Yamakaja/partrack/internal/handler"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 )
 
 // registerRoutes mounts all API routes on r under /api/v1.
@@ -11,13 +15,22 @@ import (
 func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware) {
 	r.Get("/api/v1/health", h.Health)
 
+	// authLimiter throttles unauthenticated credential endpoints per client IP to
+	// blunt brute-force / password-spray / reset-token guessing (and the bcrypt
+	// CPU-DoS that rides on them). Shares one per-IP budget across these routes.
+	// A non-positive configured limit disables it (used in tests).
+	authLimiter := func(next http.Handler) http.Handler { return next }
+	if n := h.Config.Auth.RateLimitPerMinute; n > 0 {
+		authLimiter = httprate.LimitByIP(n, time.Minute)
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		// ── 1. Authentication (no session required) ─────────────────────────
-		r.Post("/auth/login", h.Login)
+		r.With(authLimiter).Post("/auth/login", h.Login)
 		r.Get("/auth/oidc/{provider}", h.OIDCInitiate)
 		r.Get("/auth/oidc/{provider}/callback", h.OIDCCallback)
-		r.Get("/auth/reset-password", h.GetResetPasswordInfo)
-		r.Post("/auth/reset-password", h.CompletePasswordReset)
+		r.With(authLimiter).Get("/auth/reset-password", h.GetResetPasswordInfo)
+		r.With(authLimiter).Post("/auth/reset-password", h.CompletePasswordReset)
 
 		// ── OAuth callbacks (no session required) ───────────────────────────
 		r.Get("/oauth/callback/{distributorApiType}", h.OAuthCallback)
@@ -30,8 +43,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 		// StreamScanSession reads the token from ?token= query param directly;
 		// it bypasses Authenticate middleware because EventSource can't set headers.
 		r.Get("/scan/stream", h.StreamScanSession)
+		r.With(authLimiter).Post("/scan/pair", h.PairScanSession)
 		r.Group(func(r chi.Router) {
 			r.Use(mw.Authenticate)
+			r.Post("/scan/stream-ticket", h.CreateStreamTicket)
 			r.Get("/scan/session", h.GetScanSession)
 			r.Post("/scan/scans", h.SubmitScan)
 			r.Post("/scan/confirm", h.ConfirmScan)
@@ -100,7 +115,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 			// 3. API tokens
 			r.Get("/tokens", h.ListTokens)
-			r.Post("/tokens", h.CreateToken)
+			r.With(authLimiter).Post("/tokens", h.CreateToken)
 			r.Delete("/tokens/{tokenId}", h.RevokeToken)
 
 			// 4. User preferences
@@ -255,6 +270,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// Scan sessions (member+) — literal path before wildcard
 					r.Post("/scan-sessions", h.CreateScanSession)
 					r.Get("/scan-sessions/active", h.GetActiveScanSession)
+					r.Post("/scan-sessions/{sessionId}/pairing-ticket", h.RefreshPairingTicket)
 
 					// Build kitting (member+)
 					r.Post("/scan-sessions/{sessionId}/kitting", h.StartKitting)
@@ -304,7 +320,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/orders/{orderId}/request-quote", h.RequestQuote)
 					r.Post("/orders/{orderId}/link-commit", h.LinkCommit)
 					r.Post("/orders/{orderId}/retry-unresolved", h.RetryUnresolvedItems)
-					r.Get("/oauth/{distributorApiType}/initiate", h.InitiateOAuth)
+					r.Post("/oauth/{distributorApiType}/initiate", h.InitiateOAuth)
 					r.Get("/oauth/{distributorApiType}/status", h.GetOAuthStatus)
 					r.Delete("/oauth/{distributorApiType}/token", h.DisconnectOAuth)
 				})

@@ -217,12 +217,18 @@ func (q *Queries) DeleteListing(ctx context.Context, id pgtype.UUID) error {
 
 const deleteParameter = `-- name: DeleteParameter :exec
 DELETE FROM part_parameters
-WHERE id = $1 AND source_type = 'user'
+WHERE id = $1 AND part_id = $2 AND source_type = 'user'
 `
 
+type DeleteParameterParams struct {
+	ID     pgtype.UUID `json:"id"`
+	PartID pgtype.UUID `json:"part_id"`
+}
+
 // Only deletes user-specified parameters; distributor-sourced ones are ignored.
-func (q *Queries) DeleteParameter(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteParameter, id)
+// Bound to part_id so a parameter cannot be deleted via an unrelated part route.
+func (q *Queries) DeleteParameter(ctx context.Context, arg DeleteParameterParams) error {
+	_, err := q.db.Exec(ctx, deleteParameter, arg.ID, arg.PartID)
 	return err
 }
 

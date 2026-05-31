@@ -25,6 +25,11 @@ func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	teamIDStr := chi.URLParam(r, "teamId")
+	var teamID pgtype.UUID
+	if err := teamID.Scan(teamIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
 
 	var req struct {
 		SKU           string `json:"sku"`
@@ -35,12 +40,7 @@ func (h *Handler) AddListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.Queries.GetPart(r.Context(), partID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+	if _, ok := h.requirePartInTeamOrGlobal(w, r, partID, teamID); !ok {
 		return
 	}
 
@@ -64,6 +64,14 @@ func (h *Handler) DeleteListing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	teamIDStr := chi.URLParam(r, "teamId")
+	var teamID pgtype.UUID
+	if err := teamID.Scan(teamIDStr); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+	if _, ok := h.requirePartInTeamOrGlobal(w, r, partID, teamID); !ok {
+		return
+	}
 
 	listing, err := h.Queries.GetListingByPartAndID(r.Context(), dbgen.GetListingByPartAndIDParams{
 		ID:     listingID,

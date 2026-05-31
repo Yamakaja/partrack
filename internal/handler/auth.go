@@ -69,6 +69,11 @@ func (e *oidcEntry) oauth2Config(r *http.Request) oauth2.Config {
 	}
 }
 
+// dummyBcryptHash is a valid bcrypt hash compared against on the user-not-found /
+// no-credential login paths so they take the same time as a real password check,
+// closing the timing side channel that would otherwise reveal account existence.
+var dummyBcryptHash, _ = bcrypt.GenerateFromPassword([]byte("partrack-dummy-password"), bcrypt.DefaultCost)
+
 // generateToken returns a cryptographically random 32-byte hex string.
 func generateToken() (string, error) {
 	b := make([]byte, 32)
@@ -129,24 +134,27 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// All failure paths below return the same generic 401 (and spend comparable
+	// time) so an attacker cannot distinguish unknown-user / no-password /
+	// inactive / wrong-password — i.e. cannot enumerate accounts.
+	const invalidMsg, invalidCode = "invalid credentials", "INVALID_CREDENTIALS"
+
 	user, err := h.Queries.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusUnauthorized, "invalid credentials", "INVALID_CREDENTIALS")
+			bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password)) //nolint:errcheck // equalize timing
+			writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	if !user.IsActive {
-		writeError(w, http.StatusUnauthorized, "account is inactive", "ACCOUNT_INACTIVE")
 		return
 	}
 
 	cred, err := h.Queries.GetUserCredential(r.Context(), user.ID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusUnauthorized, "password login not available for this account", "NO_PASSWORD")
+			bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password)) //nolint:errcheck // equalize timing
+			writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -154,7 +162,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(cred.PasswordHash), []byte(req.Password)); err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid credentials", "INVALID_CREDENTIALS")
+		writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
+		return
+	}
+	// Password is correct; an inactive account still returns the generic error so
+	// account state is not disclosed.
+	if !user.IsActive {
+		writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
 		return
 	}
 
@@ -164,7 +178,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, rawToken, expiresAt)
+	h.setSessionCookie(w, r, rawToken, expiresAt)
 	writeJSON(w, http.StatusOK, map[string]any{"user": loginRowToUserResponse(user)})
 }
 
@@ -204,6 +218,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   h.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
@@ -230,6 +245,7 @@ func (h *Handler) OIDCInitiate(w http.ResponseWriter, r *http.Request) {
 		Path:     "/api/v1/auth/oidc",
 		MaxAge:   oidcStateMaxAge,
 		HttpOnly: true,
+		Secure:   h.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 	cfg := entry.oauth2Config(r)
@@ -257,6 +273,7 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		Path:     "/api/v1/auth/oidc",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   h.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -308,7 +325,7 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, rawToken, expiresAt)
+	h.setSessionCookie(w, r, rawToken, expiresAt)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -447,14 +464,23 @@ func (h *Handler) createSession(ctx context.Context, userID pgtype.UUID, userAge
 	return rawToken, tokenHash, expiresAt, nil
 }
 
+// cookieSecure reports whether auth cookies should carry the Secure flag. TLS is
+// normally terminated at a reverse proxy (so r.TLS is nil), hence the config flag
+// is authoritative; it defaults to true and should only be disabled for local
+// HTTP development.
+func (h *Handler) cookieSecure(r *http.Request) bool {
+	return h.Config.App.SecureCookies || r.TLS != nil
+}
+
 // setSessionCookie writes the HTTP-only session cookie to the response.
-func setSessionCookie(w http.ResponseWriter, rawToken string, expiresAt time.Time) {
+func (h *Handler) setSessionCookie(w http.ResponseWriter, r *http.Request, rawToken string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    rawToken,
 		Path:     "/",
 		Expires:  expiresAt,
 		HttpOnly: true,
+		Secure:   h.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -531,7 +557,7 @@ func (h *Handler) CompletePasswordReset(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	setSessionCookie(w, rawToken, expiresAt)
+	h.setSessionCookie(w, r, rawToken, expiresAt)
 
 	user, err := h.Queries.GetUserWithMemberships(r.Context(), row.UserID)
 	if err != nil {

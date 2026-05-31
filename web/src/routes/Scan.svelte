@@ -3,7 +3,7 @@
   import Toaster from '$lib/components/common/Toaster.svelte';
   import type { NavEntry, ScanPart, PartLocation } from '$lib/components/mobile-scanner/types.js';
   import type { ScanHistoryEntry } from '$lib/stores/scannerHistory.svelte.js';
-  import { checkSession, listScanStorageLocations, ScanExpiredError } from '$lib/api/scanner.js';
+  import { checkSession, listScanStorageLocations, ScanExpiredError, pairScanSession, createStreamTicket } from '$lib/api/scanner.js';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
   import ReceiveOrder from '$lib/components/mobile-scanner/ReceiveOrder.svelte';
@@ -38,6 +38,8 @@
     localStorage.removeItem(TOKEN_KEY);
     token = '';
     stopPolling();
+    sseStopped = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     phoneES?.close();
     phoneES = null;
     topLevel = 'expired';
@@ -103,11 +105,30 @@
   // ── Phone SSE ─────────────────────────────────────────────────────────────
 
   let phoneES: EventSource | null = null;
+  let sseStopped = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function openPhoneSSE(t: string) {
+  // openPhoneSSE mints a fresh single-use stream ticket and opens the SSE stream
+  // with it (the durable token is never placed in the URL). Because the ticket is
+  // single-use, native EventSource auto-reconnect would fail with a spent ticket,
+  // so on any error we close the stream and reconnect with a newly minted ticket.
+  async function openPhoneSSE() {
     phoneES?.close();
-    phoneES = new EventSource(`/api/v1/scan/stream?token=${encodeURIComponent(t)}`);
-    phoneES.onmessage = (e) => {
+    phoneES = null;
+    if (!token || sseStopped) return;
+
+    let ticket: string;
+    try {
+      ticket = (await createStreamTicket(token)).ticket;
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { handleExpired(); return; }
+      scheduleReconnect();
+      return;
+    }
+
+    const es = new EventSource(`/api/v1/scan/stream?ticket=${encodeURIComponent(ticket)}`);
+    phoneES = es;
+    es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as Record<string, unknown>;
         if (msg.type === 'scan_context_changed') {
@@ -127,6 +148,19 @@
         }
       } catch {}
     };
+    es.onerror = () => {
+      es.close();
+      if (phoneES === es) phoneES = null;
+      scheduleReconnect(); // mint a fresh ticket and reconnect
+    };
+  }
+
+  function scheduleReconnect() {
+    if (sseStopped || reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      openPhoneSSE();
+    }, 2000);
   }
 
   // ── Polling ───────────────────────────────────────────────────────────────
@@ -190,22 +224,34 @@
     document.addEventListener('touchstart', onTouchStart, { passive: true });
     document.addEventListener('touchmove', onTouchMove, { passive: false });
 
-    const params = new URLSearchParams(window.location.search);
-    let t = params.get('token') ?? '';
-    if (t) {
-      localStorage.setItem(TOKEN_KEY, t);
+    // Pairing ticket arrives in the URL fragment (#pt=…) so it is never sent to
+    // the server / proxy logs. Exchange it once for the durable token.
+    let pairingTicket = '';
+    if (window.location.hash.startsWith('#pt=')) {
+      pairingTicket = decodeURIComponent(window.location.hash.slice(4));
       history.replaceState({}, '', window.location.pathname);
-    } else {
-      t = localStorage.getItem(TOKEN_KEY) ?? '';
     }
-    if (!t) {
-      topLevel = 'expired';
-      return;
-    }
-    token = t;
-    openPhoneSSE(t);
-    startPolling();
-    fetchLocations(t);
+
+    void (async () => {
+      let t = localStorage.getItem(TOKEN_KEY) ?? '';
+      if (pairingTicket) {
+        try {
+          t = (await pairScanSession(pairingTicket)).token;
+          localStorage.setItem(TOKEN_KEY, t);
+        } catch {
+          // fall back to any stored token below
+        }
+      }
+      if (!t) {
+        topLevel = 'expired';
+        return;
+      }
+      token = t;
+      sseStopped = false;
+      await openPhoneSSE();
+      startPolling();
+      fetchLocations(t);
+    })();
 
     return () => {
       viewport?.setAttribute('content', originalContent);
@@ -216,6 +262,8 @@
 
   onDestroy(() => {
     stopPolling();
+    sseStopped = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     phoneES?.close();
     phoneES = null;
   });

@@ -238,8 +238,9 @@ RETURNING id, part_id, name, value, unit, source_type, source_distributor_id;
 
 -- name: DeleteParameter :exec
 -- Only deletes user-specified parameters; distributor-sourced ones are ignored.
+-- Bound to part_id so a parameter cannot be deleted via an unrelated part route.
 DELETE FROM part_parameters
-WHERE id = $1 AND source_type = 'user';
+WHERE id = $1 AND part_id = $2 AND source_type = 'user';
 
 -- name: ListListings :many
 SELECT

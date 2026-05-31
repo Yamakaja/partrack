@@ -63,6 +63,9 @@ type AuthCache struct {
 	membmu      sync.RWMutex
 	memberships map[string]membershipEntry // "teamID:userID" → entry
 	membsByUser map[string][]string        // userID → []"teamID:userID"
+
+	resmu         sync.RWMutex
+	resourceOwner map[string]string // resourceID (project/revision/line-item UUID) → owning teamID
 }
 
 // NewAuthCache creates an empty AuthCache ready for use.
@@ -78,6 +81,7 @@ func NewAuthCache() *AuthCache {
 		scanByID:       make(map[string]string),
 		memberships:    make(map[string]membershipEntry),
 		membsByUser:    make(map[string][]string),
+		resourceOwner:  make(map[string]string),
 	}
 }
 
@@ -353,6 +357,31 @@ func (c *AuthCache) evictMembershipLocked(key, userID string) {
 	if len(c.membsByUser[userID]) == 0 {
 		delete(c.membsByUser, userID)
 	}
+}
+
+// ── Resource-owner cache ──────────────────────────────────────────────────────
+//
+// Maps a project / BOM revision / BOM line-item UUID to its owning team. These
+// relationships are immutable for the lifetime of the resource (a project never
+// changes team, a revision never changes project, a line item never changes
+// revision), so entries need no expiry: a stale entry for a deleted resource is
+// harmless because the comparison still rejects cross-team access and the
+// handler's own query 404s. Keyed by globally-unique UUID, so the three resource
+// types share one map without collision.
+
+// LookupResourceOwner returns the cached owning teamID for a resource UUID.
+func (c *AuthCache) LookupResourceOwner(resourceID string) (string, bool) {
+	c.resmu.RLock()
+	team, ok := c.resourceOwner[resourceID]
+	c.resmu.RUnlock()
+	return team, ok
+}
+
+// StoreResourceOwner records the owning teamID for a resource UUID.
+func (c *AuthCache) StoreResourceOwner(resourceID, teamID string) {
+	c.resmu.Lock()
+	c.resourceOwner[resourceID] = teamID
+	c.resmu.Unlock()
 }
 
 // ── Flusher ───────────────────────────────────────────────────────────────────

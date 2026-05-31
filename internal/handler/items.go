@@ -37,6 +37,9 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
+		return
+	}
 
 	var body struct {
 		ResolvedPartID *string `json:"resolved_part_id"`
@@ -140,6 +143,9 @@ func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
+		return
+	}
 
 	var body struct {
 		PartID string `json:"part_id"`
@@ -183,9 +189,17 @@ func (h *Handler) AddSubstitute(w http.ResponseWriter, r *http.Request) {
 // ListSubstitutes handles GET /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/substitutes
 // Returns all substitutes for all line items in the revision as a flat list.
 func (h *Handler) ListSubstitutes(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
 	var revID pgtype.UUID
 	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireRevisionInTeam(w, r, revID, teamID) {
 		return
 	}
 
@@ -240,6 +254,9 @@ func (h *Handler) RemoveSubstitute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid part id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
+		return
+	}
 
 	err := h.Queries.RemoveSubstitute(r.Context(), dbgen.RemoveSubstituteParams{
 		BomLineItemID: itemID,
@@ -275,6 +292,9 @@ func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
 		return
 	}
 

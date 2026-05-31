@@ -27,6 +27,14 @@
   let sessionId = $state('');
   let qrSvg = $state('');
   let unsubSSE: (() => void) | null = null;
+  let pairingRefresh: ReturnType<typeof setInterval> | null = null;
+
+  // renderPairingQR encodes the pairing ticket in the URL fragment (#pt=…) so the
+  // ticket is never sent to the server (kept out of access logs / Referer).
+  async function renderPairingQR(ticket: string) {
+    const qrUrl = `${window.location.origin}/scan#pt=${encodeURIComponent(ticket)}`;
+    qrSvg = await QRCode.toString(qrUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 1 });
+  }
 
   // ── Session management ───────────────────────────────────────────────────
 
@@ -70,18 +78,18 @@
   async function createSession() {
     modalState = 'loading';
     try {
-      const data = await request<{ id: string; token: string; expires_at: string }>(
+      const data = await request<{ id: string; pairing_ticket: string; expires_at: string }>(
         'POST',
         `/api/v1/teams/${teamId}/scan-sessions`,
       );
       sessionId = data.id;
-      const qrUrl = `${window.location.origin}/scan?token=${encodeURIComponent(data.token)}`;
-      qrSvg = await QRCode.toString(qrUrl, { type: 'svg', errorCorrectionLevel: 'M', margin: 1 });
+      await renderPairingQR(data.pairing_ticket);
+      startPairingRefresh();
 
       setScanSession({
         id: data.id,
         teamId,
-        token: data.token,
+        token: '',
         connected: false,
         liveConnected: false,
       });
@@ -102,6 +110,28 @@
     } catch {
       modalState = 'idle';
     }
+  }
+
+  // startPairingRefresh re-mints the pairing ticket before it expires (TTL 60s)
+  // so the displayed QR stays valid; overlapping windows mean no pairing gap.
+  function startPairingRefresh() {
+    stopPairingRefresh();
+    pairingRefresh = setInterval(async () => {
+      if (!sessionId) return;
+      try {
+        const res = await request<{ pairing_ticket: string }>(
+          'POST',
+          `/api/v1/teams/${teamId}/scan-sessions/${sessionId}/pairing-ticket`,
+        );
+        await renderPairingQR(res.pairing_ticket);
+      } catch {
+        // transient; keep the current QR and try again next tick
+      }
+    }, 30000);
+  }
+
+  function stopPairingRefresh() {
+    if (pairingRefresh) { clearInterval(pairingRefresh); pairingRefresh = null; }
   }
 
   async function pushContext(existingSessionId: string) {
@@ -136,6 +166,7 @@
   function cleanup() {
     unsubSSE?.();
     unsubSSE = null;
+    stopPairingRefresh();
     sessionId = '';
     qrSvg = '';
     modalState = 'idle';

@@ -22,22 +22,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const scanSessionTTL = 30 * 24 * time.Hour
+// scanSessionTTL bounds how long the durable scan token (delivered to the phone
+// after pairing, held only in memory and sent as Bearer) stays valid.
+const scanSessionTTL = 24 * time.Hour
 
 // scanSessionFromScanToken looks up the active scan session by raw scan token
 // (sent as ?token= query param by EventSource, or Authorization: Bearer by fetch).
 // Returns (nil, nil) if the token doesn't match any live session.
 func (h *Handler) scanSessionFromScanToken(r *http.Request) (*dbgen.ScanSession, error) {
+	// The durable scan token is only ever sent as Authorization: Bearer — never in
+	// a URL. The SSE stream authenticates with a single-use ticket instead.
 	rawToken := ""
-	// Try query param first (EventSource can't set headers).
-	if t := r.URL.Query().Get("token"); strings.HasPrefix(t, "scan_") {
-		rawToken = t
-	} else {
-		// Fall back to Authorization: Bearer.
-		auth := r.Header.Get("Authorization")
-		if strings.HasPrefix(auth, "Bearer ") {
-			rawToken = strings.TrimPrefix(auth, "Bearer ")
-		}
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		rawToken = strings.TrimPrefix(auth, "Bearer ")
 	}
 	if rawToken == "" {
 		return nil, nil //nolint:nilnil
@@ -144,18 +141,20 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken, err := generateScanToken()
+	// The session is created with a placeholder token hash (raw discarded, so no
+	// usable token exists yet). The durable token is minted only when the phone
+	// redeems the pairing ticket at POST /scan/pair — it never travels in a URL.
+	placeholder, err := generateScanToken()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	tokenHash := hashToken(rawToken)
 
 	expiresAt := pgtype.Timestamptz{}
 	expiresAt.Scan(time.Now().Add(scanSessionTTL)) //nolint:errcheck
 
 	sess, err := h.Queries.CreateScanSession(r.Context(), dbgen.CreateScanSessionParams{
-		TokenHash: tokenHash,
+		TokenHash: hashToken(placeholder),
 		UserID:    userID,
 		TeamID:    teamID,
 		ExpiresAt: expiresAt,
@@ -165,10 +164,123 @@ func (h *Handler) CreateScanSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ticket, err := h.Tickets.mint(ticketPair, sess.ID.String(), pairTicketTTL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":         sess.ID.String(),
+		"id":                        sess.ID.String(),
+		"pairing_ticket":            ticket,
+		"pairing_ticket_expires_in": int(pairTicketTTL.Seconds()),
+		"expires_at":                sess.ExpiresAt.Time.UTC().Format(time.RFC3339),
+	})
+}
+
+// RefreshPairingTicket handles POST /api/v1/teams/{teamId}/scan-sessions/{sessionId}/pairing-ticket.
+// Mints a fresh single-use pairing ticket for an existing session so the desktop
+// can keep the QR code live without re-creating the session. Member+.
+func (h *Handler) RefreshPairingTicket(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var sessionID pgtype.UUID
+	if err := sessionID.Scan(chi.URLParam(r, "sessionId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid session id", "BAD_REQUEST")
+		return
+	}
+	if _, err := h.Queries.GetScanSession(r.Context(), dbgen.GetScanSessionParams{ID: sessionID, TeamID: teamID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	ticket, err := h.Tickets.mint(ticketPair, sessionID.String(), pairTicketTTL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pairing_ticket":            ticket,
+		"pairing_ticket_expires_in": int(pairTicketTTL.Seconds()),
+	})
+}
+
+// PairScanSession handles POST /api/v1/scan/pair (unauthenticated — the pairing
+// ticket is the credential). The phone redeems a pairing ticket from the QR code
+// and receives the durable scan token to use as a Bearer token thereafter.
+func (h *Handler) PairScanSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Ticket == "" {
+		writeError(w, http.StatusBadRequest, "ticket is required", "BAD_REQUEST")
+		return
+	}
+	sessionIDStr, ok := h.Tickets.consume(body.Ticket, ticketPair)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or expired pairing ticket", "PAIRING_TICKET_INVALID")
+		return
+	}
+	var sessionID pgtype.UUID
+	if err := sessionID.Scan(sessionIDStr); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	rawToken, err := generateScanToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	row, err := h.Queries.SetScanSessionTokenHash(r.Context(), dbgen.SetScanSessionTokenHashParams{
+		ID:        sessionID,
+		TokenHash: hashToken(rawToken),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	// Drop any cached entry under the prior (placeholder/old) hash.
+	h.Cache.EvictScanTokenBySessionID(sessionID.String())
+
+	writeJSON(w, http.StatusOK, map[string]any{
 		"token":      rawToken,
-		"expires_at": sess.ExpiresAt.Time.UTC().Format(time.RFC3339),
+		"session_id": row.ID.String(),
+		"team_id":    row.TeamID.String(),
+		"expires_at": row.ExpiresAt.Time.UTC().Format(time.RFC3339),
+	})
+}
+
+// CreateStreamTicket handles POST /api/v1/scan/stream-ticket (scan-token Bearer).
+// Mints a single-use, short-lived ticket the phone uses to open the SSE stream.
+func (h *Handler) CreateStreamTicket(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	ticket, err := h.Tickets.mint(ticketStream, sess.ID.String(), streamTicketTTL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ticket":     ticket,
+		"expires_in": int(streamTicketTTL.Seconds()),
 	})
 }
 
@@ -282,6 +394,18 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid session id", "BAD_REQUEST")
 		return
 	}
+	// Confirm the scan session belongs to this team before pushing context to it.
+	if _, err := h.Queries.GetScanSession(r.Context(), dbgen.GetScanSessionParams{
+		ID:     sessionID,
+		TeamID: teamID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
 
 	var body struct {
 		OrderID string `json:"order_id"`
@@ -329,17 +453,27 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 
 // StreamScanSession handles GET /api/v1/scan/stream.
 // Phone maintains this SSE connection; server detects disconnect and notifies desktop.
-// Token is read from ?token= query param (EventSource can't set headers).
+// Auth is a single-use stream ticket in ?ticket= (EventSource can't set headers);
+// the durable scan token never appears in a URL. The phone mints a fresh ticket
+// via POST /scan/stream-ticket before each (re)connect.
 func (h *Handler) StreamScanSession(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.scanSessionFromScanToken(r)
-	if err != nil {
+	sessionIDStr, ok := h.Tickets.consume(r.URL.Query().Get("ticket"), ticketStream)
+	if !ok {
+		// Distinct code so the client knows to mint a fresh ticket and reconnect.
+		writeError(w, http.StatusUnauthorized, "invalid or expired stream ticket", "STREAM_TICKET_INVALID")
+		return
+	}
+	var sessionID pgtype.UUID
+	if err := sessionID.Scan(sessionIDStr); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	if sess == nil {
+	row, err := h.Queries.GetScanSessionByID(r.Context(), sessionID)
+	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	sess := &row
 
 	// Mark phone connected in DB and publish to desktop.
 	if _, dbErr := h.Queries.SetScanSessionPhoneConnected(r.Context(), sess.ID); dbErr == nil {
@@ -1049,8 +1183,12 @@ func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch all line items for the order to match against.
-	items, err := h.Queries.GetOrderLineItemsForScan(r.Context(), orderID)
+	// Fetch all line items for the order to match against. Scoped to the scan
+	// session's team so a scan token cannot read another team's order line items.
+	items, err := h.Queries.GetOrderLineItemsForScan(r.Context(), dbgen.GetOrderLineItemsForScanParams{
+		OrderID: orderID,
+		TeamID:  sess.TeamID,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return

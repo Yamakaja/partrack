@@ -24,6 +24,9 @@ func (h *Handler) ListLineItemSubstitutes(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
+		return
+	}
 
 	rows, err := h.Queries.ListSubstitutesForLineItem(r.Context(), dbgen.ListSubstitutesForLineItemParams{
 		BomLineItemID: itemID,
@@ -79,6 +82,9 @@ func (h *Handler) ReorderSubstitutes(w http.ResponseWriter, r *http.Request) {
 	var itemID pgtype.UUID
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
 		return
 	}
 
@@ -137,6 +143,9 @@ func (h *Handler) ImportSubstitutes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
+		return
+	}
 
 	var body struct {
 		SourceRevisionID string `json:"source_revision_id"`
@@ -155,6 +164,9 @@ func (h *Handler) ImportSubstitutes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid source_revision_id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireRevisionInTeam(w, r, sourceRevID, teamID) {
+		return
+	}
 
 	if _, err := h.Queries.ImportSubstitutesFromRevision(r.Context(), dbgen.ImportSubstitutesFromRevisionParams{
 		BomLineItemID:  itemID,
@@ -171,6 +183,11 @@ func (h *Handler) ImportSubstitutes(w http.ResponseWriter, r *http.Request) {
 // ListPreviousRevisionsWithSubstitutes handles GET .../items/{itemId}/substitutes/previous-revisions
 // Returns revisions in the same project that have substitutes for this line item's part.
 func (h *Handler) ListPreviousRevisionsWithSubstitutes(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
 	var projectID pgtype.UUID
 	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
@@ -184,6 +201,9 @@ func (h *Handler) ListPreviousRevisionsWithSubstitutes(w http.ResponseWriter, r 
 	var itemID pgtype.UUID
 	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireProjectInTeam(w, r, projectID, teamID) || !h.requireLineItemInTeam(w, r, itemID, teamID) {
 		return
 	}
 

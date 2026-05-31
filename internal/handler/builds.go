@@ -337,6 +337,9 @@ func (h *Handler) PreviewBuild(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid bom_revision_id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireRevisionInTeam(w, r, revID, teamID) {
+		return
+	}
 
 	deductions, err := h.computeDeductions(r, teamID, revID, body.Quantity, body.SubstituteSelections, nil)
 	if err != nil {
@@ -721,6 +724,9 @@ func (h *Handler) CreateBuild(w http.ResponseWriter, r *http.Request) {
 	var revID pgtype.UUID
 	if err := revID.Scan(body.BomRevisionID); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid bom_revision_id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireProjectInTeam(w, r, projectID, teamID) || !h.requireRevisionInTeam(w, r, revID, teamID) {
 		return
 	}
 

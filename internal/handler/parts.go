@@ -31,6 +31,9 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
 			return
 		}
+		if !h.requireTeamMembership(w, r, teamID) {
+			return
+		}
 		params.TeamID = teamID
 		countParams.TeamID = teamID
 	}
@@ -453,6 +456,9 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		var teamID pgtype.UUID
 		if err := teamID.Scan(teamIDStr); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+			return
+		}
+		if !h.requireTeamMembership(w, r, teamID) {
 			return
 		}
 		row, err := h.Queries.GetPartWithInventory(r.Context(), dbgen.GetPartWithInventoryParams{

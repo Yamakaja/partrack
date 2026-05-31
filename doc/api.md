@@ -271,7 +271,7 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| GET | `/oauth/{distributorApiType}/initiate` | purchaser | `{auth_url}` — start OAuth flow; query: `return_to?` (default `/`) |
+| POST | `/oauth/{distributorApiType}/initiate` | purchaser | `{auth_url}` — start OAuth flow; query: `return_to?` (default `/`). POST (not GET) to avoid a cross-site GET side effect. |
 | GET | `/oauth/{distributorApiType}/status` | purchaser | `{connected, account_id, updated_at}` |
 | DELETE | `/oauth/{distributorApiType}/token` | purchaser | Disconnect OAuth; 204 |
 
@@ -298,7 +298,8 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| POST | `/teams/{teamId}/scan-sessions` | member+ | Create scan session. Body: `{order_id?: string}`. Returns `{id, token, expires_at}`. Token is 30-day TTL. |
+| POST | `/teams/{teamId}/scan-sessions` | member+ | Create scan session. Body: `{order_id?: string}`. Returns `{id, pairing_ticket, pairing_ticket_expires_in, expires_at}`. The durable token is NOT returned here — the phone obtains it by redeeming `pairing_ticket` at `POST /scan/pair`. Durable token TTL 24h. |
+| POST | `/teams/{teamId}/scan-sessions/{sessionId}/pairing-ticket` | member+ | Mint a fresh single-use pairing ticket for an existing session (desktop refreshes the QR before the 60s TTL lapses). Returns `{pairing_ticket, pairing_ticket_expires_in}`. |
 | GET | `/teams/{teamId}/scan-sessions/active` | member+ | Get current user's active scan session. Returns `{id, phone_connected, context_type, context_order_id, context_order_ref, phone_ip, phone_ua}` or 204 if none. |
 | DELETE | `/teams/{teamId}/scan-sessions/{sessionId}` | purchaser+ | Delete scan session. |
 | PATCH | `/teams/{teamId}/scan-sessions/{sessionId}/context` | purchaser+ | Push order context to phone. Body: `{order_id}`. Returns `{ok, context_order_ref}`. Sends SSE to connected phone immediately. |
@@ -316,11 +317,13 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 
 ### Phone-facing (scan token auth — `Authorization: Bearer scan_...`)
 
-Phone endpoints accept the scan token either as `Authorization: Bearer` header (fetch) or `?token=` query param (EventSource).
+Phone endpoints take the scan token as an `Authorization: Bearer scan_...` header. The token never appears in a URL; the SSE stream uses a single-use ticket instead. The phone first obtains the durable token by redeeming the QR's pairing ticket.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/scan/stream` | SSE stream for phone. Token via `?token=`. Server publishes `scan_context_changed` events when desktop pushes context. Marks phone connected on open, disconnected on close. |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/scan/pair` | none (ticket is credential) | Redeem a single-use pairing ticket (from the QR fragment) for the durable scan token. Body: `{ticket}`. Returns `{token, session_id, team_id, expires_at}`. 401 `PAIRING_TICKET_INVALID` if spent/expired. Rate-limited per IP. |
+| POST | `/scan/stream-ticket` | Bearer | Mint a single-use, 30s ticket for opening the SSE stream. Returns `{ticket, expires_in}`. |
+| GET | `/scan/stream?ticket=` | stream ticket | SSE stream for phone. Auth via single-use `?ticket=` (consumed on connect). 401 `STREAM_TICKET_INVALID` on a spent/invalid ticket — the client mints a fresh ticket and reconnects. Publishes `scan_context_changed`; marks phone connected/disconnected. |
 | GET | `/scan/session` | Fallback poll — returns `{session_id, context_type, context_order_id, context_order_ref, pending_scan, active_kitting_session_id, active_kitting_build_ref}`. Returns 410 when session expired. |
 | POST | `/scan/context` | Phone sets own context. Body: `{order_id}`. |
 | GET | `/scan/orders` | List receivable orders (status `placed` or `partially_received`). Returns `{orders: [{id, ref, status, distributor_name, item_count}]}`. |

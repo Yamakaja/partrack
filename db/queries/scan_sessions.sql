@@ -3,6 +3,19 @@ INSERT INTO scan_sessions (token_hash, user_id, team_id, expires_at)
 VALUES ($1, $2, $3, $4)
 RETURNING id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at;
 
+-- name: SetScanSessionTokenHash :one
+-- Sets the durable session token hash at pairing time and returns the session's
+-- user/team so the phone can be told which context it joined.
+UPDATE scan_sessions
+SET token_hash = $2
+WHERE id = $1
+RETURNING id, user_id, team_id, expires_at;
+
+-- name: GetScanSessionByID :one
+SELECT id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at
+FROM scan_sessions
+WHERE id = $1 AND expires_at > NOW();
+
 -- name: GetScanSessionByTokenHash :one
 SELECT
     ss.id, ss.token_hash, ss.user_id, ss.team_id,
@@ -65,9 +78,10 @@ SELECT
     oli.quantity_ordered,
     oli.quantity_received
 FROM order_line_items oli
+JOIN orders o ON o.id = oli.order_id
 JOIN distributor_listings dl ON dl.id = oli.listing_id
 JOIN parts p ON p.id = dl.part_id
-WHERE oli.order_id = $1
+WHERE oli.order_id = $1 AND o.team_id = @team_id
 ORDER BY oli.id;
 
 -- name: GetPartBySKUAndDistributorWithInventory :one

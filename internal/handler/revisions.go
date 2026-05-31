@@ -16,9 +16,17 @@ import (
 
 // ListRevisions handles GET /api/v1/teams/{teamId}/projects/{projectId}/revisions
 func (h *Handler) ListRevisions(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
 	var projectID pgtype.UUID
 	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireProjectInTeam(w, r, projectID, teamID) {
 		return
 	}
 
@@ -77,6 +85,9 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	var projectID pgtype.UUID
 	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireProjectInTeam(w, r, projectID, teamID) {
 		return
 	}
 
@@ -232,6 +243,11 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 
 // GetRevision handles GET /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}
 func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
 	var projectID pgtype.UUID
 	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid project id", "BAD_REQUEST")
@@ -240,6 +256,9 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	var revID pgtype.UUID
 	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireRevisionInTeam(w, r, revID, teamID) {
 		return
 	}
 
@@ -373,6 +392,9 @@ func (h *Handler) UpdateRevision(w http.ResponseWriter, r *http.Request) {
 	var revID pgtype.UUID
 	if err := revID.Scan(chi.URLParam(r, "revId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireRevisionInTeam(w, r, revID, teamID) {
 		return
 	}
 

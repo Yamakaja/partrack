@@ -113,11 +113,17 @@ SELECT
     oli.quantity_ordered,
     oli.quantity_received
 FROM order_line_items oli
+JOIN orders o ON o.id = oli.order_id
 JOIN distributor_listings dl ON dl.id = oli.listing_id
 JOIN parts p ON p.id = dl.part_id
-WHERE oli.order_id = $1
+WHERE oli.order_id = $1 AND o.team_id = $2
 ORDER BY oli.id
 `
+
+type GetOrderLineItemsForScanParams struct {
+	OrderID pgtype.UUID `json:"order_id"`
+	TeamID  pgtype.UUID `json:"team_id"`
+}
 
 type GetOrderLineItemsForScanRow struct {
 	ID               pgtype.UUID `json:"id"`
@@ -128,8 +134,8 @@ type GetOrderLineItemsForScanRow struct {
 	QuantityReceived int32       `json:"quantity_received"`
 }
 
-func (q *Queries) GetOrderLineItemsForScan(ctx context.Context, orderID pgtype.UUID) ([]GetOrderLineItemsForScanRow, error) {
-	rows, err := q.db.Query(ctx, getOrderLineItemsForScan, orderID)
+func (q *Queries) GetOrderLineItemsForScan(ctx context.Context, arg GetOrderLineItemsForScanParams) ([]GetOrderLineItemsForScanRow, error) {
+	rows, err := q.db.Query(ctx, getOrderLineItemsForScan, arg.OrderID, arg.TeamID)
 	if err != nil {
 		return nil, err
 	}
@@ -417,6 +423,28 @@ func (q *Queries) GetScanSession(ctx context.Context, arg GetScanSessionParams) 
 	return i, err
 }
 
+const getScanSessionByID = `-- name: GetScanSessionByID :one
+SELECT id, token_hash, user_id, team_id, phone_connected, pending_scan, created_at, expires_at
+FROM scan_sessions
+WHERE id = $1 AND expires_at > NOW()
+`
+
+func (q *Queries) GetScanSessionByID(ctx context.Context, id pgtype.UUID) (ScanSession, error) {
+	row := q.db.QueryRow(ctx, getScanSessionByID, id)
+	var i ScanSession
+	err := row.Scan(
+		&i.ID,
+		&i.TokenHash,
+		&i.UserID,
+		&i.TeamID,
+		&i.PhoneConnected,
+		&i.PendingScan,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getScanSessionByTokenHash = `-- name: GetScanSessionByTokenHash :one
 SELECT
     ss.id, ss.token_hash, ss.user_id, ss.team_id,
@@ -536,4 +564,37 @@ UPDATE scan_sessions SET phone_connected = FALSE WHERE id = $1
 func (q *Queries) SetScanSessionPhoneDisconnected(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, setScanSessionPhoneDisconnected, id)
 	return err
+}
+
+const setScanSessionTokenHash = `-- name: SetScanSessionTokenHash :one
+UPDATE scan_sessions
+SET token_hash = $2
+WHERE id = $1
+RETURNING id, user_id, team_id, expires_at
+`
+
+type SetScanSessionTokenHashParams struct {
+	ID        pgtype.UUID `json:"id"`
+	TokenHash string      `json:"token_hash"`
+}
+
+type SetScanSessionTokenHashRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	TeamID    pgtype.UUID        `json:"team_id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+// Sets the durable session token hash at pairing time and returns the session's
+// user/team so the phone can be told which context it joined.
+func (q *Queries) SetScanSessionTokenHash(ctx context.Context, arg SetScanSessionTokenHashParams) (SetScanSessionTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, setScanSessionTokenHash, arg.ID, arg.TokenHash)
+	var i SetScanSessionTokenHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TeamID,
+		&i.ExpiresAt,
+	)
+	return i, err
 }

@@ -83,6 +83,10 @@ func (h *Handler) CreateParameter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, ok := h.requirePartManualEdit(w, r, partID); !ok {
+		return
+	}
+
 	var req struct {
 		Name  string  `json:"name"`
 		Value string  `json:"value"`
@@ -114,13 +118,24 @@ func (h *Handler) CreateParameter(w http.ResponseWriter, r *http.Request) {
 
 // DeleteParameter handles DELETE /api/v1/parts/{partId}/parameters/{parameterId}
 func (h *Handler) DeleteParameter(w http.ResponseWriter, r *http.Request) {
+	var partID pgtype.UUID
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
 	var paramID pgtype.UUID
 	if err := paramID.Scan(chi.URLParam(r, "parameterId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid parameter ID", "BAD_REQUEST")
 		return
 	}
+	if _, ok := h.requirePartManualEdit(w, r, partID); !ok {
+		return
+	}
 
-	if err := h.Queries.DeleteParameter(r.Context(), paramID); err != nil {
+	if err := h.Queries.DeleteParameter(r.Context(), dbgen.DeleteParameterParams{
+		ID:     paramID,
+		PartID: partID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}

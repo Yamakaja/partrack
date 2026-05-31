@@ -79,6 +79,35 @@ func CreateSession(t *testing.T, pool *pgxpool.Pool, userID string) string {
 	return raw
 }
 
+// CreateScanSession inserts an active scan session for (user, team) and returns
+// the raw scan token (scan_ prefix), usable as an Authorization: Bearer token.
+func CreateScanSession(t *testing.T, pool *pgxpool.Pool, userID, teamID string) string {
+	t.Helper()
+	raw := "scan_" + randHex(32)
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO scan_sessions (token_hash, user_id, team_id, expires_at)
+		 VALUES ($1, $2, $3, now() + interval '1 day')`,
+		hashRaw(raw), userID, teamID,
+	); err != nil {
+		t.Fatalf("testutil: CreateScanSession: %v", err)
+	}
+	return raw
+}
+
+// CreateBulkScanSession inserts a bulk scan session for (user, team) and returns
+// its UUID string.
+func CreateBulkScanSession(t *testing.T, pool *pgxpool.Pool, userID, teamID string) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO bulk_scan_sessions (user_id, team_id) VALUES ($1, $2) RETURNING id`,
+		userID, teamID,
+	).Scan(&id); err != nil {
+		t.Fatalf("testutil: CreateBulkScanSession: %v", err)
+	}
+	return id
+}
+
 // CreateAPIToken generates a raw API token (ptk_ prefix), stores its hash, and
 // returns the raw token.
 func CreateAPIToken(t *testing.T, pool *pgxpool.Pool, userID, name string) string {

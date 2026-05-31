@@ -308,6 +308,9 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid revision id", "BAD_REQUEST")
 		return
 	}
+	if !h.requireRevisionInTeam(w, r, revID, teamID) {
+		return
+	}
 
 	buildQtyStr := r.URL.Query().Get("build_quantity")
 	if buildQtyStr == "" {
