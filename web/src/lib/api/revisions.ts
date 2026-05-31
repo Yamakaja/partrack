@@ -34,6 +34,8 @@ export interface BOMImportConfig {
   distributor_col?: string;
   /** distributor name → distributor UUID mapping chosen at import time */
   mapping?: Record<string, string | undefined>;
+  /** distributor UUID applied to all SKUs when the BOM has no distributor column */
+  single_distributor_id?: string;
 }
 
 export interface ImportRevisionBody {

@@ -78,6 +78,15 @@ export interface BOMLineItem {
   resolution_state: string | null;
   ignored: boolean;
   substitutes: BOMSubstitute[];
+  resolve_item?: BOMResolveItem | null;
+}
+
+export interface BOMResolveItem {
+  id: string;
+  status: 'pending' | 'enriched' | 'failed' | 'committed' | null;
+  task_type: string | null;
+  enrichment_data?: import('$lib/api/bulkScan.js').EnrichmentDataAggregate | null;
+  error_message?: string | null;
 }
 
 export interface BOMSubstitute {

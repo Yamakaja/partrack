@@ -256,7 +256,7 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lineItems, err := h.Queries.ListBOMLineItems(r.Context(), revID)
+	lineItems, err := h.Queries.ListBOMLineItemsWithResolveData(r.Context(), revID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -282,22 +282,31 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	type resolveItemResp struct {
+		ID             string          `json:"id"`
+		Status         *string         `json:"status"`
+		TaskType       *string         `json:"task_type"`
+		EnrichmentData json.RawMessage `json:"enrichment_data,omitempty"`
+		ErrorMessage   *string         `json:"error_message,omitempty"`
+	}
+
 	type lineItemResp struct {
-		ID                   string     `json:"id"`
-		ReferenceDesignators string     `json:"reference_designators"`
-		Quantity             int32      `json:"quantity"`
-		PartName             *string    `json:"part_name"`
-		RawDescription       *string    `json:"raw_description"`
-		Manufacturer         *string    `json:"manufacturer"`
-		MPN                  *string    `json:"mpn"`
-		SKU                  *string    `json:"sku"`
-		DistributorName      string     `json:"distributor_name"`
-		HasLinkedDistributor bool       `json:"has_linked_distributor"`
-		ResolvedPartID       *string    `json:"resolved_part_id"`
-		ResolvedPartMpn      *string    `json:"resolved_part_mpn"`
-		ResolutionState      *string    `json:"resolution_state"`
-		Ignored              bool       `json:"ignored"`
-		Substitutes          []subEntry `json:"substitutes"`
+		ID                   string           `json:"id"`
+		ReferenceDesignators string           `json:"reference_designators"`
+		Quantity             int32            `json:"quantity"`
+		PartName             *string          `json:"part_name"`
+		RawDescription       *string          `json:"raw_description"`
+		Manufacturer         *string          `json:"manufacturer"`
+		MPN                  *string          `json:"mpn"`
+		SKU                  *string          `json:"sku"`
+		DistributorName      string           `json:"distributor_name"`
+		HasLinkedDistributor bool             `json:"has_linked_distributor"`
+		ResolvedPartID       *string          `json:"resolved_part_id"`
+		ResolvedPartMpn      *string          `json:"resolved_part_mpn"`
+		ResolutionState      *string          `json:"resolution_state"`
+		Ignored              bool             `json:"ignored"`
+		Substitutes          []subEntry       `json:"substitutes"`
+		ResolveItem          *resolveItemResp `json:"resolve_item,omitempty"`
 	}
 
 	itemsResp := make([]lineItemResp, len(lineItems))
@@ -319,6 +328,18 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			ResolutionState:      li.ResolutionState,
 			Ignored:              li.Ignored,
 			Substitutes:          subsByItem[id],
+		}
+		if li.ResolveItemID.Valid {
+			ri := &resolveItemResp{
+				ID:           li.ResolveItemID.String(),
+				Status:       li.ResolveStatus,
+				TaskType:     li.ResolveTaskType,
+				ErrorMessage: li.ResolveErrorMessage,
+			}
+			if len(li.ResolveEnrichmentData) > 0 {
+				ri.EnrichmentData = json.RawMessage(li.ResolveEnrichmentData)
+			}
+			itemsResp[i].ResolveItem = ri
 		}
 		if itemsResp[i].Substitutes == nil {
 			itemsResp[i].Substitutes = []subEntry{}

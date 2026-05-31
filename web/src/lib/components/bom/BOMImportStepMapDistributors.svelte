@@ -7,6 +7,8 @@
     uniqueDistributorNames,
     availableDistributors,
     distributorMappings = $bindable(),
+    singleMode = false,
+    singleDistributorId = $bindable(''),
     hasRequiredColumns,
     onback,
     onnext,
@@ -15,15 +17,38 @@
     uniqueDistributorNames: string[];
     availableDistributors: Distributor[];
     distributorMappings: DistMapping;
+    singleMode?: boolean;
+    singleDistributorId?: string;
     hasRequiredColumns: boolean;
     onback: () => void;
     onnext: () => void;
     oncancel: () => void;
   } = $props();
+
+  // In single mode the user must choose a distributor before continuing.
+  let canProceed = $derived(hasRequiredColumns && (!singleMode || !!singleDistributorId));
 </script>
 
 <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
-  {#if uniqueDistributorNames.length === 0}
+  {#if singleMode}
+    <div class="space-y-3 max-w-md">
+      <p class="text-sm text-muted-foreground">
+        Your BOM has a SKU column but no distributor column. Choose the distributor these SKUs belong to —
+        it will be applied to every row with a SKU so they can be resolved.
+      </p>
+      <label class="block text-sm font-medium" for="single-distributor">Distributor for all SKUs</label>
+      <select
+        id="single-distributor"
+        bind:value={singleDistributorId}
+        class="w-full rounded border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <option value={''}>— Select a distributor —</option>
+        {#each availableDistributors as d}
+          <option value={d.id}>{d.name}</option>
+        {/each}
+      </select>
+    </div>
+  {:else if uniqueDistributorNames.length === 0}
     <p class="py-8 text-center text-sm text-muted-foreground">
       No distributors detected in the BOM.
     </p>
@@ -66,7 +91,7 @@
   <Button variant="outline" onclick={onback}>← Back</Button>
   <div class="flex gap-2">
     <Button variant="outline" onclick={oncancel}>Cancel</Button>
-    <Button onclick={onnext} disabled={!hasRequiredColumns}>
+    <Button onclick={onnext} disabled={!canProceed}>
       Next: Details →
     </Button>
   </div>

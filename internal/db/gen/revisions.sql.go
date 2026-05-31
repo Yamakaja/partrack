@@ -131,6 +131,28 @@ func (q *Queries) GetBOMLineItem(ctx context.Context, arg GetBOMLineItemParams) 
 	return i, err
 }
 
+const getBOMLineItemContext = `-- name: GetBOMLineItemContext :one
+SELECT bli.id, bli.bom_revision_id, br.project_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE bli.id = $1
+`
+
+type GetBOMLineItemContextRow struct {
+	ID            pgtype.UUID `json:"id"`
+	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
+	ProjectID     pgtype.UUID `json:"project_id"`
+}
+
+// Returns the revision + project for a line item, for substitute inheritance
+// and revision_changed events from the resolve worker.
+func (q *Queries) GetBOMLineItemContext(ctx context.Context, id pgtype.UUID) (GetBOMLineItemContextRow, error) {
+	row := q.db.QueryRow(ctx, getBOMLineItemContext, id)
+	var i GetBOMLineItemContextRow
+	err := row.Scan(&i.ID, &i.BomRevisionID, &i.ProjectID)
+	return i, err
+}
+
 const getImmediatelyPriorRevision = `-- name: GetImmediatelyPriorRevision :one
 SELECT id FROM bom_revisions
 WHERE project_id = $1
@@ -359,6 +381,34 @@ func (q *Queries) IgnoreBOMLineItem(ctx context.Context, arg IgnoreBOMLineItemPa
 	return i, err
 }
 
+const linkBOMLineItemPart = `-- name: LinkBOMLineItemPart :one
+UPDATE bom_line_items
+SET resolved_part_id = $1,
+    resolution_state = $2
+WHERE id = $3
+RETURNING id, bom_revision_id
+`
+
+type LinkBOMLineItemPartParams struct {
+	ResolvedPartID  pgtype.UUID `json:"resolved_part_id"`
+	ResolutionState *string     `json:"resolution_state"`
+	ID              pgtype.UUID `json:"id"`
+}
+
+type LinkBOMLineItemPartRow struct {
+	ID            pgtype.UUID `json:"id"`
+	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
+}
+
+// Resolves a line item to a part by id only (the resolve commit path does not
+// carry the revision id). Returns context for follow-up actions.
+func (q *Queries) LinkBOMLineItemPart(ctx context.Context, arg LinkBOMLineItemPartParams) (LinkBOMLineItemPartRow, error) {
+	row := q.db.QueryRow(ctx, linkBOMLineItemPart, arg.ResolvedPartID, arg.ResolutionState, arg.ID)
+	var i LinkBOMLineItemPartRow
+	err := row.Scan(&i.ID, &i.BomRevisionID)
+	return i, err
+}
+
 const listAllSubstitutesForRevision = `-- name: ListAllSubstitutesForRevision :many
 SELECT
     s.bom_line_item_id,
@@ -472,6 +522,93 @@ func (q *Queries) ListBOMLineItems(ctx context.Context, bomRevisionID pgtype.UUI
 	return items, nil
 }
 
+const listBOMLineItemsWithResolveData = `-- name: ListBOMLineItemsWithResolveData :many
+SELECT
+    bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
+    bli.resolved_part_id,
+    bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
+    COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
+    bli.resolved_distributor_id,
+    bli.resolution_state, bli.ignored,
+    p.mpn AS resolved_part_mpn,
+    bli.resolve_item_id,
+    pri.status          AS resolve_status,
+    pri.task_type       AS resolve_task_type,
+    pri.enrichment_data AS resolve_enrichment_data,
+    pri.error_message   AS resolve_error_message
+FROM bom_line_items bli
+LEFT JOIN parts p ON p.id = bli.resolved_part_id
+LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
+LEFT JOIN part_resolve_items pri ON pri.id = bli.resolve_item_id
+WHERE bli.bom_revision_id = $1
+ORDER BY bli.id
+`
+
+type ListBOMLineItemsWithResolveDataRow struct {
+	ID                    pgtype.UUID `json:"id"`
+	ReferenceDesignators  string      `json:"reference_designators"`
+	Quantity              int32       `json:"quantity"`
+	RawDescription        *string     `json:"raw_description"`
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	PartName              *string     `json:"part_name"`
+	Manufacturer          *string     `json:"manufacturer"`
+	Mpn                   *string     `json:"mpn"`
+	Sku                   *string     `json:"sku"`
+	DistributorName       string      `json:"distributor_name"`
+	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	Ignored               bool        `json:"ignored"`
+	ResolvedPartMpn       *string     `json:"resolved_part_mpn"`
+	ResolveItemID         pgtype.UUID `json:"resolve_item_id"`
+	ResolveStatus         *string     `json:"resolve_status"`
+	ResolveTaskType       *string     `json:"resolve_task_type"`
+	ResolveEnrichmentData []byte      `json:"resolve_enrichment_data"`
+	ResolveErrorMessage   *string     `json:"resolve_error_message"`
+}
+
+// Like ListBOMLineItems but also joins the linked part_resolve_item so the
+// revision page can render the segmented progress bar and the new-part review
+// surface without extra round-trips.
+func (q *Queries) ListBOMLineItemsWithResolveData(ctx context.Context, bomRevisionID pgtype.UUID) ([]ListBOMLineItemsWithResolveDataRow, error) {
+	rows, err := q.db.Query(ctx, listBOMLineItemsWithResolveData, bomRevisionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBOMLineItemsWithResolveDataRow
+	for rows.Next() {
+		var i ListBOMLineItemsWithResolveDataRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ReferenceDesignators,
+			&i.Quantity,
+			&i.RawDescription,
+			&i.ResolvedPartID,
+			&i.PartName,
+			&i.Manufacturer,
+			&i.Mpn,
+			&i.Sku,
+			&i.DistributorName,
+			&i.ResolvedDistributorID,
+			&i.ResolutionState,
+			&i.Ignored,
+			&i.ResolvedPartMpn,
+			&i.ResolveItemID,
+			&i.ResolveStatus,
+			&i.ResolveTaskType,
+			&i.ResolveEnrichmentData,
+			&i.ResolveErrorMessage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRevisions = `-- name: ListRevisions :many
 SELECT
     br.id, br.label, br.imported_at, br.notes,
@@ -543,6 +680,43 @@ type RemoveBOMSubstituteParams struct {
 
 func (q *Queries) RemoveBOMSubstitute(ctx context.Context, arg RemoveBOMSubstituteParams) error {
 	_, err := q.db.Exec(ctx, removeBOMSubstitute, arg.BomLineItemID, arg.PartID)
+	return err
+}
+
+const setBOMLineItemResolutionState = `-- name: SetBOMLineItemResolutionState :exec
+UPDATE bom_line_items
+SET resolution_state = $1
+WHERE id = $2
+`
+
+type SetBOMLineItemResolutionStateParams struct {
+	ResolutionState *string     `json:"resolution_state"`
+	ID              pgtype.UUID `json:"id"`
+}
+
+// Sets just the resolution_state (e.g. import_ambiguous / import_no_result),
+// used by the resolve worker when it cannot auto-commit.
+func (q *Queries) SetBOMLineItemResolutionState(ctx context.Context, arg SetBOMLineItemResolutionStateParams) error {
+	_, err := q.db.Exec(ctx, setBOMLineItemResolutionState, arg.ResolutionState, arg.ID)
+	return err
+}
+
+const setBOMLineItemResolveItem = `-- name: SetBOMLineItemResolveItem :exec
+UPDATE bom_line_items
+SET resolve_item_id  = $1,
+    resolution_state = $2
+WHERE id = $3
+`
+
+type SetBOMLineItemResolveItemParams struct {
+	ResolveItemID   pgtype.UUID `json:"resolve_item_id"`
+	ResolutionState *string     `json:"resolution_state"`
+	ID              pgtype.UUID `json:"id"`
+}
+
+// Links a line item to its in-flight resolve item and marks it importing.
+func (q *Queries) SetBOMLineItemResolveItem(ctx context.Context, arg SetBOMLineItemResolveItemParams) error {
+	_, err := q.db.Exec(ctx, setBOMLineItemResolveItem, arg.ResolveItemID, arg.ResolutionState, arg.ID)
 	return err
 }
 

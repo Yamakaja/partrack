@@ -23,6 +23,13 @@ export interface CommitResolveItemRequest {
   storage_location_id?: string;
 }
 
+export function createPartResolveItem(
+  teamId: string,
+  body: { sku?: string; distributor_id?: string; mpn?: string; manufacturer?: string },
+): Promise<{ resolve_item_id: string; job_id: string }> {
+  return request('POST', `/api/v1/teams/${teamId}/parts/resolve`, body);
+}
+
 export function getPartResolveItem(teamId: string, resolveItemId: string): Promise<PartResolveItemFull> {
   return request('GET', `/api/v1/teams/${teamId}/parts/resolve/${resolveItemId}`);
 }

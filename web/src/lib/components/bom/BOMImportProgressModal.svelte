@@ -25,6 +25,7 @@
   let substitutesInherited = $state(0);
   let ambiguous = $state(0);
   let noMatch = $state(0);
+  let importingCount = $state(0);
   let total = $state(0);
   let done = $state(false);
   let error = $state('');
@@ -46,6 +47,7 @@
       if (d?.substitutes_copied !== undefined) substitutesInherited = d.substitutes_copied as number;
       if (d?.ambiguous !== undefined) ambiguous = d.ambiguous as number;
       if (d?.no_match !== undefined) noMatch = d.no_match as number;
+      if (d?.importing !== undefined) importingCount = d.importing as number;
       if (d?.status === 'complete') {
         done = true;
       } else if (d?.status === 'error') {
@@ -89,7 +91,11 @@
         </div>
 
       {:else if done}
-        <p class="text-sm text-muted-foreground mb-4">Import complete.</p>
+        <p class="text-sm text-muted-foreground mb-4">
+          {importingCount > 0
+            ? 'Known parts resolved. New parts are importing in the background — they appear on the revision page as they finish.'
+            : 'Import complete.'}
+        </p>
         <div class="rounded-md border border-border divide-y divide-border text-sm mb-6">
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Total items</span>
@@ -110,6 +116,10 @@
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Substitutes inherited</span>
             <span class="font-medium tabular-nums {substitutesInherited > 0 ? 'text-green-600' : 'text-muted-foreground'}">{substitutesInherited}</span>
+          </div>
+          <div class="flex items-center justify-between px-4 py-2">
+            <span class="text-muted-foreground">New parts importing</span>
+            <span class="font-medium tabular-nums {importingCount > 0 ? 'text-indigo-500' : 'text-muted-foreground'}">{importingCount}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Ambiguous</span>

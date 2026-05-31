@@ -48,6 +48,9 @@
   let uniqueDistributorNames = $state<string[]>([]);
   let distributorMappings = $state<DistMapping>({});
   let availableDistributors = $state<Distributor[]>([]);
+  // 'none' = skip step, 'multi' = per-name mapping, 'single' = one distributor for all SKUs.
+  let distributorStepMode = $state<'none' | 'multi' | 'single'>('none');
+  let singleDistributorId = $state('');
 
   // Revision details
   let label = $state('');
@@ -83,6 +86,7 @@
     // Column mapping based on stored header names is applied during advanceToMap.
     _storedConfigForMapping = config;
     distributorMappings = config.mapping ?? {};
+    singleDistributorId = config.single_distributor_id ?? '';
   }
 
   // Re-parse whenever any option or raw text changes.
@@ -113,6 +117,8 @@
     label = '';
     notes = '';
     columnRoles = [];
+    distributorStepMode = 'none';
+    uniqueDistributorNames = [];
     step = 'parse';
 
     // Re-apply the project's saved import config (overrides defaults above).
@@ -212,15 +218,24 @@
       ),
     );
 
-    // If there are no distributor names in the BOM, skip to the details step.
-    if (names.length === 0) {
+    const hasSkuColumn = columnRoles.includes('sku');
+    const hasDistributorColumn = columnRoles.includes('distributor');
+
+    if (names.length > 0) {
+      distributorStepMode = 'multi';
+      uniqueDistributorNames = names;
+      for (const n of names) {
+        if (!(n in distributorMappings)) distributorMappings[n] = undefined;
+      }
+    } else if (hasSkuColumn && !hasDistributorColumn) {
+      // SKUs present but no distributor column — ask for a single distributor.
+      distributorStepMode = 'single';
+      uniqueDistributorNames = [];
+    } else {
+      // Nothing to map — skip straight to details.
+      distributorStepMode = 'none';
       step = 'details';
       return;
-    }
-
-    uniqueDistributorNames = names;
-    for (const n of names) {
-      if (!(n in distributorMappings)) distributorMappings[n] = undefined;
     }
 
     importing = true;
@@ -243,7 +258,11 @@
     if (!canImport) return;
     importing = true;
     try {
-      const items = buildItems(dataRows, columnRoles, mapping);
+      const single =
+        distributorStepMode === 'single' && singleDistributorId
+          ? { id: singleDistributorId, name: availableDistributors.find((d) => d.id === singleDistributorId)?.name ?? '' }
+          : undefined;
+      const items = buildItems(dataRows, columnRoles, mapping, single);
 
       const desigIdx = columnRoles.indexOf('designators');
       const qtyIdx   = columnRoles.indexOf('quantity');
@@ -274,6 +293,7 @@
           sku_col:          skuIdx   >= 0 ? (headerRow[skuIdx]   ?? '') : '',
           distributor_col:  distIdx  >= 0 ? (headerRow[distIdx]  ?? '') : '',
           mapping: mapping,
+          single_distributor_id: distributorStepMode === 'single' ? singleDistributorId : undefined,
         },
         items,
       });
@@ -291,7 +311,7 @@
 
   async function handleFinalImport() {
     if (!canImport || importing) return;
-    const mapping = uniqueDistributorNames.length > 0 ? distributorMappings : undefined;
+    const mapping = distributorStepMode === 'multi' ? distributorMappings : undefined;
     await performImport(mapping);
   }
 </script>
@@ -377,6 +397,8 @@
           {uniqueDistributorNames}
           {availableDistributors}
           bind:distributorMappings
+          singleMode={distributorStepMode === 'single'}
+          bind:singleDistributorId
           {hasRequiredColumns}
           onback={() => (step = 'map')}
           onnext={handleDistributorNext}
@@ -388,8 +410,8 @@
           bind:notes
           {canImport}
           {importing}
-          hasDistributorStep={uniqueDistributorNames.length > 0}
-          onback={() => (step = uniqueDistributorNames.length > 0 ? 'distributor-map' : 'map')}
+          hasDistributorStep={distributorStepMode !== 'none'}
+          onback={() => (step = distributorStepMode !== 'none' ? 'distributor-map' : 'map')}
           onimport={handleFinalImport}
           oncancel={handleClose}
         />

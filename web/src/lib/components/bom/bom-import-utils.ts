@@ -106,13 +106,26 @@ export interface BOMImportItem {
 }
 
 /**
+ * A single distributor applied to every SKU-bearing row when the BOM has a SKU
+ * column but no distributor column (collected in the wizard's distributor step).
+ */
+export interface SingleDistributor {
+  id: string;
+  name: string;
+}
+
+/**
  * Transform parsed CSV data rows into BOM import items using the current
  * column-role assignments and an optional distributor ID mapping.
+ *
+ * When there is no distributor column, `single` (if provided) is stamped onto
+ * every row that has a SKU, so SKU-based resolution can fire.
  */
 export function buildItems(
   dataRows: string[][],
   columnRoles: ColumnRole[],
   mapping?: DistMapping,
+  single?: SingleDistributor,
 ): BOMImportItem[] {
   const desigIdx = columnRoles.indexOf('designators');
   const qtyIdx   = columnRoles.indexOf('quantity');
@@ -125,10 +138,19 @@ export function buildItems(
 
   return dataRows
     .map((row) => {
-      const distributorName =
+      const sku =
+        skuIdx >= 0 && row[skuIdx]?.trim() ? row[skuIdx].trim() : undefined;
+
+      let distributorName =
         distIdx >= 0 && row[distIdx]?.trim() ? row[distIdx].trim() : undefined;
-      const resolvedDistributorId =
+      let resolvedDistributorId =
         distributorName && mapping ? mapping[distributorName] || null : null;
+
+      // No distributor column: apply the single chosen distributor to SKU rows.
+      if (!distributorName && single && single.id && sku) {
+        distributorName = single.name;
+        resolvedDistributorId = single.id;
+      }
 
       return {
         reference_designators: row[desigIdx]?.trim() ?? '',
@@ -141,8 +163,7 @@ export function buildItems(
           mfrIdx >= 0 && row[mfrIdx]?.trim() ? row[mfrIdx].trim() : undefined,
         name:
           nameIdx >= 0 && row[nameIdx]?.trim() ? row[nameIdx].trim() : undefined,
-        sku:
-          skuIdx >= 0 && row[skuIdx]?.trim() ? row[skuIdx].trim() : undefined,
+        sku,
         distributor_name: distributorName,
         resolved_distributor_id: resolvedDistributorId,
       };

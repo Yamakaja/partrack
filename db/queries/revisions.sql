@@ -58,6 +58,61 @@ LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 WHERE bli.bom_revision_id = $1
 ORDER BY bli.id;
 
+-- name: ListBOMLineItemsWithResolveData :many
+-- Like ListBOMLineItems but also joins the linked part_resolve_item so the
+-- revision page can render the segmented progress bar and the new-part review
+-- surface without extra round-trips.
+SELECT
+    bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
+    bli.resolved_part_id,
+    bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
+    COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
+    bli.resolved_distributor_id,
+    bli.resolution_state, bli.ignored,
+    p.mpn AS resolved_part_mpn,
+    bli.resolve_item_id,
+    pri.status          AS resolve_status,
+    pri.task_type       AS resolve_task_type,
+    pri.enrichment_data AS resolve_enrichment_data,
+    pri.error_message   AS resolve_error_message
+FROM bom_line_items bli
+LEFT JOIN parts p ON p.id = bli.resolved_part_id
+LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
+LEFT JOIN part_resolve_items pri ON pri.id = bli.resolve_item_id
+WHERE bli.bom_revision_id = $1
+ORDER BY bli.id;
+
+-- name: SetBOMLineItemResolveItem :exec
+-- Links a line item to its in-flight resolve item and marks it importing.
+UPDATE bom_line_items
+SET resolve_item_id  = @resolve_item_id,
+    resolution_state = @resolution_state
+WHERE id = @id;
+
+-- name: SetBOMLineItemResolutionState :exec
+-- Sets just the resolution_state (e.g. import_ambiguous / import_no_result),
+-- used by the resolve worker when it cannot auto-commit.
+UPDATE bom_line_items
+SET resolution_state = @resolution_state
+WHERE id = @id;
+
+-- name: LinkBOMLineItemPart :one
+-- Resolves a line item to a part by id only (the resolve commit path does not
+-- carry the revision id). Returns context for follow-up actions.
+UPDATE bom_line_items
+SET resolved_part_id = @resolved_part_id,
+    resolution_state = @resolution_state
+WHERE id = @id
+RETURNING id, bom_revision_id;
+
+-- name: GetBOMLineItemContext :one
+-- Returns the revision + project for a line item, for substitute inheritance
+-- and revision_changed events from the resolve worker.
+SELECT bli.id, bli.bom_revision_id, br.project_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE bli.id = $1;
+
 -- name: GetBOMLineItem :one
 SELECT id, bom_revision_id, reference_designators, quantity, raw_description, resolved_part_id
 FROM bom_line_items

@@ -209,6 +209,7 @@ func (q *Queue) handlePartResolve(job Job) {
 			ResolvedPartID: foundPartID,
 		})
 		q.propagateTaskTypeToBulkScanItem(ctx, queries, item, taskType, foundPartID)
+		q.finalizeBOMResolveEnriched(ctx, queries, itemID, teamID, userIDStr)
 		q.publishPartResolveChanged(item, userIDStr, teamIDStr)
 		return
 	}
@@ -401,6 +402,7 @@ func (q *Queue) handlePartResolve(job Job) {
 		ResolvedPartID: foundPartID,
 	})
 	q.propagateTaskTypeToBulkScanItem(ctx, queries, item, taskType, foundPartID)
+	q.finalizeBOMResolveEnriched(ctx, queries, itemID, teamID, userIDStr)
 	q.publishPartResolveChanged(item, userIDStr, teamIDStr)
 }
 
@@ -808,8 +810,37 @@ func (q *Queue) CommitResolveItem(
 		return pgtype.UUID{}, ErrResolveItemConflict
 	}
 
+	// BOM linkage: if this resolve item was created for a BOM line item, resolve
+	// the line item to the new part and inherit substitutes — all within this tx
+	// so the import is atomic. Covers both worker auto-commit and review commit.
+	if item.SourceType == "bom_line_item" && item.SourceID.Valid {
+		state := "auto_import"
+		if _, err := qtx.LinkBOMLineItemPart(ctx, dbgen.LinkBOMLineItemPartParams{
+			ResolvedPartID:  partID,
+			ResolutionState: &state,
+			ID:              item.SourceID,
+		}); err != nil {
+			return pgtype.UUID{}, fmt.Errorf("link bom line item: %w", err)
+		}
+		if c, err := qtx.GetBOMLineItemContext(ctx, item.SourceID); err == nil {
+			if prior, err := qtx.GetImmediatelyPriorRevision(ctx, dbgen.GetImmediatelyPriorRevisionParams{
+				ProjectID:         c.ProjectID,
+				CurrentRevisionID: c.BomRevisionID,
+			}); err == nil {
+				qtx.ImportSubstitutesFromRevision(ctx, dbgen.ImportSubstitutesFromRevisionParams{ //nolint:errcheck
+					BomLineItemID: item.SourceID,
+					BomRevisionID: prior,
+				})
+			}
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return pgtype.UUID{}, fmt.Errorf("commit tx: %w", err)
+	}
+
+	if item.SourceType == "bom_line_item" && item.SourceID.Valid {
+		q.publishBOMRevisionChanged(ctx, queries, item.SourceID, teamID.String())
 	}
 
 	return partID, nil
@@ -839,5 +870,163 @@ func (q *Queue) setResolveItemFailed(ctx context.Context, queries *dbgen.Queries
 		ID:           itemID,
 		ErrorMessage: &msg,
 	})
+	// A failed BOM-sourced item can't auto-import; flag it for manual review.
+	if item.SourceType == "bom_line_item" && item.SourceID.Valid {
+		state := "import_no_result"
+		queries.SetBOMLineItemResolutionState(ctx, dbgen.SetBOMLineItemResolutionStateParams{ //nolint:errcheck
+			ResolutionState: &state,
+			ID:              item.SourceID,
+		})
+		q.publishBOMRevisionChanged(ctx, queries, item.SourceID, teamID)
+	}
 	q.publishPartResolveChanged(item, userID, teamID)
+}
+
+// finalizeBOMResolveEnriched runs after a resolve item reaches the 'enriched'
+// state. For BOM-sourced items it either auto-commits an unambiguous result
+// (linking the line item) or flags the line item for manual review.
+func (q *Queue) finalizeBOMResolveEnriched(ctx context.Context, queries *dbgen.Queries, itemID, teamID pgtype.UUID, userID string) {
+	item, err := queries.GetPartResolveItem(ctx, itemID)
+	if err != nil || item.SourceType != "bom_line_item" || !item.SourceID.Valid || item.Status != "enriched" {
+		return
+	}
+
+	// Known part found in a DB phase: link directly, no part creation needed.
+	if item.ResolvedPartID.Valid {
+		q.linkBOMKnownPart(ctx, queries, item, teamID)
+		return
+	}
+
+	var pf resolveInputFields
+	if len(item.InputFields) > 0 {
+		json.Unmarshal(item.InputFields, &pf) //nolint:errcheck
+	}
+	var ed resolveEnrichmentData
+	if len(item.EnrichmentData) > 0 {
+		json.Unmarshal(item.EnrichmentData, &ed) //nolint:errcheck
+	}
+
+	primaryDistID, primarySKU, additional, ambiguous := analyzeBOMResolveEnrichment(ed, pf)
+	if ambiguous || primarySKU == "" {
+		state := "import_ambiguous"
+		queries.SetBOMLineItemResolutionState(ctx, dbgen.SetBOMLineItemResolutionStateParams{ //nolint:errcheck
+			ResolutionState: &state,
+			ID:              item.SourceID,
+		})
+		q.publishBOMRevisionChanged(ctx, queries, item.SourceID, teamID.String())
+		return
+	}
+
+	// Unambiguous → auto-commit (creates the part + links the line item).
+	if _, err := q.CommitResolveItem(ctx, teamID, itemID, primaryDistID, primarySKU, additional, userID, nil, "", pgtype.UUID{}); err != nil {
+		slog.Warn("bom auto-import: commit failed, flagging for review", "resolve_item_id", itemID.String(), "err", err)
+		state := "import_ambiguous"
+		queries.SetBOMLineItemResolutionState(ctx, dbgen.SetBOMLineItemResolutionStateParams{ //nolint:errcheck
+			ResolutionState: &state,
+			ID:              item.SourceID,
+		})
+		q.publishBOMRevisionChanged(ctx, queries, item.SourceID, teamID.String())
+	}
+}
+
+// linkBOMKnownPart resolves a BOM line item to an already-known part (no part
+// creation), ensures an inventory entry, inherits substitutes, and marks the
+// resolve item committed.
+func (q *Queue) linkBOMKnownPart(ctx context.Context, queries *dbgen.Queries, item dbgen.PartResolveItem, teamID pgtype.UUID) {
+	state := "auto_import"
+	if _, err := queries.LinkBOMLineItemPart(ctx, dbgen.LinkBOMLineItemPartParams{
+		ResolvedPartID:  item.ResolvedPartID,
+		ResolutionState: &state,
+		ID:              item.SourceID,
+	}); err != nil {
+		return
+	}
+	if _, err := queries.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
+		TeamID: teamID, PartID: item.ResolvedPartID,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		queries.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{ //nolint:errcheck
+			TeamID: teamID, PartID: item.ResolvedPartID,
+		})
+	}
+	if c, err := queries.GetBOMLineItemContext(ctx, item.SourceID); err == nil {
+		if prior, err := queries.GetImmediatelyPriorRevision(ctx, dbgen.GetImmediatelyPriorRevisionParams{
+			ProjectID:         c.ProjectID,
+			CurrentRevisionID: c.BomRevisionID,
+		}); err == nil {
+			queries.ImportSubstitutesFromRevision(ctx, dbgen.ImportSubstitutesFromRevisionParams{ //nolint:errcheck
+				BomLineItemID: item.SourceID,
+				BomRevisionID: prior,
+			})
+		}
+	}
+	queries.CommitPartResolveItem(ctx, dbgen.CommitPartResolveItemParams{ //nolint:errcheck
+		ID:             item.ID,
+		ResolvedPartID: item.ResolvedPartID,
+	})
+	q.publishBOMRevisionChanged(ctx, queries, item.SourceID, teamID.String())
+}
+
+// analyzeBOMResolveEnrichment decides whether an enriched (new-part) result can
+// be auto-committed. When the BOM specified an exact SKU+distributor that listing
+// is the primary; otherwise a single distinct candidate product is required.
+// Returns the chosen primary listing, all other listings as additional, and an
+// ambiguous flag (true → needs manual review).
+func analyzeBOMResolveEnrichment(ed resolveEnrichmentData, pf resolveInputFields) (primaryDistID, primarySKU string, additional []AdditionalListing, ambiguous bool) {
+	type lst struct{ distID, sku string }
+	var all []lst
+	products := map[string]bool{}
+	for _, e := range ed.Distributors {
+		for _, r := range e.Results {
+			if r == nil || len(r.Listings) == 0 {
+				continue
+			}
+			products[strings.ToLower(r.MPN+"|"+r.Manufacturer)] = true
+			for _, l := range r.Listings {
+				all = append(all, lst{e.DistributorID, l.SKU})
+			}
+		}
+	}
+	if len(all) == 0 {
+		return "", "", nil, true
+	}
+
+	// BOM gave an explicit listing → use it as primary if present in the results.
+	if pf.SKU != "" && pf.DistributorID != "" {
+		for _, x := range all {
+			if x.distID == pf.DistributorID && x.sku == pf.SKU {
+				primaryDistID, primarySKU = x.distID, x.sku
+				break
+			}
+		}
+	}
+	// MPN-only (or explicit SKU not found): require a single distinct product.
+	if primarySKU == "" {
+		if len(products) > 1 {
+			return "", "", nil, true
+		}
+		primaryDistID, primarySKU = all[0].distID, all[0].sku
+	}
+
+	for _, x := range all {
+		if x.distID == primaryDistID && x.sku == primarySKU {
+			continue
+		}
+		additional = append(additional, AdditionalListing{DistributorID: x.distID, SKU: x.sku})
+	}
+	return primaryDistID, primarySKU, additional, false
+}
+
+// publishBOMRevisionChanged emits a revision_changed event for the revision that
+// owns the given line item, so the revision page refreshes its progress bar and
+// review surface as resolve items commit.
+func (q *Queue) publishBOMRevisionChanged(ctx context.Context, queries *dbgen.Queries, lineItemID pgtype.UUID, teamID string) {
+	c, err := queries.GetBOMLineItemContext(ctx, lineItemID)
+	if err != nil {
+		return
+	}
+	data, _ := json.Marshal(map[string]string{
+		"project_id":  c.ProjectID.String(),
+		"revision_id": c.BomRevisionID.String(),
+	})
+	q.Publish(Event{Type: "revision_changed", TeamID: teamID, Data: data})
 }

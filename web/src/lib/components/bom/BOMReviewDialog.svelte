@@ -9,8 +9,10 @@
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import { listParts } from '$lib/api/parts.js';
   import { enrichBOMLineItem } from '$lib/api/revisions.js';
+  import { commitResolveItem } from '$lib/api/partResolve.js';
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import ListingSelector from '$lib/components/part-import/ListingSelector.svelte';
 
   let {
     items,
@@ -21,6 +23,7 @@
     onclose,
     onresolve,
     onignore,
+    oncommitted,
   }: {
     items: BOMLineItem[];
     teamId: string;
@@ -30,7 +33,18 @@
     onclose?: () => void;
     onresolve?: (itemId: string, partId: string | null) => void;
     onignore?: (itemId: string, ignored: boolean) => void;
+    oncommitted?: (itemId: string) => void;
   } = $props();
+
+  // New-part import (resolve pipeline) selection state.
+  let primaryListingKey = $state('');
+  let includedListings = $state<Set<string>>(new Set());
+  let committing = $state(false);
+  let commitError = $state('');
+
+  function parseListingKey(key: string): { distId: string; sku: string } {
+    return { distId: key.slice(0, 36), sku: key.slice(37) };
+  }
 
   let currentIndex = $state(0);
 
@@ -71,6 +85,10 @@
     distributorKeywords = currentItem?.raw_description ? (keywords || currentItem.raw_description) : keywords;
     clearTimeout(localSearchTimer);
     runLocalSearch(keywords);
+    // Reset new-part import selection so ListingSelector re-initialises.
+    primaryListingKey = '';
+    includedListings = new Set();
+    commitError = '';
   });
 
   $effect(() => {
@@ -86,17 +104,57 @@
   let currentItem = $derived(items[currentIndex] ?? null);
   let isLast = $derived(currentIndex >= items.length - 1);
 
+  let preferredDistId = $derived(configs.find(c => c.preferred)?.distributor_id ?? null);
+
+  // A new-part import that the worker enriched but could not auto-commit
+  // (multiple candidate products). The user picks the listing(s) here.
+  let newPartEnrichment = $derived(
+    currentItem?.resolve_item?.status === 'enriched' &&
+    currentItem.resolve_item.task_type === 'unknown_part_import'
+      ? (currentItem.resolve_item.enrichment_data ?? null)
+      : null,
+  );
+
+  async function handleCommitNewPart() {
+    const ri = currentItem?.resolve_item;
+    if (!ri || !primaryListingKey) return;
+    committing = true;
+    commitError = '';
+    try {
+      const { distId, sku } = parseListingKey(primaryListingKey);
+      await commitResolveItem(teamId, ri.id, {
+        primary_distributor_id: distId,
+        primary_sku: sku,
+        additional_listings: [...includedListings].map((key) => {
+          const p = parseListingKey(key);
+          return { distributor_id: p.distId, sku: p.sku };
+        }),
+      });
+      oncommitted?.(currentItem!.id);
+      advance();
+    } catch (err: any) {
+      commitError = err?.message ?? 'Failed to import part.';
+    } finally {
+      committing = false;
+    }
+  }
+
   type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning';
   let statusBadge = $derived(
     !currentItem                              ? { label: '',           variant: 'default'   as BadgeVariant } :
     currentItem.ignored                       ? { label: 'Ignored',    variant: 'secondary' as BadgeVariant } :
     !currentItem.resolved_part_id
-      ? currentItem.resolution_state === 'ambiguous'
-        ? { label: 'Ambiguous',  variant: 'warning'   as BadgeVariant }
-        : { label: 'Unresolved', variant: 'outline'   as BadgeVariant }
+      ? currentItem.resolution_state === 'import_ambiguous' || currentItem.resolution_state === 'ambiguous'
+        ? { label: 'Needs review', variant: 'warning'   as BadgeVariant }
+        : currentItem.resolution_state === 'importing'
+        ? { label: 'Importing…',   variant: 'secondary' as BadgeVariant }
+        : currentItem.resolution_state === 'import_no_result'
+        ? { label: 'No result',    variant: 'destructive' as BadgeVariant }
+        : { label: 'Unresolved',   variant: 'outline'   as BadgeVariant }
     : currentItem.resolution_state === 'auto_sku'           ? { label: 'Auto (SKU)',   variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_mpn'           ? { label: 'Auto (MPN)',   variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_prior_revision'? { label: 'Auto (Prior)', variant: 'success' as BadgeVariant }
+    : currentItem.resolution_state === 'auto_import'        ? { label: 'Imported',     variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'manual'             ? { label: 'Manual',       variant: 'success' as BadgeVariant }
     :                                               { label: 'Resolved',   variant: 'success' as BadgeVariant }
   );
@@ -247,6 +305,32 @@
 
       <!-- Actions -->
       <div class="space-y-2 flex-1">
+        <!-- Import new part (enriched by the resolve pipeline, needs a listing pick) -->
+        {#if newPartEnrichment}
+          <div class="border border-primary/40 rounded-md">
+            <div class="px-3 py-2 text-sm font-medium">Import new part</div>
+            <div class="px-3 pb-3 pt-1 space-y-3">
+              <p class="text-xs text-muted-foreground">
+                Multiple matching products were found. Pick the primary listing (and any others to import), then confirm.
+              </p>
+              <ListingSelector
+                enrichment={newPartEnrichment}
+                {preferredDistId}
+                bind:primaryListingKey
+                bind:includedListings
+              />
+              {#if commitError}
+                <p class="text-xs text-destructive">{commitError}</p>
+              {/if}
+              <div class="flex justify-end">
+                <Button size="sm" onclick={handleCommitNewPart} disabled={committing || !primaryListingKey}>
+                  {committing ? 'Importing…' : 'Import & resolve'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        {/if}
+
         <!-- Choose from local library -->
         <div class="border border-border rounded-md">
           <div class="px-3 py-2 text-sm font-medium">Choose from local library</div>

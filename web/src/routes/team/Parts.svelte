@@ -1,21 +1,14 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
-  import { createPart, importPart, reenrichAllParts } from '$lib/api/parts.js';
-  import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
-  import type { DistributorSearchProduct } from '$lib/api/distributors.js';
+  import { reenrichAllParts } from '$lib/api/parts.js';
   import PartsTable from '$lib/components/parts/PartsTable.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import AddPartDialog from '$lib/components/part-import/AddPartDialog.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Dialog } from '$lib/components/ui/dialog/index.js';
-  import { Dialog as DialogPrimitive } from 'bits-ui';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
-  import { Select } from '$lib/components/ui/select/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { consumePartsStockStatus } from '$lib/stores/navState.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { authStore } from '$lib/stores/auth.svelte.js';
-  import { ApiError } from '$lib/api/client.js';
   import { Plus, RefreshCw } from 'lucide-svelte';
 
   let { teamId }: { teamId: string } = $props();
@@ -24,65 +17,8 @@
   let reenriching = $state(false);
   let reenrichConfirmOpen = $state(false);
   let createOpen = $state(false);
-  let createMode = $state<'manual' | 'import'>('manual');
-  let duplicateFound = $state<{ id: string; mpn: string | null; manufacturer: string | null; description: string | null } | null>(null);
-
-  // Create part — manual mode
-  let newMpn = $state('');
-  let newManufacturer = $state('');
-  let newDescription = $state('');
-  let newScope = $state<'global' | 'team'>('team');
-  let creating = $state(false);
-
-  // Create part — import from distributor mode
-  let importDistributorId = $state('');
-  let importKeywords = $state('');
-  let importResults = $state<DistributorSearchProduct[]>([]);
-  let importSearching = $state(false);
-  let importSelected = $state<DistributorSearchProduct | null>(null);
-  let importing = $state(false);
 
   const initialStockStatus = consumePartsStockStatus();
-
-  let configsQuery = createQuery(() => ({
-    queryKey: ['distributor-configs', teamId],
-    queryFn: () => listDistributorConfigs(teamId),
-    enabled: createOpen && createMode === 'import',
-  }));
-
-  const enabledConfigs = $derived((configsQuery.data?.items ?? []).filter((c) => c.enabled));
-
-  $effect(() => {
-    if (createMode === 'import' && enabledConfigs.length > 0 && !importDistributorId) {
-      const preferred = enabledConfigs.find((c) => c.preferred);
-      importDistributorId = (preferred ?? enabledConfigs[0]).distributor_id;
-    }
-  });
-
-  function resetDialog() {
-    newMpn = ''; newManufacturer = ''; newDescription = ''; newScope = 'team';
-    importKeywords = ''; importResults = []; importSelected = null; importDistributorId = '';
-    duplicateFound = null;
-  }
-
-  async function doImportSearch() {
-    if (!importKeywords.trim() || !importDistributorId) return;
-    importSelected = null;
-    importSearching = true;
-    try {
-      const res = await searchDistributor(teamId, importDistributorId, importKeywords.trim());
-      importResults = res.items;
-    } catch (e: any) {
-      pushToast('error', 'Search failed', e.message);
-      importResults = [];
-    } finally {
-      importSearching = false;
-    }
-  }
-
-  function onImportKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); doImportSearch(); }
-  }
 
   async function doReenrichAll() {
     reenrichConfirmOpen = false;
@@ -94,53 +30,6 @@
       pushToast('error', 'Re-enrichment failed', err.message);
     } finally {
       reenriching = false;
-    }
-  }
-
-  async function handleCreate(e: Event) {
-    e.preventDefault();
-    creating = true;
-    duplicateFound = null;
-    try {
-      await createPart({
-        scope: newScope,
-        team_id: newScope === 'team' ? teamId : undefined,
-        mpn: newMpn.trim() || undefined,
-        manufacturer: newManufacturer.trim() || undefined,
-        description: newDescription.trim() || undefined,
-      });
-      createOpen = false;
-      resetDialog();
-      partsTable?.refresh();
-      pushToast('success', 'Part created');
-    } catch (err: any) {
-      if (err instanceof ApiError && err.code === 'PART_EXISTS') {
-        duplicateFound = (err.data as any).existing_part;
-      } else {
-        pushToast('error', 'Failed to create part', err.message);
-      }
-    } finally {
-      creating = false;
-    }
-  }
-
-  async function handleImport(e: Event) {
-    e.preventDefault();
-    if (!importSelected) return;
-    importing = true;
-    try {
-      const res = await importPart(teamId, {
-        sku: importSelected.primary_sku,
-        distributor_id: importDistributorId,
-      });
-      createOpen = false;
-      resetDialog();
-      pushToast('success', 'Part imported', 'Parameters will populate shortly.');
-      navigate(`/teams/${teamId}/parts/${res.part_id}`);
-    } catch (err: any) {
-      pushToast('error', 'Failed to import part', err.message);
-    } finally {
-      importing = false;
     }
   }
 </script>
@@ -185,126 +74,5 @@
   {/snippet}
 </Dialog>
 
-<!-- Create Part Dialog -->
-<DialogPrimitive.Root bind:open={createOpen} onOpenChange={(o) => { if (!o) resetDialog(); }}>
-  <DialogPrimitive.Portal>
-    <DialogPrimitive.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <DialogPrimitive.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
-      <DialogPrimitive.Title class="text-lg font-semibold mb-4">Add Part</DialogPrimitive.Title>
-
-      <!-- Mode toggle -->
-      <div class="flex gap-1 mb-4 border border-border rounded-md p-0.5 w-fit">
-        <button
-          type="button"
-          class="px-3 py-1 text-sm rounded transition-colors {createMode === 'manual' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}"
-          onclick={() => { createMode = 'manual'; importResults = []; importSelected = null; }}
-        >Create manually</button>
-        <button
-          type="button"
-          class="px-3 py-1 text-sm rounded transition-colors {createMode === 'import' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}"
-          onclick={() => { createMode = 'import'; }}
-        >Import from distributor</button>
-      </div>
-
-      {#if createMode === 'manual'}
-        <form onsubmit={handleCreate} class="space-y-3">
-          <div class="space-y-1">
-            <Label for="scope">Scope</Label>
-            <Select id="scope" bind:value={newScope}>
-              <option value="team">Team-scoped</option>
-              <option value="global">Global</option>
-            </Select>
-          </div>
-          <div class="space-y-1">
-            <Label for="mpn">MPN</Label>
-            <Input id="mpn" bind:value={newMpn} placeholder="e.g. LM317T" oninput={() => (duplicateFound = null)} />
-          </div>
-          <div class="space-y-1">
-            <Label for="mfr">Manufacturer</Label>
-            <Input id="mfr" bind:value={newManufacturer} placeholder="e.g. Texas Instruments" oninput={() => (duplicateFound = null)} />
-          </div>
-          <div class="space-y-1">
-            <Label for="desc">Description</Label>
-            <Input id="desc" bind:value={newDescription} placeholder="Short description" />
-          </div>
-          {#if duplicateFound}
-            <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
-              <p class="font-medium text-amber-800 dark:text-amber-200">This part already exists</p>
-              <p class="mt-0.5 text-amber-700 dark:text-amber-300">
-                {duplicateFound.mpn ?? ''}
-                {#if duplicateFound.manufacturer} · {duplicateFound.manufacturer}{/if}
-                {#if duplicateFound.description} — {duplicateFound.description}{/if}
-              </p>
-              <Button
-                size="sm"
-                class="mt-2"
-                onclick={() => { const id = duplicateFound!.id; createOpen = false; resetDialog(); navigate(`/teams/${teamId}/parts/${id}`); }}
-              >
-                Open existing part
-              </Button>
-            </div>
-          {/if}
-          <div class="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" onclick={() => (createOpen = false)}>Cancel</Button>
-            <Button type="submit" disabled={creating || !!duplicateFound}>{creating ? 'Creating…' : 'Create'}</Button>
-          </div>
-        </form>
-
-      {:else}
-        <form onsubmit={handleImport} class="space-y-3">
-          <div class="space-y-1">
-            <Label>Distributor</Label>
-            <Select bind:value={importDistributorId} onchange={() => { importKeywords = ''; importResults = []; importSelected = null; }}>
-              {#each enabledConfigs as cfg (cfg.distributor_id)}
-                <option value={cfg.distributor_id}>{cfg.distributor_name}{cfg.preferred ? ' (preferred)' : ''}</option>
-              {/each}
-            </Select>
-          </div>
-          <div class="space-y-1">
-            <Label>Search</Label>
-            <div class="flex gap-2">
-              <Input
-                placeholder="MPN, description…"
-                bind:value={importKeywords}
-                onkeydown={onImportKeydown}
-                disabled={!importDistributorId}
-                class="flex-1"
-              />
-              <Button type="button" variant="outline" size="sm" disabled={!importKeywords.trim() || importSearching} onclick={doImportSearch}>
-                {importSearching ? 'Searching…' : 'Search'}
-              </Button>
-            </div>
-          </div>
-
-          {#if importResults.length > 0}
-            <div class="border border-border rounded-md divide-y divide-border max-h-48 overflow-y-auto">
-              {#each importResults as result (result.primary_sku)}
-                {@const isSelected = importSelected?.primary_sku === result.primary_sku}
-                <button
-                  type="button"
-                  class="w-full text-left px-3 py-2 hover:bg-accent/50 transition-colors {isSelected ? 'bg-accent' : ''}"
-                  onclick={() => (importSelected = result)}
-                >
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="min-w-0">
-                      <p class="font-mono text-xs font-medium truncate">{result.mpn}</p>
-                      <p class="text-xs text-muted-foreground truncate">{result.manufacturer} · {result.description}</p>
-                    </div>
-                    <p class="shrink-0 text-xs font-mono text-muted-foreground">{result.primary_sku}</p>
-                  </div>
-                </button>
-              {/each}
-            </div>
-          {/if}
-
-          <div class="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" onclick={() => (createOpen = false)}>Cancel</Button>
-            <Button type="submit" disabled={!importSelected || importing}>
-              {importing ? 'Importing…' : 'Import'}
-            </Button>
-          </div>
-        </form>
-      {/if}
-    </DialogPrimitive.Content>
-  </DialogPrimitive.Portal>
-</DialogPrimitive.Root>
+<!-- Add Part Dialog -->
+<AddPartDialog bind:open={createOpen} {teamId} onCommitted={() => partsTable?.refresh()} />

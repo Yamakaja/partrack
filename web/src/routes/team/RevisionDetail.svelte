@@ -9,6 +9,7 @@
   import { onMount } from 'svelte';
   import BOMImportProgress from '$lib/components/bom/BOMImportProgress.svelte';
   import BOMImportProgressModal from '$lib/components/bom/BOMImportProgressModal.svelte';
+  import BOMResolutionBar from '$lib/components/bom/BOMResolutionBar.svelte';
   import BOMReviewDialog from '$lib/components/bom/BOMReviewDialog.svelte';
   import ManageSubstitutesDialog from '$lib/components/bom/ManageSubstitutesDialog.svelte';
   import StockCheckDialog from '$lib/components/stock/StockCheckDialog.svelte';
@@ -73,9 +74,12 @@
     allItems.length > 0 && allItems.every(i => i.resolved_part_id != null || i.ignored)
   );
 
-  let needsAttentionCount = $derived(
-    allItems.filter(i => !i.ignored && !i.resolved_part_id).length
-  );
+  // Items the user can act on now — excludes parts still importing in the background.
+  function isReviewable(i: BOMLineItem): boolean {
+    return !i.ignored && !i.resolved_part_id && i.resolution_state !== 'importing';
+  }
+
+  let needsAttentionCount = $derived(allItems.filter(isReviewable).length);
 
   function handleImportComplete() {
     jobDismissed = true;
@@ -105,7 +109,7 @@
   }
 
   function startFullReview() {
-    reviewItems = allItems.filter(i => !i.ignored && !i.resolved_part_id);
+    reviewItems = allItems.filter(isReviewable);
     reviewOpen = true;
   }
 
@@ -169,12 +173,15 @@
   function itemStatus(item: BOMLineItem): string {
     if (item.ignored) return 'Ignored';
     if (!item.resolved_part_id) {
-      if (item.resolution_state === 'ambiguous') return 'Ambiguous';
+      if (item.resolution_state === 'importing') return 'Importing';
+      if (item.resolution_state === 'import_ambiguous' || item.resolution_state === 'ambiguous') return 'Needs Review';
+      if (item.resolution_state === 'import_no_result') return 'No Result';
       return 'Unresolved';
     }
     if (item.resolution_state === 'auto_sku') return 'Auto (SKU)';
     if (item.resolution_state === 'auto_mpn') return 'Auto (MPN)';
     if (item.resolution_state === 'auto_prior_revision') return 'Auto (Prior)';
+    if (item.resolution_state === 'auto_import') return 'Imported';
     if (item.resolution_state === 'manual') return 'Manual';
     return 'Resolved';
   }
@@ -195,7 +202,7 @@
       header: 'Status',
       type: 'enum',
       filterable: true,
-      filterValues: ['Unresolved', 'Ambiguous', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Prior)', 'Manual', 'Resolved', 'Ignored'],
+      filterValues: ['Unresolved', 'Importing', 'Needs Review', 'No Result', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Prior)', 'Imported', 'Manual', 'Resolved', 'Ignored'],
     },
     { key: 'substitutes', header: 'Substitutes', type: 'text' },
   ];
@@ -219,7 +226,7 @@
     {/snippet}
     {#snippet actions()}
       {#if allItems.length > 0}
-        {#if !isReady}
+        {#if needsAttentionCount > 0}
           <Button
             size="sm"
             onclick={startFullReview}
@@ -248,6 +255,11 @@
         jobId={activeJobId}
         oncomplete={handleImportComplete}
       />
+    {/if}
+
+    <!-- Live resolution breakdown (updates as background imports commit) -->
+    {#if allItems.length > 0}
+      <BOMResolutionBar items={allItems} />
     {/if}
 
     <!-- Revision metadata card -->
@@ -414,6 +426,7 @@
   onclose={handleReviewClose}
   onresolve={handleResolve}
   onignore={handleIgnore}
+  oncommitted={() => qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] })}
 />
 
 {#if managingItem}

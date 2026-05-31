@@ -38,13 +38,9 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	queries := dbgen.New(q.db)
 
-	// Pre-fetch distributor configs for step 2 (distributor API fallback).
-	distCfgByID := make(map[pgtype.UUID]*dbgen.ListEnabledDistributorConfigsForTeamRow)
-	if cfgs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID); err == nil {
-		for i := range cfgs {
-			distCfgByID[cfgs[i].DistributorID] = &cfgs[i]
-		}
-	}
+	// Parsed once; used when creating part_resolve_items for new parts.
+	var createdBy pgtype.UUID
+	_ = createdBy.Scan(payload["user_id"])
 
 	projectID, err := queries.GetRevisionProjectID(ctx, revID)
 	if err != nil {
@@ -68,56 +64,44 @@ func (q *Queue) handleBOMImport(job Job) {
 	}
 
 	// Count items already resolved before this run.
-	resolvedSKU, resolvedMPN, resolvedPrior, resolvedDistributor, ambiguousCount, substitutesImportedCount := 0, 0, 0, 0, 0, 0
+	resolvedSKU, resolvedMPN, resolvedPrior, ambiguousCount, substitutesImportedCount, importingCount := 0, 0, 0, 0, 0, 0
 	for _, it := range items {
 		switch {
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
 			resolvedSKU++
-		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_distributor":
-			resolvedDistributor++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_mpn":
 			resolvedMPN++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_prior_revision":
 			resolvedPrior++
 		case it.ResolutionState != nil && *it.ResolutionState == "ambiguous":
 			ambiguousCount++
+		case it.ResolutionState != nil && *it.ResolutionState == "importing":
+			importingCount++
 		}
 	}
 
-	q.publishProgress(job, "bom_import_progress", map[string]any{
-		"status":                  "progress",
-		"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
-		"resolved_sku":            resolvedSKU,
-		"resolved_distributor":    resolvedDistributor,
-		"resolved_mpn":            resolvedMPN,
-		"resolved_prior_revision": resolvedPrior,
-		"ambiguous":               ambiguousCount,
-		"no_match":                0,
-		"total":                   len(items),
-		"job_id":                  job.ID,
-		"substitutes_copied":      substitutesImportedCount,
-	})
-
-	strPtr := func(s string) *string { return &s }
-
-	noMatchCount := 0
-	lastPublish := time.Now()
-
-	publishProgress := func(status string) {
+	publishProgress := func(status string, noMatch int) {
 		q.publishProgress(job, "bom_import_progress", map[string]any{
 			"status":                  status,
-			"resolved":                resolvedSKU + resolvedDistributor + resolvedMPN + resolvedPrior,
+			"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
 			"resolved_sku":            resolvedSKU,
-			"resolved_distributor":    resolvedDistributor,
 			"resolved_mpn":            resolvedMPN,
 			"resolved_prior_revision": resolvedPrior,
 			"ambiguous":               ambiguousCount,
-			"no_match":                noMatchCount,
+			"importing":               importingCount,
+			"no_match":                noMatch,
 			"total":                   len(items),
 			"job_id":                  job.ID,
 			"substitutes_copied":      substitutesImportedCount,
 		})
 	}
+
+	publishProgress("progress", 0)
+
+	strPtr := func(s string) *string { return &s }
+
+	noMatchCount := 0
+	lastPublish := time.Now()
 
 	for _, item := range items {
 		if item.ResolvedPartID.Valid {
@@ -138,21 +122,6 @@ func (q *Queue) handleBOMImport(job Job) {
 			}); err == nil {
 				resolvedPartID = listing.PartID
 				resolutionState = strPtr("auto_sku")
-			}
-		}
-
-		// 2. Distributor API fallback: SKU is known but not yet in our listings table.
-		// Query the distributor to find or create the part and attach the listing.
-		if resolutionState == nil && item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
-			if cfg, ok := distCfgByID[item.ResolvedDistributorID]; ok && cfg.ApiType != nil {
-				if client := q.distributors.Lookup(*cfg.ApiType); client != nil {
-					if result, err := client.EnrichPart(ctx, *item.Sku, json.RawMessage(cfg.ApiCredentials)); err == nil && result != nil {
-						if partID, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, cfg.DistributorID, result, item.Mpn, item.Manufacturer); err == nil {
-							resolvedPartID = partID
-							resolutionState = strPtr("auto_distributor")
-						}
-					}
-				}
 			}
 		}
 
@@ -226,8 +195,49 @@ func (q *Queue) handleBOMImport(job Job) {
 		}
 
 		if resolutionState == nil {
-			// No match found — count and fall through to rate-limited progress update.
-			noMatchCount++
+			// Not known to partrack. If we have identifiers, hand the new part off to
+			// the unified resolve pipeline (multi-distributor fan-out + cached
+			// enrichment). The resolve worker auto-commits unambiguous results and
+			// links the line item; ambiguous/failed ones surface in the review UI.
+			hasSKU := item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid
+			hasMPN := item.Mpn != nil && *item.Mpn != ""
+			if hasSKU || hasMPN {
+				inputFields, _ := json.Marshal(map[string]string{
+					"sku":            derefStr(item.Sku),
+					"distributor_id": uuidStr(item.ResolvedDistributorID),
+					"mpn":            derefStr(item.Mpn),
+					"manufacturer":   derefStr(item.Manufacturer),
+				})
+				ri, err := queries.CreatePartResolveItem(ctx, dbgen.CreatePartResolveItemParams{
+					TeamID:      teamID,
+					SourceType:  "bom_line_item",
+					SourceID:    item.ID,
+					InputFields: inputFields,
+					CreatedBy:   createdBy,
+				})
+				if err == nil {
+					importingState := "importing"
+					if err := queries.SetBOMLineItemResolveItem(ctx, dbgen.SetBOMLineItemResolveItemParams{
+						ResolveItemID:   ri.ID,
+						ResolutionState: &importingState,
+						ID:              item.ID,
+					}); err == nil {
+						q.Enqueue(JobPartResolve, teamID.String(), map[string]string{
+							"resolve_item_id": ri.ID.String(),
+							"team_id":         teamID.String(),
+							"user_id":         payload["user_id"],
+						})
+						importingCount++
+					} else {
+						noMatchCount++
+					}
+				} else {
+					noMatchCount++
+				}
+			} else {
+				// No usable identifiers — leave unresolved for manual review.
+				noMatchCount++
+			}
 		} else {
 			if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
 				ResolvedPartID:  resolvedPartID,
@@ -241,8 +251,6 @@ func (q *Queue) handleBOMImport(job Job) {
 			switch *resolutionState {
 			case "auto_sku":
 				resolvedSKU++
-			case "auto_distributor":
-				resolvedDistributor++
 			case "auto_mpn":
 				resolvedMPN++
 			case "auto_prior_revision":
@@ -277,15 +285,29 @@ func (q *Queue) handleBOMImport(job Job) {
 		}
 
 		if time.Since(lastPublish) >= 100*time.Millisecond {
-			publishProgress("progress")
+			publishProgress("progress", noMatchCount)
 			lastPublish = time.Now()
 		}
 	}
 
-	publishProgress("complete")
+	publishProgress("complete", noMatchCount)
 
 	projData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"]})
 	q.Publish(Event{Type: "project_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: projData})
 	revData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"], "revision_id": payload["bom_revision_id"]})
 	q.Publish(Event{Type: "revision_changed", TeamID: job.TeamID, Data: revData})
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func uuidStr(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	return u.String()
 }

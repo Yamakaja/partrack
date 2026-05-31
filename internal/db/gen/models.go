@@ -384,6 +384,7 @@ type BomLineItem struct {
 	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
 	ResolutionState       *string     `json:"resolution_state"`
 	Ignored               bool        `json:"ignored"`
+	ResolveItemID         pgtype.UUID `json:"resolve_item_id"`
 }
 
 type BomLineItemSubstitute struct {
