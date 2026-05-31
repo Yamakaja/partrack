@@ -1,5 +1,6 @@
 import type { User, TeamMembership } from '$lib/types/auth.js';
 import { getMe } from '$lib/api/auth.js';
+import { clearActiveTeam } from './activeTeam.svelte.js';
 
 interface AuthState {
   user: User | null;
@@ -37,4 +38,5 @@ export function clearAuth() {
   authStore.user = null;
   authStore.memberships = [];
   authStore.loading = false;
+  clearActiveTeam();
 }

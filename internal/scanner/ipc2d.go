@@ -169,11 +169,13 @@ func Parse(raw string) (*ParsedBarcode, error) {
 	case has30P || has10K || digikeySO != "":
 		// 30P and 10K are DigiKey-specific fields. 1K (sales order) is not emitted by Mouser.
 		result.Distributor = "DigiKey"
-	case fmtID == "12":
-		// Format-12 is a definitive Mouser signal.
+	case fmtID == "12" || mouserInv != "":
+		// Format-12 is a definitive Mouser signal. 11K (invoice number) is also a
+		// Mouser signal here: DigiKey emits 11K too (as a packing list number), but a
+		// real DigiKey label always carries 30P/10K/1K and is therefore classified as
+		// DigiKey by the preceding case before reaching this one.
 		// 1V (manufacturer name) is intentionally NOT used as a Mouser heuristic
 		// because partrack-generated part-level QR codes also emit 1V.
-		// 11K is intentionally NOT used — DigiKey also emits it as a packing list number.
 		result.Distributor = "Mouser"
 	}
 

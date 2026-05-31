@@ -3,7 +3,7 @@
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { currentRoute, linkAction, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
-  import { setActiveTeam, clearActiveTeam } from '$lib/stores/activeTeam.svelte.js';
+  import { setActiveTeam, restoreActiveTeam, activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { openForTeam, closeSSE, setReconnectHandler } from '$lib/api/sse.js';
   import {
     initCacheInvalidation,
@@ -105,13 +105,21 @@
     }
 
     const r = resolve(route.path);
-    const teamId = r?.params?.teamId;
-    if (teamId) {
-      setActiveTeam(teamId);
-      openForTeam(teamId);
-      activateTeamInvalidation(teamId);
+    const routeTeamId = r?.params?.teamId;
+    // A team route updates the active selection; team-less routes (admin/
+    // settings/root) leave the persisted selection intact so the team
+    // switcher and team nav stay populated.
+    if (routeTeamId) {
+      setActiveTeam(routeTeamId);
+    }
+
+    // SSE + cache invalidation follow the active team, not the route, so live
+    // updates keep working while on admin/settings pages.
+    const tid = activeTeamStore.current?.teamId;
+    if (tid) {
+      openForTeam(tid);
+      activateTeamInvalidation(tid);
     } else {
-      clearActiveTeam();
       closeSSE();
       deactivateTeamInvalidation();
     }
@@ -124,6 +132,9 @@
 
   onMount(async () => {
     await initAuth();
+    // Restore the persisted team so deep-links / refreshes onto team-less
+    // routes (admin/settings) still show the last-selected team and its nav.
+    if (authStore.user) restoreActiveTeam();
     if (authStore.user && currentRoute().path === '/login') {
       navigate('/', true);
     }
