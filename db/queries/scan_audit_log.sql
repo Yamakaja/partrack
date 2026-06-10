@@ -45,22 +45,15 @@ WHERE sal.team_id = @team_id
 ORDER BY sal.created_at DESC, sal.id DESC
 LIMIT sqlc.arg('limit');
 
--- name: ResolvePartNotFoundBySKU :exec
+-- name: MarkScanAuditResolved :exec
+-- Resolve a specific part_not_found audit row by its own id, linking it to the
+-- part imported off the back of that scan. The id is carried explicitly from the
+-- lookup response through the import request — no fuzzy parsed-field matching.
 UPDATE scan_audit_log
 SET    entity_id   = @part_id,
        entity_type = 'part',
        entity_name = @part_name
-WHERE  event_type          = 'part_not_found'
-  AND  parsed_sku          = @parsed_sku
-  AND  parsed_distributor_id = @parsed_distributor_id
-  AND  entity_id IS NULL;
-
--- name: ResolvePartNotFoundByMPN :exec
-UPDATE scan_audit_log
-SET    entity_id   = @part_id,
-       entity_type = 'part',
-       entity_name = @part_name
-WHERE  event_type           = 'part_not_found'
-  AND  parsed_mpn           = @parsed_mpn
-  AND  parsed_manufacturer  = @parsed_manufacturer
+WHERE  id          = @id
+  AND  team_id     = @team_id
+  AND  event_type  = 'part_not_found'
   AND  entity_id IS NULL;

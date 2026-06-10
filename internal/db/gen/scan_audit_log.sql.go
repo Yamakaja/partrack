@@ -195,58 +195,33 @@ func (q *Queries) ListScanAuditLog(ctx context.Context, arg ListScanAuditLogPara
 	return items, nil
 }
 
-const resolvePartNotFoundByMPN = `-- name: ResolvePartNotFoundByMPN :exec
+const markScanAuditResolved = `-- name: MarkScanAuditResolved :exec
 UPDATE scan_audit_log
 SET    entity_id   = $1,
        entity_type = 'part',
        entity_name = $2
-WHERE  event_type           = 'part_not_found'
-  AND  parsed_mpn           = $3
-  AND  parsed_manufacturer  = $4
+WHERE  id          = $3
+  AND  team_id     = $4
+  AND  event_type  = 'part_not_found'
   AND  entity_id IS NULL
 `
 
-type ResolvePartNotFoundByMPNParams struct {
-	PartID             pgtype.UUID `json:"part_id"`
-	PartName           *string     `json:"part_name"`
-	ParsedMpn          *string     `json:"parsed_mpn"`
-	ParsedManufacturer *string     `json:"parsed_manufacturer"`
+type MarkScanAuditResolvedParams struct {
+	PartID   pgtype.UUID `json:"part_id"`
+	PartName *string     `json:"part_name"`
+	ID       pgtype.UUID `json:"id"`
+	TeamID   pgtype.UUID `json:"team_id"`
 }
 
-func (q *Queries) ResolvePartNotFoundByMPN(ctx context.Context, arg ResolvePartNotFoundByMPNParams) error {
-	_, err := q.db.Exec(ctx, resolvePartNotFoundByMPN,
+// Resolve a specific part_not_found audit row by its own id, linking it to the
+// part imported off the back of that scan. The id is carried explicitly from the
+// lookup response through the import request — no fuzzy parsed-field matching.
+func (q *Queries) MarkScanAuditResolved(ctx context.Context, arg MarkScanAuditResolvedParams) error {
+	_, err := q.db.Exec(ctx, markScanAuditResolved,
 		arg.PartID,
 		arg.PartName,
-		arg.ParsedMpn,
-		arg.ParsedManufacturer,
-	)
-	return err
-}
-
-const resolvePartNotFoundBySKU = `-- name: ResolvePartNotFoundBySKU :exec
-UPDATE scan_audit_log
-SET    entity_id   = $1,
-       entity_type = 'part',
-       entity_name = $2
-WHERE  event_type          = 'part_not_found'
-  AND  parsed_sku          = $3
-  AND  parsed_distributor_id = $4
-  AND  entity_id IS NULL
-`
-
-type ResolvePartNotFoundBySKUParams struct {
-	PartID              pgtype.UUID `json:"part_id"`
-	PartName            *string     `json:"part_name"`
-	ParsedSku           *string     `json:"parsed_sku"`
-	ParsedDistributorID *string     `json:"parsed_distributor_id"`
-}
-
-func (q *Queries) ResolvePartNotFoundBySKU(ctx context.Context, arg ResolvePartNotFoundBySKUParams) error {
-	_, err := q.db.Exec(ctx, resolvePartNotFoundBySKU,
-		arg.PartID,
-		arg.PartName,
-		arg.ParsedSku,
-		arg.ParsedDistributorID,
+		arg.ID,
+		arg.TeamID,
 	)
 	return err
 }

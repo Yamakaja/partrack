@@ -263,6 +263,11 @@ func TestCheckout_PendingBuild_Rejected(t *testing.T) {
 
 	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Pending-PCB")
 	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+	// Resolved part with no stock → submit leaves the build genuinely pending
+	// (a full-stock build would now be promoted straight to ready on submit).
+	partID := testutil.CreatePart(t, testDB, "global", "CHKPEND-PART-01", nil)
+	itemID := testutil.CreateBOMLineItem(t, testDB, revID, "R1", 1)
+	testutil.ResolveBOMLineItem(t, testDB, itemID, partID)
 
 	created, status := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
@@ -278,6 +283,9 @@ func TestCheckout_PendingBuild_Rejected(t *testing.T) {
 		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
 	if submitStatus != http.StatusOK {
 		t.Fatalf("expected 200 on submit, got %d: %v", submitStatus, submitBody)
+	}
+	if submitBody["status"] != "pending" {
+		t.Fatalf("expected status=pending after submit, got %v", submitBody["status"])
 	}
 
 	// Checkout a pending build should return 409.
@@ -572,6 +580,144 @@ func TestConvertCart_TransitionsBuildToReady(t *testing.T) {
 	).Scan(&reserved, &needed) //nolint:errcheck
 	if reserved != 1 || needed != 1 {
 		t.Errorf("expected allocation reserved=1, needed=1; got reserved=%d, needed=%d", reserved, needed)
+	}
+}
+
+// TestSubmitFullStockBuild_ReadyImmediately verifies the fix for the
+// "build not ready with plenty of local stock" bug: submitting a build whose
+// parts are fully covered by free (non-reserved) stock reserves that stock,
+// promotes the build straight to 'ready' (skipping purchasing), and leaves it
+// directly checkoutable — without needing a cart convert.
+func TestSubmitFullStockBuild_ReadyImmediately(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "bld-rdy-now@example.com", "pw", "Bld")
+	teamID := testutil.CreateTeam(t, testDB, userID, "purchaser", "Bld Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "RdyNow-PCB")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+	partID := testutil.CreatePart(t, testDB, "global", "RDYNOW-PART-01", nil)
+	itemID := testutil.CreateBOMLineItem(t, testDB, revID, "R1", 1) // 1 per board
+	testutil.ResolveBOMLineItem(t, testDB, itemID, partID)
+	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
+	testutil.SetStockQty(t, testDB, entryID, 10) // plenty of stock for need=2
+
+	// Create draft build for 2 boards (need=2, stock=10 → fully covered).
+	created, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
+		map[string]any{"project_id": projectID, "bom_revision_id": revID, "quantity": 2}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %v", status, created)
+	}
+	buildID := created["id"].(string)
+
+	// Submit → should go straight to ready (no shortfall, no convert needed).
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
+	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
+	if submitStatus != http.StatusOK {
+		t.Fatalf("expected 200 on submit, got %d: %v", submitStatus, submitBody)
+	}
+	if submitBody["status"] != "ready" {
+		t.Fatalf("expected submit to report status=ready, got %v", submitBody["status"])
+	}
+
+	// Build is ready with a soft reservation covering the full demand.
+	var buildStatus string
+	testDB.QueryRow(context.Background(),
+		`SELECT status FROM builds WHERE id = $1`, buildID,
+	).Scan(&buildStatus) //nolint:errcheck
+	if buildStatus != "ready" {
+		t.Fatalf("expected build status=ready, got %s", buildStatus)
+	}
+	var reserved, needed int32
+	testDB.QueryRow(context.Background(),
+		`SELECT quantity_reserved, quantity_needed FROM build_part_allocations WHERE build_id = $1 AND part_id = $2`,
+		buildID, partID,
+	).Scan(&reserved, &needed) //nolint:errcheck
+	if reserved != 2 || needed != 2 {
+		t.Errorf("expected allocation reserved=2, needed=2; got reserved=%d, needed=%d", reserved, needed)
+	}
+
+	// No shortfall reached the cart.
+	cart, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/cart", teamID), nil, token)
+	if items, _ := cart["items"].([]any); len(items) != 0 {
+		t.Fatalf("expected empty cart for full-stock build, got %d items", len(items))
+	}
+
+	// A ready build is directly checkoutable — no cart convert required.
+	checkoutBody, checkoutStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/checkout", teamID, buildID),
+		map[string]any{}, token)
+	if checkoutStatus != http.StatusOK {
+		t.Fatalf("expected 200 on checkout of ready build, got %d: %v", checkoutStatus, checkoutBody)
+	}
+	if checkoutBody["status"] != "assembled" {
+		t.Errorf("expected status=assembled after checkout, got %v", checkoutBody["status"])
+	}
+
+	// Stock deducted: 10 - 1*2 = 8.
+	var qty int32
+	testDB.QueryRow(context.Background(),
+		`SELECT quantity_on_hand FROM inventory_entries WHERE id = $1`, entryID,
+	).Scan(&qty) //nolint:errcheck
+	if qty != 8 {
+		t.Errorf("expected stock=8 after checkout, got %d", qty)
+	}
+}
+
+// TestSubmitPartialStockBuild_StaysPending verifies that a build NOT fully
+// covered by free stock stays 'pending' (feeding the cart) and carries no
+// allocations — leaving ConvertCart's reservation logic to handle it.
+func TestSubmitPartialStockBuild_StaysPending(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "bld-partial@example.com", "pw", "Bld")
+	teamID := testutil.CreateTeam(t, testDB, userID, "purchaser", "Bld Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Partial-PCB")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+	partID := testutil.CreatePart(t, testDB, "global", "PARTIAL-PART-01", nil)
+	itemID := testutil.CreateBOMLineItem(t, testDB, revID, "R1", 2) // 2 per board
+	testutil.ResolveBOMLineItem(t, testDB, itemID, partID)
+	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
+	testutil.SetStockQty(t, testDB, entryID, 3) // need=4 (2 boards × 2), only 3 free
+
+	created, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
+		map[string]any{"project_id": projectID, "bom_revision_id": revID, "quantity": 2}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %v", status, created)
+	}
+	buildID := created["id"].(string)
+
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
+	submitBody, submitStatus := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/submit", teamID, buildID), nil, token)
+	if submitStatus != http.StatusOK {
+		t.Fatalf("expected 200 on submit, got %d: %v", submitStatus, submitBody)
+	}
+	if submitBody["status"] != "pending" {
+		t.Fatalf("expected submit to report status=pending, got %v", submitBody["status"])
+	}
+
+	// No allocations persisted for a pending build.
+	var allocCount int
+	testDB.QueryRow(context.Background(),
+		`SELECT count(*) FROM build_part_allocations WHERE build_id = $1`, buildID,
+	).Scan(&allocCount) //nolint:errcheck
+	if allocCount != 0 {
+		t.Errorf("expected 0 allocations for pending build, got %d", allocCount)
+	}
+
+	// Shortfall of 1 (need 4, free 3) reaches the cart.
+	cart, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/cart", teamID), nil, token)
+	if items, _ := cart["items"].([]any); len(items) == 0 {
+		t.Fatal("expected a shortfall cart item for partially-covered build")
 	}
 }
 

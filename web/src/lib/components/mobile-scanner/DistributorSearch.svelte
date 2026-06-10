@@ -12,6 +12,7 @@
     parsedQty = null,
     mode = 'single',
     initialCheckedSkus = [],
+    auditLogId = null,
     onBack,
     onImportDone,
     onSelectListings,
@@ -24,6 +25,7 @@
     parsedQty?: number | null;
     mode?: 'single' | 'multi';
     initialCheckedSkus?: string[];
+    auditLogId?: string | null;
     onBack: () => void;
     onImportDone?: (part: ScanPart, bagQty: number) => void;
     onSelectListings?: (items: DistributorSearchItem[]) => void;
@@ -62,7 +64,7 @@
     importingIdx = idx;
     importError = '';
     try {
-      const data = await importScanPart(token, { distributor_id: distributorId, sku: item.primary_sku });
+      const data = await importScanPart(token, { distributor_id: distributorId, sku: item.primary_sku, audit_log_id: auditLogId });
       const part: ScanPart = {
         id: data.part_id,
         mpn: item.mpn || null,

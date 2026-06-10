@@ -71,6 +71,9 @@ export interface ScanImportContext {
   parsedQty: number | null;
   canAutoImport: boolean;
   distributorConfigs: Array<{ id: string; name: string }>;
+  // id of the part_not_found audit row the originating scan logged, so the import
+  // resolves that exact activity-feed entry instead of fuzzy-matching fields.
+  auditLogId: string | null;
 }
 
 export interface BagLookupResult {

@@ -93,6 +93,7 @@ export interface BagLookupFound {
 
 export interface BagLookupNotFoundInDb {
   status: 'not_found_in_db';
+  audit_log_id: string | null;
   parsed_mpn: string;
   parsed_manufacturer: string;
   parsed_sku: string;
@@ -228,7 +229,7 @@ export function lookupBag(token: string, barcode: string): Promise<BagLookupResp
 
 export function importScanPart(
   token: string,
-  body: { distributor_id: string; sku: string },
+  body: { distributor_id: string; sku: string; audit_log_id?: string | null },
 ): Promise<{ part_id: string }> {
   return scanRequest(token, 'POST', '/api/v1/scan/parts/import', body);
 }
@@ -240,7 +241,7 @@ export interface ImportMultiResult {
 
 export function importScanPartMulti(
   token: string,
-  body: { listings: Array<{ distributor_id: string; sku: string }> },
+  body: { listings: Array<{ distributor_id: string; sku: string }>; audit_log_id?: string | null },
 ): Promise<ImportMultiResult> {
   return scanRequest(token, 'POST', '/api/v1/scan/parts/import-multi', body);
 }

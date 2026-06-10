@@ -128,6 +128,7 @@
     try {
       const data = await importScanPartMulti(token, {
         listings: selectedListings.map(l => ({ distributor_id: l.distributor_id, sku: l.sku })),
+        audit_log_id: context.auditLogId,
       });
 
       if (data.failed.length > 0) {
@@ -169,6 +170,7 @@
       distributorName={activeDistributorName}
       initialQuery={searchQueryFor(activeDistributorId)}
       initialCheckedSkus={activeInitialChecked}
+      auditLogId={context.auditLogId}
       onBack={backFromSearch}
       onSelectListings={handleSelectListings}
       {onExpired}

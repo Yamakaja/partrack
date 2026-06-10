@@ -1025,7 +1025,9 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Audit log for part_not_found (barcode info present but part not in catalog).
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
+	// Return the row id so a later import can resolve this exact entry by id
+	// instead of fuzzy-matching parsed fields.
+	auditID := h.writeAuditLog(r.Context(), sess, auditLogEntry{
 		EventType:           "part_not_found",
 		ParsedSku:           strPtr(parsed.SKU),
 		ParsedDistributorID: parsedDistributorID,
@@ -1033,9 +1035,15 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		ParsedManufacturer:  strPtr(parsed.Manufacturer),
 		Metadata:            map[string]any{"raw_barcode": body.Barcode},
 	})
+	var auditLogID *string
+	if auditID.Valid {
+		s := auditID.String()
+		auditLogID = &s
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":                     "not_found_in_db",
+		"audit_log_id":               auditLogID,
 		"parsed_mpn":                 parsed.MPN,
 		"parsed_manufacturer":        parsed.Manufacturer,
 		"parsed_sku":                 parsed.SKU,
@@ -1882,6 +1890,7 @@ func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DistributorID string `json:"distributor_id"`
 		SKU           string `json:"sku"`
+		AuditLogID    string `json:"audit_log_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DistributorID == "" || req.SKU == "" {
 		writeError(w, http.StatusBadRequest, "distributor_id and sku are required", "BAD_REQUEST")
@@ -1909,22 +1918,9 @@ func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
 		EntityName: partMPN,
 		ParsedSku:  &req.SKU,
 	})
-	// Resolve any part_not_found audit rows that match this SKU.
-	distID := req.DistributorID
-	_ = h.Queries.ResolvePartNotFoundBySKU(r.Context(), dbgen.ResolvePartNotFoundBySKUParams{
-		PartID:              partID,
-		PartName:            partMPN,
-		ParsedSku:           &req.SKU,
-		ParsedDistributorID: &distID,
-	})
-	if partErr == nil && part.Mpn != nil && part.Manufacturer != nil {
-		_ = h.Queries.ResolvePartNotFoundByMPN(r.Context(), dbgen.ResolvePartNotFoundByMPNParams{
-			PartID:             partID,
-			PartName:           part.Mpn,
-			ParsedMpn:          part.Mpn,
-			ParsedManufacturer: part.Manufacturer,
-		})
-	}
+	// Resolve the exact part_not_found audit row this import was triggered from,
+	// linking it to the new part by id (carried from the lookup response).
+	h.resolveScanAudit(r.Context(), sess.TeamID, req.AuditLogID, partID, partMPN)
 
 	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
 }
@@ -1959,6 +1955,7 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 			DistributorID string `json:"distributor_id"`
 			SKU           string `json:"sku"`
 		} `json:"listings"`
+		AuditLogID string `json:"audit_log_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Listings) == 0 {
 		writeError(w, http.StatusBadRequest, "listings array with at least one entry is required", "BAD_REQUEST")
@@ -1978,6 +1975,7 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var lastPartID pgtype.UUID
+	var lastPartMPN *string
 	var anySuccess bool
 	failed := []failedListing{}
 
@@ -2001,7 +1999,7 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 		if partErr == nil {
 			importedMPN = importedPart.Mpn
 		}
-		distID := listingCopy.DistributorID
+		lastPartMPN = importedMPN
 		h.writeAuditLog(r.Context(), sess, auditLogEntry{
 			EventType:  "part_imported",
 			EntityType: strPtr("part"),
@@ -2009,26 +2007,16 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 			EntityName: importedMPN,
 			ParsedSku:  &listingCopy.SKU,
 		})
-		_ = h.Queries.ResolvePartNotFoundBySKU(r.Context(), dbgen.ResolvePartNotFoundBySKUParams{
-			PartID:              pid,
-			PartName:            importedMPN,
-			ParsedSku:           &listingCopy.SKU,
-			ParsedDistributorID: &distID,
-		})
-		if partErr == nil && importedPart.Mpn != nil && importedPart.Manufacturer != nil {
-			_ = h.Queries.ResolvePartNotFoundByMPN(r.Context(), dbgen.ResolvePartNotFoundByMPNParams{
-				PartID:             pid,
-				PartName:           importedPart.Mpn,
-				ParsedMpn:          importedPart.Mpn,
-				ParsedManufacturer: importedPart.Manufacturer,
-			})
-		}
 	}
 
 	if !anySuccess {
 		writeError(w, http.StatusNotFound, "no listings could be imported", "PART_NOT_FOUND")
 		return
 	}
+
+	// Resolve the exact part_not_found audit row this import was triggered from.
+	// All listings converge on a single part, so the row links to that part.
+	h.resolveScanAudit(r.Context(), sess.TeamID, req.AuditLogID, lastPartID, lastPartMPN)
 
 	h.publishEvent(r, "part_changed", sess.TeamID.String(), map[string]string{"part_id": lastPartID.String()})
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -2259,14 +2247,15 @@ type auditLogEntry struct {
 }
 
 // writeAuditLog persists a scan_audit_log row and publishes scan_audit_changed
-// to the desktop. Errors are silently dropped — audit failures must not affect
-// the primary operation.
-func (h *Handler) writeAuditLog(ctx context.Context, sess *dbgen.ScanSession, e auditLogEntry) {
+// to the desktop. Returns the id of the created row (invalid UUID on failure).
+// Errors are silently dropped — audit failures must not affect the primary
+// operation.
+func (h *Handler) writeAuditLog(ctx context.Context, sess *dbgen.ScanSession, e auditLogEntry) pgtype.UUID {
 	var metadata []byte
 	if len(e.Metadata) > 0 {
 		metadata, _ = json.Marshal(e.Metadata)
 	}
-	_, _ = h.Queries.CreateScanAuditLog(ctx, dbgen.CreateScanAuditLogParams{
+	row, _ := h.Queries.CreateScanAuditLog(ctx, dbgen.CreateScanAuditLogParams{
 		TeamID:              sess.TeamID,
 		UserID:              sess.UserID,
 		SessionID:           sess.ID,
@@ -2287,6 +2276,27 @@ func (h *Handler) writeAuditLog(ctx context.Context, sess *dbgen.ScanSession, e 
 		TeamID:       sess.TeamID.String(),
 		TargetUserID: sess.UserID.String(),
 		Data:         d,
+	})
+	return row.ID
+}
+
+// resolveScanAudit links a previously-logged part_not_found row to the part that
+// was imported off the back of it. auditLogID is the id returned by the lookup
+// that recorded the not-found scan; an empty or invalid id is a no-op (the import
+// wasn't triggered from a scan). Scoped to teamID; only updates unresolved rows.
+func (h *Handler) resolveScanAudit(ctx context.Context, teamID pgtype.UUID, auditLogID string, partID pgtype.UUID, partName *string) {
+	if auditLogID == "" {
+		return
+	}
+	var id pgtype.UUID
+	if id.Scan(auditLogID) != nil {
+		return
+	}
+	_ = h.Queries.MarkScanAuditResolved(ctx, dbgen.MarkScanAuditResolvedParams{
+		PartID:   partID,
+		PartName: partName,
+		ID:       id,
+		TeamID:   teamID,
 	})
 }
 

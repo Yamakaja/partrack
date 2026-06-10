@@ -43,7 +43,7 @@ Make sure that Parts arrivals are still be booked to the appropriate build line 
 # Leftover work items
 
 - Check parts reservation
-- Figure out why build is not ready with plenty of local stock
+- ~~Figure out why build is not ready with plenty of local stock~~ — fixed: SubmitBuild now reserves free (non-reserved) stock and promotes fully-covered builds straight to `ready` instead of leaving them stuck in `pending`.
 - Parameter management
 
 - Convert partrack search (parameters!) to digikey search parameters
@@ -51,3 +51,4 @@ Make sure that Parts arrivals are still be booked to the appropriate build line 
 # Others
 
 - Fix resolution of unresolved scans.
+- Make activity log a *general* activity log, not just for scans

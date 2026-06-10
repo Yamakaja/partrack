@@ -52,6 +52,9 @@
   let canAutoImport = $state(false);
   let distributorConfigs = $state<Array<{ id: string; name: string }>>([]);
   let importError = $state('');
+  // id of the part_not_found audit row this scan logged; carried back into the
+  // import request so the activity feed resolves that exact entry (no guessing).
+  let auditLogId = $state<string | null>(null);
 
   // ── Bulk mode state ───────────────────────────────────────────────────────
 
@@ -229,7 +232,7 @@
     let cancelled = false;
     (async () => {
       try {
-        const data = await importScanPart(token, { distributor_id: parsedDistributorId, sku: parsedSKU });
+        const data = await importScanPart(token, { distributor_id: parsedDistributorId, sku: parsedSKU, audit_log_id: auditLogId });
         if (cancelled) return;
         const part: ScanPart = {
           id: data.part_id,
@@ -267,6 +270,7 @@
       parsedQty,
       canAutoImport,
       distributorConfigs,
+      auditLogId,
     });
   }
 
@@ -319,6 +323,7 @@
         parsedLot = data.parsed_lot;
         canAutoImport = data.can_auto_import;
         distributorConfigs = data.distributor_configs ?? [];
+        auditLogId = data.audit_log_id;
         importError = '';
 
         const isFastPath = data.can_auto_import &&

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -1029,9 +1030,21 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reserve free (non-reserved) stock for this build's demand. A build whose
+	// every part is fully covered by available stock needs no purchasing and is
+	// promoted straight to 'ready'; otherwise it stays 'pending' and its
+	// shortfall feeds the cart. Allocations are only persisted for fully-covered
+	// builds — pending builds carry none (ConvertCart creates them later), so
+	// ConvertCart's reservation math sees no pre-existing reservation for them.
+	newStatus, err := h.reserveStockForSubmit(r.Context(), qtx, build, teamID, buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	if err := qtx.UpdateBuildStatus(r.Context(), dbgen.UpdateBuildStatusParams{
 		ID:     buildID,
-		Status: "pending",
+		Status: newStatus,
 		TeamID: teamID,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -1057,7 +1070,132 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 	h.CartResolver.Invalidate(teamID.String())
 	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
 	h.publishCartChanged(r, teamID)
-	writeJSON(w, http.StatusOK, map[string]any{"id": buildID.String(), "status": "pending"})
+	writeJSON(w, http.StatusOK, map[string]any{"id": buildID.String(), "status": newStatus})
+}
+
+// reserveStockForSubmit computes a build's per-part demand (honouring designator
+// exclusions, skip/use_available overrides, and locked substitute selections),
+// then checks whether free (on-hand minus stock already reserved by other
+// builds) covers it in full. If so it persists soft reservations on
+// build_part_allocations and returns "ready"; otherwise it persists nothing and
+// returns "pending". Must be called within the submit transaction.
+func (h *Handler) reserveStockForSubmit(
+	ctx context.Context,
+	qtx *dbgen.Queries,
+	build dbgen.GetBuildForUpdateRow,
+	teamID, buildID pgtype.UUID,
+) (string, error) {
+	lineItems, err := qtx.ListBOMLineItems(ctx, build.BomRevisionID)
+	if err != nil {
+		return "", err
+	}
+
+	overrideRows, err := qtx.GetBuildLineItemOverridesForBuilds(ctx, []pgtype.UUID{buildID})
+	if err != nil {
+		return "", err
+	}
+	overrideMap := make(map[string]string, len(overrideRows))
+	for _, ov := range overrideRows {
+		overrideMap[ov.BomLineItemID.String()] = ov.OverrideType
+	}
+
+	selRows, err := qtx.GetBuildSubstituteSelections(ctx, buildID)
+	if err != nil {
+		return "", err
+	}
+	selectionMap := make(map[string]string, len(selRows))
+	for _, s := range selRows {
+		selectionMap[s.BomLineItemID.String()] = s.SelectedPartID.String()
+	}
+
+	excludedSet := buildExcludedSet(build.ExcludedDesignators)
+
+	// Aggregate demand per part (substitute selection wins over the primary part).
+	neededByPart := make(map[string]int32)
+	for _, li := range lineItems {
+		if !li.ResolvedPartID.Valid || li.Ignored {
+			continue
+		}
+		if ov, ok := overrideMap[li.ID.String()]; ok && (ov == "skip" || ov == "use_available") {
+			continue
+		}
+		effectivePerBoard := li.Quantity
+		if len(excludedSet) > 0 && li.ReferenceDesignators != "" {
+			if total := totalDesignatorCount(li.ReferenceDesignators); total > 0 {
+				included := effectiveDesignatorCount(li.ReferenceDesignators, excludedSet)
+				effectivePerBoard = int32(min(int(li.Quantity), included))
+			}
+		}
+		if effectivePerBoard <= 0 {
+			continue
+		}
+		partIDStr := li.ResolvedPartID.String()
+		if sel, ok := selectionMap[li.ID.String()]; ok {
+			partIDStr = sel
+		}
+		neededByPart[partIDStr] += effectivePerBoard * build.Quantity
+	}
+
+	// Decide reservation per part against free (non-reserved) stock.
+	type reservation struct {
+		partID   pgtype.UUID
+		needed   int32
+		reserved int32
+	}
+	reservations := make([]reservation, 0, len(neededByPart))
+	fullyCovered := true
+	for partStr, needed := range neededByPart {
+		var partID pgtype.UUID
+		if err := partID.Scan(partStr); err != nil {
+			return "", err
+		}
+		alreadyReserved, err := qtx.SumReservedForPart(ctx, dbgen.SumReservedForPartParams{
+			PartID: partID,
+			TeamID: teamID,
+		})
+		if err != nil {
+			return "", err
+		}
+		var onHand int32
+		entry, err := qtx.GetInventoryEntryByPartID(ctx, dbgen.GetInventoryEntryByPartIDParams{
+			TeamID: teamID,
+			PartID: partID,
+		})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		if err == nil {
+			onHand = entry.QuantityOnHand
+		}
+		free := onHand - alreadyReserved
+		if free < 0 {
+			free = 0
+		}
+		reserve := needed
+		if reserve > free {
+			reserve = free
+			fullyCovered = false
+		}
+		reservations = append(reservations, reservation{partID: partID, needed: needed, reserved: reserve})
+	}
+
+	if !fullyCovered {
+		return "pending", nil
+	}
+
+	// Fully covered: persist soft reservations and promote to ready.
+	for _, rsv := range reservations {
+		if _, err := qtx.UpsertBuildPartAllocation(ctx, dbgen.UpsertBuildPartAllocationParams{
+			BuildID:          buildID,
+			PartID:           rsv.partID,
+			QuantityNeeded:   rsv.needed,
+			QuantityReserved: rsv.reserved,
+			QuantityReceived: 0,
+		}); err != nil {
+			return "", err
+		}
+	}
+	return "ready", nil
 }
 
 // CheckoutBuild handles POST /api/v1/teams/{teamId}/builds/{buildId}/checkout
