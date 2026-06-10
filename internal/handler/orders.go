@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -446,6 +447,13 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "order.cancelled",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "order", ID: orderID.String()},
+		Summary: "Cancelled an order",
+	})
 	if len(revertedBuildIDs) > 0 {
 		for _, buildID := range revertedBuildIDs {
 			h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
@@ -578,6 +586,17 @@ func (h *Handler) LinkOrderReference(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
+	linkSummary := "Linked a distributor order reference"
+	if body.ExternalReference != nil && *body.ExternalReference != "" {
+		linkSummary = "Linked distributor order " + *body.ExternalReference
+	}
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "order.external_linked",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: derefStr(row.ExternalReference)},
+		Summary: linkSummary,
+	})
 
 	resp := map[string]any{
 		"id":                 row.ID.String(),
@@ -820,6 +839,15 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": li.PartID.String(), "entry_id": invEntry.ID.String()})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "order.item_received",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "order", ID: orderID.String()},
+		Refs:    map[string]activity.Ref{"part": {Type: "part", ID: li.PartID.String()}},
+		Values:  map[string]any{"qty": body.QuantityReceived},
+		Summary: fmt.Sprintf("Received %d unit(s) on an order", body.QuantityReceived),
+	})
 
 	// Transition ready builds and publish events.
 	for _, bid := range readyBuildIDs {

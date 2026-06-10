@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	"github.com/Yamakaja/partrack/internal/config"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
@@ -26,6 +27,24 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// record writes an activity-log row for a web mutation, filling actor (from the
+// authenticated user) and source. The caller sets TeamID, Action, Feed, and the
+// structured fields. This is additive to publishEvent: publishEvent handles cache
+// invalidation, record handles the durable audit + live feed.
+func (h *Handler) record(r *http.Request, e activity.Event) {
+	if user := middleware.UserFromContext(r.Context()); user != nil {
+		var uid pgtype.UUID
+		if uid.Scan(user.ID) == nil {
+			e.ActorID = uid
+		}
+		e.ActorLabel = user.DisplayName
+	}
+	if e.Source == "" {
+		e.Source = activity.SourceWeb
+	}
+	h.Activity.Record(e)
+}
+
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
 	DB           *pgxpool.Pool
@@ -37,6 +56,7 @@ type Handler struct {
 	CartResolver *CartResolver
 	ScanHub      *ScanHub
 	Tickets      *ticketStore
+	Activity     *activity.Recorder
 	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
 	refreshGroup singleflight.Group    // deduplicates concurrent credential enrichment per (team, distributor)
 }
@@ -99,6 +119,12 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 		ScanHub:      NewScanHub(),
 		Tickets:      newTicketStore(),
 	}
+	h.Activity = activity.New(db, func(eventType, teamID, targetUserID string, data []byte) {
+		q.Publish(worker.Event{Type: eventType, TeamID: teamID, TargetUserID: targetUserID, Data: data})
+	})
+	h.Activity.Start(context.Background())
+	// Let worker jobs (BOM import, etc.) record activity too.
+	q.SetActivity(h.Activity)
 	h.initOIDC()
 	q.SetCartInvalidate(h.CartResolver.Invalidate)
 	return h

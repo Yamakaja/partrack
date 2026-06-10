@@ -23,6 +23,7 @@ SELECT
 FROM distributor_listings dl
 JOIN parts p ON p.id = dl.part_id
     AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = @team_id))
+    AND p.deleted_at IS NULL
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = @team_id
 WHERE dl.sku = @sku
   AND dl.distributor_id = @distributor_id

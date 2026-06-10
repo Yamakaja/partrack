@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -397,6 +398,11 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var createdBy pgtype.UUID
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		_ = createdBy.Scan(u.ID)
+	}
+
 	part, err := h.Queries.CreatePart(r.Context(), dbgen.CreatePartParams{
 		Scope:           dbgen.PartScope(req.Scope),
 		TeamID:          teamID,
@@ -408,6 +414,7 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 		Package:         req.Package,
 		DatasheetUrl:    req.DatasheetURL,
 		LifecycleStatus: lifecycleStatus,
+		CreatedBy:       createdBy,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -416,6 +423,13 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 
 	if part.TeamID.Valid {
 		h.publishEvent(r, "part_changed", part.TeamID.String(), map[string]string{"part_id": part.ID.String()})
+		h.record(r, activity.Event{
+			TeamID:  part.TeamID,
+			Action:  "part.created",
+			Feed:    activity.FeedTeam,
+			Subject: &activity.Ref{Type: "part", ID: part.ID.String(), Label: derefStr(part.Mpn)},
+			Summary: "Created part " + derefStr(part.Mpn),
+		})
 	}
 	w.Header().Set("Location", "/api/v1/parts/"+part.ID.String())
 	writeJSON(w, http.StatusCreated, toPartFullResponse(part))

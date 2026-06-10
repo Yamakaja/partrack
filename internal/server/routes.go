@@ -203,8 +203,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// 17. Global search
 					r.Get("/search", h.GlobalSearch)
 
-					// 18. Scan audit log (viewer+)
-					r.Get("/scan-audit-log", h.ListScanAuditLog)
+					// 18. Activity log (viewer+; ?scope=team gated to purchaser+ in handler)
+					r.Get("/activity-log", h.ListActivity)
 
 					// 19. Kitting session read (viewer+)
 					r.Get("/kitting/{kittingSessionId}", h.GetKittingSessionDesktop)

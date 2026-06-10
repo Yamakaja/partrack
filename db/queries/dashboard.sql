@@ -45,27 +45,3 @@ GROUP BY o.id, d.name
 ORDER BY o.created_at DESC
 LIMIT 5;
 
--- name: GetDashboardRecentActivity :many
-SELECT activity_type, occurred_at, summary FROM (
-    SELECT 'build'::text AS activity_type,
-           b.assembled_at AS occurred_at,
-           'Built ' || b.quantity || ' board(s) of ' || pr.name AS summary
-    FROM builds b
-    JOIN projects pr ON pr.id = b.project_id
-    WHERE b.team_id = $1
-    UNION ALL
-    SELECT 'checkout'::text,
-           gc.performed_at,
-           COALESCE('Checkout: ' || gc.reason, 'General checkout')
-    FROM general_checkouts gc
-    WHERE gc.team_id = $1
-    UNION ALL
-    SELECT 'order_receipt'::text,
-           COALESCE(o.received_at, o.created_at),
-           'Received order from ' || d.name
-    FROM orders o
-    JOIN distributors d ON d.id = o.distributor_id
-    WHERE o.team_id = $1 AND o.status = 'received'
-) activity
-ORDER BY occurred_at DESC
-LIMIT 10;

@@ -113,58 +113,6 @@ func (q *Queries) GetDashboardOutstandingOrders(ctx context.Context, teamID pgty
 	return items, nil
 }
 
-const getDashboardRecentActivity = `-- name: GetDashboardRecentActivity :many
-SELECT activity_type, occurred_at, summary FROM (
-    SELECT 'build'::text AS activity_type,
-           b.assembled_at AS occurred_at,
-           'Built ' || b.quantity || ' board(s) of ' || pr.name AS summary
-    FROM builds b
-    JOIN projects pr ON pr.id = b.project_id
-    WHERE b.team_id = $1
-    UNION ALL
-    SELECT 'checkout'::text,
-           gc.performed_at,
-           COALESCE('Checkout: ' || gc.reason, 'General checkout')
-    FROM general_checkouts gc
-    WHERE gc.team_id = $1
-    UNION ALL
-    SELECT 'order_receipt'::text,
-           COALESCE(o.received_at, o.created_at),
-           'Received order from ' || d.name
-    FROM orders o
-    JOIN distributors d ON d.id = o.distributor_id
-    WHERE o.team_id = $1 AND o.status = 'received'
-) activity
-ORDER BY occurred_at DESC
-LIMIT 10
-`
-
-type GetDashboardRecentActivityRow struct {
-	ActivityType string             `json:"activity_type"`
-	OccurredAt   pgtype.Timestamptz `json:"occurred_at"`
-	Summary      interface{}        `json:"summary"`
-}
-
-func (q *Queries) GetDashboardRecentActivity(ctx context.Context, teamID pgtype.UUID) ([]GetDashboardRecentActivityRow, error) {
-	rows, err := q.db.Query(ctx, getDashboardRecentActivity, teamID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetDashboardRecentActivityRow
-	for rows.Next() {
-		var i GetDashboardRecentActivityRow
-		if err := rows.Scan(&i.ActivityType, &i.OccurredAt, &i.Summary); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getDashboardRecentProjects = `-- name: GetDashboardRecentProjects :many
 SELECT p.id, p.name, p.status,
        br.label AS active_revision_label,

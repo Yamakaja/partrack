@@ -228,6 +228,8 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publishEvent(r, "revision_changed", teamID.String(), map[string]string{"project_id": projectID.String(), "revision_id": rev.ID.String()})
+	// The team-feed milestone (bom.imported, with resolution stats) is emitted by
+	// the import job on completion — see worker.handleBOMImport.
 
 	jobID := h.Worker.Enqueue(worker.JobBOMImport, teamID.String(), map[string]string{
 		"bom_revision_id": rev.ID.String(),

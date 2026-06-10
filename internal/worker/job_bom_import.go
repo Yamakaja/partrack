@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -291,6 +293,37 @@ func (q *Queue) handleBOMImport(job Job) {
 	}
 
 	publishProgress("complete", noMatchCount)
+
+	// Team-feed rollup: one bom.imported milestone carrying the resolution stats,
+	// instead of N per-part rows (per-part creation audit lives on parts.created_by).
+	if q.activity != nil {
+		label := ""
+		if rev, err := queries.GetRevision(ctx, dbgen.GetRevisionParams{ID: revID, ProjectID: projectID}); err == nil {
+			label = rev.Label
+		}
+		resolved := resolvedSKU + resolvedMPN + resolvedPrior
+		q.activity.Record(activity.Event{
+			TeamID:  teamID,
+			ActorID: createdBy,
+			Source:  activity.SourceJob,
+			Action:  "bom.imported",
+			Feed:    activity.FeedTeam,
+			Subject: &activity.Ref{
+				Type:   "revision",
+				ID:     revID.String(),
+				Label:  label,
+				Parent: &activity.Ref{Type: "project", ID: projectID.String()},
+			},
+			Values: map[string]any{
+				"total": len(items), "resolved": resolved, "resolved_sku": resolvedSKU,
+				"resolved_mpn": resolvedMPN, "importing": importingCount,
+				"ambiguous": ambiguousCount, "no_match": noMatchCount,
+				"substitutes_copied": substitutesImportedCount,
+			},
+			Summary: fmt.Sprintf("Imported BOM %s: %d lines, %d resolved, %d importing, %d ambiguous",
+				label, len(items), resolved, importingCount, ambiguousCount),
+		})
+	}
 
 	projData, _ := json.Marshal(map[string]string{"project_id": payload["project_id"]})
 	q.Publish(Event{Type: "project_changed", TeamID: job.TeamID, UserID: payload["user_id"], Data: projData})

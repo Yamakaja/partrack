@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -191,6 +192,13 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publishEvent(r, "project_changed", teamID.String(), map[string]string{"project_id": p.ID.String()})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "project.created",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "project", ID: p.ID.String(), Label: p.Name},
+		Summary: "Created project " + p.Name,
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":                       p.ID.String(),
 		"name":                     p.Name,

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -1069,6 +1071,14 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 
 	h.CartResolver.Invalidate(teamID.String())
 	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "build.submitted",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "build", ID: buildID.String()},
+		Values:  map[string]any{"quantity": build.Quantity},
+		Summary: fmt.Sprintf("Submitted a build of %d board(s)", build.Quantity),
+	})
 	h.publishCartChanged(r, teamID)
 	writeJSON(w, http.StatusOK, map[string]any{"id": buildID.String(), "status": newStatus})
 }
@@ -1464,6 +1474,14 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "build.assembled",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "build", ID: buildID.String()},
+		Values:  map[string]any{"parts_deducted": len(deductions)},
+		Summary: fmt.Sprintf("Assembled a build (%d part(s) deducted)", len(deductions)),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":                remaining.ID.String(),
 		"status":            newStatus,
@@ -1634,6 +1652,13 @@ func (h *Handler) CancelBuild(w http.ResponseWriter, r *http.Request) {
 
 	h.CartResolver.Invalidate(teamID.String())
 	h.publishEvent(r, "build_changed", teamID.String(), map[string]string{"build_id": buildID.String()})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "build.cancelled",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "build", ID: buildID.String()},
+		Summary: "Cancelled a build",
+	})
 	if wasPending {
 		h.publishCartChanged(r, teamID)
 	}

@@ -6,6 +6,7 @@
 SELECT category_id, COUNT(*)::int AS count
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND deleted_at IS NULL
   AND category_id IS NOT NULL
 GROUP BY category_id;
 
@@ -19,6 +20,7 @@ SELECT id, scope, team_id, mpn, manufacturer, description, category, category_id
        package, lifecycle_status, created_at
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND deleted_at IS NULL
   AND (sqlc.narg('q')::text IS NULL
        OR mpn ILIKE '%' || sqlc.narg('q') || '%'
        OR description ILIKE '%' || sqlc.narg('q') || '%'
@@ -40,6 +42,7 @@ WITH RECURSIVE cat_tree AS (
 )
 SELECT COUNT(*) FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND deleted_at IS NULL
   AND (sqlc.narg('q')::text IS NULL
        OR mpn ILIKE '%' || sqlc.narg('q') || '%'
        OR description ILIKE '%' || sqlc.narg('q') || '%'
@@ -80,6 +83,7 @@ LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
+  AND p.deleted_at IS NULL
   AND (sqlc.narg('q')::text IS NULL
        OR p.mpn ILIKE '%' || sqlc.narg('q') || '%'
        OR p.description ILIKE '%' || sqlc.narg('q') || '%'
@@ -122,6 +126,7 @@ loc_tree AS (
 SELECT COUNT(*) FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
+  AND p.deleted_at IS NULL
   AND (sqlc.narg('q')::text IS NULL
        OR p.mpn ILIKE '%' || sqlc.narg('q') || '%'
        OR p.description ILIKE '%' || sqlc.narg('q') || '%'
@@ -189,9 +194,10 @@ WHERE p.id = sqlc.arg('id');
 
 -- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
-                   datasheet_url, lifecycle_status, category_id, category_source)
+                   datasheet_url, lifecycle_status, category_id, category_source, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, sqlc.narg('category_id'),
-        CASE WHEN sqlc.narg('category_id')::int IS NOT NULL THEN 'user' ELSE 'auto' END)
+        CASE WHEN sqlc.narg('category_id')::int IS NOT NULL THEN 'user' ELSE 'auto' END,
+        sqlc.narg('created_by'))
 RETURNING *;
 
 -- name: UpdatePart :one
@@ -346,6 +352,7 @@ SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
 FROM parts
 WHERE mpn = $1
   AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND deleted_at IS NULL
 ORDER BY scope DESC
 LIMIT 1;
 
@@ -356,6 +363,7 @@ SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
 FROM parts
 WHERE mpn = $1
   AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND deleted_at IS NULL
 ORDER BY scope DESC
 LIMIT 10;
 
@@ -368,6 +376,7 @@ FROM parts
 WHERE mpn = $1
   AND manufacturer ILIKE $2
   AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.narg('team_id')))
+  AND deleted_at IS NULL
 ORDER BY scope DESC
 LIMIT 10;
 
@@ -387,4 +396,7 @@ ORDER BY ie.part_id,
     dl.id DESC;
 
 -- name: DeletePart :exec
-DELETE FROM parts WHERE id = $1;
+-- Soft-delete: parts are an audit source-of-truth and are never physically
+-- removed (that would erase the stock ledger and creation record). Catalog and
+-- match queries filter on deleted_at IS NULL.
+UPDATE parts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;

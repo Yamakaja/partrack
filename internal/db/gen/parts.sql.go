@@ -19,6 +19,7 @@ WITH RECURSIVE cat_tree AS (
 )
 SELECT COUNT(*) FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
+  AND deleted_at IS NULL
   AND ($2::text IS NULL
        OR mpn ILIKE '%' || $2 || '%'
        OR description ILIKE '%' || $2 || '%'
@@ -70,6 +71,7 @@ loc_tree AS (
 SELECT COUNT(*) FROM parts p
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
+  AND p.deleted_at IS NULL
   AND ($2::text IS NULL
        OR p.mpn ILIKE '%' || $2 || '%'
        OR p.description ILIKE '%' || $2 || '%'
@@ -132,10 +134,11 @@ func (q *Queries) CountPartsWithInventory(ctx context.Context, arg CountPartsWit
 
 const createPart = `-- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
-                   datasheet_url, lifecycle_status, category_id, category_source)
+                   datasheet_url, lifecycle_status, category_id, category_source, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        CASE WHEN $10::int IS NOT NULL THEN 'user' ELSE 'auto' END)
-RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source
+        CASE WHEN $10::int IS NOT NULL THEN 'user' ELSE 'auto' END,
+        $11)
+RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at
 `
 
 type CreatePartParams struct {
@@ -149,6 +152,7 @@ type CreatePartParams struct {
 	DatasheetUrl    *string             `json:"datasheet_url"`
 	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
 	CategoryID      *int32              `json:"category_id"`
+	CreatedBy       pgtype.UUID         `json:"created_by"`
 }
 
 func (q *Queries) CreatePart(ctx context.Context, arg CreatePartParams) (Part, error) {
@@ -163,6 +167,7 @@ func (q *Queries) CreatePart(ctx context.Context, arg CreatePartParams) (Part, e
 		arg.DatasheetUrl,
 		arg.LifecycleStatus,
 		arg.CategoryID,
+		arg.CreatedBy,
 	)
 	var i Part
 	err := row.Scan(
@@ -185,6 +190,8 @@ func (q *Queries) CreatePart(ctx context.Context, arg CreatePartParams) (Part, e
 		&i.ImageUrl,
 		&i.CategoryID,
 		&i.CategorySource,
+		&i.CreatedBy,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -233,9 +240,12 @@ func (q *Queries) DeleteParameter(ctx context.Context, arg DeleteParameterParams
 }
 
 const deletePart = `-- name: DeletePart :exec
-DELETE FROM parts WHERE id = $1
+UPDATE parts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL
 `
 
+// Soft-delete: parts are an audit source-of-truth and are never physically
+// removed (that would erase the stock ledger and creation record). Catalog and
+// match queries filter on deleted_at IS NULL.
 func (q *Queries) DeletePart(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deletePart, id)
 	return err
@@ -406,7 +416,7 @@ func (q *Queries) GetParametersByPartIDs(ctx context.Context, partIds []pgtype.U
 }
 
 const getPart = `-- name: GetPart :one
-SELECT id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source FROM parts WHERE id = $1
+SELECT id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at FROM parts WHERE id = $1
 `
 
 func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
@@ -432,6 +442,8 @@ func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
 		&i.ImageUrl,
 		&i.CategoryID,
 		&i.CategorySource,
+		&i.CreatedBy,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -441,6 +453,7 @@ SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
 FROM parts
 WHERE mpn = $1
   AND (scope = 'global' OR (scope = 'team' AND team_id = $2))
+  AND deleted_at IS NULL
 ORDER BY scope DESC
 LIMIT 1
 `
@@ -788,6 +801,7 @@ const listPartCategoryCounts = `-- name: ListPartCategoryCounts :many
 SELECT category_id, COUNT(*)::int AS count
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
+  AND deleted_at IS NULL
   AND category_id IS NOT NULL
 GROUP BY category_id
 `
@@ -830,6 +844,7 @@ SELECT id, scope, team_id, mpn, manufacturer, description, category, category_id
        package, lifecycle_status, created_at
 FROM parts
 WHERE (scope = 'global' OR (scope = 'team' AND team_id = $1))
+  AND deleted_at IS NULL
   AND ($2::text IS NULL
        OR mpn ILIKE '%' || $2 || '%'
        OR description ILIKE '%' || $2 || '%'
@@ -919,6 +934,7 @@ SELECT id, mpn, manufacturer, description, category, package, lifecycle_status
 FROM parts
 WHERE mpn = $1
   AND (scope = 'global' OR (scope = 'team' AND team_id = $2))
+  AND deleted_at IS NULL
 ORDER BY scope DESC
 LIMIT 10
 `
@@ -974,6 +990,7 @@ FROM parts
 WHERE mpn = $1
   AND manufacturer ILIKE $2
   AND (scope = 'global' OR (scope = 'team' AND team_id = $3))
+  AND deleted_at IS NULL
 ORDER BY scope DESC
 LIMIT 10
 `
@@ -1052,6 +1069,7 @@ LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
 WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
+  AND p.deleted_at IS NULL
   AND ($2::text IS NULL
        OR p.mpn ILIKE '%' || $2 || '%'
        OR p.description ILIKE '%' || $2 || '%'
@@ -1273,7 +1291,7 @@ SET description                   = COALESCE($1, description),
     preferred_parameter_source_id = COALESCE($7,
                                              preferred_parameter_source_id)
 WHERE id = $8
-RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source
+RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at
 `
 
 type UpdatePartParams struct {
@@ -1319,6 +1337,8 @@ func (q *Queries) UpdatePart(ctx context.Context, arg UpdatePartParams) (Part, e
 		&i.ImageUrl,
 		&i.CategoryID,
 		&i.CategorySource,
+		&i.CreatedBy,
+		&i.DeletedAt,
 	)
 	return i, err
 }

@@ -121,6 +121,7 @@ const searchParts = `-- name: SearchParts :many
 SELECT p.id, p.mpn, p.manufacturer, p.description, p.short_description, p.lifecycle_status
 FROM parts p
 WHERE (p.scope = 'global' OR p.team_id = $1)
+  AND p.deleted_at IS NULL
   AND (
     p.mpn ILIKE '%' || $2 || '%'
     OR p.manufacturer ILIKE '%' || $2 || '%'

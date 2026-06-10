@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -66,7 +67,12 @@ type Queue struct {
 	db             *pgxpool.Pool
 	distributors   distributor.Registry
 	cartInvalidate func(teamID string)
+	activity       *activity.Recorder
 }
+
+// SetActivity wires the activity recorder so jobs can emit rollup events
+// (e.g. bom.imported). Set once at startup, before jobs are processed.
+func (q *Queue) SetActivity(rec *activity.Recorder) { q.activity = rec }
 
 // SetCartInvalidate registers a callback that is called whenever a background
 // job updates distributor listing data. The callback should invalidate any

@@ -1,5 +1,6 @@
 import { request } from './client.js';
 import type { Build } from '$lib/types/orders.js';
+import type { ActivityEntry } from './activityLog.js';
 
 export interface DashboardStats {
   project_count: number;
@@ -39,11 +40,9 @@ export interface DashboardOrder {
   status: string;
 }
 
-export interface DashboardActivityItem {
-  type: 'build' | 'checkout' | 'order_receipt';
-  timestamp: string;
-  summary: string;
-}
+// Dashboard recent activity items share the unified activity-log shape so the
+// dashboard widget and the side panel render through the same component.
+export type DashboardActivityItem = ActivityEntry;
 
 export interface Dashboard {
   stats: DashboardStats;

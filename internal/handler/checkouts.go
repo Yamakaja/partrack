@@ -3,9 +3,11 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -93,10 +95,10 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 		Reason *string `json:"reason"`
 		Notes  *string `json:"notes"` // alias for reason
 		Items  []struct {
-			InventoryEntryID string  `json:"inventory_entry_id"`
-			PartID           string  `json:"part_id"` // fallback if no inventory_entry_id
-			Quantity         int32   `json:"quantity"`
-			ReconcileTo      *int32  `json:"reconcile_to"`
+			InventoryEntryID string `json:"inventory_entry_id"`
+			PartID           string `json:"part_id"` // fallback if no inventory_entry_id
+			Quantity         int32  `json:"quantity"`
+			ReconcileTo      *int32 `json:"reconcile_to"`
 		} `json:"items"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -183,11 +185,11 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 
 	// Stock check pass — identify items that need reconciliation.
 	type insufficientItem struct {
-		InventoryEntryID string  `json:"inventory_entry_id"`
-		PartID           string  `json:"part_id"`
-		PartMpn          *string `json:"part_mpn"`
-		QuantityOnHand   int32   `json:"quantity_on_hand"`
-		QuantityRequested int32  `json:"quantity_requested"`
+		InventoryEntryID  string  `json:"inventory_entry_id"`
+		PartID            string  `json:"part_id"`
+		PartMpn           *string `json:"part_mpn"`
+		QuantityOnHand    int32   `json:"quantity_on_hand"`
+		QuantityRequested int32   `json:"quantity_requested"`
 	}
 	var insufficientItems []insufficientItem
 
@@ -380,6 +382,17 @@ func (h *Handler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "checkout_changed", teamID.String(), map[string]string{"checkout_id": checkout.ID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{})
+	checkoutSummary := fmt.Sprintf("Checked out %d part(s)", len(lineItemResults))
+	if checkout.Reason != nil && *checkout.Reason != "" {
+		checkoutSummary += ": " + *checkout.Reason
+	}
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "checkout.created",
+		Feed:    activity.FeedTeam,
+		Values:  map[string]any{"item_count": len(lineItemResults)},
+		Summary: checkoutSummary,
+	})
 
 	if reservationWarnings == nil {
 		reservationWarnings = []reservationWarning{}
@@ -446,10 +459,10 @@ func (h *Handler) GetCheckout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                       checkout.ID.String(),
-		"performed_at":             checkout.PerformedAt.Time.UTC().Format(time.RFC3339),
-		"reason":                   checkout.Reason,
+		"id":                        checkout.ID.String(),
+		"performed_at":              checkout.PerformedAt.Time.UTC().Format(time.RFC3339),
+		"reason":                    checkout.Reason,
 		"performed_by_display_name": checkout.PerformedByDisplayName,
-		"items":                    items,
+		"items":                     items,
 	})
 }

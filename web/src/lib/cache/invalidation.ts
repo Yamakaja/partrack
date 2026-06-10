@@ -89,8 +89,8 @@ export function activateTeamInvalidation(teamId: string) {
       qc!.invalidateQueries({ queryKey: ['checkouts', teamId] });
     }),
 
-    subscribeSSEType(teamId, 'scan_audit_changed', () => {
-      qc!.invalidateQueries({ queryKey: ['scan-audit-log', teamId] });
+    subscribeSSEType(teamId, 'activity_changed', () => {
+      qc!.invalidateQueries({ queryKey: ['activity-log', teamId] });
     }),
 
     subscribeSSEType(teamId, 'build_kitting_changed', (ev) => {

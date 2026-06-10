@@ -359,6 +359,22 @@ func (ns NullTeamRole) Value() (driver.Value, error) {
 	return string(ns.TeamRole), nil
 }
 
+type ActivityLog struct {
+	ID           pgtype.UUID        `json:"id"`
+	TeamID       pgtype.UUID        `json:"team_id"`
+	ActorUserID  pgtype.UUID        `json:"actor_user_id"`
+	ActorLabel   *string            `json:"actor_label"`
+	Source       string             `json:"source"`
+	Action       string             `json:"action"`
+	Feed         string             `json:"feed"`
+	SubjectType  *string            `json:"subject_type"`
+	SubjectID    pgtype.UUID        `json:"subject_id"`
+	SubjectLabel *string            `json:"subject_label"`
+	Summary      *string            `json:"summary"`
+	Payload      []byte             `json:"payload"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
 type ApiToken struct {
 	ID         pgtype.UUID        `json:"id"`
 	UserID     pgtype.UUID        `json:"user_id"`
@@ -665,6 +681,8 @@ type Part struct {
 	ImageUrl                   *string             `json:"image_url"`
 	CategoryID                 *int32              `json:"category_id"`
 	CategorySource             string              `json:"category_source"`
+	CreatedBy                  pgtype.UUID         `json:"created_by"`
+	DeletedAt                  pgtype.Timestamptz  `json:"deleted_at"`
 }
 
 type PartAlias struct {
@@ -725,24 +743,6 @@ type Project struct {
 	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
 	SourceUrl              *string            `json:"source_url"`
 	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
-}
-
-type ScanAuditLog struct {
-	ID                  pgtype.UUID        `json:"id"`
-	TeamID              pgtype.UUID        `json:"team_id"`
-	UserID              pgtype.UUID        `json:"user_id"`
-	SessionID           pgtype.UUID        `json:"session_id"`
-	EventType           string             `json:"event_type"`
-	EntityType          *string            `json:"entity_type"`
-	EntityID            pgtype.UUID        `json:"entity_id"`
-	EntityName          *string            `json:"entity_name"`
-	Quantity            *int32             `json:"quantity"`
-	ParsedSku           *string            `json:"parsed_sku"`
-	ParsedDistributorID *string            `json:"parsed_distributor_id"`
-	ParsedMpn           *string            `json:"parsed_mpn"`
-	ParsedManufacturer  *string            `json:"parsed_manufacturer"`
-	Metadata            []byte             `json:"metadata"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 type ScanSession struct {

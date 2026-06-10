@@ -2,6 +2,7 @@
 SELECT p.id, p.mpn, p.manufacturer, p.description, p.short_description, p.lifecycle_status
 FROM parts p
 WHERE (p.scope = 'global' OR p.team_id = @team_id)
+  AND p.deleted_at IS NULL
   AND (
     p.mpn ILIKE '%' || @q || '%'
     OR p.manufacturer ILIKE '%' || @q || '%'

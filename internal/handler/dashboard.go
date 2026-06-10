@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
+	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -46,10 +48,28 @@ type dashboardOrder struct {
 	Status              string  `json:"status"`
 }
 
+type dashboardActivitySubject struct {
+	Type  string `json:"type"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// dashboardActivityItem mirrors the ListActivity item shape so the dashboard
+// widget and the side panel render through the same frontend component.
 type dashboardActivityItem struct {
-	Type      string `json:"type"`
-	Timestamp string `json:"timestamp"`
-	Summary   string `json:"summary"`
+	ID                      string                    `json:"id"`
+	Action                  string                    `json:"action"`
+	Feed                    string                    `json:"feed"`
+	Source                  string                    `json:"source"`
+	ActorLabel              *string                   `json:"actor_label"`
+	Subject                 *dashboardActivitySubject `json:"subject"`
+	Summary                 *string                   `json:"summary"`
+	Payload                 json.RawMessage           `json:"payload,omitempty"`
+	CreatedAt               string                    `json:"created_at"`
+	PartManufacturer        *string                   `json:"part_manufacturer"`
+	PartImageURL            *string                   `json:"part_image_url"`
+	InventoryEntryID        *string                   `json:"inventory_entry_id"`
+	InventoryQuantityOnHand *int32                    `json:"inventory_quantity_on_hand"`
 }
 
 type dashboardResponse struct {
@@ -96,7 +116,10 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activityRows, err := h.Queries.GetDashboardRecentActivity(ctx, teamID)
+	activityRows, err := h.Queries.RecentTeamActivity(ctx, dbgen.RecentTeamActivityParams{
+		TeamID: teamID,
+		Limit:  10,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -175,18 +198,27 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Assemble recent activity.
+	// Assemble recent activity (team-wide feed).
 	activity := make([]dashboardActivityItem, 0, len(activityRows))
 	for _, a := range activityRows {
-		if !a.OccurredAt.Valid {
-			continue
+		item := dashboardActivityItem{
+			ID:         a.ID.String(),
+			Action:     a.Action,
+			Feed:       a.Feed,
+			Source:     a.Source,
+			ActorLabel: a.ActorLabel,
+			Summary:    a.Summary,
+			Payload:    a.Payload,
+			CreatedAt:  a.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
 		}
-		summary, _ := a.Summary.(string)
-		activity = append(activity, dashboardActivityItem{
-			Type:      a.ActivityType,
-			Timestamp: a.OccurredAt.Time.UTC().Format(time.RFC3339),
-			Summary:   summary,
-		})
+		if a.SubjectID.Valid && a.SubjectType != nil {
+			item.Subject = &dashboardActivitySubject{
+				Type:  *a.SubjectType,
+				ID:    a.SubjectID.String(),
+				Label: derefStr(a.SubjectLabel),
+			}
+		}
+		activity = append(activity, item)
 	}
 
 	writeJSON(w, http.StatusOK, dashboardResponse{

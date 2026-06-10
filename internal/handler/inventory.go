@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -504,6 +505,14 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": invEntry.PartID.String(), "entry_id": entryID.String()})
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "inventory.adjusted",
+		Feed:    activity.FeedTeam,
+		Subject: &activity.Ref{Type: "part", ID: invEntry.PartID.String()},
+		Values:  map[string]any{"delta": req.Delta},
+		Summary: fmt.Sprintf("Adjusted stock (%+d)", req.Delta),
+	})
 
 	// If stock increased, re-evaluate readiness of any ordered builds that need this part.
 	if req.Delta > 0 {

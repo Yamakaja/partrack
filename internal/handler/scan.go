@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -851,14 +852,13 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 	})
 	h.Worker.Publish(worker.Event{Type: "inventory_changed", TeamID: sess.TeamID.String(), Data: d})
 
-	// Audit log for stock_adjusted.
-	delta := body.Delta
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "stock_adjusted",
-		EntityType: strPtr("part"),
-		EntityID:   entry.PartID,
-		Quantity:   &delta,
-		Metadata:   map[string]any{"reason": body.Reason, "inventory_entry_id": entryID.String()},
+	// Activity: personal scan stock adjustment.
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.stock_adjusted",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: entry.PartID.String()},
+		Values:  map[string]any{"delta": body.Delta, "reason": body.Reason, "inventory_entry_id": entryID.String()},
+		Summary: fmt.Sprintf("Stock adjusted (%+d)", body.Delta),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1024,16 +1024,24 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Audit log for part_not_found (barcode info present but part not in catalog).
-	// Return the row id so a later import can resolve this exact entry by id
-	// instead of fuzzy-matching parsed fields.
-	auditID := h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:           "part_not_found",
-		ParsedSku:           strPtr(parsed.SKU),
-		ParsedDistributorID: parsedDistributorID,
-		ParsedMpn:           strPtr(parsed.MPN),
-		ParsedManufacturer:  strPtr(parsed.Manufacturer),
-		Metadata:            map[string]any{"raw_barcode": body.Barcode},
+	// Activity: part_not_found (barcode parsed but part not in catalog). Recorded
+	// synchronously so the row id can be returned and a later import can resolve
+	// this exact entry by id instead of fuzzy-matching parsed fields.
+	notFoundLabel := parsed.SKU
+	if notFoundLabel == "" {
+		notFoundLabel = parsed.MPN
+	}
+	auditID := h.scanActivitySync(r.Context(), sess, activity.Event{
+		Action:  "scan.part_not_found",
+		Feed:    activity.FeedPersonal,
+		Summary: "Not found: " + notFoundLabel,
+		Values: map[string]any{
+			"sku":            parsed.SKU,
+			"mpn":            parsed.MPN,
+			"manufacturer":   parsed.Manufacturer,
+			"distributor_id": derefStr(parsedDistributorID),
+			"raw_barcode":    body.Barcode,
+		},
 	})
 	var auditLogID *string
 	if auditID.Valid {
@@ -1124,13 +1132,16 @@ func (h *Handler) writeLookupFound(w http.ResponseWriter, r *http.Request,
 		resp["distributor_name"] = *distributorName
 	}
 
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "bag_scanned",
-		EntityType: strPtr("part"),
-		EntityID:   partID,
-		EntityName: mpn,
-		ParsedSku:  sku,
-		Metadata:   map[string]any{"newly_created": newlyCreated},
+	bagLabel := derefStr(mpn)
+	if bagLabel == "" {
+		bagLabel = derefStr(sku)
+	}
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.bag_scanned",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: partID.String(), Label: derefStr(mpn)},
+		Values:  map[string]any{"sku": derefStr(sku), "newly_created": newlyCreated},
+		Summary: "Scanned " + bagLabel,
 	})
 
 	writeJSON(w, http.StatusOK, resp)
@@ -1527,15 +1538,13 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Audit log for order_received.
-	qtyAudit := qty
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "order_received",
-		EntityType: strPtr("part"),
-		EntityID:   li.PartID,
-		EntityName: strPtr(ps.MPN),
-		Quantity:   &qtyAudit,
-		Metadata:   map[string]any{"order_id": orderID.String(), "line_item_id": lineItemID.String()},
+	// Activity: personal scan order receipt.
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.order_received",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: li.PartID.String(), Label: ps.MPN},
+		Values:  map[string]any{"qty": qty, "order_id": orderID.String(), "line_item_id": lineItemID.String()},
+		Summary: fmt.Sprintf("Received %d× %s", qty, ps.MPN),
 	})
 
 	// Clear pending_scan.
@@ -1911,14 +1920,14 @@ func (h *Handler) ImportScanPart(w http.ResponseWriter, r *http.Request) {
 	if partErr == nil {
 		partMPN = part.Mpn
 	}
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "part_imported",
-		EntityType: strPtr("part"),
-		EntityID:   partID,
-		EntityName: partMPN,
-		ParsedSku:  &req.SKU,
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.part_imported",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: partID.String(), Label: derefStr(partMPN)},
+		Values:  map[string]any{"sku": req.SKU},
+		Summary: "Imported " + firstNonEmpty(derefStr(partMPN), req.SKU),
 	})
-	// Resolve the exact part_not_found audit row this import was triggered from,
+	// Resolve the exact part_not_found activity row this import was triggered from,
 	// linking it to the new part by id (carried from the lookup response).
 	h.resolveScanAudit(r.Context(), sess.TeamID, req.AuditLogID, partID, partMPN)
 
@@ -2000,12 +2009,12 @@ func (h *Handler) ImportScanPartMulti(w http.ResponseWriter, r *http.Request) {
 			importedMPN = importedPart.Mpn
 		}
 		lastPartMPN = importedMPN
-		h.writeAuditLog(r.Context(), sess, auditLogEntry{
-			EventType:  "part_imported",
-			EntityType: strPtr("part"),
-			EntityID:   pid,
-			EntityName: importedMPN,
-			ParsedSku:  &listingCopy.SKU,
+		h.scanActivity(sess, activity.Event{
+			Action:  "scan.part_imported",
+			Feed:    activity.FeedPersonal,
+			Subject: &activity.Ref{Type: "part", ID: pid.String(), Label: derefStr(importedMPN)},
+			Values:  map[string]any{"sku": listingCopy.SKU},
+			Summary: "Imported " + firstNonEmpty(derefStr(importedMPN), listingCopy.SKU),
 		})
 	}
 
@@ -2205,16 +2214,17 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 		"part_id":  entry.PartID.String(),
 	})
 
-	// Audit log for storage_assigned.
+	// Activity: personal scan storage assignment.
 	meta := map[string]any{"inventory_entry_id": entry.ID.String()}
 	if entry.StorageLocationID.Valid {
 		meta["location_id"] = entry.StorageLocationID.String()
 	}
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "storage_assigned",
-		EntityType: strPtr("part"),
-		EntityID:   entry.PartID,
-		Metadata:   meta,
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.storage_assigned",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: entry.PartID.String()},
+		Values:  meta,
+		Summary: "Assigned storage location",
 	})
 
 	var storageLocation any
@@ -2230,60 +2240,31 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// ── Audit log ─────────────────────────────────────────────────────────────────
+// ── Activity log (scanner) ─────────────────────────────────────────────────────
 
-// auditLogEntry holds the fields for a single scan audit log write.
-type auditLogEntry struct {
-	EventType           string
-	EntityType          *string
-	EntityID            pgtype.UUID
-	EntityName          *string
-	Quantity            *int32
-	ParsedSku           *string
-	ParsedDistributorID *string
-	ParsedMpn           *string
-	ParsedManufacturer  *string
-	Metadata            map[string]any
+// scanActivity records a scanner-sourced personal activity row (batched). Team
+// and actor are taken from the scan session; the source is always "scanner".
+func (h *Handler) scanActivity(sess *dbgen.ScanSession, e activity.Event) {
+	e.TeamID = sess.TeamID
+	e.ActorID = sess.UserID
+	e.Source = activity.SourceScanner
+	h.Activity.Record(e)
 }
 
-// writeAuditLog persists a scan_audit_log row and publishes scan_audit_changed
-// to the desktop. Returns the id of the created row (invalid UUID on failure).
-// Errors are silently dropped — audit failures must not affect the primary
-// operation.
-func (h *Handler) writeAuditLog(ctx context.Context, sess *dbgen.ScanSession, e auditLogEntry) pgtype.UUID {
-	var metadata []byte
-	if len(e.Metadata) > 0 {
-		metadata, _ = json.Marshal(e.Metadata)
-	}
-	row, _ := h.Queries.CreateScanAuditLog(ctx, dbgen.CreateScanAuditLogParams{
-		TeamID:              sess.TeamID,
-		UserID:              sess.UserID,
-		SessionID:           sess.ID,
-		EventType:           e.EventType,
-		EntityType:          e.EntityType,
-		EntityID:            e.EntityID,
-		EntityName:          e.EntityName,
-		Quantity:            e.Quantity,
-		ParsedSku:           e.ParsedSku,
-		ParsedDistributorID: e.ParsedDistributorID,
-		ParsedMpn:           e.ParsedMpn,
-		ParsedManufacturer:  e.ParsedManufacturer,
-		Metadata:            metadata,
-	})
-	d, _ := json.Marshal(map[string]string{"event_type": e.EventType})
-	h.Worker.Publish(worker.Event{
-		Type:         "scan_audit_changed",
-		TeamID:       sess.TeamID.String(),
-		TargetUserID: sess.UserID.String(),
-		Data:         d,
-	})
-	return row.ID
+// scanActivitySync records a scanner-sourced row synchronously and returns its
+// id — used for scan.part_not_found so the id can be echoed to the phone and
+// resolved by id when the part is later imported (no fuzzy matching).
+func (h *Handler) scanActivitySync(ctx context.Context, sess *dbgen.ScanSession, e activity.Event) pgtype.UUID {
+	e.TeamID = sess.TeamID
+	e.ActorID = sess.UserID
+	e.Source = activity.SourceScanner
+	id, _ := h.Activity.RecordSync(ctx, e)
+	return id
 }
 
-// resolveScanAudit links a previously-logged part_not_found row to the part that
-// was imported off the back of it. auditLogID is the id returned by the lookup
-// that recorded the not-found scan; an empty or invalid id is a no-op (the import
-// wasn't triggered from a scan). Scoped to teamID; only updates unresolved rows.
+// resolveScanAudit links a previously-logged scan.part_not_found row to the part
+// imported off the back of it. auditLogID is the id returned by the lookup; an
+// empty or invalid id is a no-op. Scoped to teamID; only updates unresolved rows.
 func (h *Handler) resolveScanAudit(ctx context.Context, teamID pgtype.UUID, auditLogID string, partID pgtype.UUID, partName *string) {
 	if auditLogID == "" {
 		return
@@ -2292,11 +2273,11 @@ func (h *Handler) resolveScanAudit(ctx context.Context, teamID pgtype.UUID, audi
 	if id.Scan(auditLogID) != nil {
 		return
 	}
-	_ = h.Queries.MarkScanAuditResolved(ctx, dbgen.MarkScanAuditResolvedParams{
-		PartID:   partID,
-		PartName: partName,
-		ID:       id,
-		TeamID:   teamID,
+	_ = h.Queries.MarkActivityResolved(ctx, dbgen.MarkActivityResolvedParams{
+		PartID:    partID,
+		PartLabel: partName,
+		ID:        id,
+		TeamID:    teamID,
 	})
 }
 
@@ -2308,11 +2289,30 @@ func strPtr(s string) *string {
 	return &s
 }
 
-// ── Desktop endpoint: scan audit log ─────────────────────────────────────────
+// derefStr returns *s, or "" if s is nil.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
 
-// ListScanAuditLog handles GET /api/v1/teams/{teamId}/scan-audit-log.
-// Returns the authenticated user's own scan activity with cursor-based pagination.
-func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
+// firstNonEmpty returns the first non-empty string, or "".
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// ── Desktop endpoint: activity log ───────────────────────────────────────────
+
+// ListActivity handles GET /api/v1/teams/{teamId}/activity-log.
+// Default scope returns the caller's own activity. ?scope=team returns the
+// team-wide feed (feed='team' rows), gated to purchaser+. Cursor-paginated.
+func (h *Handler) ListActivity(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
@@ -2330,12 +2330,24 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse query params.
-	var eventTypes []string
-	if raw := r.URL.Query().Get("event_type"); raw != "" {
+	scopeTeam := r.URL.Query().Get("scope") == "team"
+	if scopeTeam {
+		membership, err := h.checkTeamMembership(r.Context(), teamID, userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if membership == nil || !roleAtLeast(membership.Role, "purchaser") {
+			writeError(w, http.StatusForbidden, "purchaser role required for team activity", "FORBIDDEN")
+			return
+		}
+	}
+
+	var actions []string
+	if raw := r.URL.Query().Get("action"); raw != "" {
 		for _, s := range strings.Split(raw, ",") {
 			if t := strings.TrimSpace(s); t != "" {
-				eventTypes = append(eventTypes, t)
+				actions = append(actions, t)
 			}
 		}
 	}
@@ -2362,38 +2374,39 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := h.Queries.ListScanAuditLog(r.Context(), dbgen.ListScanAuditLogParams{
-		TeamID:     teamID,
-		UserID:     userID,
-		EventTypes: eventTypes,
-		CursorTime: cursorTime,
-		CursorID:   cursorID,
-		Limit:      limit + 1, // fetch one extra to determine if there's a next page
+	rows, err := h.Queries.ListActivity(r.Context(), dbgen.ListActivityParams{
+		TeamID:      teamID,
+		ScopeTeam:   scopeTeam,
+		ActorUserID: userID,
+		Actions:     actions,
+		CursorTime:  cursorTime,
+		CursorID:    cursorID,
+		Limit:       limit + 1, // fetch one extra to detect a next page
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	type auditItem struct {
-		ID                       string          `json:"id"`
-		EventType                string          `json:"event_type"`
-		EntityType               *string         `json:"entity_type"`
-		EntityID                 *string         `json:"entity_id"`
-		EntityName               *string         `json:"entity_name"`
-		Quantity                 *int32          `json:"quantity"`
-		ParsedSku                *string         `json:"parsed_sku"`
-		ParsedDistributorID      *string         `json:"parsed_distributor_id"`
-		ParsedMpn                *string         `json:"parsed_mpn"`
-		ParsedManufacturer       *string         `json:"parsed_manufacturer"`
-		Metadata                 json.RawMessage `json:"metadata"`
-		CreatedAt                string          `json:"created_at"`
-		PartManufacturer         *string         `json:"part_manufacturer"`
-		PartShortDescription     *string         `json:"part_short_description"`
-		PartImageURL             *string         `json:"part_image_url"`
-		PartCategoryName         *string         `json:"part_category_name"`
-		InventoryEntryID         *string         `json:"inventory_entry_id"`
-		InventoryQuantityOnHand  *int32          `json:"inventory_quantity_on_hand"`
+	type subjectOut struct {
+		Type  string `json:"type"`
+		ID    string `json:"id"`
+		Label string `json:"label"`
+	}
+	type activityItem struct {
+		ID                      string          `json:"id"`
+		Action                  string          `json:"action"`
+		Feed                    string          `json:"feed"`
+		Source                  string          `json:"source"`
+		ActorLabel              *string         `json:"actor_label"`
+		Subject                 *subjectOut     `json:"subject"`
+		Summary                 *string         `json:"summary"`
+		Payload                 json.RawMessage `json:"payload,omitempty"`
+		CreatedAt               string          `json:"created_at"`
+		PartManufacturer        *string         `json:"part_manufacturer"`
+		PartImageURL            *string         `json:"part_image_url"`
+		InventoryEntryID        *string         `json:"inventory_entry_id"`
+		InventoryQuantityOnHand *int32          `json:"inventory_quantity_on_hand"`
 	}
 
 	hasMore := len(rows) > int(limit)
@@ -2401,39 +2414,37 @@ func (h *Handler) ListScanAuditLog(w http.ResponseWriter, r *http.Request) {
 		rows = rows[:limit]
 	}
 
-	items := make([]auditItem, len(rows))
-	for i, r := range rows {
-		item := auditItem{
-			ID:                  r.ID.String(),
-			EventType:           r.EventType,
-			EntityType:          r.EntityType,
-			EntityName:          r.EntityName,
-			Quantity:            r.Quantity,
-			ParsedSku:           r.ParsedSku,
-			ParsedDistributorID: r.ParsedDistributorID,
-			ParsedMpn:           r.ParsedMpn,
-			ParsedManufacturer:  r.ParsedManufacturer,
-			Metadata:            r.Metadata,
-			CreatedAt:           r.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-			PartManufacturer:     r.PartManufacturer,
-			PartShortDescription: r.PartShortDescription,
-			PartImageURL:         r.PartImageUrl,
-			PartCategoryName:     r.PartCategoryName,
+	items := make([]activityItem, len(rows))
+	for i, row := range rows {
+		item := activityItem{
+			ID:               row.ID.String(),
+			Action:           row.Action,
+			Feed:             row.Feed,
+			Source:           row.Source,
+			ActorLabel:       row.ActorLabel,
+			Summary:          row.Summary,
+			Payload:          row.Payload,
+			CreatedAt:        row.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+			PartManufacturer: row.PartManufacturer,
+			PartImageURL:     row.PartImageUrl,
 		}
-		if r.EntityID.Valid {
-			s := r.EntityID.String()
-			item.EntityID = &s
+		if row.SubjectID.Valid && row.SubjectType != nil {
+			item.Subject = &subjectOut{
+				Type:  *row.SubjectType,
+				ID:    row.SubjectID.String(),
+				Label: derefStr(row.SubjectLabel),
+			}
 		}
-		if r.InventoryEntryID.Valid {
-			s := r.InventoryEntryID.String()
+		if row.InventoryEntryID.Valid {
+			s := row.InventoryEntryID.String()
 			item.InventoryEntryID = &s
-			item.InventoryQuantityOnHand = r.InventoryQuantityOnHand
+			item.InventoryQuantityOnHand = row.InventoryQuantityOnHand
 		}
 		items[i] = item
 	}
 
 	var nextCursorTime, nextCursorID *string
-	if hasMore && len(items) > 0 {
+	if hasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
 		t := last.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
 		id := last.ID.String()
@@ -2837,12 +2848,12 @@ func (h *Handler) KittingConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	qty := item.QuantityConfirmed
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "kitting_confirmed",
-		EntityType: strPtr("part"),
-		EntityID:   partID,
-		Quantity:   &qty,
-		Metadata:   map[string]any{"kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String()},
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.kitting_confirmed",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: partID.String()},
+		Values:  map[string]any{"qty": qty, "kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String()},
+		Summary: fmt.Sprintf("Kitted %d×", qty),
 	})
 	h.publishKittingChanged(sess, ks)
 
@@ -2915,12 +2926,12 @@ func (h *Handler) KittingShortfall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	qty := item.QuantityConfirmed
-	h.writeAuditLog(r.Context(), sess, auditLogEntry{
-		EventType:  "kitting_shortfall",
-		EntityType: strPtr("part"),
-		EntityID:   partID,
-		Quantity:   &qty,
-		Metadata:   map[string]any{"kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String(), "quantity_needed": item.QuantityNeeded},
+	h.scanActivity(sess, activity.Event{
+		Action:  "scan.kitting_shortfall",
+		Feed:    activity.FeedPersonal,
+		Subject: &activity.Ref{Type: "part", ID: partID.String()},
+		Values:  map[string]any{"qty": qty, "kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String(), "quantity_needed": item.QuantityNeeded},
+		Summary: fmt.Sprintf("Kitting shortfall (%d available)", qty),
 	})
 	h.publishKittingChanged(sess, ks)
 

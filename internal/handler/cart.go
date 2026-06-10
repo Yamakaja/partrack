@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -1129,5 +1130,12 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	if orderIDs == nil {
 		orderIDs = []string{}
 	}
+	h.record(r, activity.Event{
+		TeamID:  teamID,
+		Action:  "cart.converted",
+		Feed:    activity.FeedTeam,
+		Values:  map[string]any{"order_count": len(orderIDs)},
+		Summary: fmt.Sprintf("Converted the cart into %d order(s)", len(orderIDs)),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"order_ids": orderIDs})
 }

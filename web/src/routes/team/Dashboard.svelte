@@ -2,7 +2,7 @@
   import { createQuery } from '@tanstack/svelte-query';
   import {
     Package, Warehouse, FolderOpen, ShoppingCart, ClipboardList,
-    Hammer, PackageMinus, LogOut, PackageCheck,
+    Hammer, PackageMinus,
   } from 'lucide-svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import Badge from '$lib/components/ui/badge/Badge.svelte';
@@ -13,6 +13,7 @@
   import { setPartsStockStatus } from '$lib/stores/navState.js';
   import { authStore } from '$lib/stores/auth.svelte.js';
   import BuildPipelineCards from '$lib/components/builds/BuildPipelineCards.svelte';
+  import ActivityEntry from '$lib/components/activity/ActivityEntry.svelte';
   import { formatRelative } from '$lib/utils/date.js';
 
   let { teamId }: { teamId: string } = $props();
@@ -210,35 +211,19 @@
       <!-- Recent Activity -->
       <section class="space-y-2">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Recent Activity</h3>
-        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+        <div class="rounded-lg border border-border bg-card overflow-hidden">
           {#if dashQuery.isPending}
-            <div class="space-y-2">
+            <div class="p-4 space-y-2">
               {#each [0, 1, 2] as _}<Skeleton class="h-9 rounded" />{/each}
             </div>
           {:else if dashQuery.data}
             {@const activity = dashQuery.data.recent_activity}
             {#if activity.length === 0}
-              <p class="text-sm text-muted-foreground">No recent activity.</p>
+              <p class="text-sm text-muted-foreground p-4">No recent activity.</p>
             {:else}
-              <div class="space-y-0.5">
-                {#each activity as item, idx (idx)}
-                  <div class="flex items-start gap-2 px-2 py-1.5">
-                    <span class="mt-0.5 text-muted-foreground shrink-0">
-                      {#if item.type === 'build'}
-                        <Hammer size={14} />
-                      {:else if item.type === 'checkout'}
-                        <LogOut size={14} />
-                      {:else}
-                        <PackageCheck size={14} />
-                      {/if}
-                    </span>
-                    <div class="min-w-0">
-                      <p class="text-sm truncate">{item.summary}</p>
-                      <p class="text-xs text-muted-foreground">{formatRelative(item.timestamp)}</p>
-                    </div>
-                  </div>
-                {/each}
-              </div>
+              {#each activity as item (item.id)}
+                <ActivityEntry {item} {teamId} showActor />
+              {/each}
             {/if}
           {/if}
         </div>

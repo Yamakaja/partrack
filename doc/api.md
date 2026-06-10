@@ -304,7 +304,7 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | DELETE | `/teams/{teamId}/scan-sessions/{sessionId}` | purchaser+ | Delete scan session. |
 | PATCH | `/teams/{teamId}/scan-sessions/{sessionId}/context` | purchaser+ | Push order context to phone. Body: `{order_id}`. Returns `{ok, context_order_ref}`. Sends SSE to connected phone immediately. |
 | POST | `/teams/{teamId}/scan-sessions/{sessionId}/kitting` | member+ | Start kitting session for a build. Body: `{build_id}`. Seeds confirmations from build allocations, pushes `scan_context_changed` to phone. Returns `{kitting_session_id}`. |
-| GET | `/teams/{teamId}/scan-audit-log` | viewer+ | Paginated scan activity log for the current user. Query: `event_type` (comma-separated), `cursor_time`, `cursor_id`, `limit` (default 50). Returns `{items:[...], next_cursor_time, next_cursor_id}`. |
+| GET | `/teams/{teamId}/activity-log` | viewer+ | Paginated unified activity feed. Default scope = the caller's own activity; `?scope=team` (purchaser+) returns the team-wide feed (`feed='team'` rows). Query: `action` (comma-separated), `cursor_time`, `cursor_id`, `limit` (default 50). Each item: `{id, action, feed, source, actor_label, subject:{type,id,label}|null, summary, payload, created_at, part_*}`. Returns `{items:[...], next_cursor_time, next_cursor_id}`. |
 | GET | `/teams/{teamId}/kitting/{kittingSessionId}` | viewer+ | Desktop view of kitting session (team auth). Returns same shape as phone `/scan/kitting/{id}`. |
 | GET | `/teams/{teamId}/kitting/{kittingSessionId}/items` | viewer+ | Desktop view of kitting items (team auth). Returns same shape as phone `/scan/kitting/{id}/items`. |
 | GET | `/teams/{teamId}/bulk-scan-sessions` | member+ | List non-deleted bulk scan sessions for current user with per-status counts. Returns `{sessions:[{id, created_at, closed_at, counts:{pending, reviewed, dismissed, ready}}]}`. `ready` = items with status `pending_review` where enrichment is done or not needed. |
@@ -353,7 +353,7 @@ Phone endpoints take the scan token as an `Authorization: Bearer scan_...` heade
 SSE events from scan session changes are published to the owning user's desktop channel as `scan_session_changed` with `{session_id, phone_connected, context_order_ref?}`.
 
 SSE events published to the desktop user channel:
-- `scan_audit_changed` — a new audit log entry was written; invalidate `scan-audit-log` queries
+- `activity_changed` — a new activity-log entry was written; invalidate `activity-log` queries. Personal-feed events target only the actor; team-feed events broadcast; audit-only events emit nothing.
 - `scan_focus_requested` — phone triggered navigation; payload `{entity_type, entity_id}` (entity_type includes `bulk_scan_session`)
 - `build_kitting_changed` — kitting progress updated; payload `{build_id, kitting_session_id}`
 - `bulk_scan_changed` — bulk scan item enriched/errored/retried; payload `{session_id, item_id}`; targeted to session owner only

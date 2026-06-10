@@ -1,24 +1,32 @@
 <script lang="ts">
   import { createInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/svelte-query';
-  import { listScanAuditLog, type ScanAuditEntry, type ScanAuditLogPage } from '$lib/api/scanAuditLog.js';
+  import { listActivity, type ActivityLogPage } from '$lib/api/activityLog.js';
+  import ActivityEntry from '$lib/components/activity/ActivityEntry.svelte';
   import AdjustStockDialog from '$lib/components/inventory/AdjustStockDialog.svelte';
-  import { navigate } from '$lib/router/index.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
 
   let { teamId }: { teamId: string } = $props();
+
+  // ── Scope (My / Team) ──────────────────────────────────────────────────────
+
+  // The team-wide feed is gated to purchaser+; everyone sees their own activity.
+  const roleRank: Record<string, number> = { viewer: 0, member: 1, purchaser: 2, admin: 3 };
+  const canTeamScope = $derived((roleRank[activeTeamStore.current?.role ?? 'viewer'] ?? 0) >= 2);
+  let scope = $state<'mine' | 'team'>('mine');
 
   // ── Filter state ─────────────────────────────────────────────────────────
 
   type Filter = 'all' | 'parts' | 'orders' | 'stock' | 'storage' | 'kitting';
   type Cursor = { cursorTime: string; cursorId: string };
 
-  const filterEventTypes: Record<Filter, string[]> = {
+  // Maps a filter chip to the activity actions it selects.
+  const filterActions: Record<Filter, string[]> = {
     all: [],
-    parts: ['part_imported', 'part_not_found', 'bag_scanned'],
-    orders: ['order_received'],
-    stock: ['stock_adjusted'],
-    storage: ['storage_assigned'],
-    kitting: ['kitting_confirmed', 'kitting_shortfall'],
+    parts: ['scan.part_imported', 'scan.part_not_found', 'scan.bag_scanned'],
+    orders: ['scan.order_received'],
+    stock: ['scan.stock_adjusted'],
+    storage: ['scan.storage_assigned'],
+    kitting: ['scan.kitting_confirmed', 'scan.kitting_shortfall'],
   };
 
   const filterLabels: Record<Filter, string> = {
@@ -53,11 +61,12 @@
 
   // ── Infinite query ────────────────────────────────────────────────────────
 
-  const query = createInfiniteQuery<ScanAuditLogPage, Error, InfiniteData<ScanAuditLogPage>, unknown[], Cursor | null>(() => ({
-    queryKey: ['scan-audit-log', teamId, activeFilter],
+  const query = createInfiniteQuery<ActivityLogPage, Error, InfiniteData<ActivityLogPage>, unknown[], Cursor | null>(() => ({
+    queryKey: ['activity-log', teamId, scope, activeFilter],
     queryFn: ({ pageParam }) => {
-      return listScanAuditLog(teamId, {
-        eventTypes: filterEventTypes[activeFilter],
+      return listActivity(teamId, {
+        scope,
+        actions: filterActions[activeFilter],
         cursorTime: pageParam?.cursorTime,
         cursorId: pageParam?.cursorId,
         limit: 50,
@@ -91,7 +100,7 @@
   }
 
   function handleAdjustSuccess() {
-    queryClient.invalidateQueries({ queryKey: ['scan-audit-log', teamId] });
+    queryClient.invalidateQueries({ queryKey: ['activity-log', teamId] });
   }
 
   // ── Infinite scroll sentinel ──────────────────────────────────────────────
@@ -111,56 +120,6 @@
     obs.observe(sentinel);
     return () => obs.disconnect();
   });
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  function entityUrl(item: ScanAuditEntry): string | null {
-    const tid = activeTeamStore.current?.teamId;
-    if (!tid || !item.entity_id) return null;
-    switch (item.entity_type) {
-      case 'part':    return `/teams/${tid}/parts/${item.entity_id}`;
-      case 'order':   return `/teams/${tid}/orders/${item.entity_id}`;
-      case 'storage': return `/teams/${tid}/storage/${item.entity_id}`;
-      case 'build':   return `/teams/${tid}/builds/${item.entity_id}`;
-      default: return null;
-    }
-  }
-
-  function relativeTime(iso: string): string {
-    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
-  }
-
-  function eventLabel(eventType: string): string {
-    switch (eventType) {
-      case 'order_received':    return 'Received';
-      case 'stock_adjusted':    return 'Stock adj.';
-      case 'storage_assigned':  return 'Stored';
-      case 'part_imported':     return 'Imported';
-      case 'part_not_found':    return 'Not found';
-      case 'bag_scanned':       return 'Bag scan';
-      case 'kitting_confirmed': return 'Kitted';
-      case 'kitting_shortfall': return 'Shortfall';
-      default: return eventType;
-    }
-  }
-
-  function eventIcon(eventType: string): string {
-    switch (eventType) {
-      case 'order_received':    return '📦';
-      case 'stock_adjusted':    return '±';
-      case 'storage_assigned':  return '📍';
-      case 'part_imported':     return '✦';
-      case 'part_not_found':    return '?';
-      case 'bag_scanned':       return '⬡';
-      case 'kitting_confirmed': return '✓';
-      case 'kitting_shortfall': return '⚠';
-      default: return '·';
-    }
-  }
 </script>
 
 <!-- Collapsed: floating tab (no layout space) -->
@@ -168,7 +127,7 @@
   <button
     onclick={toggleCollapsed}
     class="fixed right-0 top-1/2 z-50 -translate-y-1/2 hidden lg:flex flex-col items-center gap-1 rounded-l-lg bg-card border border-border border-r-0 px-2 py-3 text-muted-foreground hover:text-foreground transition-colors shadow-lg"
-    aria-label="Open scan activity"
+    aria-label="Open recent activity"
   >
     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -182,7 +141,7 @@
   <div class="hidden lg:flex h-full w-[380px] shrink-0 flex-col border-l border-border bg-card">
     <!-- Header -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-      <span class="text-sm font-semibold text-foreground">Scan Activity</span>
+      <span class="text-sm font-semibold text-foreground">Recent Activity</span>
       <button
         onclick={toggleCollapsed}
         class="text-muted-foreground hover:text-foreground transition-colors"
@@ -193,6 +152,23 @@
         </svg>
       </button>
     </div>
+
+    <!-- Scope toggle (team scope gated to purchaser+) -->
+    {#if canTeamScope}
+      <div class="flex gap-1 px-3 pt-2 shrink-0">
+        {#each [['mine', 'Mine'], ['team', 'Team']] as [key, label]}
+          <button
+            onclick={() => { scope = key as 'mine' | 'team'; }}
+            class="flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors
+              {scope === key
+                ? 'bg-foreground text-background'
+                : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
+          >
+            {label}
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     <!-- Filter chips -->
     <div class="flex gap-1 px-3 py-2 border-b border-border overflow-x-auto shrink-0">
@@ -221,86 +197,11 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
-          <span>No scan activity yet</span>
+          <span>No recent activity yet</span>
         </div>
       {:else}
         {#each allItems as item (item.id)}
-          {@const url = entityUrl(item)}
-          {@const isNotFound = item.event_type === 'part_not_found'}
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <div
-            role={url ? 'button' : undefined}
-            tabindex={url ? 0 : undefined}
-            onclick={() => url && navigate(url)}
-            onkeydown={(e) => e.key === 'Enter' && url && navigate(url)}
-            class="group flex gap-3 px-4 py-3 border-b border-border transition-colors
-              {isNotFound ? 'bg-amber-50 dark:bg-amber-950/30' : 'hover:bg-accent/50'}
-              {url ? 'cursor-pointer' : ''}"
-          >
-            <!-- Icon / part image -->
-            <div class="shrink-0 w-10 h-10 rounded-full overflow-hidden flex items-center justify-center text-xs
-              {isNotFound
-                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
-                : 'bg-muted text-muted-foreground'}">
-              {#if item.part_image_url}
-                <img src={item.part_image_url} alt="" class="w-full h-full object-contain" />
-              {:else}
-                {eventIcon(item.event_type)}
-              {/if}
-            </div>
-
-            <!-- Content -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-xs font-medium
-                  {isNotFound ? 'text-amber-700 dark:text-amber-400' : 'text-foreground'}">
-                  {eventLabel(item.event_type)}
-                </span>
-                <span class="text-[10px] text-muted-foreground shrink-0">{relativeTime(item.created_at)}</span>
-              </div>
-
-              {#if item.entity_name}
-                <p class="text-xs text-muted-foreground font-mono truncate mt-0.5">{item.entity_name}</p>
-              {:else if item.parsed_mpn}
-                <p class="text-xs text-muted-foreground font-mono truncate mt-0.5">{item.parsed_mpn}</p>
-              {:else if item.parsed_sku}
-                <p class="text-xs text-muted-foreground font-mono truncate mt-0.5">{item.parsed_sku}</p>
-              {/if}
-
-              {#if item.part_manufacturer || item.part_category_name}
-                <p class="text-[10px] text-muted-foreground truncate mt-0.5">
-                  {[item.part_manufacturer, item.part_category_name].filter(Boolean).join(' · ')}
-                </p>
-              {/if}
-
-              {#if item.part_short_description}
-                <p class="text-[10px] text-muted-foreground truncate">{item.part_short_description}</p>
-              {/if}
-
-              {#if item.quantity != null}
-                <p class="text-[10px] text-muted-foreground mt-0.5">qty {item.quantity}</p>
-              {/if}
-
-              <!-- Quick actions row -->
-              {#if (isNotFound && (item.parsed_sku || item.parsed_mpn)) || item.inventory_entry_id}
-                <div class="mt-1.5 flex items-center gap-2">
-                  {#if isNotFound && (item.parsed_sku || item.parsed_mpn)}
-                    <span class="text-[10px] text-amber-600 dark:text-amber-500">
-                      {item.entity_id ? 'Resolved ✓' : 'Unresolved'}
-                    </span>
-                  {/if}
-                  {#if item.inventory_entry_id}
-                    <button
-                      onclick={(e) => { e.stopPropagation(); openAdjust(item.inventory_entry_id!, item.inventory_quantity_on_hand, item.entity_name, item.part_manufacturer); }}
-                      class="text-[10px] px-2 py-0.5 rounded border border-border bg-muted text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                    >
-                      ± Adjust
-                    </button>
-                  {/if}
-                </div>
-              {/if}
-            </div>
-          </div>
+          <ActivityEntry {item} {teamId} showActor={scope === 'team'} onAdjust={openAdjust} />
         {/each}
 
         <!-- Infinite scroll sentinel -->
