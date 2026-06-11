@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-partrack has completed the architecture and design phase and is now in **active implementation**. The core parts catalog, distributor listings, BOM import pipeline, and distributor enrichment API are implemented.
+partrack is **feature-complete for an initial deployment** and moving toward production hardening. Implemented and in use: parts catalog (parameters, listings, resolve queue), inventory + immutable stock ledger, hierarchical storage, BOM import/resolution/stock-check, substitutes, shopping cart → orders → builds (full lifecycle incl. kitting and soft allocations), distributor integrations (DigiKey, Mouser, LCSC + test client, with OAuth), mobile + bulk scanning, activity/audit log, dashboard, global search, SSE live updates, OIDC + API tokens, and security hardening (cross-team IDOR closed at the data layer, rate limiting, CSRF origin check, Secure cookies — see `doc/security/`).
+
+**Operational model — single instance.** The worker queue, SSE hubs, scan-ticket store, auth cache, and OAuth singleflight are all in-process. Run **one replica** and scale vertically; do not run multiple instances against the same DB (migrations auto-run at startup and would race; in-memory state isn't shared).
+
+**Lifecycle:** `main.go` serves in a goroutine and traps SIGINT/SIGTERM for graceful shutdown — it calls `srv.Shutdown` then `worker.Queue.Shutdown` (drains in-flight jobs) within a 30s budget before the deferred `pool.Close`. The worker never closes its jobs channel (the cleanup goroutine enqueues recovery jobs); instead goroutines observe a `quit` channel and drain. The HTTP server sets `ReadHeaderTimeout`/`ReadTimeout`/`IdleTimeout` but **deliberately leaves `WriteTimeout` unset** so SSE streams (`/events`, `/scan/stream`) aren't severed.
 
 ## Build & Run
 
@@ -13,11 +17,19 @@ go build ./...                    # compile all packages
 go build -o partrack ./cmd/partrack  # build the binary
 go run ./cmd/partrack             # run directly (requires config.yaml or env vars)
 go mod tidy                       # sync dependencies
+
+# Container / compose (see docker/)
+docker compose -f docker/docker-compose.yml up --build   # app + bundled Postgres
 ```
 
 Runtime requires:
 - `PARTRACK_DB_URL=postgres://...` or `database.url` in `config.yaml`
+- `PARTRACK_SESSION_SECRET` ≥ 32 bytes (startup fails otherwise) — HMAC key for OAuth state / link tokens
+- `PARTRACK_APP_BASE_URL` required when any OIDC provider is configured
 - Migrations run automatically at startup via golang-migrate
+- On first start with an empty users table, `maybeBootstrap` creates an `admin@localhost` admin and prints a one-time password-reset link to stderr — capture it.
+
+**Health endpoints:** `GET /api/v1/health` is liveness (always 200, no DB; used by the Docker HEALTHCHECK). `GET /api/v1/ready` is readiness (pings the DB, 503 if unreachable; for load-balancer routing — does not trigger restarts).
 
 ## Tests
 
@@ -31,6 +43,13 @@ PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go
 
 - Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.
 - The test DB URL is `postgres://partrack:partrack@test-postgres/partrack-test`.
+- Postgres must have the `pg_uuidv7` extension; `docker/Dockerfile.postgres` builds it. `docker/docker-compose.ci.yml` brings up that image plus `test-backend` (Go tests) and `test-frontend` (svelte-check) services.
+
+## CI
+
+GitHub Actions workflow `.github/workflows/ci.yml` runs on push to `master` and on PRs:
+- **lint** — `go vet ./...` (hard gate) + `gofmt` (advisory only; the existing tree has pre-existing struct-alignment drift — once normalized with `gofmt -w ./...`, drop `continue-on-error` to make it a hard gate).
+- **backend** / **frontend** — run the `test-backend` / `test-frontend` services from `docker/docker-compose.ci.yml`, so CI and local test infra stay identical.
 
 ## Frontend
 
@@ -46,15 +65,20 @@ Stack: Svelte 5 + Vite + Tailwind CSS v4 + bits-ui v2 + TanStack Query v6. The d
 ## Code Layout
 
 ```
-cmd/partrack/        # main entrypoint
+cmd/partrack/        # main entrypoint (graceful shutdown) + bootstrap.go (first-run admin)
 internal/
   config/            # Config struct; YAML + env override loading
   db/                # pgxpool setup (pool.go) + migrate runner (migrate.go); gen/ holds sqlc output
   server/            # Chi router construction (server.go) + all route registrations (routes.go)
-  middleware/        # auth.go (session/token → User in ctx), team.go (min-role enforcement)
+  middleware/        # auth.go (session/token → User in ctx), team.go (min-role enforcement), CSRF, RealIP, auth cache
   handler/           # HTTP handlers; one file per domain group; all share handler.Handler struct
-  worker/            # channel-based job queue + per-team SSE hub
-  distributor/       # Client interface + Registry; digikey/ and testclient/ are implementations
+  worker/            # channel-based job queue (+ Shutdown drain) + per-team SSE hub; one job_*.go per job type
+  distributor/       # Client interface + Registry; digikey/, mouser/, lcsc/, testclient/ implementations
+  activity/          # durable activity/audit log recorder (also fans out live feed via SSE)
+  timing/            # Server-Timing middleware + per-request DB/handler spans
+  scanner/           # distributor barcode/datamatrix parsing
+  paramparse/        # SI-aware parameter value parsing
+  substitute/        # substitute selection logic
 db/
   db.go              # exports embed.FS for migrations (used by internal/db/migrate.go)
   migrations/        # golang-migrate SQL files (up/down pairs, numbered sequentially)

@@ -14,6 +14,7 @@ import (
 // Routes match the spec in api.md exactly.
 func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware) {
 	r.Get("/api/v1/health", h.Health)
+	r.Get("/api/v1/ready", h.Ready)
 
 	// authLimiter throttles unauthenticated credential endpoints per client IP to
 	// blunt brute-force / password-spray / reset-token guessing (and the bcrypt

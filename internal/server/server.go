@@ -46,6 +46,14 @@ func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.
 	return &http.Server{
 		Addr:    cfg.Server.ListenAddr,
 		Handler: r,
+		// ReadHeaderTimeout bounds the slow-header (slowloris) window; ReadTimeout
+		// caps the whole request read (the body is already size-capped by
+		// maxBodyBytes). IdleTimeout reaps idle keep-alive connections. WriteTimeout
+		// is left unset on purpose: the SSE endpoints (/events, /scan/stream) hold
+		// long-lived streaming responses that a write deadline would sever.
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       120 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 

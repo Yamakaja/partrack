@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
 	"github.com/Yamakaja/partrack/internal/config"
@@ -22,9 +23,28 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Health responds 200 OK; used by Docker and load-balancer health checks.
+// Health is a liveness probe: it responds 200 OK as long as the process can
+// serve requests. It deliberately does not touch the database, so a transient
+// DB outage doesn't cause an orchestrator to kill an otherwise-healthy process.
+// Used by the Docker HEALTHCHECK.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Ready is a readiness probe: it verifies the database is reachable and returns
+// 503 otherwise, so a load balancer can stop routing traffic to an instance that
+// can't serve real requests (without triggering a restart the way liveness would).
+func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := h.DB.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "unavailable",
+			"error":  "database unreachable",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 // record writes an activity-log row for a web mutation, filling actor (from the

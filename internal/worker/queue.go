@@ -68,6 +68,8 @@ type Queue struct {
 	distributors   distributor.Registry
 	cartInvalidate func(teamID string)
 	activity       *activity.Recorder
+	quit           chan struct{}  // closed by Shutdown to signal goroutines to stop
+	wg             sync.WaitGroup // tracks worker + cleanup goroutines for drain
 }
 
 // SetActivity wires the activity recorder so jobs can emit rollup events
@@ -100,12 +102,35 @@ func New(workers int, db *pgxpool.Pool, reg distributor.Registry) *Queue {
 		subscribers:  make(map[string][]subscription),
 		db:           db,
 		distributors: reg,
+		quit:         make(chan struct{}),
 	}
 	for i := 0; i < workers; i++ {
+		q.wg.Add(1)
 		go q.run()
 	}
+	q.wg.Add(1)
 	go q.runCleanup()
 	return q
+}
+
+// Shutdown stops accepting cleanup-driven work and waits for in-flight jobs to
+// finish, bounded by ctx. The jobs channel is deliberately never closed: the
+// cleanup goroutine enqueues recovery jobs, so closing would risk a send-on-
+// closed-channel panic. Instead workers observe quit, drain the buffer, and exit.
+// Returns ctx.Err() if the deadline elapses before all goroutines stop.
+func (q *Queue) Shutdown(ctx context.Context) error {
+	close(q.quit)
+	done := make(chan struct{})
+	go func() {
+		q.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // stalePendingCutoff is how long a resolve item must have been pending before
@@ -117,6 +142,8 @@ const stalePendingCutoff = 5 * time.Minute
 // than 30 days, and re-enqueues any pending items that have been waiting longer
 // than stalePendingCutoff (orphaned by a server restart or a job panic).
 func (q *Queue) runCleanup() {
+	defer q.wg.Done()
+
 	// Run recovery immediately on startup, then every 5 minutes.
 	q.recoverStalePendingItems()
 
@@ -133,6 +160,8 @@ func (q *Queue) runCleanup() {
 			}
 		case <-recoveryTicker.C:
 			q.recoverStalePendingItems()
+		case <-q.quit:
+			return
 		}
 	}
 }
@@ -231,10 +260,24 @@ func (q *Queue) Publish(ev Event) {
 	}
 }
 
-// run is the worker goroutine loop.
+// run is the worker goroutine loop. On quit it drains any buffered jobs and
+// exits, so Shutdown can wait for genuinely in-flight work to settle.
 func (q *Queue) run() {
-	for job := range q.jobs {
-		q.process(job)
+	defer q.wg.Done()
+	for {
+		select {
+		case job := <-q.jobs:
+			q.process(job)
+		case <-q.quit:
+			for {
+				select {
+				case job := <-q.jobs:
+					q.process(job)
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 

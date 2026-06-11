@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref (e.g. force-pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast static checks that don't need a database.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      # gofmt is reported but not gated yet: the existing tree has pre-existing
+      # struct-alignment drift. Once normalized (gofmt -w ./...), promote this to
+      # a hard failure by dropping continue-on-error.
+      - name: gofmt (advisory)
+        continue-on-error: true
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^web/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::warning::These files are not gofmt-formatted:"
+            echo "$unformatted"
+          fi
+
+  # Backend tests run against the project's custom Postgres image (it bundles the
+  # pg_uuidv7 extension the migrations require), reusing docker-compose.ci.yml so
+  # CI and local test infra stay identical.
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Backend tests
+        run: docker compose -f docker/docker-compose.ci.yml run --build --rm test-backend
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker/docker-compose.ci.yml down -v
+
+  # Frontend type-check (svelte-check + tsc); no browser/database required.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Frontend type-check
+        run: docker compose -f docker/docker-compose.ci.yml run --build --rm test-frontend
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker/docker-compose.ci.yml down -v
