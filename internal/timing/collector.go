@@ -32,6 +32,81 @@ func (s *Span) Stop() {
 type Collector struct {
 	mu    sync.Mutex
 	spans []*Span
+	// Per-sqlc-query timing within this request, fed by DBTracer. Kept separate
+	// from spans so it never bloats the Server-Timing header; it exists only to
+	// be folded into the global Registry at request end.
+	queries     map[string]time.Duration
+	queryCounts map[string]int
+	userID      string // authenticated user id, set by the auth middleware
+}
+
+// AddQuery accumulates a single query's duration under its sqlc name for this
+// request. An empty name is bucketed under "(unnamed)".
+func (c *Collector) AddQuery(name string, dur time.Duration) {
+	if name == "" {
+		name = "(unnamed)"
+	}
+	c.mu.Lock()
+	if c.queries == nil {
+		c.queries = make(map[string]time.Duration)
+		c.queryCounts = make(map[string]int)
+	}
+	c.queries[name] += dur
+	c.queryCounts[name]++
+	c.mu.Unlock()
+}
+
+// SetUser records the authenticated user id for per-user attribution.
+func (c *Collector) SetUser(id string) {
+	c.mu.Lock()
+	c.userID = id
+	c.mu.Unlock()
+}
+
+func (c *Collector) user() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.userID
+}
+
+// durOf returns the recorded (or best-effort in-progress) duration of the named
+// span, or 0 if absent.
+func (c *Collector) durOf(name string) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, s := range c.spans {
+		if s.Name != name {
+			continue
+		}
+		if s.done {
+			return s.dur
+		}
+		if !s.start.IsZero() {
+			return time.Since(s.start)
+		}
+	}
+	return 0
+}
+
+// QueryTiming is the per-request rollup for one query name.
+type QueryTiming struct {
+	Dur   time.Duration
+	Count int
+}
+
+// querySnapshot copies this request's per-query timings for hand-off to the
+// Registry (taken under lock to decouple from the registry's lock).
+func (c *Collector) querySnapshot() map[string]QueryTiming {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.queries) == 0 {
+		return nil
+	}
+	out := make(map[string]QueryTiming, len(c.queries))
+	for k, d := range c.queries {
+		out[k] = QueryTiming{Dur: d, Count: c.queryCounts[k]}
+	}
+	return out
 }
 
 // Start records the beginning of a named span and returns it.

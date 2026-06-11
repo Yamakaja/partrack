@@ -2,6 +2,8 @@ package timing
 
 import (
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // timingWriter wraps http.ResponseWriter to inject the Server-Timing header
@@ -75,5 +77,15 @@ func Middleware(next http.Handler) http.Handler {
 		if !tw.headerSent {
 			tw.WriteHeader(http.StatusOK)
 		}
+
+		// Fold this request's timings into the process-global registry. The chi
+		// RouteContext is a pointer populated during routing, so the matched
+		// pattern and URL params are available here, after the handler ran.
+		var route, project string
+		if rc := chi.RouteContext(r.Context()); rc != nil {
+			route = rc.RoutePattern()
+			project = rc.URLParam("projectId")
+		}
+		defaultRegistry.recordRequest(route, project, c)
 	})
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/timing"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -102,6 +103,12 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), contextKeyUser, user)
+		// Attribute this request's timings to the user in the metrics registry.
+		// The timing collector is installed by an outer middleware, so it's
+		// already present in the context here.
+		if c := timing.FromContext(ctx); c != nil {
+			c.SetUser(user.ID)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

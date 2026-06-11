@@ -89,6 +89,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			// Admin (instance-level)
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAdmin)
+
+				// Observability: in-memory request/query timing snapshot.
+				r.Get("/admin/metrics", h.AdminMetrics)
+
 				r.Get("/admin/users", h.ListUsers)
 				r.Post("/admin/users", h.CreateUser)
 				r.Get("/admin/users/{userId}", h.GetUser)
