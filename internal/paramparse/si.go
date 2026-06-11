@@ -69,14 +69,14 @@ func storageMultiplier(prefix, unit string) float64 {
 // to simplify subsequent parsing.
 func normalizeText(s string) string {
 	r := strings.NewReplacer(
-		"\u00b5", "u",   // µ → u (MICRO SIGN)
-		"\u03bc", "u",   // μ → u (GREEK SMALL LETTER MU)
+		"\u00b5", "u", // µ → u (MICRO SIGN)
+		"\u03bc", "u", // μ → u (GREEK SMALL LETTER MU)
 		"\u03a9", "Ohm", // Ω → Ohm
 		"\u2126", "Ohm", // Ω → Ohm (OHM SIGN)
-		"\u00b1", "±",   // ± kept as-is (ASCII ±)
-		"\u00b0", "°",   // ° kept as-is
-		"\u2013", "~",   // – → ~
-		"\u2014", "~",   // — → ~
+		"\u00b1", "±", // ± kept as-is (ASCII ±)
+		"\u00b0", "°", // ° kept as-is
+		"\u2013", "~", // – → ~
+		"\u2014", "~", // — → ~
 		" to ", " ~ ",
 		"...", " ~ ",
 	)

@@ -273,10 +273,10 @@ func (h *Handler) AddBulkScanItem(w http.ResponseWriter, r *http.Request) {
 	if taskType == nil {
 		// Unknown part — needs distributor fan-out.
 		inputFields, _ := json.Marshal(map[string]string{
-			"sku":           sku,
+			"sku":            sku,
 			"distributor_id": resolvedDistributorID.String(),
-			"mpn":           mpn,
-			"manufacturer":  manufacturer,
+			"mpn":            mpn,
+			"manufacturer":   manufacturer,
 		})
 		rid, err := h.Worker.CreateAndEnqueueResolveItem(ctx, sess.TeamID, sess.UserID, item.ID, inputFields)
 		if err != nil {
@@ -588,10 +588,10 @@ func (h *Handler) ListBulkScanItemsHandler(w http.ResponseWriter, r *http.Reques
 		}
 		if it.ResolveItemIDCol.Valid && it.ResolveStatus != nil {
 			ri := &resolveItemOut{
-				ID:             it.ResolveItemIDCol.String(),
-				Status:         *it.ResolveStatus,
-				TaskType:       it.ResolveTaskType,
-				ErrorMessage:   it.ResolveErrorMessage,
+				ID:           it.ResolveItemIDCol.String(),
+				Status:       *it.ResolveStatus,
+				TaskType:     it.ResolveTaskType,
+				ErrorMessage: it.ResolveErrorMessage,
 			}
 			if len(it.ResolveEnrichmentData) > 0 {
 				ri.EnrichmentData = json.RawMessage(it.ResolveEnrichmentData)
@@ -844,9 +844,9 @@ func (h *Handler) RetryBulkScanItemDistributorsHandler(w http.ResponseWriter, r 
 	}
 
 	jobID := h.Worker.Enqueue(worker.JobPartResolve, teamID.String(), map[string]string{
-		"resolve_item_id":      item.ResolveItemID.String(),
-		"team_id":              teamID.String(),
-		"user_id":              userIDStr,
+		"resolve_item_id":       item.ResolveItemID.String(),
+		"team_id":               teamID.String(),
+		"user_id":               userIDStr,
 		"retry_distributor_ids": strings.Join(body.DistributorIDs, ","),
 	})
 

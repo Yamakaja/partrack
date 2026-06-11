@@ -48,7 +48,7 @@ PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go
 ## CI
 
 GitHub Actions workflow `.github/workflows/ci.yml` runs on push to `master` and on PRs:
-- **lint** — `go vet ./...` (hard gate) + `gofmt` (advisory only; the existing tree has pre-existing struct-alignment drift — once normalized with `gofmt -w ./...`, drop `continue-on-error` to make it a hard gate).
+- **lint** — `go vet ./...` and `gofmt -l .` (both hard gates; the tree is gofmt-clean — run `gofmt -w .` before pushing).
 - **backend** / **frontend** — run the `test-backend` / `test-frontend` services from `docker/docker-compose.ci.yml`, so CI and local test infra stay identical.
 
 ## Frontend

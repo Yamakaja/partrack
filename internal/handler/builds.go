@@ -433,9 +433,9 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type subItem struct {
-		PartID        string  `json:"part_id"`
-		PartMpn       *string `json:"part_mpn"`
-		QuantityOnHand int32  `json:"quantity_on_hand"`
+		PartID         string  `json:"part_id"`
+		PartMpn        *string `json:"part_mpn"`
+		QuantityOnHand int32   `json:"quantity_on_hand"`
 	}
 	type previewItem struct {
 		BomLineItemID             string    `json:"bom_line_item_id"`
@@ -659,17 +659,17 @@ func (h *Handler) SetBuildLineItemOverride(w http.ResponseWriter, r *http.Reques
 
 	if body.OverrideType == nil {
 		if err := h.Queries.DeleteBuildLineItemOverride(r.Context(), dbgen.DeleteBuildLineItemOverrideParams{
-			BuildID:         buildID,
-			BomLineItemID:   itemID,
+			BuildID:       buildID,
+			BomLineItemID: itemID,
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
 	} else {
 		if err := h.Queries.UpsertBuildLineItemOverride(r.Context(), dbgen.UpsertBuildLineItemOverrideParams{
-			BuildID:         buildID,
-			BomLineItemID:   itemID,
-			OverrideType:    *body.OverrideType,
+			BuildID:       buildID,
+			BomLineItemID: itemID,
+			OverrideType:  *body.OverrideType,
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
@@ -869,9 +869,9 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type subSelectionResp struct {
-		BomLineItemID    string  `json:"bom_line_item_id"`
-		SelectedPartID   string  `json:"selected_part_id"`
-		SelectedPartMpn  *string `json:"selected_part_mpn"`
+		BomLineItemID   string  `json:"bom_line_item_id"`
+		SelectedPartID  string  `json:"selected_part_id"`
+		SelectedPartMpn *string `json:"selected_part_mpn"`
 	}
 	subSelResp := make([]subSelectionResp, len(substituteSelections))
 	for i, s := range substituteSelections {
@@ -1396,8 +1396,8 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 
 	if len(insufficientItems) > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "insufficient stock for some items; use per-item overrides before checking out",
-			"code":  "INSUFFICIENT_STOCK",
+			"error":              "insufficient stock for some items; use per-item overrides before checking out",
+			"code":               "INSUFFICIENT_STOCK",
 			"insufficient_items": insufficientItems,
 		})
 		return
@@ -1499,10 +1499,10 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 		Summary: fmt.Sprintf("Assembled a build (%d part(s) deducted)", len(deductions)),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                remaining.ID.String(),
-		"status":            newStatus,
+		"id":                 remaining.ID.String(),
+		"status":             newStatus,
 		"remaining_quantity": remaining.Quantity,
-		"deduction_count":   len(deductions),
+		"deduction_count":    len(deductions),
 	})
 }
 

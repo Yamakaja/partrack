@@ -47,9 +47,9 @@ type TeamMembership struct {
 
 // Middleware holds shared DB access and the auth cache for all authentication middleware.
 type Middleware struct {
-	q            *dbgen.Queries
-	cache        *AuthCache
-	trustedNets  []*net.IPNet // parsed from config.Server.TrustedProxies
+	q           *dbgen.Queries
+	cache       *AuthCache
+	trustedNets []*net.IPNet // parsed from config.Server.TrustedProxies
 }
 
 // New creates a Middleware backed by the given pool and cache.

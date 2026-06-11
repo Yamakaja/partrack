@@ -141,7 +141,7 @@ func TestHandlePartEnrich_UnknownSKU(t *testing.T) {
 	}
 
 	var paramCount, listingCount int
-	testDB.QueryRow(context.Background(), `SELECT COUNT(*) FROM part_parameters WHERE part_id = $1`, partID).Scan(&paramCount)   //nolint:errcheck
+	testDB.QueryRow(context.Background(), `SELECT COUNT(*) FROM part_parameters WHERE part_id = $1`, partID).Scan(&paramCount)        //nolint:errcheck
 	testDB.QueryRow(context.Background(), `SELECT COUNT(*) FROM distributor_listings WHERE part_id = $1`, partID).Scan(&listingCount) //nolint:errcheck
 	if paramCount != 0 || listingCount != 0 {
 		t.Errorf("expected 0 params/listings for unknown MPN, got %d/%d", paramCount, listingCount)
@@ -228,9 +228,9 @@ func TestHandleListingRefresh_LM317(t *testing.T) {
 	defer cancel()
 
 	q.process(Job{
-		ID:     "j-refresh",
-		Type:   JobListingRefresh,
-		TeamID: teamID,
+		ID:      "j-refresh",
+		Type:    JobListingRefresh,
+		TeamID:  teamID,
 		Payload: ListingRefreshPayload{ListingID: listingID},
 	})
 

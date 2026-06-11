@@ -91,8 +91,8 @@ type cartItemRequest struct {
 // ---- Cart response types ----
 
 type cartResponseRoot struct {
-	Errors    []errorEntity  `json:"Errors"`
-	CartKey   string         `json:"CartKey"`
+	Errors    []errorEntity   `json:"Errors"`
+	CartKey   string          `json:"CartKey"`
 	CartItems []cartOrderLine `json:"CartItems"`
 }
 

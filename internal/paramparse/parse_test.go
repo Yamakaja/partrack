@@ -87,7 +87,7 @@ func TestParse(t *testing.T) {
 		{"GiB", "1 GiB", "numeric", pf(1024 * 1024 * 1024 * 8), nil},
 		{"MB", "1 MB", "numeric", pf(1e6 * 8), nil},
 		{"Gbit", "4 Gbit", "numeric", pf(4e9), nil},
-		{"TiB", "1 TiB", "numeric", pf(float64(int64(1) << 40) * 8), nil},
+		{"TiB", "1 TiB", "numeric", pf(float64(int64(1)<<40) * 8), nil},
 
 		// Dual-unit inch+mm preprocessing
 		{"inch mm 0.015", `0.015" (0.37mm)`, "numeric", pf(0.37e-3), nil},

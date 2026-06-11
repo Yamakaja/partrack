@@ -14,19 +14,19 @@ import (
 
 // resolvedListing holds the result of auto-resolving a cart item to a listing.
 type resolvedListing struct {
-	ListingID        pgtype.UUID
-	DistributorID    pgtype.UUID
-	DistributorName  string
-	SKU              string
-	Preferred        bool
-	UnitPriceAtQty   pgtype.Numeric // effective unit price after applying price breaks
-	FixedOrderCost   pgtype.Numeric
-	MOQ              int32
-	PriceBreaks      []byte // raw JSONB — all price breaks for the listing
-	PackagingType    string
-	StockAvailable   *int32
-	LastRefreshedAt  pgtype.Timestamptz
-	OptimizedQty     int32 // quantity that minimises total cost; may exceed cart quantity if a price break makes it cheaper
+	ListingID       pgtype.UUID
+	DistributorID   pgtype.UUID
+	DistributorName string
+	SKU             string
+	Preferred       bool
+	UnitPriceAtQty  pgtype.Numeric // effective unit price after applying price breaks
+	FixedOrderCost  pgtype.Numeric
+	MOQ             int32
+	PriceBreaks     []byte // raw JSONB — all price breaks for the listing
+	PackagingType   string
+	StockAvailable  *int32
+	LastRefreshedAt pgtype.Timestamptz
+	OptimizedQty    int32 // quantity that minimises total cost; may exceed cart quantity if a price break makes it cheaper
 }
 
 // teamCartResolution maps cart item ID (string) to its resolved listing.

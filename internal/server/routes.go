@@ -176,8 +176,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/projects/{projectId}/revisions", h.ListRevisions)
 					r.Get("/projects/{projectId}/revisions/{revId}", h.GetRevision)
 					r.Get("/projects/{projectId}/revisions/{revId}/substitutes", h.ListSubstitutes)
-				r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes", h.ListLineItemSubstitutes)
-				r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/previous-revisions", h.ListPreviousRevisionsWithSubstitutes)
+					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes", h.ListLineItemSubstitutes)
+					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/previous-revisions", h.ListPreviousRevisionsWithSubstitutes)
 					r.Get("/projects/{projectId}/revisions/{revId}/stock-check", h.StockCheck)
 
 					// 13. Orders

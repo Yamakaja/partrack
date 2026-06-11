@@ -51,10 +51,10 @@ func (h *Handler) CreatePartResolveItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	inputFields, _ := json.Marshal(map[string]string{
-		"sku":           body.SKU,
+		"sku":            body.SKU,
 		"distributor_id": body.DistributorID,
-		"mpn":           body.MPN,
-		"manufacturer":  body.Manufacturer,
+		"mpn":            body.MPN,
+		"manufacturer":   body.Manufacturer,
 	})
 
 	item, err := h.Queries.CreatePartResolveItem(r.Context(), dbgen.CreatePartResolveItemParams{
@@ -170,9 +170,9 @@ func (h *Handler) CommitPartResolveItem(w http.ResponseWriter, r *http.Request) 
 			DistributorID string `json:"distributor_id"`
 			SKU           string `json:"sku"`
 		} `json:"additional_listings"`
-		InitialQty        *int32  `json:"initial_qty"`
-		InitialQtyReason  string  `json:"initial_qty_reason"`
-		StorageLocationID string  `json:"storage_location_id"`
+		InitialQty        *int32 `json:"initial_qty"`
+		InitialQtyReason  string `json:"initial_qty_reason"`
+		StorageLocationID string `json:"storage_location_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "invalid_body")
@@ -274,9 +274,9 @@ func (h *Handler) RetryPartResolveDistributors(w http.ResponseWriter, r *http.Re
 
 	userID := userIDFromContext(r)
 	jobID := h.Worker.Enqueue(worker.JobPartResolve, teamID.String(), map[string]string{
-		"resolve_item_id":      resolveItemID.String(),
-		"team_id":              teamID.String(),
-		"user_id":              userID,
+		"resolve_item_id":       resolveItemID.String(),
+		"team_id":               teamID.String(),
+		"user_id":               userID,
 		"retry_distributor_ids": strings.Join(body.DistributorIDs, ","),
 	})
 

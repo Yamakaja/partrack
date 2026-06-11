@@ -161,9 +161,9 @@ func mapPartToEnrichment(p *mouserPart) *distributor.EnrichmentResult {
 		Manufacturer: p.Manufacturer,
 		Description:  p.Description,
 		// ShortDescription intentionally left empty — Mouser has one description field.
-		DatasheetURL: p.DataSheetUrl,
-		ImageURL:     p.ImagePath,
-		ProductURL:   p.ProductDetailUrl,
+		DatasheetURL:    p.DataSheetUrl,
+		ImageURL:        p.ImagePath,
+		ProductURL:      p.ProductDetailUrl,
 		LifecycleStatus: mapLifecycleStatus(p.LifecycleStatus, p.IsDiscontinued),
 	}
 
@@ -278,7 +278,7 @@ func parseMouserPrice(s string) string {
 	case lastComma >= 0:
 		// Only comma present → EU decimal separator.
 		s = strings.ReplaceAll(s, ",", ".")
-	// Only dot or no separator → already normalised.
+		// Only dot or no separator → already normalised.
 	}
 
 	f, err := strconv.ParseFloat(s, 64)

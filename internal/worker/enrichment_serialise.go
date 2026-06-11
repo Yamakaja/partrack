@@ -49,10 +49,10 @@ type resolveListing struct {
 // distinct product (e.g. chip vs eval board). SKU-based lookups always produce exactly one
 // candidate; MPN-based searches may surface several exact matches.
 type resolveEnrichmentEntry struct {
-	DistributorID string                    `json:"distributor_id"`
-	Name          string                    `json:"name"`
+	DistributorID string                     `json:"distributor_id"`
+	Name          string                     `json:"name"`
 	Results       []*resolveEnrichmentResult `json:"results,omitempty"`
-	Error         string                    `json:"error,omitempty"`
+	Error         string                     `json:"error,omitempty"`
 }
 
 // resolveEnrichmentData is the top-level envelope stored in part_resolve_items.enrichment_data.
@@ -67,16 +67,16 @@ func toResolveResult(r *distributor.EnrichmentResult) *resolveEnrichmentResult {
 		return nil
 	}
 	out := &resolveEnrichmentResult{
-		MPN:             r.MPN,
-		Manufacturer:    r.Manufacturer,
-		Description:     r.Description,
+		MPN:              r.MPN,
+		Manufacturer:     r.Manufacturer,
+		Description:      r.Description,
 		ShortDescription: r.ShortDescription,
-		Package:         r.Package,
-		DatasheetURL:    r.DatasheetURL,
-		ProductURL:      r.ProductURL,
-		ImageURL:        r.ImageURL,
-		LifecycleStatus: string(r.LifecycleStatus),
-		Aliases:         r.Aliases,
+		Package:          r.Package,
+		DatasheetURL:     r.DatasheetURL,
+		ProductURL:       r.ProductURL,
+		ImageURL:         r.ImageURL,
+		LifecycleStatus:  string(r.LifecycleStatus),
+		Aliases:          r.Aliases,
 	}
 	for _, c := range r.DistributorCategoryChain {
 		out.DistributorCategoryChain = append(out.DistributorCategoryChain, resolveDistributorCategory{
@@ -113,16 +113,16 @@ func fromResolveResult(r *resolveEnrichmentResult) *distributor.EnrichmentResult
 		return nil
 	}
 	out := &distributor.EnrichmentResult{
-		MPN:             r.MPN,
-		Manufacturer:    r.Manufacturer,
-		Description:     r.Description,
+		MPN:              r.MPN,
+		Manufacturer:     r.Manufacturer,
+		Description:      r.Description,
 		ShortDescription: r.ShortDescription,
-		Package:         r.Package,
-		DatasheetURL:    r.DatasheetURL,
-		ProductURL:      r.ProductURL,
-		ImageURL:        r.ImageURL,
-		LifecycleStatus: distributor.LifecycleStatus(r.LifecycleStatus),
-		Aliases:         r.Aliases,
+		Package:          r.Package,
+		DatasheetURL:     r.DatasheetURL,
+		ProductURL:       r.ProductURL,
+		ImageURL:         r.ImageURL,
+		LifecycleStatus:  distributor.LifecycleStatus(r.LifecycleStatus),
+		Aliases:          r.Aliases,
 	}
 	for _, c := range r.DistributorCategoryChain {
 		out.DistributorCategoryChain = append(out.DistributorCategoryChain, distributor.DistributorCategory{

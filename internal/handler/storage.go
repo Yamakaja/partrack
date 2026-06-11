@@ -344,18 +344,18 @@ func (h *Handler) ListInventoryByLocation(w http.ResponseWriter, r *http.Request
 	}
 
 	type item struct {
-		ID                   string   `json:"id"`
-		TeamID               string   `json:"team_id"`
-		PartID               string   `json:"part_id"`
-		PartMpn              *string  `json:"part_mpn"`
-		PartDescription      *string  `json:"part_description"`
-		QuantityOnHand       int32    `json:"quantity_on_hand"`
-		StorageLocationID    *string  `json:"storage_location_id"`
-		StorageCoordinate    []int32  `json:"storage_coordinate"`
-		StorageLocationLabel *string  `json:"storage_location_label"`
-		PreferredListingID   *string  `json:"preferred_listing_id"`
-		MinimumStockQuantity *int32   `json:"minimum_stock_quantity"`
-		ReorderQuantity      *int32   `json:"reorder_quantity"`
+		ID                   string  `json:"id"`
+		TeamID               string  `json:"team_id"`
+		PartID               string  `json:"part_id"`
+		PartMpn              *string `json:"part_mpn"`
+		PartDescription      *string `json:"part_description"`
+		QuantityOnHand       int32   `json:"quantity_on_hand"`
+		StorageLocationID    *string `json:"storage_location_id"`
+		StorageCoordinate    []int32 `json:"storage_coordinate"`
+		StorageLocationLabel *string `json:"storage_location_label"`
+		PreferredListingID   *string `json:"preferred_listing_id"`
+		MinimumStockQuantity *int32  `json:"minimum_stock_quantity"`
+		ReorderQuantity      *int32  `json:"reorder_quantity"`
 	}
 
 	items := make([]item, len(rows))

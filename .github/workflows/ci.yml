@@ -22,16 +22,13 @@ jobs:
           cache: true
       - name: go vet
         run: go vet ./...
-      # gofmt is reported but not gated yet: the existing tree has pre-existing
-      # struct-alignment drift. Once normalized (gofmt -w ./...), promote this to
-      # a hard failure by dropping continue-on-error.
-      - name: gofmt (advisory)
-        continue-on-error: true
+      - name: gofmt
         run: |
-          unformatted=$(gofmt -l . | grep -v '^web/' || true)
+          unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
-            echo "::warning::These files are not gofmt-formatted:"
+            echo "::error::These files are not gofmt-formatted (run 'gofmt -w .'):"
             echo "$unformatted"
+            exit 1
           fi
 
   # Backend tests run against the project's custom Postgres image (it bundles the

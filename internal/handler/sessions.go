@@ -34,13 +34,13 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type sessionItem struct {
-		ID          string  `json:"id"`
-		CreatedAt   string  `json:"created_at"`
-		ExpiresAt   string  `json:"expires_at"`
-		LastSeenAt  string  `json:"last_seen_at"`
-		UserAgent   *string `json:"user_agent"`
-		IPAddress   *string `json:"ip_address"`
-		IsCurrent   bool    `json:"is_current"`
+		ID         string  `json:"id"`
+		CreatedAt  string  `json:"created_at"`
+		ExpiresAt  string  `json:"expires_at"`
+		LastSeenAt string  `json:"last_seen_at"`
+		UserAgent  *string `json:"user_agent"`
+		IPAddress  *string `json:"ip_address"`
+		IsCurrent  bool    `json:"is_current"`
 	}
 
 	currentSessionID := user.SessionID()

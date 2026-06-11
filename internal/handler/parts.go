@@ -460,8 +460,8 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 		reorderQuantity      *int32
 		preferredListingID   *string
 		storageLocation      *storageLocationObj
-		categoryName      *string
-		categoryParentID  *int32
+		categoryName         *string
+		categoryParentID     *int32
 	)
 
 	teamIDStr := r.URL.Query().Get("team_id")

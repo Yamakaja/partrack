@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Yamakaja/partrack/internal/distributor"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"

@@ -577,11 +577,11 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"session_id":                 sess.ID.String(),
-		"pending_scan":               nil,
-		"active_kitting_session_id":  nil,
-		"active_kitting_build_ref":   nil,
-		"bulk_session":               nil,
+		"session_id":                sess.ID.String(),
+		"pending_scan":              nil,
+		"active_kitting_session_id": nil,
+		"active_kitting_build_ref":  nil,
+		"bulk_session":              nil,
 	}
 	if len(sess.PendingScan) > 0 {
 		resp["pending_scan"] = json.RawMessage(sess.PendingScan)
@@ -627,9 +627,9 @@ func (h *Handler) ListScanOrders(w http.ResponseWriter, r *http.Request) {
 
 	type orderItem struct {
 		ID                 string  `json:"id"`
-		Title              string  `json:"title"`               // PO number, or UUID prefix as fallback
-		TitleIsFallback    bool    `json:"title_is_fallback"`   // true when showing UUID prefix
-		ExternalRef        *string `json:"external_ref"`        // distributor order ID, if any
+		Title              string  `json:"title"`             // PO number, or UUID prefix as fallback
+		TitleIsFallback    bool    `json:"title_is_fallback"` // true when showing UUID prefix
+		ExternalRef        *string `json:"external_ref"`      // distributor order ID, if any
 		Notes              *string `json:"notes"`
 		Status             string  `json:"status"`
 		DistributorName    string  `json:"distributor_name"`
@@ -1716,16 +1716,16 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                     part.ID.String(),
-		"mpn":                    part.Mpn,
-		"manufacturer":           part.Manufacturer,
-		"description":            desc,
-		"package":                part.Package,
-		"lifecycle_status":       string(part.LifecycleStatus),
-		"datasheet_url":          part.DatasheetUrl,
-		"product_url":            part.ProductUrl,
-		"image_url":              part.ImageUrl,
-		"category_name":          part.CategoryName,
+		"id":                 part.ID.String(),
+		"mpn":                part.Mpn,
+		"manufacturer":       part.Manufacturer,
+		"description":        desc,
+		"package":            part.Package,
+		"lifecycle_status":   string(part.LifecycleStatus),
+		"datasheet_url":      part.DatasheetUrl,
+		"product_url":        part.ProductUrl,
+		"image_url":          part.ImageUrl,
+		"category_name":      part.CategoryName,
 		"inventory_entry_id": invEntryID,
 		"quantity_on_hand":   part.QuantityOnHand,
 		"quantity_reserved":  quantityReserved,
@@ -1734,7 +1734,7 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 				return *part.QuantityOnHand
 			}
 			return 0
-		}() - quantityReserved),
+		}()-quantityReserved),
 		"storage_location": func() any {
 			if part.StorageLocationID.Valid {
 				return map[string]any{"id": part.StorageLocationID.String(), "coordinate": part.StorageCoordinate}
@@ -2626,10 +2626,10 @@ func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
 	// Push to phone.
 	buildRef := fmt.Sprintf("%s × %d", "Build", build.Quantity)
 	msg, _ := json.Marshal(map[string]any{
-		"type":                        "scan_context_changed",
-		"context_type":                "kitting",
-		"context_kitting_session_id":  ks.ID.String(),
-		"build_ref":                   buildRef,
+		"type":                       "scan_context_changed",
+		"context_type":               "kitting",
+		"context_kitting_session_id": ks.ID.String(),
+		"build_ref":                  buildRef,
 	})
 	h.ScanHub.Send(sessionID.String(), msg)
 

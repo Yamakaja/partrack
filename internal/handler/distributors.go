@@ -23,11 +23,11 @@ func (h *Handler) ListDistributors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type item struct {
-		ID           string  `json:"id"`
-		Name         string  `json:"name"`
-		Website      *string `json:"website"`
-		ApiType      *string `json:"api_type"`
-		SupportsOAuth bool   `json:"supports_oauth"`
+		ID            string  `json:"id"`
+		Name          string  `json:"name"`
+		Website       *string `json:"website"`
+		ApiType       *string `json:"api_type"`
+		SupportsOAuth bool    `json:"supports_oauth"`
 	}
 	items := make([]item, len(distributors))
 	for i, d := range distributors {
@@ -37,10 +37,10 @@ func (h *Handler) ListDistributors(w http.ResponseWriter, r *http.Request) {
 			_, supportsOAuth = client.(distributor.ThreeLeggedAuthClient)
 		}
 		items[i] = item{
-			ID:           d.ID.String(),
-			Name:         d.Name,
-			Website:      d.Website,
-			ApiType:      d.ApiType,
+			ID:            d.ID.String(),
+			Name:          d.Name,
+			Website:       d.Website,
+			ApiType:       d.ApiType,
 			SupportsOAuth: supportsOAuth,
 		}
 	}
@@ -102,13 +102,13 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 	}
 
 	type item struct {
-		DistributorID        string                      `json:"distributor_id"`
-		DistributorName      string                      `json:"distributor_name"`
-		Enabled              bool                        `json:"enabled"`
-		Preferred            bool                        `json:"preferred"`
-		CacheDurationSeconds int32                       `json:"cache_duration_seconds"`
-		HasCredentials       bool                        `json:"has_credentials"`
-		ApiCredentials       map[string]any              `json:"api_credentials,omitempty"`
+		DistributorID        string                       `json:"distributor_id"`
+		DistributorName      string                       `json:"distributor_name"`
+		Enabled              bool                         `json:"enabled"`
+		Preferred            bool                         `json:"preferred"`
+		CacheDurationSeconds int32                        `json:"cache_duration_seconds"`
+		HasCredentials       bool                         `json:"has_credentials"`
+		ApiCredentials       map[string]any               `json:"api_credentials,omitempty"`
 		RateLimit            *distributor.RateLimitStatus `json:"rate_limit,omitempty"`
 	}
 	items := make([]item, len(configs))
@@ -456,14 +456,14 @@ func (h *Handler) SearchDistributor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type productResp struct {
-		MPN            string  `json:"mpn"`
-		Manufacturer   string  `json:"manufacturer"`
-		Description    string  `json:"description"`
-		Category       string  `json:"category"`
-		PrimarySKU     string  `json:"primary_sku"`
-		Package        string  `json:"package"`
-		UnitPrice      string  `json:"unit_price"`
-		StockAvailable *int32  `json:"stock_available"`
+		MPN            string `json:"mpn"`
+		Manufacturer   string `json:"manufacturer"`
+		Description    string `json:"description"`
+		Category       string `json:"category"`
+		PrimarySKU     string `json:"primary_sku"`
+		Package        string `json:"package"`
+		UnitPrice      string `json:"unit_price"`
+		StockAvailable *int32 `json:"stock_available"`
 	}
 
 	if result == nil {

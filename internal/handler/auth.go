@@ -117,7 +117,6 @@ type userResponse struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-
 func meRowToUserResponse(r dbgen.GetUserWithMembershipsRow) userResponse {
 	return userResponse{
 		ID:          r.ID.String(),

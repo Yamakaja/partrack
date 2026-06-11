@@ -169,7 +169,7 @@ func (h *Handler) ImportSubstitutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.Queries.ImportSubstitutesFromRevision(r.Context(), dbgen.ImportSubstitutesFromRevisionParams{
-		BomLineItemID:  itemID,
+		BomLineItemID: itemID,
 		BomRevisionID: sourceRevID,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")

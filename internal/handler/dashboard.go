@@ -22,11 +22,11 @@ type dashboardStats struct {
 }
 
 type dashboardRecentProject struct {
-	ID                 string  `json:"id"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Status              string  `json:"status"`
 	ActiveRevisionLabel *string `json:"active_revision_label"`
-	ActiveRevisionID   *string `json:"active_revision_id"`
+	ActiveRevisionID    *string `json:"active_revision_id"`
 }
 
 type dashboardInventoryAlert struct {
@@ -236,6 +236,6 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		InventoryAlerts:   alerts,
 		OutstandingOrders: orders,
 		RecentActivity:    activity,
-		BuildPipeline: pipelineStages,
+		BuildPipeline:     pipelineStages,
 	})
 }

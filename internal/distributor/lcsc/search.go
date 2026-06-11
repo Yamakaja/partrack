@@ -81,12 +81,12 @@ func (c *Client) SearchParts(ctx context.Context, q distributor.SearchQuery, _ j
 
 	for i, comp := range list {
 		sp := distributor.SearchProduct{
-			MPN:          comp.ComponentModelEn,
-			Manufacturer: comp.ComponentBrandEn,
-			Description:  descriptionOf(&comp),
-			Category:     comp.FirstSortName,
-			PrimarySKU:   comp.ComponentCode,
-			Package:      comp.ComponentSpecificationEn,
+			MPN:            comp.ComponentModelEn,
+			Manufacturer:   comp.ComponentBrandEn,
+			Description:    descriptionOf(&comp),
+			Category:       comp.FirstSortName,
+			PrimarySKU:     comp.ComponentCode,
+			Package:        comp.ComponentSpecificationEn,
 			StockAvailable: func() *int32 { s := comp.StockCount; return &s }(),
 		}
 		if len(comp.ComponentPrices) > 0 {

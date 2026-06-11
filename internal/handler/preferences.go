@@ -40,9 +40,9 @@ func (h *Handler) GetPreferences(w http.ResponseWriter, r *http.Request) {
 	// prefs is []byte (raw JSON from the DB); embed directly.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"preferences":`))   //nolint:errcheck
-	w.Write(prefs)                        //nolint:errcheck
-	w.Write([]byte(`}`))                  //nolint:errcheck
+	w.Write([]byte(`{"preferences":`)) //nolint:errcheck
+	w.Write(prefs)                     //nolint:errcheck
+	w.Write([]byte(`}`))               //nolint:errcheck
 }
 
 // PutPreferences handles PUT /api/v1/preferences
@@ -85,6 +85,6 @@ func (h *Handler) PutPreferences(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"preferences":`)) //nolint:errcheck
-	w.Write(saved)                      //nolint:errcheck
+	w.Write(saved)                     //nolint:errcheck
 	w.Write([]byte(`}`))               //nolint:errcheck
 }

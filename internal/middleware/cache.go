@@ -56,7 +56,7 @@ type AuthCache struct {
 	apiTokenByID   map[string]string         // tokenID → tokenHash
 	apiTokenByUser map[string][]string       // userID → []tokenHash
 
-	scanmu    sync.RWMutex
+	scanmu     sync.RWMutex
 	scanTokens map[string]*scanTokenEntry // tokenHash → entry
 	scanByID   map[string]string          // sessionID → tokenHash
 

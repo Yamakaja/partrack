@@ -11,12 +11,12 @@ func TestParse_DigiKey_RealWorld(t *testing.T) {
 		"P445-2213-1-ND\x1d" +
 		"1PACM1211-102-2PL-TL01\x1d" +
 		"30P445-2213-1-ND\x1d" +
-		"K28134596\x1d" +   // customer PO
-		"1K95634467\x1d" +  // DigiKey sales order
+		"K28134596\x1d" + // customer PO
+		"1K95634467\x1d" + // DigiKey sales order
 		"10K117756332\x1d" + // inventory number (ignored)
-		"9D2535\x1d" +       // date code
+		"9D2535\x1d" + // date code
 		"1T0058669202\x1d" + // lot number
-		"11K1\x1d" +         // packing list (ignored — DigiKey context)
+		"11K1\x1d" + // packing list (ignored — DigiKey context)
 		"4LCN\x1d" +
 		"Q5\x1d" +
 		"11ZPICK\x1d12Z765070\x1d13Z999999\x1d" + // internal/padding (ignored)
@@ -58,11 +58,11 @@ func TestParse_DigiKey_RealWorld(t *testing.T) {
 // Real-world Mouser format-06 label (MPN only, no distributor SKU).
 func TestParse_Mouser_RealWorld(t *testing.T) {
 	raw := "[)>\x1e06\x1d" +
-		"K27279572\x1d" +         // customer order number
-		"14K018\x1d" +             // order line position (ignored)
-		"1PAD826ARZ-REEL\x1d" +   // MPN
+		"K27279572\x1d" + // customer order number
+		"14K018\x1d" + // order line position (ignored)
+		"1PAD826ARZ-REEL\x1d" + // MPN
 		"Q5\x1d" +
-		"11K071953802\x1d" +       // Mouser invoice number → SalesOrderNo
+		"11K071953802\x1d" + // Mouser invoice number → SalesOrderNo
 		"4LTW\x1d" +
 		"1VAnalog Devices Inc.\x1d" +
 		"\x04"

@@ -18,9 +18,9 @@ import (
 
 // Sentinel errors returned by importPartBySKU; callers map these to HTTP statuses.
 var (
-	errDistributorNotConfigured = errors.New("distributor not configured or not enabled for this team")
-	errDistributorNoAPI         = errors.New("distributor has no API integration")
-	errDistributorNoClient      = errors.New("no client registered for this distributor")
+	errDistributorNotConfigured  = errors.New("distributor not configured or not enabled for this team")
+	errDistributorNoAPI          = errors.New("distributor has no API integration")
+	errDistributorNoClient       = errors.New("no client registered for this distributor")
 	errPartNotFoundAtDistributor = errors.New("part not found at distributor")
 )
 

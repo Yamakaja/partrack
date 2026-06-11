@@ -34,7 +34,7 @@ func TestSelect(t *testing.T) {
 		"priority": {"S4a", "S4b"},
 	}
 	onHand := map[string]int32{
-		"P1": 10, // primary covers → no substitute
+		"P1": 10,          // primary covers → no substitute
 		"P2": 2, "S2": 10, // primary short, sub covers
 		"P3": 2, "S3": 5, // both short → no selection
 		"P4": 0, "S4a": 4, "S4b": 12,

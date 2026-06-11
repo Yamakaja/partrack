@@ -1649,11 +1649,11 @@ func (h *Handler) importOrderLink(w http.ResponseWriter, r *http.Request, teamID
 	}
 
 	jobID := h.Worker.Enqueue(worker.JobOrderLink, teamID.String(), map[string]any{
-		"sales_order_id":  salesOrderID,
-		"order_id":        existingOrderIDStr,
-		"distributor_id":  order.DistributorID.String(),
-		"user_id":         user.ID,
-		"skip_reconcile":  false,
+		"sales_order_id": salesOrderID,
+		"order_id":       existingOrderIDStr,
+		"distributor_id": order.DistributorID.String(),
+		"user_id":        user.ID,
+		"skip_reconcile": false,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID})

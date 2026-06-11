@@ -683,4 +683,3 @@ func inventoryEntryResponse(e dbgen.InventoryEntry) map[string]any {
 		"reorder_quantity":       e.ReorderQuantity,
 	}
 }
-
