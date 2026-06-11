@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { login, getMe } from '$lib/api/auth.js';
+  import { login, getMe, getAuthProviders, type OIDCProvider } from '$lib/api/auth.js';
   import { setAuth } from '$lib/stores/auth.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
 
@@ -9,11 +9,37 @@
   let loading = $state(false);
   let error = $state('');
   let showScannerLink = $state(false);
+  let providers = $state<OIDCProvider[]>([]);
+
+  // Error codes the OIDC callback redirects back with (?error=CODE).
+  const ssoErrors: Record<string, string> = {
+    INVALID_STATE: 'Sign-in attempt expired or was invalid. Please try again.',
+    OIDC_EXCHANGE_FAILED: 'Single sign-on failed while contacting the identity provider.',
+    OIDC_NO_ID_TOKEN: 'The identity provider did not return an ID token.',
+    OIDC_VERIFY_FAILED: 'The identity provider response could not be verified.',
+    OIDC_CLAIMS_ERROR: 'The identity provider response could not be read.',
+    OIDC_NO_EMAIL: 'Your identity provider account has no email address.',
+    OIDC_EMAIL_UNVERIFIED: 'Your email address is not verified with the identity provider.',
+    OIDC_PROVIDER_UNAVAILABLE: 'The identity provider is currently unavailable. Please try again later.',
+    PROVISIONING_DISABLED: 'No account exists for this identity and self-registration is disabled. Contact an administrator.',
+    ACCOUNT_INACTIVE: 'Your account is inactive. Contact an administrator.',
+    INTERNAL_ERROR: 'Single sign-on failed due to a server error. Please try again.',
+  };
 
   onMount(() => {
     const token = localStorage.getItem('scan_token');
     const isMobile = navigator.maxTouchPoints > 0 && /Mobi|Android|iPhone/i.test(navigator.userAgent);
     showScannerLink = !!(token && isMobile);
+
+    const code = new URLSearchParams(window.location.search).get('error');
+    if (code) {
+      error = ssoErrors[code] ?? 'Sign-in failed. Please try again.';
+      history.replaceState(null, '', '/login');
+    }
+
+    getAuthProviders()
+      .then((res) => (providers = res.providers))
+      .catch(() => {}); // login page must still work if this fails
   });
 
   async function handleSubmit(e: Event) {
@@ -80,6 +106,24 @@
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+
+      {#if providers.length > 0}
+        <div class="space-y-3">
+          <div class="relative flex items-center">
+            <div class="flex-1 border-t border-border"></div>
+            <span class="mx-3 text-xs text-muted-foreground">or</span>
+            <div class="flex-1 border-t border-border"></div>
+          </div>
+          {#each providers as provider (provider.name)}
+            <a
+              href={`/api/v1/auth/oidc/${encodeURIComponent(provider.name)}`}
+              class="block w-full rounded-md border border-border bg-card px-4 py-2 text-center text-sm font-medium hover:bg-accent transition-colors"
+            >
+              Continue with {provider.display_name}
+            </a>
+          {/each}
+        </div>
+      {/if}
     </div>
 
     {#if showScannerLink}

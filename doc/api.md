@@ -25,8 +25,9 @@ Higher roles inherit all permissions of lower roles.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/auth/login` | — | `{email, password}` → session cookie + `{user}` |
-| GET | `/auth/oidc/{provider}` | — | Redirect (302) to OIDC provider; sets CSRF state cookie |
-| GET | `/auth/oidc/{provider}/callback` | — | OIDC code exchange → session cookie + redirect to `/` |
+| GET | `/auth/providers` | — | List configured SSO providers: `{providers: [{name, display_name}]}` |
+| GET | `/auth/oidc/{provider}` | — | Redirect (302) to OIDC provider; sets state/nonce/PKCE cookie. 503 if the provider is configured but unreachable |
+| GET | `/auth/oidc/{provider}/callback` | — | OIDC code exchange (PKCE + nonce verified) → session cookie + redirect to `/`. Failures redirect to `/login?error=<CODE>` (`INVALID_STATE`, `OIDC_EXCHANGE_FAILED`, `OIDC_VERIFY_FAILED`, `OIDC_NO_EMAIL`, `OIDC_EMAIL_UNVERIFIED`, `PROVISIONING_DISABLED`, `ACCOUNT_INACTIVE`, …). Unknown identities auto-link to an existing user with the same **verified** email, else auto-provision a new user if enabled for the provider |
 | GET | `/auth/reset-password?token=` | — | Validate reset token; returns `{display_name, email, expires_at}` |
 | POST | `/auth/reset-password` | — | `{token, password}` → session cookie + `{user, memberships}` |
 | POST | `/auth/logout` | session | Invalidate session; 204 |

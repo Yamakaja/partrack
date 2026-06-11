@@ -106,8 +106,11 @@ authorization boundary; an instance-level `is_admin` flag transcends all teams.
   stored; raw shown once.
 - Session cookie: `HttpOnly`, `SameSite=Lax`, `Expires` set; Bearer supported for
   API clients.
-- OIDC: `state` CSRF cookie checked; `id_token` verified against provider; auto-
-  provision gated by config.
+- OIDC: `state` CSRF cookie (constant-time compare), `nonce` bound to the login
+  attempt, PKCE (S256) on the code exchange; `id_token` verified against the
+  provider with issuer + audience pinning; redirect URI built from operator-set
+  `app.base_url`, never request headers. Auto-link and auto-provision require
+  `email_verified=true`; provisioning gated per provider.
 - OAuth state & link tokens: HMAC-SHA256 with constant-time compare; link tokens
   carry expiry.
 - RBAC: hierarchical roles enforced by middleware; queries are sqlc-generated and
@@ -121,7 +124,7 @@ authorization boundary; an instance-level `is_admin` flag transcends all teams.
 | S1 | Credential brute force / password spray | `POST /auth/login`, reset endpoints | **No rate limiting / lockout** seen → open. |
 | S2 | Session/API token theft | XSS, log leakage, network | HttpOnly + hashed-at-rest; SSE scan token is in the **URL query** → may land in proxy/access logs. |
 | S3 | Forged OAuth `state` / link tokens | weak/empty `session_secret` | HMAC sound; hinges on secret strength (assumption). |
-| S4 | OIDC assertion forgery / mis-binding | hostile IdP or token swap | id_token verified; check audience/issuer pinning and email-collision provisioning in review. |
+| S4 | OIDC assertion forgery / mis-binding | hostile IdP or token swap | Mitigated: id_token verified with issuer + audience pinning; nonce binds it to the browser's login attempt; PKCE on the exchange; linking/provisioning require a verified email (closes email-collision takeover). |
 | T1 | Cross-team access (IDOR) | nested IDs (`projectId`, `orderId`, `itemId`) under a team the user *is* in, but resource belongs to another team | RequireTeamRole guards `{teamId}` only; **per-handler ownership checks must be verified** — primary review focus. |
 | T2 | Privilege escalation across roles | calling higher-role route | Hierarchical middleware; verify every mutating route has the right `RequireTeamRole`. |
 | T3 | Ledger / inventory tampering | adjustment, build, receive flows | Append-only ledger by design; verify no direct quantity overwrite path. |
@@ -155,8 +158,9 @@ authorization boundary; an instance-level `is_admin` flag transcends all teams.
    all; (b) one-time bootstrap token in the URL that's immediately exchanged for
    an HttpOnly cookie used by subsequent calls; (c) scrub the token from access
    logs at the proxy. Whatever is chosen must not break QR-code pairing.
-5. Confirm OIDC issuer/audience pinning and email-collision handling on
-   auto-provision (S4).
+5. ~~Confirm OIDC issuer/audience pinning and email-collision handling on
+   auto-provision (S4).~~ Resolved: issuer/audience pinned by go-oidc verifier;
+   nonce + PKCE added; auto-link/auto-provision require `email_verified=true`.
 6. Confirm no unauthenticated handler leaks user existence (login vs. reset
    responses) beyond acceptable levels.
 </content>

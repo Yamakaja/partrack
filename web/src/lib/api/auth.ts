@@ -15,6 +15,15 @@ export function login(email: string, password: string) {
   return request<{ user: User }>('POST', '/api/v1/auth/login', { email, password });
 }
 
+export interface OIDCProvider {
+  name: string;
+  display_name: string;
+}
+
+export function getAuthProviders() {
+  return request<{ providers: OIDCProvider[] }>('GET', '/api/v1/auth/providers');
+}
+
 export function logout() {
   return request<void>('POST', '/api/v1/auth/logout');
 }

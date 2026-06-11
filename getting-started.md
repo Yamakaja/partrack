@@ -58,15 +58,22 @@ server:
 log:
   level: info             # debug | info | warn | error
 
-# Optional: OIDC providers for single sign-on
+# Optional: OIDC providers for single sign-on.
+# Requires app.base_url — the OIDC redirect URI is derived from it; register
+# <base_url>/api/v1/auth/oidc/<name>/callback at the identity provider.
+app:
+  base_url: https://partrack.example.com
+
 oidc:
-  - name: google
+  - name: google             # URL-safe slug, used in routes
+    display_name: Google     # login button label; defaults to the slug
     issuer: https://accounts.google.com
     client_id: "..."
-    client_secret: "..."   # or PARTRACK_OIDC_GOOGLE_SECRET env var
-    auto_provision: true   # create user accounts on first login
-    default_team_id: ""    # UUID of team to auto-join; leave empty to skip
+    client_secret: "..."     # or PARTRACK_OIDC_GOOGLE_SECRET env var
+    auto_provision: true     # create user accounts on first login
 ```
+
+On first SSO login, identities with a **verified** email matching an existing user are linked to that user automatically; unmatched identities create a new account only when `auto_provision` is enabled. Newly provisioned users have no team memberships — an admin assigns them to teams.
 
 ### Environment variable overrides
 

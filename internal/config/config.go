@@ -35,12 +35,13 @@ type AuthConfig struct {
 }
 
 type OIDCProvider struct {
-	Name          string `yaml:"name"`
+	Name string `yaml:"name"` // URL-safe slug used in routes and oidc_identities.provider
+	// DisplayName is shown on the login button; defaults to Name when empty.
+	DisplayName   string `yaml:"display_name"`
 	Issuer        string `yaml:"issuer"`
 	ClientID      string `yaml:"client_id"`
 	ClientSecret  string `yaml:"client_secret"`
 	AutoProvision bool   `yaml:"auto_provision"`
-	DefaultTeamID string `yaml:"default_team_id"`
 }
 
 type LogConfig struct {
@@ -124,6 +125,14 @@ func Load() *Config {
 	// a weak/empty value makes them forgeable. Fail fast rather than start insecure.
 	if len(cfg.Auth.SessionSecret) < 32 {
 		fmt.Fprintln(os.Stderr, "config: auth.session_secret must be set and at least 32 bytes (env PARTRACK_SESSION_SECRET)")
+		os.Exit(1)
+	}
+
+	// OIDC redirect URIs are built from app.base_url; without it the flow cannot
+	// produce the exact redirect URI registered at the IdP.
+	cfg.App.BaseURL = strings.TrimRight(cfg.App.BaseURL, "/")
+	if len(cfg.OIDC) > 0 && cfg.App.BaseURL == "" {
+		fmt.Fprintln(os.Stderr, "config: app.base_url must be set when OIDC providers are configured (env PARTRACK_APP_BASE_URL)")
 		os.Exit(1)
 	}
 

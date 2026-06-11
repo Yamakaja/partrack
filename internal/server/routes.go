@@ -27,8 +27,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 	r.Route("/api/v1", func(r chi.Router) {
 		// ── 1. Authentication (no session required) ─────────────────────────
 		r.With(authLimiter).Post("/auth/login", h.Login)
-		r.Get("/auth/oidc/{provider}", h.OIDCInitiate)
-		r.Get("/auth/oidc/{provider}/callback", h.OIDCCallback)
+		r.Get("/auth/providers", h.OIDCProviders)
+		r.With(authLimiter).Get("/auth/oidc/{provider}", h.OIDCInitiate)
+		r.With(authLimiter).Get("/auth/oidc/{provider}/callback", h.OIDCCallback)
 		r.With(authLimiter).Get("/auth/reset-password", h.GetResetPasswordInfo)
 		r.With(authLimiter).Post("/auth/reset-password", h.CompletePasswordReset)
 

@@ -4,12 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/config"
@@ -30,41 +34,55 @@ const (
 	oidcStateMaxAge   = 600 // 10 minutes
 )
 
-// oidcEntry holds a cached OIDC provider and its config.
+// oidcEntry holds a configured OIDC provider. Discovery runs lazily so an IdP
+// that is unreachable at startup does not disable SSO until the next restart.
 type oidcEntry struct {
-	provider *oidc.Provider
 	cfg      config.OIDCProvider
+	mu       sync.Mutex
+	provider *oidc.Provider // nil until discovery has succeeded
 }
 
-// initOIDC eagerly initialises all configured OIDC providers.
-// Providers that fail (e.g. unreachable at startup) are skipped and their
-// endpoints return 503.
+// initOIDC registers all configured OIDC providers and attempts eager
+// discovery; failures are logged and retried on first use.
 func (h *Handler) initOIDC() {
 	h.oidcEntries = make(map[string]*oidcEntry)
 	for _, p := range h.Config.OIDC {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		provider, err := oidc.NewProvider(ctx, p.Issuer)
-		cancel()
-		if err != nil {
-			log.Printf("handler: OIDC provider %q failed to initialise: %v", p.Name, err)
-			continue
+		entry := &oidcEntry{cfg: p}
+		h.oidcEntries[p.Name] = entry
+		if _, err := entry.getProvider(context.Background()); err != nil {
+			log.Printf("handler: OIDC provider %q failed to initialise (will retry on demand): %v", p.Name, err)
 		}
-		h.oidcEntries[p.Name] = &oidcEntry{provider: provider, cfg: p}
 	}
 }
 
-// oauth2Config builds the oauth2.Config for a provider, deriving the redirect
-// URL from the current request host.
-func (e *oidcEntry) oauth2Config(r *http.Request) oauth2.Config {
-	scheme := "https"
-	if r.TLS == nil {
-		scheme = "http"
+// getProvider returns the discovered *oidc.Provider, running discovery on
+// first use or retrying after an earlier failure. Safe for concurrent use.
+func (e *oidcEntry) getProvider(ctx context.Context) (*oidc.Provider, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.provider != nil {
+		return e.provider, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	provider, err := oidc.NewProvider(ctx, e.cfg.Issuer)
+	if err != nil {
+		return nil, err
+	}
+	e.provider = provider
+	return provider, nil
+}
+
+// oauth2Config builds the oauth2.Config for a provider. The redirect URL is
+// derived from app.base_url (validated at startup), never from request
+// headers: TLS is terminated upstream so the request scheme is wrong, and the
+// Host header is client-controlled.
+func (h *Handler) oauth2Config(entry *oidcEntry, provider *oidc.Provider) oauth2.Config {
 	return oauth2.Config{
-		ClientID:     e.cfg.ClientID,
-		ClientSecret: e.cfg.ClientSecret,
-		Endpoint:     e.provider.Endpoint(),
-		RedirectURL:  fmt.Sprintf("%s://%s/api/v1/auth/oidc/%s/callback", scheme, r.Host, e.cfg.Name),
+		ClientID:     entry.cfg.ClientID,
+		ClientSecret: entry.cfg.ClientSecret,
+		Endpoint:     provider.Endpoint(),
+		RedirectURL:  h.Config.App.BaseURL + "/api/v1/auth/oidc/" + entry.cfg.Name + "/callback",
 		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 	}
 }
@@ -232,39 +250,78 @@ func (h *Handler) OIDCInitiate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown OIDC provider", "NOT_FOUND")
 		return
 	}
+	provider, err := entry.getProvider(r.Context())
+	if err != nil {
+		log.Printf("handler: OIDC provider %q unavailable: %v", entry.cfg.Name, err)
+		writeError(w, http.StatusServiceUnavailable, "OIDC provider unavailable", "OIDC_PROVIDER_UNAVAILABLE")
+		return
+	}
 
 	state, err := generateToken()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+	nonce, err := generateToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	verifier := oauth2.GenerateVerifier()
 
+	// The cookie holds all three per-login secrets (state, nonce, PKCE
+	// verifier). They are random values in an HttpOnly cookie that only the
+	// legitimate browser holds, so no signing is needed.
 	http.SetCookie(w, &http.Cookie{
 		Name:     oidcStateCookie,
-		Value:    state,
+		Value:    state + "." + nonce + "." + verifier,
 		Path:     "/api/v1/auth/oidc",
 		MaxAge:   oidcStateMaxAge,
 		HttpOnly: true,
 		Secure:   h.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	cfg := entry.oauth2Config(r)
-	http.Redirect(w, r, cfg.AuthCodeURL(state), http.StatusFound)
+	cfg := h.oauth2Config(entry, provider)
+	http.Redirect(w, r, cfg.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), http.StatusFound)
+}
+
+// redirectLoginError sends the browser back to the login page with a
+// machine-readable error code. The callback runs as a top-level navigation,
+// so a JSON error body would render as raw text in the user's browser.
+func redirectLoginError(w http.ResponseWriter, r *http.Request, code string) {
+	http.Redirect(w, r, "/login?error="+url.QueryEscape(code), http.StatusFound)
 }
 
 // OIDCCallback handles GET /api/v1/auth/oidc/{provider}/callback
-// Exchanges the authorization code for a session.
+// Exchanges the authorization code for a session. Failures redirect back to
+// the login page with an error code rather than writing JSON.
 func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	entry, ok := h.oidcEntries[chi.URLParam(r, "provider")]
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown OIDC provider", "NOT_FOUND")
 		return
 	}
+	provider, err := entry.getProvider(r.Context())
+	if err != nil {
+		log.Printf("handler: OIDC provider %q unavailable: %v", entry.cfg.Name, err)
+		redirectLoginError(w, r, "OIDC_PROVIDER_UNAVAILABLE")
+		return
+	}
 
-	// Verify CSRF state.
+	// Verify CSRF state and recover the nonce + PKCE verifier minted at initiate.
 	stateCookie, err := r.Cookie(oidcStateCookie)
-	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
-		writeError(w, http.StatusBadRequest, "invalid state parameter", "INVALID_STATE")
+	if err != nil {
+		redirectLoginError(w, r, "INVALID_STATE")
+		return
+	}
+	parts := strings.SplitN(stateCookie.Value, ".", 3)
+	if len(parts) != 3 {
+		redirectLoginError(w, r, "INVALID_STATE")
+		return
+	}
+	state, nonce, verifier := parts[0], parts[1], parts[2]
+	if subtle.ConstantTimeCompare([]byte(state), []byte(r.URL.Query().Get("state"))) != 1 {
+		redirectLoginError(w, r, "INVALID_STATE")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -277,51 +334,58 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	callbackCfg := entry.oauth2Config(r)
-	oauthToken, err := callbackCfg.Exchange(r.Context(), r.URL.Query().Get("code"))
+	callbackCfg := h.oauth2Config(entry, provider)
+	oauthToken, err := callbackCfg.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "code exchange failed", "OIDC_EXCHANGE_FAILED")
+		redirectLoginError(w, r, "OIDC_EXCHANGE_FAILED")
 		return
 	}
 
 	rawIDToken, ok := oauthToken.Extra("id_token").(string)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "missing id_token", "OIDC_NO_ID_TOKEN")
+		redirectLoginError(w, r, "OIDC_NO_ID_TOKEN")
 		return
 	}
-	idToken, err := entry.provider.Verifier(&oidc.Config{ClientID: entry.cfg.ClientID}).Verify(r.Context(), rawIDToken)
+	idToken, err := provider.Verifier(&oidc.Config{ClientID: entry.cfg.ClientID}).Verify(r.Context(), rawIDToken)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "id_token verification failed", "OIDC_VERIFY_FAILED")
+		redirectLoginError(w, r, "OIDC_VERIFY_FAILED")
+		return
+	}
+	// Bind the ID token to this browser's login attempt (replay protection).
+	if idToken.Nonce != nonce {
+		redirectLoginError(w, r, "OIDC_VERIFY_FAILED")
 		return
 	}
 
-	var claims struct {
-		Subject string `json:"sub"`
-		Email   string `json:"email"`
-		Name    string `json:"name"`
-	}
+	var claims oidcClaims
 	if err := idToken.Claims(&claims); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read claims", "OIDC_CLAIMS_ERROR")
+		redirectLoginError(w, r, "OIDC_CLAIMS_ERROR")
 		return
 	}
 
-	user, err := h.resolveOIDCUser(r.Context(), entry.cfg.Name, claims.Subject, claims.Email, claims.Name, entry.cfg)
+	user, err := h.resolveOIDCUser(r.Context(), entry.cfg, claims)
 	if err != nil {
-		if errors.Is(err, errOIDCNotProvisioned) {
-			writeError(w, http.StatusForbidden, "auto-provisioning is disabled for this provider", "PROVISIONING_DISABLED")
-			return
+		switch {
+		case errors.Is(err, errOIDCNotProvisioned):
+			redirectLoginError(w, r, "PROVISIONING_DISABLED")
+		case errors.Is(err, errOIDCNoEmail):
+			redirectLoginError(w, r, "OIDC_NO_EMAIL")
+		case errors.Is(err, errOIDCEmailUnverified):
+			redirectLoginError(w, r, "OIDC_EMAIL_UNVERIFIED")
+		default:
+			log.Printf("handler: OIDC user resolution failed: %v", err)
+			redirectLoginError(w, r, "INTERNAL_ERROR")
 		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 	if !user.IsActive {
-		writeError(w, http.StatusUnauthorized, "account is inactive", "ACCOUNT_INACTIVE")
+		redirectLoginError(w, r, "ACCOUNT_INACTIVE")
 		return
 	}
 
 	rawToken, _, expiresAt, err := h.createSession(r.Context(), user.ID, r.UserAgent(), r.RemoteAddr)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		redirectLoginError(w, r, "INTERNAL_ERROR")
 		return
 	}
 
@@ -329,44 +393,101 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-var errOIDCNotProvisioned = errors.New("auto-provisioning disabled")
+var (
+	errOIDCNotProvisioned  = errors.New("auto-provisioning disabled")
+	errOIDCNoEmail         = errors.New("id_token has no email claim")
+	errOIDCEmailUnverified = errors.New("id_token email is not verified")
+)
 
-// resolveOIDCUser finds or auto-provisions the user for an OIDC login.
-func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email, name string, cfg config.OIDCProvider) (dbgen.GetUserWithMembershipsRow, error) {
+// oidcClaims is the subset of ID token claims partrack consumes.
+type oidcClaims struct {
+	Subject       string `json:"sub"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+}
+
+// resolveOIDCUser finds the user for an OIDC login. Resolution order:
+//  1. an identity already linked to this (provider, subject)
+//  2. auto-link to an existing user with the same verified email
+//  3. auto-provision a new user, if enabled for the provider
+//
+// Linking and provisioning key on the email claim, so both require the IdP to
+// attest the address with email_verified=true — otherwise anyone able to set
+// an arbitrary unverified email at the IdP could take over the matching account.
+func (h *Handler) resolveOIDCUser(ctx context.Context, cfg config.OIDCProvider, claims oidcClaims) (dbgen.GetUserWithMembershipsRow, error) {
+	var zero dbgen.GetUserWithMembershipsRow
+
 	identity, err := h.Queries.GetOIDCIdentity(ctx, dbgen.GetOIDCIdentityParams{
-		Provider: provider,
-		Subject:  subject,
+		Provider: cfg.Name,
+		Subject:  claims.Subject,
 	})
 	if err == nil {
 		return h.Queries.GetUserWithMemberships(ctx, identity.UserID)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return dbgen.GetUserWithMembershipsRow{}, err
+		return zero, err
+	}
+
+	if claims.Email == "" {
+		return zero, errOIDCNoEmail
+	}
+	if !claims.EmailVerified {
+		return zero, errOIDCEmailUnverified
+	}
+
+	// Auto-link: attach this identity to the existing user with the same email.
+	existing, err := h.Queries.GetUserByEmail(ctx, claims.Email)
+	if err == nil {
+		_, err = h.Queries.CreateOIDCIdentity(ctx, dbgen.CreateOIDCIdentityParams{
+			UserID:        existing.ID,
+			Provider:      cfg.Name,
+			Subject:       claims.Subject,
+			ProviderEmail: &claims.Email,
+		})
+		if err != nil {
+			return zero, fmt.Errorf("link oidc identity: %w", err)
+		}
+		return h.Queries.GetUserWithMemberships(ctx, existing.ID)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return zero, err
 	}
 
 	if !cfg.AutoProvision {
-		return dbgen.GetUserWithMembershipsRow{}, errOIDCNotProvisioned
+		return zero, errOIDCNotProvisioned
 	}
 
-	displayName := name
+	displayName := claims.Name
 	if displayName == "" {
-		displayName = email
+		displayName = claims.Email
 	}
-	user, err := h.Queries.CreateUser(ctx, dbgen.CreateUserParams{
+
+	tx, err := h.DB.Begin(ctx)
+	if err != nil {
+		return zero, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	user, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
 		DisplayName: displayName,
-		Email:       email,
+		Email:       claims.Email,
 	})
 	if err != nil {
-		return dbgen.GetUserWithMembershipsRow{}, fmt.Errorf("create user: %w", err)
+		return zero, fmt.Errorf("create user: %w", err)
 	}
-	_, err = h.Queries.CreateOIDCIdentity(ctx, dbgen.CreateOIDCIdentityParams{
+	_, err = qtx.CreateOIDCIdentity(ctx, dbgen.CreateOIDCIdentityParams{
 		UserID:        user.ID,
-		Provider:      provider,
-		Subject:       subject,
-		ProviderEmail: &email,
+		Provider:      cfg.Name,
+		Subject:       claims.Subject,
+		ProviderEmail: &claims.Email,
 	})
 	if err != nil {
-		return dbgen.GetUserWithMembershipsRow{}, fmt.Errorf("create oidc identity: %w", err)
+		return zero, fmt.Errorf("create oidc identity: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return zero, err
 	}
 	return dbgen.GetUserWithMembershipsRow{
 		ID:          user.ID,
@@ -376,6 +497,24 @@ func (h *Handler) resolveOIDCUser(ctx context.Context, provider, subject, email,
 		IsAdmin:     user.IsAdmin,
 		CreatedAt:   user.CreatedAt,
 	}, nil
+}
+
+// OIDCProviders handles GET /api/v1/auth/providers
+// Lists configured SSO providers so the login page can render buttons.
+func (h *Handler) OIDCProviders(w http.ResponseWriter, r *http.Request) {
+	type providerItem struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+	}
+	items := make([]providerItem, 0, len(h.Config.OIDC))
+	for _, p := range h.Config.OIDC {
+		displayName := p.DisplayName
+		if displayName == "" {
+			displayName = p.Name
+		}
+		items = append(items, providerItem{Name: p.Name, DisplayName: displayName})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"providers": items})
 }
 
 // Me handles GET /api/v1/auth/me
