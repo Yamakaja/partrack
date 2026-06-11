@@ -759,3 +759,78 @@ func TestGetBuild(t *testing.T) {
 		t.Errorf("expected status=draft, got %v", body["status"])
 	}
 }
+
+// TestPatchSubstituteSelection_RevertToPrimary verifies that a null part_id
+// removes a line item's stored substitute selection (reverting to the primary),
+// and that selecting a non-approved part is rejected with 400.
+func TestPatchSubstituteSelection_RevertToPrimary(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "bld-subrevert@example.com", "pw", "Bld")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Bld Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Revert-PCB")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+
+	// Primary part with no stock; substitute part with plenty → the selection
+	// job will auto-pick the substitute.
+	primaryID := testutil.CreatePart(t, testDB, "global", "SUBREV-PRIMARY", nil)
+	subID := testutil.CreatePart(t, testDB, "global", "SUBREV-SUB", nil)
+	itemID := testutil.CreateBOMLineItem(t, testDB, revID, "R1", 1)
+	testutil.ResolveBOMLineItem(t, testDB, itemID, primaryID)
+
+	subEntry := testutil.CreateInventoryEntry(t, testDB, teamID, subID)
+	testutil.SetStockQty(t, testDB, subEntry, 10)
+
+	// Approve the substitute via the API.
+	_, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/items/%s/substitutes", teamID, projectID, revID, itemID),
+		map[string]any{"part_id": subID}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201 adding substitute, got %d", status)
+	}
+
+	// Create the build → selection job picks the substitute (primary is short).
+	created, st := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/builds", teamID),
+		map[string]any{"project_id": projectID, "bom_revision_id": revID, "quantity": 1}, token)
+	if st != http.StatusCreated {
+		t.Fatalf("expected 201 creating build, got %d: %v", st, created)
+	}
+	buildID := created["id"].(string)
+
+	testutil.WaitForBuildSelections(t, testEnv.Server, teamID, buildID, token)
+
+	build, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s", teamID, buildID), nil, token)
+	if sels, _ := build["substitute_selections"].([]any); len(sels) != 1 {
+		t.Fatalf("expected substitute auto-selected, got %d selections", len(sels))
+	}
+
+	// A non-approved part must be rejected.
+	bogusID := testutil.CreatePart(t, testDB, "global", "SUBREV-BOGUS", nil)
+	_, badStatus := testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/substitute-selections", teamID, buildID),
+		map[string]any{"selections": []map[string]any{{"bom_line_item_id": itemID, "part_id": bogusID}}}, token)
+	if badStatus != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-approved part, got %d", badStatus)
+	}
+
+	// Reverting with a null part_id clears the selection.
+	resp, revertStatus := testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s/substitute-selections", teamID, buildID),
+		map[string]any{"selections": []map[string]any{{"bom_line_item_id": itemID, "part_id": nil}}}, token)
+	if revertStatus != http.StatusOK {
+		t.Fatalf("expected 200 on revert, got %d: %v", revertStatus, resp)
+	}
+	if respSels, _ := resp["selections"].([]any); len(respSels) != 0 {
+		t.Fatalf("expected no selections in revert response, got %d", len(respSels))
+	}
+
+	build2, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s", teamID, buildID), nil, token)
+	if sels2, _ := build2["substitute_selections"].([]any); len(sels2) != 0 {
+		t.Errorf("expected GetBuild to show no selections after revert, got %d", len(sels2))
+	}
+}

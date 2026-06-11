@@ -138,7 +138,8 @@
   async function handleChangeSelection(lineItemId: string, partId: string | null) {
     patchingSelection[lineItemId] = true;
     try {
-      const selections = partId ? [{ bom_line_item_id: lineItemId, part_id: partId }] : [];
+      // partId null reverts this line item to its primary part.
+      const selections = [{ bom_line_item_id: lineItemId, part_id: partId }];
       await patchBuildSubstituteSelections(teamId, buildId, selections);
       qc.invalidateQueries({ queryKey: ['build', buildId] });
     } catch (err: any) {
@@ -558,7 +559,8 @@
             variant={previewQuery.data && allReadyForCheckout ? 'outline' : 'default'}
             size="sm"
             onclick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || !selectionsReady}
+            title={!selectionsReady ? 'Substitute selections must finish calculating (and be up to date) before submitting' : undefined}
           >
             <Send class="h-4 w-4 mr-1" />
             {submitting ? 'Submitting…' : 'Submit for Fulfilment'}

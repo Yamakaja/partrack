@@ -1032,6 +1032,22 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject stale selections: if stock has moved since they were computed, the
+	// locked choice may reserve against a substitute that no longer has stock.
+	// Force a refresh so the reservation math below acts on current inventory.
+	stale, err := qtx.IsBuildSelectionStale(r.Context(), dbgen.IsBuildSelectionStaleParams{
+		BomRevisionID: build.BomRevisionID,
+		AdjustedAt:    build.SelectionsCheckedAt,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if stale {
+		writeError(w, http.StatusConflict, "stock has changed since substitute selections were computed; refresh selections before submitting", "SUBSTITUTE_SELECTIONS_STALE")
+		return
+	}
+
 	// Reserve free (non-reserved) stock for this build's demand. A build whose
 	// every part is fully covered by available stock needs no purchasing and is
 	// promoted straight to 'ready'; otherwise it stays 'pending' and its

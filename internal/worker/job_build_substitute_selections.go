@@ -6,6 +6,7 @@ import (
 	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/substitute"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -126,71 +127,79 @@ func (q *Queue) handleBuildSubstituteSelections(job Job) {
 		reservedByPart = make(map[string]int32)
 	}
 
-	invByPart := make(map[string]dbgen.GetInventoryQuantitiesForRevisionRow)
+	onHandByPart := make(map[string]int32, len(invRes.rows))
 	for _, row := range invRes.rows {
-		invByPart[row.PartID.String()] = row
+		onHandByPart[row.PartID.String()] = row.QuantityOnHand
 	}
 
-	// Group substitutes by line item (already ordered by priority ASC).
-	type subEntry struct {
-		PartID string
-	}
-	subsByItem := make(map[string][]subEntry)
+	// Group substitute part ids by line item (already ordered by priority ASC).
+	subIDsByItem := make(map[string][]string)
 	for _, s := range subsRes.rows {
 		key := s.BomLineItemID.String()
-		subsByItem[key] = append(subsByItem[key], subEntry{PartID: s.PartID.String()})
+		subIDsByItem[key] = append(subIDsByItem[key], s.PartID.String())
 	}
 
-	// For each line item, determine the selected substitute (if any).
+	// Choose substitutes via the shared rule (internal/substitute), the same one
+	// the stock-check preview uses, so the persisted selection matches the UI.
+	selItems := make([]substitute.Item, 0, len(liRes.items))
 	for _, li := range liRes.items {
 		if !li.ResolvedPartID.Valid {
 			continue
 		}
-		itemID := li.ID.String()
-		required := li.Quantity * buildQty
+		selItems = append(selItems, substitute.Item{
+			LineItemID: li.ID.String(),
+			PrimaryID:  li.ResolvedPartID.String(),
+			Required:   li.Quantity * buildQty,
+		})
+	}
+	selectedByItem := substitute.Select(selItems, subIDsByItem, onHandByPart, reservedByPart)
 
-		pid := li.ResolvedPartID.String()
-		inv := invByPart[pid]
-		primaryFree := inv.QuantityOnHand - reservedByPart[pid]
-		if primaryFree < 0 {
-			primaryFree = 0
-		}
-		if primaryFree >= required {
-			continue // primary is sufficient; no substitute needed
-		}
+	// Persist atomically: clear any previous selections (a re-run may now resolve
+	// to the primary where it once needed a substitute), write the fresh set, and
+	// stamp selections_checked_at — all in one transaction.
+	tx, err := q.db.Begin(ctx)
+	if err != nil {
+		q.publishError(job, "error starting transaction: "+err.Error())
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	qtx := queries.WithTx(tx)
 
-		for _, sub := range subsByItem[itemID] {
-			subInv := invByPart[sub.PartID]
-			subFree := subInv.QuantityOnHand - reservedByPart[sub.PartID]
-			if subFree < 0 {
-				subFree = 0
-			}
-			if subFree >= required {
-				var subPartID pgtype.UUID
-				if err := subPartID.Scan(sub.PartID); err != nil {
-					continue
-				}
-				if err := queries.SetBuildSubstituteSelection(ctx, dbgen.SetBuildSubstituteSelectionParams{
-					BuildID:        buildID,
-					BomLineItemID:  li.ID,
-					SelectedPartID: subPartID,
-				}); err != nil {
-					q.publishError(job, "error saving substitute selection: "+err.Error())
-					return
-				}
-				break
-			}
+	if err := qtx.DeleteBuildSubstituteSelections(ctx, buildID); err != nil {
+		q.publishError(job, "error clearing substitute selections: "+err.Error())
+		return
+	}
+	for _, li := range liRes.items {
+		subID, ok := selectedByItem[li.ID.String()]
+		if !ok {
+			continue
+		}
+		var subPartID pgtype.UUID
+		if err := subPartID.Scan(subID); err != nil {
+			continue
+		}
+		if err := qtx.SetBuildSubstituteSelection(ctx, dbgen.SetBuildSubstituteSelectionParams{
+			BuildID:        buildID,
+			BomLineItemID:  li.ID,
+			SelectedPartID: subPartID,
+		}); err != nil {
+			q.publishError(job, "error saving substitute selection: "+err.Error())
+			return
 		}
 	}
 
-	// Mark selections as checked.
 	now := pgtype.Timestamptz{}
 	_ = now.Scan(time.Now())
-	if err := queries.SetBuildSelectionsCheckedAt(ctx, dbgen.SetBuildSelectionsCheckedAtParams{
+	if err := qtx.SetBuildSelectionsCheckedAt(ctx, dbgen.SetBuildSelectionsCheckedAtParams{
 		ID:                  buildID,
 		SelectionsCheckedAt: now,
 	}); err != nil {
 		q.publishError(job, "error setting selections_checked_at: "+err.Error())
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		q.publishError(job, "error committing selections: "+err.Error())
 		return
 	}
 

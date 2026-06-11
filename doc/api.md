@@ -225,12 +225,12 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | PUT | `/builds/{buildId}/excluded-designators` | member | `{designators: string[]}` — replace full excluded designator set (draft/pending only); recomputes cart shortfalls for pending builds; 200 |
 | PATCH | `/builds/{buildId}/line-item-overrides/{itemId}` | member | `{override_type: "use_available" \| "skip" \| null}` — set or clear stock override for a BOM line item (draft/pending only); null deletes the override; 200 |
 | POST | `/builds` | member | `{project_id, bom_revision_id, quantity, notes?}` → 201 draft build; enqueues substitute selection computation |
-| POST | `/builds/{buildId}/submit` | member | draft→pending; recomputes cart shortfalls. Returns 409 if substitute selections still being computed. |
+| POST | `/builds/{buildId}/submit` | member | draft→pending (or →ready when stock fully covers); recomputes cart shortfalls. Returns 409 `SUBSTITUTE_SELECTIONS_PENDING` if selections are still computing, or 409 `SUBSTITUTE_SELECTIONS_STALE` if inventory changed since they were computed (refresh first). |
 | POST | `/builds/{buildId}/checkout` | member | draft/pending/ready→assembled; `{assembled_quantity?}`. Excluded designators and per-item overrides (`skip`/`use_available`) are applied at checkout. Returns 409 `INSUFFICIENT_STOCK` if any unacknowledged item has insufficient stock. Response: `{id, status, deduction_count}`. |
 | PATCH | `/builds/{buildId}` | member | `{quantity?, notes?}` (draft/pending only); recomputes shortfalls if pending and quantity changed |
 | DELETE | `/builds/{buildId}` | member | Cancel any non-terminal build; releases allocations; 204 |
 | PATCH | `/builds/{buildId}/cart-inclusion` | purchaser | `{excluded: bool}` — toggle whether pending build contributes to cart demand; 204 |
-| PATCH | `/builds/{buildId}/substitute-selections` | member | `{selections: [{bom_line_item_id, part_id}]}` → `{selections, warnings}` (draft only; warns on insufficient stock) |
+| PATCH | `/builds/{buildId}/substitute-selections` | member | `{selections: [{bom_line_item_id, part_id}]}` → `{selections, warnings}` (draft only; warns on insufficient stock). A null `part_id` (or the primary part itself) reverts the line item to its primary; any other `part_id` must be an approved substitute, else 400 `INVALID_SELECTION`. |
 | POST | `/builds/{buildId}/substitute-selections/refresh` | member | Re-enqueue substitute selection computation (draft only) → 202 `{status: "refreshing"}` |
 
 ### Cart

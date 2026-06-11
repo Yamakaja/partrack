@@ -87,6 +87,11 @@ WHERE bss.build_id = $1;
 -- name: DeleteBuildSubstituteSelections :exec
 DELETE FROM build_substitute_selections WHERE build_id = $1;
 
+-- name: DeleteBuildSubstituteSelection :exec
+-- Remove a single line item's selection (revert it to the primary part)
+DELETE FROM build_substitute_selections
+WHERE build_id = $1 AND bom_line_item_id = $2;
+
 -- name: SetBuildSelectionsCheckedAt :exec
 UPDATE builds SET selections_checked_at = $2 WHERE id = $1;
 

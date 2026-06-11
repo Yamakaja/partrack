@@ -39,6 +39,22 @@ func (q *Queries) AddSubstitute(ctx context.Context, arg AddSubstituteParams) (A
 	return i, err
 }
 
+const deleteBuildSubstituteSelection = `-- name: DeleteBuildSubstituteSelection :exec
+DELETE FROM build_substitute_selections
+WHERE build_id = $1 AND bom_line_item_id = $2
+`
+
+type DeleteBuildSubstituteSelectionParams struct {
+	BuildID       pgtype.UUID `json:"build_id"`
+	BomLineItemID pgtype.UUID `json:"bom_line_item_id"`
+}
+
+// Remove a single line item's selection (revert it to the primary part)
+func (q *Queries) DeleteBuildSubstituteSelection(ctx context.Context, arg DeleteBuildSubstituteSelectionParams) error {
+	_, err := q.db.Exec(ctx, deleteBuildSubstituteSelection, arg.BuildID, arg.BomLineItemID)
+	return err
+}
+
 const deleteBuildSubstituteSelections = `-- name: DeleteBuildSubstituteSelections :exec
 DELETE FROM build_substitute_selections WHERE build_id = $1
 `

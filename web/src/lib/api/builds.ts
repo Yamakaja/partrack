@@ -140,7 +140,7 @@ export function previewBuild(
 export function patchBuildSubstituteSelections(
   teamId: string,
   buildId: string,
-  selections: { bom_line_item_id: string; part_id: string }[],
+  selections: { bom_line_item_id: string; part_id: string | null }[],
 ) {
   return request<{
     selections: { bom_line_item_id: string; selected_part_id: string; selected_part_mpn: string | null }[];

@@ -267,8 +267,8 @@ func (h *Handler) PatchBuildSubstituteSelections(w http.ResponseWriter, r *http.
 
 	var body struct {
 		Selections []struct {
-			BomLineItemID string `json:"bom_line_item_id"`
-			PartID        string `json:"part_id"`
+			BomLineItemID string  `json:"bom_line_item_id"`
+			PartID        *string `json:"part_id"` // null reverts the line item to its primary part
 		} `json:"selections"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -308,14 +308,60 @@ func (h *Handler) PatchBuildSubstituteSelections(w http.ResponseWriter, r *http.
 		requiredByItem[li.ID.String()] = li.Quantity * build.Quantity
 	}
 
+	// Build the set of parts each line item may legitimately select: its primary
+	// resolved part plus its approved substitutes. Rejecting anything else keeps
+	// the reservation and cart math (which trust the stored selection) in step
+	// with checkout (which ignores non-approved selections and falls back to the
+	// primary) — otherwise we could reserve/buy one part but deduct another.
+	validPartsByItem := make(map[string]map[string]bool, len(lineItems))
+	primaryByItem := make(map[string]string, len(lineItems))
+	for _, li := range lineItems {
+		set := make(map[string]bool)
+		if li.ResolvedPartID.Valid {
+			set[li.ResolvedPartID.String()] = true
+			primaryByItem[li.ID.String()] = li.ResolvedPartID.String()
+		}
+		validPartsByItem[li.ID.String()] = set
+	}
+	subRows, err := h.Queries.ListAllSubstitutesForRevision(r.Context(), build.BomRevisionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	for _, s := range subRows {
+		if set := validPartsByItem[s.BomLineItemID.String()]; set != nil {
+			set[s.PartID.String()] = true
+		}
+	}
+
 	for _, sel := range body.Selections {
 		var liID pgtype.UUID
 		if err := liID.Scan(sel.BomLineItemID); err != nil {
 			continue
 		}
-		var partID pgtype.UUID
-		if err := partID.Scan(sel.PartID); err != nil {
+
+		// A null/empty part_id — or the primary part itself — reverts the line
+		// item to its primary by removing any stored substitute selection.
+		if sel.PartID == nil || *sel.PartID == "" || *sel.PartID == primaryByItem[sel.BomLineItemID] {
+			if err := h.Queries.DeleteBuildSubstituteSelection(r.Context(), dbgen.DeleteBuildSubstituteSelectionParams{
+				BuildID:       buildID,
+				BomLineItemID: liID,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
 			continue
+		}
+
+		var partID pgtype.UUID
+		if err := partID.Scan(*sel.PartID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid part_id", "BAD_REQUEST")
+			return
+		}
+
+		if set := validPartsByItem[sel.BomLineItemID]; set == nil || !set[*sel.PartID] {
+			writeError(w, http.StatusBadRequest, "selected part is not the primary or an approved substitute for this line item", "INVALID_SELECTION")
+			return
 		}
 
 		if err := h.Queries.SetBuildSubstituteSelection(r.Context(), dbgen.SetBuildSubstituteSelectionParams{
@@ -341,7 +387,7 @@ func (h *Handler) PatchBuildSubstituteSelections(w http.ResponseWriter, r *http.
 					if free < required {
 						warnings = append(warnings, warning{
 							BomLineItemID: sel.BomLineItemID,
-							PartID:        sel.PartID,
+							PartID:        *sel.PartID,
 							Message:       "Insufficient free stock",
 						})
 					}

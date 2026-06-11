@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/substitute"
 	"github.com/Yamakaja/partrack/internal/timing"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -165,9 +166,15 @@ func (h *Handler) computeStockCheck(
 		reservedByPart[row.PartID.String()] = row.TotalReserved
 	}
 
+	onHandByPart := make(map[string]int32, len(invByPart))
+	for pid, row := range invByPart {
+		onHandByPart[pid] = row.QuantityOnHand
+	}
+
 	// Build priority-ordered substitute list per line item.
 	// subsRes.rows is already ordered by (bom_line_item_id, priority ASC).
 	subsByItem := make(map[string][]subInfo)
+	subIDsByItem := make(map[string][]string)
 	for _, s := range subsRes.rows {
 		key := s.BomLineItemID.String()
 		subsByItem[key] = append(subsByItem[key], subInfo{
@@ -175,7 +182,23 @@ func (h *Handler) computeStockCheck(
 			PartMPN:  s.PartMpn,
 			Priority: s.Priority,
 		})
+		subIDsByItem[key] = append(subIDsByItem[key], s.PartID.String())
 	}
+
+	// Choose substitutes via the shared rule so this preview matches what a
+	// build will persist (internal/substitute, also used by the selection job).
+	selItems := make([]substitute.Item, 0, len(liRes.items))
+	for _, li := range liRes.items {
+		if !li.ResolvedPartID.Valid {
+			continue
+		}
+		selItems = append(selItems, substitute.Item{
+			LineItemID: li.ID.String(),
+			PrimaryID:  li.ResolvedPartID.String(),
+			Required:   li.Quantity * buildQty,
+		})
+	}
+	selectedByItem := substitute.Select(selItems, subIDsByItem, onHandByPart, reservedByPart)
 
 	items = make([]StockCheckItem, len(liRes.items))
 	hasResolved := false
@@ -209,23 +232,19 @@ func (h *Handler) computeStockCheck(
 			}
 			quantityOnOrder = onOrderByPart[pid]
 
-			// Try primary stock first; if insufficient, check substitutes in priority order.
+			// effectiveFree is the free stock of the part that will actually fulfil
+			// this line item — the primary, or the substitute chosen by the shared
+			// rule when the primary is insufficient.
 			effectiveFree := quantityFree
-			if effectiveFree < required {
+			if subPartID, ok := selectedByItem[itemID]; ok {
+				subFree := substitute.FreeStock(onHandByPart[subPartID], reservedByPart[subPartID])
+				effectiveFree = subFree
+				qoh := onHandByPart[subPartID]
+				selectedSubID = &subPartID
+				subQtyOnHand = &qoh
 				for _, sub := range subsByItem[itemID] {
-					subInv := invByPart[sub.PartID]
-					subReserved := reservedByPart[sub.PartID]
-					subFree := subInv.QuantityOnHand - subReserved
-					if subFree < 0 {
-						subFree = 0
-					}
-					if subFree >= required {
-						effectiveFree = subFree
-						id := sub.PartID
-						qoh := subInv.QuantityOnHand
-						selectedSubID = &id
+					if sub.PartID == subPartID {
 						selectedSubMPN = sub.PartMPN
-						subQtyOnHand = &qoh
 						break
 					}
 				}
@@ -247,14 +266,10 @@ func (h *Handler) computeStockCheck(
 				}
 			}
 
-			// fully_buildable uses the effective part (primary or selected substitute)
+			// fully_buildable reflects the free stock of the effective part, so
+			// stock already reserved by other builds is not double-counted.
 			if li.Quantity > 0 {
-				var maxBoards int32
-				if selectedSubID != nil {
-					maxBoards = *subQtyOnHand / li.Quantity
-				} else {
-					maxBoards = stockOnHand / li.Quantity
-				}
+				maxBoards := effectiveFree / li.Quantity
 				if !hasResolved || maxBoards < fullyBuildable {
 					fullyBuildable = maxBoards
 					hasResolved = true
