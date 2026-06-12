@@ -574,6 +574,19 @@ type DistributorParameterMapping struct {
 	Ignored              bool        `json:"ignored"`
 }
 
+type ExternalIdentity struct {
+	ID     pgtype.UUID `json:"id"`
+	UserID pgtype.UUID `json:"user_id"`
+	// config-file provider slug (oidc[].name or ldap[].name)
+	Provider string `json:"provider"`
+	// stable IdP identifier: OIDC 'sub' claim or LDAP unique-id attribute (e.g. entryUUID/objectGUID)
+	Subject       string             `json:"subject"`
+	ProviderEmail *string            `json:"provider_email"`
+	LinkedAt      pgtype.Timestamptz `json:"linked_at"`
+	// identity mechanism: 'oidc' or 'ldap'
+	Kind string `json:"kind"`
+}
+
 type GeneralCheckout struct {
 	ID          pgtype.UUID        `json:"id"`
 	TeamID      pgtype.UUID        `json:"team_id"`
@@ -611,15 +624,6 @@ type OauthToken struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	AccountID     string             `json:"account_id"`
 	UserID        pgtype.UUID        `json:"user_id"`
-}
-
-type OidcIdentity struct {
-	ID            pgtype.UUID        `json:"id"`
-	UserID        pgtype.UUID        `json:"user_id"`
-	Provider      string             `json:"provider"`
-	Subject       string             `json:"subject"`
-	ProviderEmail *string            `json:"provider_email"`
-	LinkedAt      pgtype.Timestamptz `json:"linked_at"`
 }
 
 type Order struct {
@@ -801,11 +805,12 @@ type Team struct {
 }
 
 type TeamMembership struct {
-	ID        pgtype.UUID        `json:"id"`
-	TeamID    pgtype.UUID        `json:"team_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
-	Role      TeamRole           `json:"role"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID               pgtype.UUID        `json:"id"`
+	TeamID           pgtype.UUID        `json:"team_id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Role             TeamRole           `json:"role"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	DirectoryManaged bool               `json:"directory_managed"`
 }
 
 type User struct {

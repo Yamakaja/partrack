@@ -24,8 +24,8 @@ Higher roles inherit all permissions of lower roles.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/auth/login` | — | `{email, password}` → session cookie + `{user}` |
-| GET | `/auth/providers` | — | List configured SSO providers: `{providers: [{name, display_name}]}` |
+| POST | `/auth/login` | — | `{email, password}` → session cookie + `{user}`. The identifier is matched against local credentials first; if no local credential exists and an LDAP directory is configured, it is treated as a directory username and verified by a search+bind. Directory logins auto-link to an existing user with the same email, else auto-provision (when enabled) and sync group→team-role mappings |
+| GET | `/auth/providers` | — | List SSO providers and directory state: `{providers: [{name, display_name}], ldap_enabled}`. `ldap_enabled` tells the login page to accept a non-email username |
 | GET | `/auth/oidc/{provider}` | — | Redirect (302) to OIDC provider; sets state/nonce/PKCE cookie. 503 if the provider is configured but unreachable |
 | GET | `/auth/oidc/{provider}/callback` | — | OIDC code exchange (PKCE + nonce verified) → session cookie + redirect to `/`. Failures redirect to `/login?error=<CODE>` (`INVALID_STATE`, `OIDC_EXCHANGE_FAILED`, `OIDC_VERIFY_FAILED`, `OIDC_NO_EMAIL`, `OIDC_EMAIL_UNVERIFIED`, `PROVISIONING_DISABLED`, `ACCOUNT_INACTIVE`, …). Unknown identities auto-link to an existing user with the same **verified** email, else auto-provision a new user if enabled for the provider |
 | GET | `/auth/reset-password?token=` | — | Validate reset token; returns `{display_name, email, expires_at}` |
@@ -74,6 +74,14 @@ Higher roles inherit all permissions of lower roles.
 | PATCH | `/admin/users/{userId}` | `{display_name?, email?, is_active?, is_admin?}`. Deactivating clears all sessions and tokens. |
 | POST | `/admin/users/{userId}/set-password` | `{password}` → 204 |
 | POST | `/admin/users/{userId}/password-reset-link` | Returns `{path, expires_at}` (24h expiry, path is `/reset-password?token=...`) |
+
+### LDAP Diagnostics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/ldap/providers` | List configured directories: `{providers: [{name, display_name, url}]}` |
+| POST | `/admin/ldap/test-connection` | `{provider}` → dial + TLS + service bind (no user credential), checks configured DNs exist, echoes redacted config: `{connected, error?, steps[], dn_checks[], config}`. **Read-only**. |
+| POST | `/admin/ldap/diagnose` | `{provider, username, password}` → runs the real search-then-bind + group evaluation and returns a report `{authenticated, error?, steps[], identity?, authorization?, resolution?, warnings[]}`. **Read-only** — never creates a user, identity, membership, or session. See [auth-ldap.md](auth-ldap.md). |
 
 ### Parameter Registry
 
@@ -124,9 +132,9 @@ Higher roles inherit all permissions of lower roles.
 | GET | `/` | viewer | Team details |
 | PATCH | `/` | admin | `{name?, description?}` |
 | GET | `/dashboard` | viewer | Stats, recent activity, alerts, outstanding orders, build pipeline |
-| GET | `/members` | admin | List members with roles |
-| POST | `/members` | admin | `{user_id, role}` |
-| PATCH | `/members/{userId}` | admin | `{role}` |
+| GET | `/members` | admin | List members; each item includes `directory_managed` (true when maintained by LDAP group sync) |
+| POST | `/members` | admin | `{user_id, role}` (manual membership) |
+| PATCH | `/members/{userId}` | admin | `{role}`; a manual change pins the membership (`directory_managed=false`), preserving it against LDAP sync |
 | DELETE | `/members/{userId}` | admin | Remove member |
 | POST | `/members/{userId}/deactivate` | admin | Globally deactivate user; clears all sessions/tokens |
 | GET | `/distributor-configs` | admin | List configs (secret credential values omitted; includes `rate_limit` if available) |

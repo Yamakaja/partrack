@@ -32,20 +32,22 @@ func (h *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type memberItem struct {
-		UserID      string `json:"user_id"`
-		DisplayName string `json:"display_name"`
-		Email       string `json:"email"`
-		Role        string `json:"role"`
-		JoinedAt    string `json:"joined_at"`
+		UserID           string `json:"user_id"`
+		DisplayName      string `json:"display_name"`
+		Email            string `json:"email"`
+		Role             string `json:"role"`
+		DirectoryManaged bool   `json:"directory_managed"`
+		JoinedAt         string `json:"joined_at"`
 	}
 	items := make([]memberItem, len(members))
 	for i, m := range members {
 		items[i] = memberItem{
-			UserID:      m.UserID.String(),
-			DisplayName: m.DisplayName,
-			Email:       m.Email,
-			Role:        string(m.Role),
-			JoinedAt:    m.JoinedAt.Time.UTC().Format(time.RFC3339),
+			UserID:           m.UserID.String(),
+			DisplayName:      m.DisplayName,
+			Email:            m.Email,
+			Role:             string(m.Role),
+			DirectoryManaged: m.DirectoryManaged,
+			JoinedAt:         m.JoinedAt.Time.UTC().Format(time.RFC3339),
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

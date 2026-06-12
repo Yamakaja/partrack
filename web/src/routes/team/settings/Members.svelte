@@ -149,7 +149,15 @@
           <TableBody>
             {#each members as member (member.user_id)}
               <TableRow>
-                <TableCell class="font-medium">{member.display_name}</TableCell>
+                <TableCell class="font-medium">
+                  {member.display_name}
+                  {#if member.directory_managed}
+                    <span
+                      class="ml-2 align-middle rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                      title="Role is maintained by LDAP directory group sync. Changing it here pins the role, preserving your override."
+                    >Directory</span>
+                  {/if}
+                </TableCell>
                 <TableCell class="text-muted-foreground text-sm">{member.email}</TableCell>
                 <TableCell>
                   <Select

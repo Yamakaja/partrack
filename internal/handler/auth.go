@@ -156,47 +156,70 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// inactive / wrong-password — i.e. cannot enumerate accounts.
 	const invalidMsg, invalidCode = "invalid credentials", "INVALID_CREDENTIALS"
 
+	// Local password path: a user with a stored credential authenticates against
+	// it. A user that exists but has no credential (e.g. provisioned via a
+	// directory) falls through to the LDAP path below.
 	user, err := h.Queries.GetUserByEmail(r.Context(), req.Email)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password)) //nolint:errcheck // equalize timing
-			writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
+	switch {
+	case err == nil:
+		cred, cerr := h.Queries.GetUserCredential(r.Context(), user.ID)
+		switch {
+		case cerr == nil:
+			if bcrypt.CompareHashAndPassword([]byte(cred.PasswordHash), []byte(req.Password)) != nil {
+				writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
+				return
+			}
+			// Password correct; an inactive account still returns the generic
+			// error so account state is not disclosed.
+			if !user.IsActive {
+				writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
+				return
+			}
+			rawToken, _, expiresAt, err := h.createSession(r.Context(), user.ID, r.UserAgent(), r.RemoteAddr)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			h.setSessionCookie(w, r, rawToken, expiresAt)
+			writeJSON(w, http.StatusOK, map[string]any{"user": loginRowToUserResponse(user)})
+			return
+		case errors.Is(cerr, pgx.ErrNoRows):
+			// No local credential — try the directory.
+		default:
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+	case errors.Is(err, pgx.ErrNoRows):
+		// No local user — the identifier may still be a directory username.
+	default:
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	cred, err := h.Queries.GetUserCredential(r.Context(), user.ID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password)) //nolint:errcheck // equalize timing
-			writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
+	// Directory (LDAP/AD) path. The bind itself provides comparable timing to a
+	// bcrypt check, so account enumeration stays closed.
+	if h.ldapConfigured() {
+		if luser, ok := h.tryLDAPLogin(r.Context(), req.Email, req.Password); ok {
+			if !luser.IsActive {
+				writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
+				return
+			}
+			rawToken, _, expiresAt, err := h.createSession(r.Context(), luser.ID, r.UserAgent(), r.RemoteAddr)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				return
+			}
+			h.setSessionCookie(w, r, rawToken, expiresAt)
+			writeJSON(w, http.StatusOK, map[string]any{"user": meRowToUserResponse(luser)})
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(cred.PasswordHash), []byte(req.Password)); err != nil {
 		writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
 		return
 	}
-	// Password is correct; an inactive account still returns the generic error so
-	// account state is not disclosed.
-	if !user.IsActive {
-		writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
-		return
-	}
 
-	rawToken, _, expiresAt, err := h.createSession(r.Context(), user.ID, r.UserAgent(), r.RemoteAddr)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	h.setSessionCookie(w, r, rawToken, expiresAt)
-	writeJSON(w, http.StatusOK, map[string]any{"user": loginRowToUserResponse(user)})
+	// No local credential and no directory configured: equalize timing and fail.
+	bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password)) //nolint:errcheck // equalize timing
+	writeError(w, http.StatusUnauthorized, invalidMsg, invalidCode)
 }
 
 // Logout handles POST /api/v1/auth/logout
@@ -417,7 +440,7 @@ type oidcClaims struct {
 func (h *Handler) resolveOIDCUser(ctx context.Context, cfg config.OIDCProvider, claims oidcClaims) (dbgen.GetUserWithMembershipsRow, error) {
 	var zero dbgen.GetUserWithMembershipsRow
 
-	identity, err := h.Queries.GetOIDCIdentity(ctx, dbgen.GetOIDCIdentityParams{
+	identity, err := h.Queries.GetExternalIdentity(ctx, dbgen.GetExternalIdentityParams{
 		Provider: cfg.Name,
 		Subject:  claims.Subject,
 	})
@@ -438,11 +461,12 @@ func (h *Handler) resolveOIDCUser(ctx context.Context, cfg config.OIDCProvider, 
 	// Auto-link: attach this identity to the existing user with the same email.
 	existing, err := h.Queries.GetUserByEmail(ctx, claims.Email)
 	if err == nil {
-		_, err = h.Queries.CreateOIDCIdentity(ctx, dbgen.CreateOIDCIdentityParams{
+		_, err = h.Queries.CreateExternalIdentity(ctx, dbgen.CreateExternalIdentityParams{
 			UserID:        existing.ID,
 			Provider:      cfg.Name,
 			Subject:       claims.Subject,
 			ProviderEmail: &claims.Email,
+			Kind:          "oidc",
 		})
 		if err != nil {
 			return zero, fmt.Errorf("link oidc identity: %w", err)
@@ -476,11 +500,12 @@ func (h *Handler) resolveOIDCUser(ctx context.Context, cfg config.OIDCProvider, 
 	if err != nil {
 		return zero, fmt.Errorf("create user: %w", err)
 	}
-	_, err = qtx.CreateOIDCIdentity(ctx, dbgen.CreateOIDCIdentityParams{
+	_, err = qtx.CreateExternalIdentity(ctx, dbgen.CreateExternalIdentityParams{
 		UserID:        user.ID,
 		Provider:      cfg.Name,
 		Subject:       claims.Subject,
 		ProviderEmail: &claims.Email,
+		Kind:          "oidc",
 	})
 	if err != nil {
 		return zero, fmt.Errorf("create oidc identity: %w", err)
@@ -513,7 +538,13 @@ func (h *Handler) OIDCProviders(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, providerItem{Name: p.Name, DisplayName: displayName})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"providers": items})
+	// ldap_enabled tells the login page to accept a non-email username and label
+	// the field accordingly; LDAP login rides the normal /auth/login form rather
+	// than a redirect button, so it is reported as a flag, not in `providers`.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"providers":    items,
+		"ldap_enabled": len(h.Config.LDAP) > 0,
+	})
 }
 
 // Me handles GET /api/v1/auth/me

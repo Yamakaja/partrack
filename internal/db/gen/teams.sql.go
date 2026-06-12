@@ -63,9 +63,17 @@ type CreateTeamMembershipParams struct {
 	Role   TeamRole    `json:"role"`
 }
 
-func (q *Queries) CreateTeamMembership(ctx context.Context, arg CreateTeamMembershipParams) (TeamMembership, error) {
+type CreateTeamMembershipRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	TeamID    pgtype.UUID        `json:"team_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      TeamRole           `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateTeamMembership(ctx context.Context, arg CreateTeamMembershipParams) (CreateTeamMembershipRow, error) {
 	row := q.db.QueryRow(ctx, createTeamMembership, arg.TeamID, arg.UserID, arg.Role)
-	var i TeamMembership
+	var i CreateTeamMembershipRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -87,6 +95,32 @@ func (q *Queries) DeactivateUser(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const getMembershipDetail = `-- name: GetMembershipDetail :one
+SELECT role, directory_managed
+FROM team_memberships
+WHERE team_id = $1
+  AND user_id = $2
+`
+
+type GetMembershipDetailParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+type GetMembershipDetailRow struct {
+	Role             TeamRole `json:"role"`
+	DirectoryManaged bool     `json:"directory_managed"`
+}
+
+// Role + directory-managed flag for one (team, user); used by LDAP diagnostics
+// to show whether a manual override would be preserved.
+func (q *Queries) GetMembershipDetail(ctx context.Context, arg GetMembershipDetailParams) (GetMembershipDetailRow, error) {
+	row := q.db.QueryRow(ctx, getMembershipDetail, arg.TeamID, arg.UserID)
+	var i GetMembershipDetailRow
+	err := row.Scan(&i.Role, &i.DirectoryManaged)
+	return i, err
+}
+
 const getTeam = `-- name: GetTeam :one
 SELECT id, name, description, created_at
 FROM teams
@@ -95,6 +129,25 @@ WHERE id = $1
 
 func (q *Queries) GetTeam(ctx context.Context, id pgtype.UUID) (Team, error) {
 	row := q.db.QueryRow(ctx, getTeam, id)
+	var i Team
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getTeamByName = `-- name: GetTeamByName :one
+SELECT id, name, description, created_at
+FROM teams
+WHERE name = $1
+`
+
+// Resolves a team name (as configured in LDAP group_mappings) to its id.
+func (q *Queries) GetTeamByName(ctx context.Context, name string) (Team, error) {
+	row := q.db.QueryRow(ctx, getTeamByName, name)
 	var i Team
 	err := row.Scan(
 		&i.ID,
@@ -169,6 +222,7 @@ SELECT
     tm.id,
     tm.user_id,
     tm.role,
+    tm.directory_managed,
     tm.created_at AS joined_at,
     u.display_name,
     u.email
@@ -179,12 +233,13 @@ ORDER BY u.display_name
 `
 
 type ListTeamMembersRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	Role        TeamRole           `json:"role"`
-	JoinedAt    pgtype.Timestamptz `json:"joined_at"`
-	DisplayName string             `json:"display_name"`
-	Email       string             `json:"email"`
+	ID               pgtype.UUID        `json:"id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Role             TeamRole           `json:"role"`
+	DirectoryManaged bool               `json:"directory_managed"`
+	JoinedAt         pgtype.Timestamptz `json:"joined_at"`
+	DisplayName      string             `json:"display_name"`
+	Email            string             `json:"email"`
 }
 
 func (q *Queries) ListTeamMembers(ctx context.Context, teamID pgtype.UUID) ([]ListTeamMembersRow, error) {
@@ -200,6 +255,7 @@ func (q *Queries) ListTeamMembers(ctx context.Context, teamID pgtype.UUID) ([]Li
 			&i.ID,
 			&i.UserID,
 			&i.Role,
+			&i.DirectoryManaged,
 			&i.JoinedAt,
 			&i.DisplayName,
 			&i.Email,
@@ -262,6 +318,25 @@ func (q *Queries) ListUserTeams(ctx context.Context, userID pgtype.UUID) ([]List
 	return items, nil
 }
 
+const removeDirectoryMembership = `-- name: RemoveDirectoryMembership :exec
+DELETE FROM team_memberships
+WHERE team_id = $1
+  AND user_id = $2
+  AND directory_managed = TRUE
+`
+
+type RemoveDirectoryMembershipParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+// Removes a membership only if it is still directory-managed; manual overrides
+// (and manually added memberships) survive a user leaving a directory group.
+func (q *Queries) RemoveDirectoryMembership(ctx context.Context, arg RemoveDirectoryMembershipParams) error {
+	_, err := q.db.Exec(ctx, removeDirectoryMembership, arg.TeamID, arg.UserID)
+	return err
+}
+
 const removeTeamMember = `-- name: RemoveTeamMember :exec
 DELETE FROM team_memberships
 WHERE team_id = $1
@@ -316,6 +391,29 @@ func (q *Queries) SearchUsers(ctx context.Context, dollar_1 *string) ([]SearchUs
 	return items, nil
 }
 
+const syncDirectoryMembership = `-- name: SyncDirectoryMembership :exec
+INSERT INTO team_memberships (team_id, user_id, role, directory_managed)
+VALUES ($1, $2, $3, TRUE)
+ON CONFLICT (team_id, user_id) DO UPDATE
+    SET role = EXCLUDED.role
+    WHERE team_memberships.directory_managed = TRUE
+`
+
+type SyncDirectoryMembershipParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	UserID pgtype.UUID `json:"user_id"`
+	Role   TeamRole    `json:"role"`
+}
+
+// Grants or updates a directory-managed membership. A new row is flagged
+// directory_managed; an existing row is only updated when it is still
+// directory-managed, so a manual override (directory_managed = FALSE) is never
+// reverted by group sync.
+func (q *Queries) SyncDirectoryMembership(ctx context.Context, arg SyncDirectoryMembershipParams) error {
+	_, err := q.db.Exec(ctx, syncDirectoryMembership, arg.TeamID, arg.UserID, arg.Role)
+	return err
+}
+
 const updateTeam = `-- name: UpdateTeam :one
 UPDATE teams
 SET
@@ -345,7 +443,7 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, e
 
 const updateTeamMemberRole = `-- name: UpdateTeamMemberRole :one
 UPDATE team_memberships
-SET role = $1
+SET role = $1, directory_managed = FALSE
 WHERE team_id = $2
   AND user_id = $3
 RETURNING id, team_id, user_id, role, created_at
@@ -357,9 +455,19 @@ type UpdateTeamMemberRoleParams struct {
 	UserID pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) UpdateTeamMemberRole(ctx context.Context, arg UpdateTeamMemberRoleParams) (TeamMembership, error) {
+type UpdateTeamMemberRoleRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	TeamID    pgtype.UUID        `json:"team_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      TeamRole           `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// A manual role change pins the membership (directory_managed = FALSE) so a
+// later directory sync cannot revert the admin's override.
+func (q *Queries) UpdateTeamMemberRole(ctx context.Context, arg UpdateTeamMemberRoleParams) (UpdateTeamMemberRoleRow, error) {
 	row := q.db.QueryRow(ctx, updateTeamMemberRole, arg.Role, arg.TeamID, arg.UserID)
-	var i TeamMembership
+	var i UpdateTeamMemberRoleRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,

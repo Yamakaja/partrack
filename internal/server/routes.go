@@ -93,6 +93,12 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				// Observability: in-memory request/query timing snapshot.
 				r.Get("/admin/metrics", h.AdminMetrics)
 
+				// LDAP/AD configuration diagnostics (read-only; performs a live
+				// directory bind, so the bind step rides the auth rate limiter).
+				r.Get("/admin/ldap/providers", h.AdminLDAPProviders)
+				r.With(authLimiter).Post("/admin/ldap/test-connection", h.AdminLDAPTestConnection)
+				r.With(authLimiter).Post("/admin/ldap/diagnose", h.AdminLDAPDiagnose)
+
 				r.Get("/admin/users", h.ListUsers)
 				r.Post("/admin/users", h.CreateUser)
 				r.Get("/admin/users/{userId}", h.GetUser)

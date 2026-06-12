@@ -342,7 +342,7 @@ func TestOIDC_AutoProvisionNewUser(t *testing.T) {
 		t.Errorf("unexpected user: %+v", me.User)
 	}
 
-	if n := countRows(t, `SELECT COUNT(*) FROM oidc_identities WHERE provider = 'test' AND subject = 'subject-1'`); n != 1 {
+	if n := countRows(t, `SELECT COUNT(*) FROM external_identities WHERE provider = 'test' AND subject = 'subject-1'`); n != 1 {
 		t.Errorf("expected 1 oidc identity, got %d", n)
 	}
 
@@ -374,7 +374,7 @@ func TestOIDC_AutoLinkExistingUserByVerifiedEmail(t *testing.T) {
 	if n := countRows(t, `SELECT COUNT(*) FROM users`); n != 1 {
 		t.Errorf("expected no new user (auto-link), got %d users", n)
 	}
-	if n := countRows(t, `SELECT COUNT(*) FROM oidc_identities WHERE user_id = $1 AND provider = 'test' AND subject = 'alice-idp'`, userID); n != 1 {
+	if n := countRows(t, `SELECT COUNT(*) FROM external_identities WHERE user_id = $1 AND provider = 'test' AND subject = 'alice-idp'`, userID); n != 1 {
 		t.Errorf("identity not linked to existing user")
 	}
 }
@@ -390,7 +390,7 @@ func TestOIDC_RejectsUnverifiedEmail(t *testing.T) {
 		"sub": "attacker", "email": "victim@example.com", "email_verified": false,
 	})
 	expectLoginError(t, resp, "OIDC_EMAIL_UNVERIFIED")
-	if n := countRows(t, `SELECT COUNT(*) FROM oidc_identities`); n != 0 {
+	if n := countRows(t, `SELECT COUNT(*) FROM external_identities`); n != 0 {
 		t.Error("identity must not be linked for unverified email")
 	}
 }

@@ -7,6 +7,9 @@ export interface TeamMember {
   display_name: string;
   email: string;
   role: string;
+  /** True when the membership is maintained by LDAP/directory group sync. A
+   *  manual role change pins it (sets this false), preserving the override. */
+  directory_managed?: boolean;
   joined_at: string;
 }
 

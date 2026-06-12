@@ -95,3 +95,104 @@ export function updateDistributorParamMapping(
 ) {
   return request<void>('PATCH', `/api/v1/admin/distributor-parameter-mappings/${id}`, body);
 }
+
+// ── LDAP diagnostics ────────────────────────────────────────────────────────
+
+export interface LdapProviderInfo {
+  name: string;
+  display_name: string;
+  url: string;
+}
+
+export interface LdapStep {
+  name: string;
+  ok: boolean;
+  detail?: string;
+  err?: string;
+}
+
+export interface LdapMappingMatch {
+  group: string;
+  team: string;
+  role: string;
+  matched: boolean;
+  valid_role: boolean;
+}
+
+export interface LdapDecision {
+  required_group_configured: boolean;
+  login_allowed: boolean;
+  admin_group_configured: boolean;
+  is_admin: boolean;
+  team_roles: Record<string, string>;
+  managed_teams: string[];
+  mappings: LdapMappingMatch[];
+}
+
+export interface LdapTeamResolution {
+  team: string;
+  exists: boolean;
+  intended_role?: string;
+  action: string;
+  current_role?: string;
+  current_directory_managed?: boolean;
+}
+
+export interface LdapResolution {
+  subject: string;
+  outcome: string;
+  linked_user_id?: string;
+  linked_user_email?: string;
+  existing_user_by_email_id?: string;
+  existing_user_display_name?: string;
+  auto_provision_enabled: boolean;
+  teams: LdapTeamResolution[];
+}
+
+export interface LdapDiagnoseResult {
+  provider: string;
+  authenticated: boolean;
+  error?: string;
+  steps: LdapStep[];
+  identity?: {
+    subject: string;
+    email: string;
+    display_name: string;
+    dn: string;
+    groups: string[];
+  };
+  authorization?: LdapDecision;
+  resolution?: LdapResolution;
+  warnings?: string[];
+}
+
+export interface LdapDNCheck {
+  dn: string;
+  exists: boolean;
+  err?: string;
+}
+
+export interface LdapConnectionResult {
+  provider: string;
+  connected: boolean;
+  error?: string;
+  steps: LdapStep[];
+  dn_checks: LdapDNCheck[] | null;
+  config: Record<string, unknown>;
+}
+
+export function testLdapConnection(provider: string) {
+  return request<LdapConnectionResult>('POST', '/api/v1/admin/ldap/test-connection', { provider });
+}
+
+export function listLdapProviders() {
+  return request<{ providers: LdapProviderInfo[] }>('GET', '/api/v1/admin/ldap/providers');
+}
+
+export function diagnoseLdap(provider: string, username: string, password: string) {
+  return request<LdapDiagnoseResult>('POST', '/api/v1/admin/ldap/diagnose', {
+    provider,
+    username,
+    password,
+  });
+}

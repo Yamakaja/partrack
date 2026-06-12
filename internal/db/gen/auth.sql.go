@@ -11,33 +11,46 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createOIDCIdentity = `-- name: CreateOIDCIdentity :one
-INSERT INTO oidc_identities (user_id, provider, subject, provider_email)
-VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, provider, subject, provider_email, linked_at
+const createExternalIdentity = `-- name: CreateExternalIdentity :one
+INSERT INTO external_identities (user_id, provider, subject, provider_email, kind)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, user_id, provider, subject, provider_email, kind, linked_at
 `
 
-type CreateOIDCIdentityParams struct {
+type CreateExternalIdentityParams struct {
 	UserID        pgtype.UUID `json:"user_id"`
 	Provider      string      `json:"provider"`
 	Subject       string      `json:"subject"`
 	ProviderEmail *string     `json:"provider_email"`
+	Kind          string      `json:"kind"`
 }
 
-func (q *Queries) CreateOIDCIdentity(ctx context.Context, arg CreateOIDCIdentityParams) (OidcIdentity, error) {
-	row := q.db.QueryRow(ctx, createOIDCIdentity,
+type CreateExternalIdentityRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	Provider      string             `json:"provider"`
+	Subject       string             `json:"subject"`
+	ProviderEmail *string            `json:"provider_email"`
+	Kind          string             `json:"kind"`
+	LinkedAt      pgtype.Timestamptz `json:"linked_at"`
+}
+
+func (q *Queries) CreateExternalIdentity(ctx context.Context, arg CreateExternalIdentityParams) (CreateExternalIdentityRow, error) {
+	row := q.db.QueryRow(ctx, createExternalIdentity,
 		arg.UserID,
 		arg.Provider,
 		arg.Subject,
 		arg.ProviderEmail,
+		arg.Kind,
 	)
-	var i OidcIdentity
+	var i CreateExternalIdentityRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.Provider,
 		&i.Subject,
 		&i.ProviderEmail,
+		&i.Kind,
 		&i.LinkedAt,
 	)
 	return i, err
@@ -136,27 +149,38 @@ func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash string
 	return err
 }
 
-const getOIDCIdentity = `-- name: GetOIDCIdentity :one
-SELECT id, user_id, provider, subject, provider_email, linked_at
-FROM oidc_identities
+const getExternalIdentity = `-- name: GetExternalIdentity :one
+SELECT id, user_id, provider, subject, provider_email, kind, linked_at
+FROM external_identities
 WHERE provider = $1
   AND subject = $2
 `
 
-type GetOIDCIdentityParams struct {
+type GetExternalIdentityParams struct {
 	Provider string `json:"provider"`
 	Subject  string `json:"subject"`
 }
 
-func (q *Queries) GetOIDCIdentity(ctx context.Context, arg GetOIDCIdentityParams) (OidcIdentity, error) {
-	row := q.db.QueryRow(ctx, getOIDCIdentity, arg.Provider, arg.Subject)
-	var i OidcIdentity
+type GetExternalIdentityRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	Provider      string             `json:"provider"`
+	Subject       string             `json:"subject"`
+	ProviderEmail *string            `json:"provider_email"`
+	Kind          string             `json:"kind"`
+	LinkedAt      pgtype.Timestamptz `json:"linked_at"`
+}
+
+func (q *Queries) GetExternalIdentity(ctx context.Context, arg GetExternalIdentityParams) (GetExternalIdentityRow, error) {
+	row := q.db.QueryRow(ctx, getExternalIdentity, arg.Provider, arg.Subject)
+	var i GetExternalIdentityRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.Provider,
 		&i.Subject,
 		&i.ProviderEmail,
+		&i.Kind,
 		&i.LinkedAt,
 	)
 	return i, err
@@ -174,10 +198,18 @@ type GetTeamMembershipParams struct {
 	UserID pgtype.UUID `json:"user_id"`
 }
 
+type GetTeamMembershipRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	TeamID    pgtype.UUID        `json:"team_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      TeamRole           `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 // Used by RequireTeamRole middleware.
-func (q *Queries) GetTeamMembership(ctx context.Context, arg GetTeamMembershipParams) (TeamMembership, error) {
+func (q *Queries) GetTeamMembership(ctx context.Context, arg GetTeamMembershipParams) (GetTeamMembershipRow, error) {
 	row := q.db.QueryRow(ctx, getTeamMembership, arg.TeamID, arg.UserID)
-	var i TeamMembership
+	var i GetTeamMembershipRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,

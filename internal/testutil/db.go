@@ -60,7 +60,7 @@ func MustDB(t *testing.T) *pgxpool.Pool {
 func Truncate(t *testing.T, pool *pgxpool.Pool) {
 	const q = `TRUNCATE
 		users, sessions, api_tokens, user_credentials, user_preferences,
-		oidc_identities, teams, team_memberships, distributor_configs,
+		external_identities, teams, team_memberships, distributor_configs,
 		parts, part_parameters, distributor_listings,
 		storage_locations, inventory_entries, stock_adjustments,
 		projects, bom_revisions, bom_line_items, bom_line_item_substitutes,

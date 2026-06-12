@@ -200,6 +200,11 @@
           {isActive('/admin/parameters') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Parameters
       </a>
+      <a href="/admin/ldap" use:linkAction
+        class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
+          {isActive('/admin/ldap') ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
+        LDAP
+      </a>
     </div>
   {/if}
 

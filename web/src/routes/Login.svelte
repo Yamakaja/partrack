@@ -10,6 +10,7 @@
   let error = $state('');
   let showScannerLink = $state(false);
   let providers = $state<OIDCProvider[]>([]);
+  let ldapEnabled = $state(false);
 
   // Error codes the OIDC callback redirects back with (?error=CODE).
   const ssoErrors: Record<string, string> = {
@@ -38,7 +39,10 @@
     }
 
     getAuthProviders()
-      .then((res) => (providers = res.providers))
+      .then((res) => {
+        providers = res.providers;
+        ldapEnabled = res.ldap_enabled;
+      })
       .catch(() => {}); // login page must still work if this fails
   });
 
@@ -75,13 +79,13 @@
         {/if}
 
         <div class="space-y-1">
-          <label for="email" class="text-sm font-medium">Email</label>
+          <label for="email" class="text-sm font-medium">{ldapEnabled ? 'Email or username' : 'Email'}</label>
           <input
             id="email"
-            type="email"
+            type={ldapEnabled ? 'text' : 'email'}
             bind:value={email}
             required
-            autocomplete="email"
+            autocomplete="username"
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
         </div>

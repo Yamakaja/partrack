@@ -78,6 +78,7 @@ type Handler struct {
 	Tickets      *ticketStore
 	Activity     *activity.Recorder
 	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
+	ldapEntries  map[string]*ldapEntry // populated by initLDAP() in auth_ldap.go
 	refreshGroup singleflight.Group    // deduplicates concurrent credential enrichment per (team, distributor)
 }
 
@@ -146,6 +147,7 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 	// Let worker jobs (BOM import, etc.) record activity too.
 	q.SetActivity(h.Activity)
 	h.initOIDC()
+	h.initLDAP()
 	q.SetCartInvalidate(h.CartResolver.Invalidate)
 	return h
 }

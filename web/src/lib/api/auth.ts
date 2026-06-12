@@ -20,8 +20,13 @@ export interface OIDCProvider {
   display_name: string;
 }
 
+export interface AuthProviders {
+  providers: OIDCProvider[];
+  ldap_enabled: boolean;
+}
+
 export function getAuthProviders() {
-  return request<{ providers: OIDCProvider[] }>('GET', '/api/v1/auth/providers');
+  return request<AuthProviders>('GET', '/api/v1/auth/providers');
 }
 
 export function logout() {

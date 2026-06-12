@@ -1,0 +1,315 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/Yamakaja/partrack/internal/config"
+	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	pkgldap "github.com/Yamakaja/partrack/internal/ldap"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+// AdminLDAPProviders handles GET /api/v1/admin/ldap/providers
+// Lists configured directories so the diagnostics page can offer a picker.
+func (h *Handler) AdminLDAPProviders(w http.ResponseWriter, r *http.Request) {
+	type item struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+		URL         string `json:"url"`
+	}
+	items := make([]item, 0, len(h.Config.LDAP))
+	for _, p := range h.Config.LDAP {
+		dn := p.DisplayName
+		if dn == "" {
+			dn = p.Name
+		}
+		items = append(items, item{Name: p.Name, DisplayName: dn, URL: p.URL})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"providers": items})
+}
+
+// ldapTeamResolution is the per-team outcome a real login would produce.
+type ldapTeamResolution struct {
+	Team                    string `json:"team"`
+	Exists                  bool   `json:"exists"`
+	IntendedRole            string `json:"intended_role,omitempty"` // empty ⇒ directory would remove
+	Action                  string `json:"action"`
+	CurrentRole             string `json:"current_role,omitempty"`
+	CurrentDirectoryManaged *bool  `json:"current_directory_managed,omitempty"`
+}
+
+// ldapResolution is the read-only account/authorization outcome of a login.
+type ldapResolution struct {
+	Subject              string               `json:"subject"`
+	Outcome              string               `json:"outcome"`
+	LinkedUserID         string               `json:"linked_user_id,omitempty"`
+	LinkedUserEmail      string               `json:"linked_user_email,omitempty"`
+	ExistingUserByEmail  string               `json:"existing_user_by_email_id,omitempty"`
+	ExistingUserDisplay  string               `json:"existing_user_display_name,omitempty"`
+	AutoProvisionEnabled bool                 `json:"auto_provision_enabled"`
+	Teams                []ldapTeamResolution `json:"teams"`
+}
+
+// AdminLDAPDiagnose handles POST /api/v1/admin/ldap/diagnose
+// Body: {provider, username, password}. Runs the real search-then-bind and
+// group evaluation and returns a step-by-step report. It is strictly
+// read-only: no user, identity, membership, or session is ever created — it
+// only reports what a real login *would* do.
+func (h *Handler) AdminLDAPDiagnose(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Provider == "" || req.Username == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "provider, username and password are required", "BAD_REQUEST")
+		return
+	}
+
+	entry, ok := h.ldapEntries[req.Provider]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown LDAP provider", "NOT_FOUND")
+		return
+	}
+
+	result, steps, err := entry.auth.Diagnose(r.Context(), req.Username, req.Password)
+
+	resp := map[string]any{
+		"provider":      req.Provider,
+		"authenticated": err == nil,
+		"steps":         steps,
+	}
+	if err != nil {
+		if errors.Is(err, pkgldap.ErrInvalidCredentials) {
+			resp["error"] = "invalid credentials"
+		} else {
+			// The admin owns this directory, so surfacing the operational error
+			// (TLS, unreachable host, misconfigured bind DN) is the whole point.
+			resp["error"] = err.Error()
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	decision := pkgldap.EvaluateGroups(entry.cfg, result.Groups)
+	resp["identity"] = map[string]any{
+		"subject":      result.Subject,
+		"email":        result.Email,
+		"display_name": result.DisplayName,
+		"dn":           result.DN,
+		"groups":       result.Groups,
+	}
+	resp["authorization"] = decision
+	resp["resolution"] = h.resolveLDAPDiagnostics(r.Context(), entry.cfg, result, decision)
+	resp["warnings"] = ldapWarnings(entry.cfg, result, decision)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ldapWarnings flags likely misconfigurations from an otherwise-successful test.
+func ldapWarnings(cfg config.LDAPProvider, result *pkgldap.Result, decision pkgldap.Decision) []string {
+	var w []string
+	usesGroups := decision.RequiredGroupConfigured || decision.AdminGroupConfigured || len(cfg.GroupMappings) > 0
+	if usesGroups && len(result.Groups) == 0 {
+		hint := "the directory returned no groups for this user"
+		if cfg.GroupBaseDN == "" {
+			hint += "; if it does not populate memberOf, configure group_base_dn/group_filter"
+		}
+		w = append(w, hint)
+	}
+	if result.SubjectFromDN {
+		w = append(w, "attr_unique_id ("+cfg.AttrUniqueID+") returned no value; using the DN as the stable subject, which breaks identity linking if the entry is moved or renamed")
+	}
+	if result.Email == "" {
+		w = append(w, "no email attribute ("+cfg.AttrEmail+"); auto-linking and provisioning are impossible without it")
+	}
+	if len(cfg.EmailDomains) > 0 && !cfg.StripDomain && strings.Contains(cfg.UserFilter, "uid=") {
+		w = append(w, "provider routes by email_domains but user_filter matches uid; set strip_domain: true or use an email-based filter like (mail=%s)")
+	}
+	return w
+}
+
+// AdminLDAPTestConnection handles POST /api/v1/admin/ldap/test-connection
+// Body: {provider}. Verifies connectivity (dial + TLS + service bind) without
+// any user credential, checks that the configured group/base DNs exist, and
+// echoes the resolved provider config (password redacted) so env overrides can
+// be confirmed. Strictly read-only.
+func (h *Handler) AdminLDAPTestConnection(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "provider is required", "BAD_REQUEST")
+		return
+	}
+	entry, ok := h.ldapEntries[req.Provider]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown LDAP provider", "NOT_FOUND")
+		return
+	}
+
+	// DNs worth confirming: the user/group search bases and every group DN
+	// referenced by the access/admin gates and team mappings.
+	dnSet := map[string]bool{}
+	addDN := func(dn string) {
+		if dn != "" {
+			dnSet[dn] = true
+		}
+	}
+	addDN(entry.cfg.UserBaseDN)
+	addDN(entry.cfg.GroupBaseDN)
+	addDN(entry.cfg.RequiredGroup)
+	addDN(entry.cfg.AdminGroup)
+	for _, m := range entry.cfg.GroupMappings {
+		addDN(m.Group)
+	}
+	dns := make([]string, 0, len(dnSet))
+	for dn := range dnSet {
+		dns = append(dns, dn)
+	}
+
+	steps, checks, err := entry.auth.TestConnection(r.Context(), dns)
+	resp := map[string]any{
+		"provider":  req.Provider,
+		"connected": err == nil,
+		"steps":     steps,
+		"dn_checks": checks,
+		"config":    redactedLDAPConfig(entry.cfg),
+	}
+	if err != nil {
+		resp["error"] = err.Error()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// redactedLDAPConfig echoes the effective provider config with the bind password
+// reduced to a set/unset marker, so an admin can confirm env overrides applied.
+func redactedLDAPConfig(cfg config.LDAPProvider) map[string]any {
+	bindPw := "unset"
+	if cfg.BindPassword != "" {
+		bindPw = "set"
+	}
+	return map[string]any{
+		"url":                  cfg.URL,
+		"start_tls":            cfg.StartTLS,
+		"insecure_skip_verify": cfg.InsecureSkipVerify,
+		"ca_cert_file":         cfg.CACertFile,
+		"timeout_seconds":      cfg.TimeoutSeconds,
+		"bind_dn":              cfg.BindDN,
+		"bind_password":        bindPw,
+		"user_base_dn":         cfg.UserBaseDN,
+		"user_filter":          cfg.UserFilter,
+		"email_domains":        cfg.EmailDomains,
+		"strip_domain":         cfg.StripDomain,
+		"attr_email":           cfg.AttrEmail,
+		"attr_display_name":    cfg.AttrDisplayName,
+		"attr_unique_id":       cfg.AttrUniqueID,
+		"attr_member_of":       cfg.AttrMemberOf,
+		"group_base_dn":        cfg.GroupBaseDN,
+		"group_filter":         cfg.GroupFilter,
+		"required_group":       cfg.RequiredGroup,
+		"admin_group":          cfg.AdminGroup,
+		"auto_provision":       cfg.AutoProvision,
+		"group_mappings":       cfg.GroupMappings,
+	}
+}
+
+// resolveLDAPDiagnostics performs read-only DB lookups to turn the directory
+// result into the concrete outcome a login would have. It never writes.
+func (h *Handler) resolveLDAPDiagnostics(ctx context.Context, cfg config.LDAPProvider, result *pkgldap.Result, decision pkgldap.Decision) ldapResolution {
+	res := ldapResolution{Subject: result.Subject, AutoProvisionEnabled: cfg.AutoProvision}
+
+	// Login gate short-circuits everything: a denied user is neither resolved nor
+	// provisioned, and no team sync runs.
+	if decision.RequiredGroupConfigured && !decision.LoginAllowed {
+		res.Outcome = "rejected_not_in_login_group"
+		return res
+	}
+
+	var targetUser pgtype.UUID
+	userKnown := false
+
+	// 1. An identity already linked to (provider, subject) → that user logs in.
+	identity, err := h.Queries.GetExternalIdentity(ctx, dbgen.GetExternalIdentityParams{
+		Provider: cfg.Name,
+		Subject:  result.Subject,
+	})
+	switch {
+	case err == nil:
+		res.Outcome = "login_existing_identity"
+		res.LinkedUserID = identity.UserID.String()
+		targetUser, userKnown = identity.UserID, true
+		if u, uerr := h.Queries.GetUserWithMemberships(ctx, identity.UserID); uerr == nil {
+			res.LinkedUserEmail = u.Email
+		}
+	case !errors.Is(err, pgx.ErrNoRows):
+		res.Outcome = "error"
+	case result.Email == "":
+		// No identity and no email: cannot link or provision.
+		res.Outcome = "rejected_no_email"
+	default:
+		// 2. Auto-link to an existing user with the same email, else
+		// 3. auto-provision (if enabled).
+		existing, eerr := h.Queries.GetUserByEmail(ctx, result.Email)
+		switch {
+		case eerr == nil:
+			res.Outcome = "link_existing_user"
+			res.ExistingUserByEmail = existing.ID.String()
+			res.ExistingUserDisplay = existing.DisplayName
+			targetUser, userKnown = existing.ID, true
+		case !errors.Is(eerr, pgx.ErrNoRows):
+			res.Outcome = "error"
+		case cfg.AutoProvision:
+			res.Outcome = "provision_new_user"
+		default:
+			res.Outcome = "rejected_provisioning_disabled"
+		}
+	}
+
+	// Per-team resolution for every directory-managed team.
+	for _, teamName := range decision.ManagedTeams {
+		tr := ldapTeamResolution{Team: teamName}
+		role, granted := decision.TeamRoles[teamName]
+		tr.IntendedRole = role
+
+		team, terr := h.Queries.GetTeamByName(ctx, teamName)
+		if errors.Is(terr, pgx.ErrNoRows) {
+			tr.Action = "skip — team does not exist"
+			res.Teams = append(res.Teams, tr)
+			continue
+		}
+		if terr != nil {
+			tr.Action = "error resolving team"
+			res.Teams = append(res.Teams, tr)
+			continue
+		}
+		tr.Exists = true
+		if granted {
+			tr.Action = "grant/update to " + role
+		} else {
+			tr.Action = "remove (directory-managed only)"
+		}
+
+		// If we know the target user, show their current membership so the admin
+		// can see when a manual override would be preserved.
+		if userKnown {
+			if md, merr := h.Queries.GetMembershipDetail(ctx, dbgen.GetMembershipDetailParams{
+				TeamID: team.ID,
+				UserID: targetUser,
+			}); merr == nil {
+				tr.CurrentRole = string(md.Role)
+				dm := md.DirectoryManaged
+				tr.CurrentDirectoryManaged = &dm
+				if !dm {
+					tr.Action = "manual override — preserved (no change)"
+				}
+			}
+		}
+		res.Teams = append(res.Teams, tr)
+	}
+	return res
+}

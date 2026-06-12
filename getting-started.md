@@ -75,6 +75,8 @@ oidc:
 
 On first SSO login, identities with a **verified** email matching an existing user are linked to that user automatically; unmatched identities create a new account only when `auto_provision` is enabled. Newly provisioned users have no team memberships — an admin assigns them to teams.
 
+To authenticate against an LDAP/Active Directory directory instead (or in addition), configure an `ldap:` block — see [LDAP / Active Directory Authentication](doc/auth-ldap.md). Directory users sign in through the normal login form; group memberships can be mapped to partrack teams and roles.
+
 ### Environment variable overrides
 
 | Variable | Equivalent config key |
@@ -83,6 +85,7 @@ On first SSO login, identities with a **verified** email matching an existing us
 | `PARTRACK_LISTEN_ADDR` | `server.listen_addr` |
 | `PARTRACK_CONFIG` | path to the config file |
 | `PARTRACK_OIDC_<NAME>_SECRET` | `oidc[name].client_secret` |
+| `PARTRACK_LDAP_<NAME>_PASSWORD` | `ldap[name].bind_password` |
 
 ---
 

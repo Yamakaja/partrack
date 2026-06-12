@@ -72,9 +72,9 @@ DELETE FROM sessions WHERE id = $1 AND user_id = $2;
 -- name: DeleteSessionByTokenHash :exec
 DELETE FROM sessions WHERE token_hash = $1;
 
--- name: GetOIDCIdentity :one
-SELECT id, user_id, provider, subject, provider_email, linked_at
-FROM oidc_identities
+-- name: GetExternalIdentity :one
+SELECT id, user_id, provider, subject, provider_email, kind, linked_at
+FROM external_identities
 WHERE provider = $1
   AND subject = $2;
 
@@ -83,10 +83,10 @@ INSERT INTO users (display_name, email)
 VALUES ($1, $2)
 RETURNING id, display_name, email, is_active, is_admin, created_at;
 
--- name: CreateOIDCIdentity :one
-INSERT INTO oidc_identities (user_id, provider, subject, provider_email)
-VALUES ($1, $2, $3, $4)
-RETURNING id, user_id, provider, subject, provider_email, linked_at;
+-- name: CreateExternalIdentity :one
+INSERT INTO external_identities (user_id, provider, subject, provider_email, kind)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, user_id, provider, subject, provider_email, kind, linked_at;
 
 -- name: GetUserWithMemberships :one
 SELECT
