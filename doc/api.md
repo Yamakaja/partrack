@@ -223,6 +223,24 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | POST | `/parts/{partId}/listings/refresh` | member | Enqueue refresh for all listings → 202 `{job_count}` |
 | POST | `/parts/{partId}/listings/{listingId}/refresh` | member | → 202 `{job_id}` |
 
+### Part Notes
+
+The team's freeform markdown note for a part (one per team per part — the knowledge profile, parallel to the inventory entry). The body is markdown that may embed images as `attachment:<uuid>` (uploaded via `POST /attachments`) and object links as `:part[label]{#<uuid>}` (remark directives). Both endpoints return a **manifest** that resolves those references server-side (batched), so the renderer needs no per-reference round-trips.
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/parts/{partId}/note` | viewer | The team's note for the part. Returns `{body, manifest, updated_at?, updated_by?}`; `body` is `""` when no note exists yet (200, not 404). |
+| PUT | `/parts/{partId}/note` | member | `{body}` — upsert the note (created lazily on first save). Part must be visible to the team (global or team-owned), else 404. Body capped at 256 KiB. Returns the saved `{body, manifest, updated_at, updated_by}`. |
+
+**Manifest shape** (`manifest`):
+```json
+{
+  "attachments": { "<attachment-uuid>": { "url": "/api/v1/blobs/<sha256>", "content_type": "image/png", "width": 800, "height": 600 } },
+  "parts": { "<part-uuid>": { "mpn": "STM32F407VGT6", "manufacturer": "STMicroelectronics", "lifecycle_status": "active" } }
+}
+```
+Only resolvable references appear: attachments are scoped to the team; parts are scoped to those the team can see (global or team-owned). Dangling references are simply omitted from the manifest (the renderer falls back to placeholder text).
+
 ### Distributor Search
 
 | Method | Path | Role | Description |

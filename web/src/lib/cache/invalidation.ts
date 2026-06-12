@@ -27,7 +27,10 @@ export function activateTeamInvalidation(teamId: string) {
   unsubscribers = [
     subscribeSSEType(teamId, 'part_changed', (ev) => {
       const partId = ev.data.part_id as string | undefined;
-      if (partId) qc!.invalidateQueries({ queryKey: ['part', partId, teamId] });
+      if (partId) {
+        qc!.invalidateQueries({ queryKey: ['part', partId, teamId] });
+        qc!.invalidateQueries({ queryKey: ['part-note', teamId, partId] });
+      }
       qc!.invalidateQueries({ queryKey: ['parts', teamId] });
     }),
 

@@ -20,3 +20,12 @@ RETURNING id, team_id, blob_sha256, original_filename, uploaded_by, uploaded_at;
 SELECT id, team_id, blob_sha256, original_filename, uploaded_by, uploaded_at
 FROM attachments
 WHERE id = $1 AND team_id = $2;
+
+-- name: GetAttachmentsByIDs :many
+-- Batch resolution for the note manifest: maps the attachment UUIDs embedded in
+-- a note body to their blob hash + image dimensions, team-scoped so a note can
+-- only resolve its own team's attachments.
+SELECT a.id, a.blob_sha256, b.content_type, b.width, b.height
+FROM attachments a
+JOIN blobs b ON b.sha256 = a.blob_sha256
+WHERE a.team_id = $1 AND a.id = ANY(sqlc.arg('ids')::uuid[]);

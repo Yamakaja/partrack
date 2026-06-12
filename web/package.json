@@ -31,7 +31,10 @@
     "mode-watcher": "^1.1.0",
     "papaparse": "^5.5.3",
     "qrcode": "^1.5.4",
+    "rehype-sanitize": "^6.0.0",
     "remark-directive": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "svelte-exmarkdown": "^5.0.2",
     "tailwind-merge": "^3.5.0",
     "tracking-number-validation": "^2.0.2",
     "zxing-wasm": "^3.0.2"

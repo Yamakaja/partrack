@@ -68,6 +68,55 @@ func (q *Queries) GetAttachment(ctx context.Context, arg GetAttachmentParams) (A
 	return i, err
 }
 
+const getAttachmentsByIDs = `-- name: GetAttachmentsByIDs :many
+SELECT a.id, a.blob_sha256, b.content_type, b.width, b.height
+FROM attachments a
+JOIN blobs b ON b.sha256 = a.blob_sha256
+WHERE a.team_id = $1 AND a.id = ANY($2::uuid[])
+`
+
+type GetAttachmentsByIDsParams struct {
+	TeamID pgtype.UUID   `json:"team_id"`
+	Ids    []pgtype.UUID `json:"ids"`
+}
+
+type GetAttachmentsByIDsRow struct {
+	ID          pgtype.UUID `json:"id"`
+	BlobSha256  string      `json:"blob_sha256"`
+	ContentType string      `json:"content_type"`
+	Width       *int32      `json:"width"`
+	Height      *int32      `json:"height"`
+}
+
+// Batch resolution for the note manifest: maps the attachment UUIDs embedded in
+// a note body to their blob hash + image dimensions, team-scoped so a note can
+// only resolve its own team's attachments.
+func (q *Queries) GetAttachmentsByIDs(ctx context.Context, arg GetAttachmentsByIDsParams) ([]GetAttachmentsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getAttachmentsByIDs, arg.TeamID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAttachmentsByIDsRow
+	for rows.Next() {
+		var i GetAttachmentsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BlobSha256,
+			&i.ContentType,
+			&i.Width,
+			&i.Height,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getBlob = `-- name: GetBlob :one
 SELECT sha256, byte_size, content_type, width, height, thumbnail_sha256, created_at
 FROM blobs

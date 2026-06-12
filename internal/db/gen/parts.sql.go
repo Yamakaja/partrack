@@ -594,6 +594,53 @@ func (q *Queries) GetPartWithInventory(ctx context.Context, arg GetPartWithInven
 	return i, err
 }
 
+const getPartsForManifest = `-- name: GetPartsForManifest :many
+SELECT id, mpn, manufacturer, lifecycle_status
+FROM parts
+WHERE id = ANY($1::uuid[])
+  AND (scope = 'global' OR (scope = 'team' AND team_id = $2))
+`
+
+type GetPartsForManifestParams struct {
+	Ids    []pgtype.UUID `json:"ids"`
+	TeamID pgtype.UUID   `json:"team_id"`
+}
+
+type GetPartsForManifestRow struct {
+	ID              pgtype.UUID         `json:"id"`
+	Mpn             *string             `json:"mpn"`
+	Manufacturer    *string             `json:"manufacturer"`
+	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+}
+
+// Batch resolution for note `:part{#uuid}` chips: returns the display fields for
+// each referenced part, scoped to parts the team can see (global or its own) so
+// a note can't resolve another team's private parts.
+func (q *Queries) GetPartsForManifest(ctx context.Context, arg GetPartsForManifestParams) ([]GetPartsForManifestRow, error) {
+	rows, err := q.db.Query(ctx, getPartsForManifest, arg.Ids, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPartsForManifestRow
+	for rows.Next() {
+		var i GetPartsForManifestRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.LifecycleStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPartsForReenrichment = `-- name: GetPartsForReenrichment :many
 SELECT DISTINCT ON (ie.part_id)
     ie.part_id,

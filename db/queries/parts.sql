@@ -167,6 +167,15 @@ ORDER BY pp.part_id, pp.parameter_id, (pp.source_type = 'user') DESC, pp.id;
 -- name: GetPart :one
 SELECT * FROM parts WHERE id = $1;
 
+-- name: GetPartsForManifest :many
+-- Batch resolution for note `:part{#uuid}` chips: returns the display fields for
+-- each referenced part, scoped to parts the team can see (global or its own) so
+-- a note can't resolve another team's private parts.
+SELECT id, mpn, manufacturer, lifecycle_status
+FROM parts
+WHERE id = ANY(sqlc.arg('ids')::uuid[])
+  AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.arg('team_id')));
+
 -- name: GetPartWithInventory :one
 -- Like GetPart but LEFT JOINs the team's inventory entry, storage location, and category.
 SELECT

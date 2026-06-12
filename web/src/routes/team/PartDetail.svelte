@@ -35,6 +35,8 @@
   import QRDialog from '$lib/components/common/QRDialog.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import { authStore } from '$lib/stores/auth.svelte.js';
+  import NotePanel from '$lib/components/notes/NotePanel.svelte';
+  import { hasMinRole } from '$lib/utils/roles.js';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
 
@@ -75,6 +77,7 @@
   let isPurchaser = $derived(
     activeTeamStore.current?.role === 'purchaser' || activeTeamStore.current?.role === 'admin'
   );
+  let canEditNotes = $derived(hasMinRole(activeTeamStore.current?.role ?? '', 'member'));
 
   // Add to Cart dialog
   let addToCartOpen = $state(false);
@@ -524,6 +527,8 @@
             onchange={() => qc.invalidateQueries({ queryKey: ['part', partId, teamId] })}
           />
         </section>
+
+        <NotePanel {teamId} {partId} canEdit={canEditNotes} />
 
         {#if tracked && (allocationsQuery.data?.items.length ?? 0) > 0}
           <section class="space-y-2">

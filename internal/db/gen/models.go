@@ -714,6 +714,14 @@ type PartAlias struct {
 	Alias  string      `json:"alias"`
 }
 
+type PartNote struct {
+	TeamID    pgtype.UUID        `json:"team_id"`
+	PartID    pgtype.UUID        `json:"part_id"`
+	Body      string             `json:"body"`
+	UpdatedBy pgtype.UUID        `json:"updated_by"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type PartParameter struct {
 	ID                  pgtype.UUID         `json:"id"`
 	PartID              pgtype.UUID         `json:"part_id"`
