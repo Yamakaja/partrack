@@ -53,16 +53,24 @@ database:
   url: postgres://user:password@host:5432/partrack?sslmode=disable
 
 server:
-  listen_addr: ":8080"   # default
+  listen_addr: ":8080"            # default
+  trusted_proxies: ["127.0.0.1"]  # IPs/CIDRs whose X-Forwarded-For is trusted
+                                  # for the client IP (rate limiting / audit log).
+                                  # Set to your reverse proxy's address.
+
+auth:
+  session_secret: "…"             # ≥ 32 bytes; startup fails otherwise
+  rate_limit_per_minute: 10       # per-IP budget on credential endpoints; 0 disables
 
 log:
-  level: info             # debug | info | warn | error
+  level: info                     # debug | info | warn | error
 
-# Optional: OIDC providers for single sign-on.
-# Requires app.base_url — the OIDC redirect URI is derived from it; register
-# <base_url>/api/v1/auth/oidc/<name>/callback at the identity provider.
+# app.base_url is required when OIDC providers are configured — the redirect URI
+# is derived from it; register <base_url>/api/v1/auth/oidc/<name>/callback at the
+# identity provider.
 app:
   base_url: https://partrack.example.com
+  secure_cookies: true            # default; set false only for local HTTP (no TLS)
 
 oidc:
   - name: google             # URL-safe slug, used in routes
@@ -82,7 +90,10 @@ To authenticate against an LDAP/Active Directory directory instead (or in additi
 | Variable | Equivalent config key |
 |---|---|
 | `PARTRACK_DB_URL` | `database.url` |
+| `PARTRACK_SESSION_SECRET` | `auth.session_secret` |
 | `PARTRACK_LISTEN_ADDR` | `server.listen_addr` |
+| `PARTRACK_APP_BASE_URL` | `app.base_url` |
+| `PARTRACK_SECURE_COOKIES` | `app.secure_cookies` (`false`/`0` to disable) |
 | `PARTRACK_CONFIG` | path to the config file |
 | `PARTRACK_OIDC_<NAME>_SECRET` | `oidc[name].client_secret` |
 | `PARTRACK_LDAP_<NAME>_PASSWORD` | `ldap[name].bind_password` |
@@ -121,14 +132,32 @@ Open `http://localhost:5173` in your browser.
 
 ### Bootstrapping the first admin
 
-No admin user exists after a fresh install. Set one via SQL:
+On the **first** start against an empty `users` table, partrack automatically
+creates an admin account (`admin@localhost`) and prints a one-time
+password-reset link to the server log (stdout):
 
-```bash
-psql postgres://localhost/partrack -c \
-  "UPDATE users SET is_admin = TRUE WHERE email = 'your@email.com';"
+```
+  ────────────────────────────────────────────────────────────
+  Bootstrap admin created (no existing users found)
+  Email:   admin@localhost
+  Link:    /reset-password?token=…
+  Expires: …
+  ────────────────────────────────────────────────────────────
 ```
 
-You must have logged in at least once first (to create the user record), or create the user via the API/admin panel after bootstrapping any initial admin.
+Open that link (prefixed with your base URL) to set the admin password, then
+log in as `admin@localhost`. The link is valid for 24 hours; if it expires,
+request a new one from the login page's "forgot password" flow. The bootstrap
+runs only while the users table is empty — it is a no-op on every subsequent
+start.
+
+To promote an existing user to admin later, use the admin panel, or set the
+flag directly:
+
+```bash
+psql "$PARTRACK_DB_URL" -c \
+  "UPDATE users SET is_admin = TRUE WHERE email = 'your@email.com';"
+```
 
 ### Modifying SQL queries
 
@@ -227,6 +256,6 @@ sqlc generate
 # Type-check frontend
 cd web && npm run check
 
-# Bootstrap first admin (after first login)
+# Promote an existing user to admin (the first admin is auto-created on first start)
 psql "$PARTRACK_DB_URL" -c "UPDATE users SET is_admin = TRUE WHERE email = 'you@example.com';"
 ```

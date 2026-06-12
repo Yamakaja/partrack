@@ -6,41 +6,13 @@
 
 partrack tracks parts inventory for PCB design teams. It covers the full lifecycle from BOM import through stock checking, purchasing, and assembly tracking — with team-based access control and distributor API integration.
 
-## How It Works
+## Overview
 
-```
-                 ┌──────────────────────────────────────────────────────────┐
-                 │                      PROJECT                             │
-                 │                                                          │
-  BOM (CSV) ────►  Import & resolve ────► BOM Revision (line items)         │
-                 │       │                     │                            │
-                 │       │  match by MPN,      │  specify build             │
-                 │       │  SKU, or API        │  quantity                  │
-                 │       ▼                     ▼                            │
-                 │  Parts Catalog         Stock Check                       │
-                 │  (parameters,          (in stock / partial / missing)    │
-                 │   lifecycle,                │                            │
-                 │   datasheets)               │                            │
-                 └─────────────────────────────┼────────────────────────────┘
-                                               │
-               ┌───────────────────────────────┼──────────────────────────┐
-               │                    TEAM       │                          │
-               │                               ▼                          │
-               │  Manual additions ────► Shopping Cart ◄──── Restock      │
-               │                               │              scan        │
-               │  Build (reserve) ─────────┐   │                          │
-               │                           │   ▼                          │
-               │                           │  Orders (by distributor)     │
-               │                           │   │                          │
-               │                           │   ▼                          │
-               │  Inventory ◄──────────────┴─ Receive ◄──── Mobile        │
-               │  (ledger, storage               │          Scanner       │
-               │   locations, min stock)         │          (QR auth)     │
-               │                                 ▼                        │
-               │                           Build ──► Kitting ──► Assemble │
-               │                          (reserve)   (scanner)  (deduct) │
-               └──────────────────────────────────────────────────────────┘
-```
+Electronics assembly couples three concerns that are usually managed in separate, disconnected tools: the bill of materials produced by EDA software, the physical component stock held in the lab, and the purchasing activity required to cover shortfalls. partrack is a self-hosted web application that maintains these three concerns in a single data model, so a board design can be checked against on-hand inventory and procured against in one continuous workflow.
+
+A BOM imported from a tool such as KiCad or Altium is resolved line by line against a parts catalog — by manufacturer part number, by distributor SKU, and, where no local match exists, by querying distributor APIs (DigiKey, Mouser, and LCSC are supported). Each resolved part is checked against current stock for a given build quantity; shortfalls are aggregated into a shared shopping cart, converted into per-distributor orders, and reconciled against incoming deliveries. Inventory is not stored as a mutable counter but derived from an immutable ledger of stock adjustments, so every quantity on hand is reconstructable from its full history of receipts, build consumption, and corrections. Demand from planned builds is allocated explicitly: parts are reserved against the builds that require them as orders are placed and received, rather than pooled anonymously.
+
+The system is multi-tenant by team, with four role levels governing read access, inventory operations, procurement, and administration. Warehouse tasks — receiving, stock counting, kitting, and storage assignment — are supported through a mobile scanner interface authenticated by QR code, removing the need for a separate login on the handheld device. partrack ships as a single Go binary with the frontend embedded at compile time and requires only a PostgreSQL database; it is designed to run as one instance and scale vertically, with no external message broker, cache, or asset server.
 
 ## Features
 
@@ -121,7 +93,7 @@ Required environment variables (set in `.env` or the shell):
 | Variable | Description |
 |---|---|
 | `PARTRACK_DB_PASSWORD` | Postgres password |
-| `PARTRACK_SESSION_SECRET` | Random secret for session signing |
+| `PARTRACK_SESSION_SECRET` | Random secret for session signing — **must be ≥ 32 bytes** or startup fails |
 | `PARTRACK_APP_BASE_URL` | Public URL (e.g. `https://partrack.example.com`) |
 
 Optional:
@@ -170,10 +142,19 @@ Configuration is loaded from a YAML file (default: `./config.yaml`, override wit
 | Option | YAML key | Environment variable | Default |
 |---|---|---|---|
 | Server address | `server.listen_addr` | `PARTRACK_LISTEN_ADDR` | `:8080` |
+| Trusted proxies | `server.trusted_proxies` | — | `[]` |
 | Database URL | `database.url` | `PARTRACK_DB_URL` | — (required) |
-| Session secret | `auth.session_secret` | `PARTRACK_SESSION_SECRET` | — (required) |
+| Session secret | `auth.session_secret` | `PARTRACK_SESSION_SECRET` | — (required, ≥ 32 bytes) |
+| Credential rate limit | `auth.rate_limit_per_minute` | — | `10` (0 disables) |
 | App base URL | `app.base_url` | `PARTRACK_APP_BASE_URL` | — (required for OIDC) |
+| Secure cookies | `app.secure_cookies` | `PARTRACK_SECURE_COOKIES` | `true` |
 | Log level | `log.level` | — | `info` |
+
+`server.trusted_proxies` (IPs/CIDRs) lists the reverse proxies whose
+`X-Forwarded-For` header is trusted to determine the real client IP, used for
+rate limiting and the audit log — set it to your proxy's address. Set
+`app.secure_cookies: false` only when serving over plain HTTP locally; in
+production the cookies' `Secure` flag must stay on.
 
 OIDC providers are configured in the YAML file:
 
@@ -213,6 +194,32 @@ location / {
 **Set `app.base_url` to your public URL.** OIDC redirect URLs and distributor OAuth callbacks are constructed from this value. If it's missing or wrong, login flows will fail with redirect mismatches.
 
 **No separate static file server needed.** The frontend is embedded in the binary, and the backend handles SPA fallback routing internally. Proxy all paths to the backend.
+
+### Health Checks
+
+Two unauthenticated endpoints support orchestration:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/health` | Liveness — always `200`, no DB access. Used by the Docker `HEALTHCHECK`. |
+| `GET /api/v1/ready` | Readiness — pings the database, returns `503` if unreachable. Use for load-balancer routing. |
+
+Point liveness probes (which trigger restarts) at `/health` and routing/readiness probes at `/ready`.
+
+### First Login
+
+On the **first** start against an empty database, partrack creates an admin
+account (`admin@localhost`) and prints a one-time password-reset link to the
+log (stdout) — capture it from the container/process output:
+
+```
+  Bootstrap admin created (no existing users found)
+  Email:   admin@localhost
+  Link:    /reset-password?token=…
+```
+
+Open `<base_url>/reset-password?token=…` to set the password, then log in. The
+link expires after 24 hours; request a fresh one from the login page if needed.
 
 ---
 
