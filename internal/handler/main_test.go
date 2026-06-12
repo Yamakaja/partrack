@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Yamakaja/partrack/internal/blob"
 	"github.com/Yamakaja/partrack/internal/config"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/distributor/testclient"
@@ -38,12 +39,23 @@ func TestMain(m *testing.M) {
 	reg := distributor.NewRegistry()
 	reg.Register("test", testclient.New())
 	q := worker.New(1, testDB, reg)
-	srv := server.New(cfg, testDB, q, reg)
+
+	storeDir, err := os.MkdirTemp("", "partrack-blobs-*")
+	if err != nil {
+		panic("blob store temp dir: " + err.Error())
+	}
+	store, err := blob.NewFSStore(storeDir)
+	if err != nil {
+		panic("blob store: " + err.Error())
+	}
+
+	srv := server.New(cfg, testDB, q, reg, store)
 	ts := httptest.NewServer(srv.Handler)
 
 	testEnv = &testEnvType{Server: ts, DB: testDB, Queue: q}
 
 	code := m.Run()
 	ts.Close()
+	os.RemoveAll(storeDir)
 	os.Exit(code)
 }

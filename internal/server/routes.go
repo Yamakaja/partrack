@@ -86,6 +86,11 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Post("/auth/logout", h.Logout)
 			r.Get("/auth/me", h.Me)
 
+			// Blob bytes: capability-by-hash (any authenticated user; the
+			// content address is the bearer token). No team check, no DB lookup.
+			r.Get("/blobs/{sha256}", h.ServeBlob)
+			r.Head("/blobs/{sha256}", h.ServeBlob)
+
 			// Admin (instance-level)
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAdmin)
@@ -226,6 +231,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				// Member+
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireTeamRole("member"))
+
+					// Attachments (image uploads for notes etc.)
+					r.Post("/attachments", h.UploadAttachment)
 
 					// Inventory
 					r.Post("/inventory", h.CreateInventoryEntry)

@@ -1,5 +1,6 @@
 web/dist/
 config.yaml
+/data/
 *.local
 doc/work/
 .claude

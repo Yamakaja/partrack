@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/blob"
 	"github.com/Yamakaja/partrack/internal/config"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/server"
@@ -173,7 +174,11 @@ func newOIDCEnv(t *testing.T, idp *fakeIdP, autoProvision bool) *httptest.Server
 	}
 	reg := distributor.NewRegistry()
 	q := worker.New(1, testDB, reg)
-	srv := server.New(cfg, testDB, q, reg)
+	store, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("blob store: %v", err)
+	}
+	srv := server.New(cfg, testDB, q, reg, store)
 	ts := httptest.NewServer(srv.Handler)
 	t.Cleanup(ts.Close)
 	return ts

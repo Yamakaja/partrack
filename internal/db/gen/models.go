@@ -385,6 +385,25 @@ type ApiToken struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
+type Attachment struct {
+	ID               pgtype.UUID        `json:"id"`
+	TeamID           pgtype.UUID        `json:"team_id"`
+	BlobSha256       string             `json:"blob_sha256"`
+	OriginalFilename *string            `json:"original_filename"`
+	UploadedBy       pgtype.UUID        `json:"uploaded_by"`
+	UploadedAt       pgtype.Timestamptz `json:"uploaded_at"`
+}
+
+type Blob struct {
+	Sha256          string             `json:"sha256"`
+	ByteSize        int64              `json:"byte_size"`
+	ContentType     string             `json:"content_type"`
+	Width           *int32             `json:"width"`
+	Height          *int32             `json:"height"`
+	ThumbnailSha256 *string            `json:"thumbnail_sha256"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type BomLineItem struct {
 	ID                    pgtype.UUID `json:"id"`
 	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`

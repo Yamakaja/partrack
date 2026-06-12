@@ -16,6 +16,21 @@ type Config struct {
 	LDAP     []LDAPProvider `yaml:"ldap"`
 	Log      LogConfig      `yaml:"log"`
 	App      AppConfig      `yaml:"app"`
+	Storage  StorageConfig  `yaml:"storage"`
+}
+
+// StorageConfig configures the content-addressed blob store used for uploaded
+// images (and, later, footprints/symbols). Backend "file" stores bytes on the
+// local filesystem under DataDir; an object-store backend may be added behind
+// the same interface later.
+type StorageConfig struct {
+	Backend string `yaml:"backend"`  // "file" (default)
+	DataDir string `yaml:"data_dir"` // root for the file backend; e.g. ./data
+	// MaxUploadBytes caps a single upload. Defaults to 5 MiB when unset.
+	MaxUploadBytes int64 `yaml:"max_upload_bytes"`
+	// AllowedTypes is the sniffed-content-type allowlist for uploads. Defaults to
+	// common raster image types when unset. SVG is intentionally excluded (XSS).
+	AllowedTypes []string `yaml:"allowed_types"`
 }
 
 type ServerConfig struct {
@@ -161,6 +176,12 @@ func defaults() *Config {
 		Auth: AuthConfig{
 			RateLimitPerMinute: 10,
 		},
+		Storage: StorageConfig{
+			Backend:        "file",
+			DataDir:        "./data",
+			MaxUploadBytes: 5 << 20, // 5 MiB
+			AllowedTypes:   []string{"image/png", "image/jpeg", "image/webp", "image/gif"},
+		},
 	}
 }
 
@@ -202,6 +223,9 @@ func Load() *Config {
 	}
 	if v := os.Getenv("PARTRACK_SECURE_COOKIES"); v != "" {
 		cfg.App.SecureCookies = v != "false" && v != "0"
+	}
+	if v := os.Getenv("PARTRACK_STORAGE_DATA_DIR"); v != "" {
+		cfg.Storage.DataDir = v
 	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET

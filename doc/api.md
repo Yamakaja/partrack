@@ -106,6 +106,7 @@ Higher roles inherit all permissions of lower roles.
 | GET | `/distributors` | All distributors with `api_type` and `supports_oauth` flag |
 | GET | `/distributors/{distributorId}/credential-spec` | Required credential fields (`[{key, description, required, secret}]`; empty array if no API) |
 | GET | `/categories/{categoryId}/parameters` | Parameter definitions in category + descendants; query: `team_id?` |
+| GET | `/blobs/{sha256}` | Serve blob bytes by content address. **Capability-by-hash**: any authenticated user (no team check, no DB lookup) — the 256-bit hash is the bearer token. Immutable: `Cache-Control: public, max-age=31536000, immutable`, strong `ETag`, honours `If-None-Match` (304). `HEAD` supported. |
 
 ### Parts Catalog (global)
 
@@ -124,6 +125,12 @@ Higher roles inherit all permissions of lower roles.
 ---
 
 ## Team-scoped (`/teams/{teamId}/...`)
+
+### Attachments
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| POST | `/attachments` | member | Upload an image. Body is the **raw image bytes** (not multipart/JSON); optional `?filename=` records the original name. Content type is sniffed from the bytes (the declared type is ignored) and validated against the allowlist (`image/png,jpeg,webp,gif`; SVG rejected). Deduplicated by content hash. Returns 201 `{id, url, content_type, byte_size, width?, height?, filename?}` where `url` is `/api/v1/blobs/{sha256}` to embed in note markdown. 413 over the size cap (default 5 MiB); 415 for unsupported type. |
 
 ### Team (admin)
 

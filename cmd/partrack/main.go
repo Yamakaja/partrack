@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/blob"
 	"github.com/Yamakaja/partrack/internal/config"
 	"github.com/Yamakaja/partrack/internal/db"
 	"github.com/Yamakaja/partrack/internal/distributor"
@@ -48,7 +49,13 @@ func main() {
 
 	q := worker.New(4, pool, reg)
 
-	srv := server.New(cfg, pool, q, reg)
+	store, err := blob.NewFSStore(cfg.Storage.DataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "storage: %v\n", err)
+		os.Exit(1)
+	}
+
+	srv := server.New(cfg, pool, q, reg, store)
 
 	// Serve in the background so main can wait for a shutdown signal.
 	serveErr := make(chan error, 1)

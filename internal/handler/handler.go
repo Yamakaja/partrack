@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
+	"github.com/Yamakaja/partrack/internal/blob"
 	"github.com/Yamakaja/partrack/internal/config"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
@@ -73,6 +74,7 @@ type Handler struct {
 	Worker       *worker.Queue
 	Cache        *middleware.AuthCache
 	Distributors distributor.Registry
+	Blobs        blob.Store
 	CartResolver *CartResolver
 	ScanHub      *ScanHub
 	Tickets      *ticketStore
@@ -128,7 +130,7 @@ func (h *Handler) getEnrichedCreds(r *http.Request, order dbgen.GetOrderRow) (js
 }
 
 // New creates a Handler and initialises OIDC providers.
-func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middleware.AuthCache, reg distributor.Registry) *Handler {
+func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middleware.AuthCache, reg distributor.Registry, store blob.Store) *Handler {
 	h := &Handler{
 		DB:           db,
 		Queries:      dbgen.New(db),
@@ -136,6 +138,7 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 		Worker:       q,
 		Cache:        cache,
 		Distributors: reg,
+		Blobs:        store,
 		CartResolver: NewCartResolver(),
 		ScanHub:      NewScanHub(),
 		Tickets:      newTicketStore(),
