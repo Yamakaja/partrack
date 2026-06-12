@@ -43,6 +43,7 @@
   import Scan from './routes/Scan.svelte';
   import BulkScan from './routes/team/BulkScan.svelte';
   import BulkScanReview from './routes/team/BulkScanReview.svelte';
+  import NotesSpike from './routes/team/NotesSpike.svelte';
 
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -78,6 +79,7 @@
     { pattern: '/teams/:teamId/builds/:buildId',                                          component: BuildDetail },
     { pattern: '/teams/:teamId/builds',                                                   component: Builds },
     { pattern: '/teams/:teamId/checkouts',                                                component: Checkouts },
+    { pattern: '/teams/:teamId/notes-spike',                                              component: NotesSpike },
     { pattern: '/teams/:teamId/bulk-scan/:sessionId',                                     component: BulkScanReview },
     { pattern: '/teams/:teamId/bulk-scan',                                                component: BulkScan },
     { pattern: '/teams/:teamId/settings/members',                                         component: Members },
