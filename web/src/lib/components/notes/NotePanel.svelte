@@ -1,20 +1,34 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import type { Component } from 'svelte';
-  import { getPartNote, putPartNote } from '$lib/api/notes.js';
+  import type { Note } from '$lib/api/notes.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Pencil } from 'lucide-svelte';
   import NoteViewer from './NoteViewer.svelte';
 
-  let { teamId, partId, canEdit = false }: { teamId: string; partId: string; canEdit?: boolean } = $props();
+  // Generic over the note source (part vs project): the parent supplies the
+  // query key + load/save closures so this panel stays object-agnostic.
+  let {
+    teamId,
+    queryKey,
+    load,
+    save: saveFn,
+    canEdit = false,
+  }: {
+    teamId: string;
+    queryKey: unknown[];
+    load: () => Promise<Note>;
+    save: (body: string) => Promise<Note>;
+    canEdit?: boolean;
+  } = $props();
 
   const qc = useQueryClient();
 
   let noteQuery = createQuery(() => ({
-    queryKey: ['part-note', teamId, partId],
-    queryFn: () => getPartNote(teamId, partId),
+    queryKey,
+    queryFn: load,
   }));
 
   let editing = $state(false);
@@ -41,8 +55,8 @@
   async function save() {
     saving = true;
     try {
-      const res = await putPartNote(teamId, partId, draft);
-      qc.setQueryData(['part-note', teamId, partId], res);
+      const res = await saveFn(draft);
+      qc.setQueryData(queryKey, res);
       editing = false;
       pushToast('success', 'Note saved');
     } catch (e) {

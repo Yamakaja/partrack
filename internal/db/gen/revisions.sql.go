@@ -531,6 +531,7 @@ SELECT
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn,
+    pn.flag AS resolved_part_flag,
     bli.resolve_item_id,
     pri.status          AS resolve_status,
     pri.task_type       AS resolve_task_type,
@@ -540,37 +541,44 @@ FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
 LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 LEFT JOIN part_resolve_items pri ON pri.id = bli.resolve_item_id
-WHERE bli.bom_revision_id = $1
+LEFT JOIN part_notes pn ON pn.part_id = bli.resolved_part_id AND pn.team_id = $1
+WHERE bli.bom_revision_id = $2
 ORDER BY bli.id
 `
 
+type ListBOMLineItemsWithResolveDataParams struct {
+	TeamID        pgtype.UUID `json:"team_id"`
+	BomRevisionID pgtype.UUID `json:"bom_revision_id"`
+}
+
 type ListBOMLineItemsWithResolveDataRow struct {
-	ID                    pgtype.UUID `json:"id"`
-	ReferenceDesignators  string      `json:"reference_designators"`
-	Quantity              int32       `json:"quantity"`
-	RawDescription        *string     `json:"raw_description"`
-	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
-	PartName              *string     `json:"part_name"`
-	Manufacturer          *string     `json:"manufacturer"`
-	Mpn                   *string     `json:"mpn"`
-	Sku                   *string     `json:"sku"`
-	DistributorName       string      `json:"distributor_name"`
-	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
-	ResolutionState       *string     `json:"resolution_state"`
-	Ignored               bool        `json:"ignored"`
-	ResolvedPartMpn       *string     `json:"resolved_part_mpn"`
-	ResolveItemID         pgtype.UUID `json:"resolve_item_id"`
-	ResolveStatus         *string     `json:"resolve_status"`
-	ResolveTaskType       *string     `json:"resolve_task_type"`
-	ResolveEnrichmentData []byte      `json:"resolve_enrichment_data"`
-	ResolveErrorMessage   *string     `json:"resolve_error_message"`
+	ID                    pgtype.UUID  `json:"id"`
+	ReferenceDesignators  string       `json:"reference_designators"`
+	Quantity              int32        `json:"quantity"`
+	RawDescription        *string      `json:"raw_description"`
+	ResolvedPartID        pgtype.UUID  `json:"resolved_part_id"`
+	PartName              *string      `json:"part_name"`
+	Manufacturer          *string      `json:"manufacturer"`
+	Mpn                   *string      `json:"mpn"`
+	Sku                   *string      `json:"sku"`
+	DistributorName       string       `json:"distributor_name"`
+	ResolvedDistributorID pgtype.UUID  `json:"resolved_distributor_id"`
+	ResolutionState       *string      `json:"resolution_state"`
+	Ignored               bool         `json:"ignored"`
+	ResolvedPartMpn       *string      `json:"resolved_part_mpn"`
+	ResolvedPartFlag      NullPartFlag `json:"resolved_part_flag"`
+	ResolveItemID         pgtype.UUID  `json:"resolve_item_id"`
+	ResolveStatus         *string      `json:"resolve_status"`
+	ResolveTaskType       *string      `json:"resolve_task_type"`
+	ResolveEnrichmentData []byte       `json:"resolve_enrichment_data"`
+	ResolveErrorMessage   *string      `json:"resolve_error_message"`
 }
 
 // Like ListBOMLineItems but also joins the linked part_resolve_item so the
 // revision page can render the segmented progress bar and the new-part review
 // surface without extra round-trips.
-func (q *Queries) ListBOMLineItemsWithResolveData(ctx context.Context, bomRevisionID pgtype.UUID) ([]ListBOMLineItemsWithResolveDataRow, error) {
-	rows, err := q.db.Query(ctx, listBOMLineItemsWithResolveData, bomRevisionID)
+func (q *Queries) ListBOMLineItemsWithResolveData(ctx context.Context, arg ListBOMLineItemsWithResolveDataParams) ([]ListBOMLineItemsWithResolveDataRow, error) {
+	rows, err := q.db.Query(ctx, listBOMLineItemsWithResolveData, arg.TeamID, arg.BomRevisionID)
 	if err != nil {
 		return nil, err
 	}
@@ -593,6 +601,7 @@ func (q *Queries) ListBOMLineItemsWithResolveData(ctx context.Context, bomRevisi
 			&i.ResolutionState,
 			&i.Ignored,
 			&i.ResolvedPartMpn,
+			&i.ResolvedPartFlag,
 			&i.ResolveItemID,
 			&i.ResolveStatus,
 			&i.ResolveTaskType,

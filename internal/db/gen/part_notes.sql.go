@@ -12,7 +12,7 @@ import (
 )
 
 const getPartNote = `-- name: GetPartNote :one
-SELECT team_id, part_id, body, updated_by, updated_at
+SELECT team_id, part_id, body, flag, updated_by, updated_at
 FROM part_notes
 WHERE team_id = $1 AND part_id = $2
 `
@@ -22,17 +22,57 @@ type GetPartNoteParams struct {
 	PartID pgtype.UUID `json:"part_id"`
 }
 
-func (q *Queries) GetPartNote(ctx context.Context, arg GetPartNoteParams) (PartNote, error) {
+type GetPartNoteRow struct {
+	TeamID    pgtype.UUID        `json:"team_id"`
+	PartID    pgtype.UUID        `json:"part_id"`
+	Body      string             `json:"body"`
+	Flag      PartFlag           `json:"flag"`
+	UpdatedBy pgtype.UUID        `json:"updated_by"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetPartNote(ctx context.Context, arg GetPartNoteParams) (GetPartNoteRow, error) {
 	row := q.db.QueryRow(ctx, getPartNote, arg.TeamID, arg.PartID)
-	var i PartNote
+	var i GetPartNoteRow
 	err := row.Scan(
 		&i.TeamID,
 		&i.PartID,
 		&i.Body,
+		&i.Flag,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const setPartFlag = `-- name: SetPartFlag :one
+INSERT INTO part_notes (team_id, part_id, flag, updated_by)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (team_id, part_id) DO UPDATE
+  SET flag = EXCLUDED.flag,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = NOW()
+RETURNING flag
+`
+
+type SetPartFlagParams struct {
+	TeamID    pgtype.UUID `json:"team_id"`
+	PartID    pgtype.UUID `json:"part_id"`
+	Flag      PartFlag    `json:"flag"`
+	UpdatedBy pgtype.UUID `json:"updated_by"`
+}
+
+// Sets the team's opinion flag; creates the profile row (empty body) if needed.
+func (q *Queries) SetPartFlag(ctx context.Context, arg SetPartFlagParams) (PartFlag, error) {
+	row := q.db.QueryRow(ctx, setPartFlag,
+		arg.TeamID,
+		arg.PartID,
+		arg.Flag,
+		arg.UpdatedBy,
+	)
+	var flag PartFlag
+	err := row.Scan(&flag)
+	return flag, err
 }
 
 const upsertPartNote = `-- name: UpsertPartNote :one
@@ -42,7 +82,7 @@ ON CONFLICT (team_id, part_id) DO UPDATE
   SET body = EXCLUDED.body,
       updated_by = EXCLUDED.updated_by,
       updated_at = NOW()
-RETURNING team_id, part_id, body, updated_by, updated_at
+RETURNING team_id, part_id, body, flag, updated_by, updated_at
 `
 
 type UpsertPartNoteParams struct {
@@ -52,18 +92,29 @@ type UpsertPartNoteParams struct {
 	UpdatedBy pgtype.UUID `json:"updated_by"`
 }
 
-func (q *Queries) UpsertPartNote(ctx context.Context, arg UpsertPartNoteParams) (PartNote, error) {
+type UpsertPartNoteRow struct {
+	TeamID    pgtype.UUID        `json:"team_id"`
+	PartID    pgtype.UUID        `json:"part_id"`
+	Body      string             `json:"body"`
+	Flag      PartFlag           `json:"flag"`
+	UpdatedBy pgtype.UUID        `json:"updated_by"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Sets the body only; flag is left untouched (defaults to 'none' on first insert).
+func (q *Queries) UpsertPartNote(ctx context.Context, arg UpsertPartNoteParams) (UpsertPartNoteRow, error) {
 	row := q.db.QueryRow(ctx, upsertPartNote,
 		arg.TeamID,
 		arg.PartID,
 		arg.Body,
 		arg.UpdatedBy,
 	)
-	var i PartNote
+	var i UpsertPartNoteRow
 	err := row.Scan(
 		&i.TeamID,
 		&i.PartID,
 		&i.Body,
+		&i.Flag,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
 	)

@@ -65,6 +65,7 @@ export function activateTeamInvalidation(teamId: string) {
       const projectId = ev.data.project_id as string | undefined;
       if (projectId) {
         qc!.invalidateQueries({ queryKey: ['project', teamId, projectId] });
+        qc!.invalidateQueries({ queryKey: ['project-note', teamId, projectId] });
         qc!.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
       }
     }),

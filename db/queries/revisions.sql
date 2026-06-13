@@ -70,6 +70,7 @@ SELECT
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn,
+    pn.flag AS resolved_part_flag,
     bli.resolve_item_id,
     pri.status          AS resolve_status,
     pri.task_type       AS resolve_task_type,
@@ -79,7 +80,8 @@ FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
 LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 LEFT JOIN part_resolve_items pri ON pri.id = bli.resolve_item_id
-WHERE bli.bom_revision_id = $1
+LEFT JOIN part_notes pn ON pn.part_id = bli.resolved_part_id AND pn.team_id = sqlc.arg('team_id')
+WHERE bli.bom_revision_id = sqlc.arg('bom_revision_id')
 ORDER BY bli.id;
 
 -- name: SetBOMLineItemResolveItem :exec

@@ -127,6 +127,77 @@ func TestPartNoteManifestResolves(t *testing.T) {
 	}
 }
 
+func TestProjectNoteEmptyThenSave(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "pnote@test.local", "pw", "PN User")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "PN Team")
+	token := testutil.CreateSession(t, testDB, userID)
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Widget")
+
+	path := "/api/v1/teams/" + teamID + "/projects/" + projectID + "/note"
+
+	got, status := testutil.Do(t, testEnv.Server, http.MethodGet, path, nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("GET project note status = %d, want 200 (%v)", status, got)
+	}
+	if got["body"] != "" {
+		t.Errorf("empty project note body = %q, want \"\"", got["body"])
+	}
+
+	const body = "Schematic on the shared drive."
+	saved, status := testutil.Do(t, testEnv.Server, http.MethodPut, path, map[string]any{"body": body}, token)
+	if status != http.StatusOK {
+		t.Fatalf("PUT project note status = %d, want 200 (%v)", status, saved)
+	}
+	if saved["body"] != body {
+		t.Errorf("saved project note body = %q, want %q", saved["body"], body)
+	}
+
+	reread, _ := testutil.Do(t, testEnv.Server, http.MethodGet, path, nil, token)
+	if reread["body"] != body {
+		t.Errorf("reread project note body = %q, want %q", reread["body"], body)
+	}
+}
+
+func TestPartFlagSetAndReflected(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "flag@test.local", "pw", "Flag User")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Flag Team")
+	token := testutil.CreateSession(t, testDB, userID)
+	partID := testutil.CreatePart(t, testDB, "global", "GENERIC-FLAG", nil)
+
+	flagPath := "/api/v1/teams/" + teamID + "/parts/" + partID + "/flag"
+
+	// Default flag is 'none' on a fresh note.
+	note, _ := getNote(t, teamID, partID, token)
+	if note["flag"] != "none" {
+		t.Errorf("default flag = %v, want none", note["flag"])
+	}
+
+	// Set banned.
+	res, status := testutil.Do(t, testEnv.Server, http.MethodPut, flagPath, map[string]any{"flag": "banned"}, token)
+	if status != http.StatusOK {
+		t.Fatalf("PUT flag status = %d, want 200 (%v)", status, res)
+	}
+	if res["flag"] != "banned" {
+		t.Errorf("set flag = %v, want banned", res["flag"])
+	}
+
+	// Reflected on the note GET, without clobbering the (empty) body.
+	note2, _ := getNote(t, teamID, partID, token)
+	if note2["flag"] != "banned" {
+		t.Errorf("note flag after set = %v, want banned", note2["flag"])
+	}
+
+	// Invalid flag rejected.
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPut, flagPath, map[string]any{"flag": "bogus"}, token)
+	if status != http.StatusBadRequest {
+		t.Errorf("invalid flag status = %d, want 400", status)
+	}
+}
+
 func TestPartNotePutRequiresMember(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 

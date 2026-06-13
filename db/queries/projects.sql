@@ -30,6 +30,18 @@ RETURNING id, team_id, name, description, status, active_bom_revision_id,
           bom_import_config, preferred_distributor_id, source_url, project_manager_id,
           created_by, created_at;
 
+-- name: GetProjectNote :one
+-- Team-scoped: returns no rows (→ 404) if the project isn't owned by the team.
+SELECT notes, notes_updated_by, notes_updated_at
+FROM projects
+WHERE id = $1 AND team_id = $2;
+
+-- name: UpdateProjectNote :one
+UPDATE projects
+SET notes = $3, notes_updated_by = $4, notes_updated_at = NOW()
+WHERE id = $1 AND team_id = $2
+RETURNING notes, notes_updated_by, notes_updated_at;
+
 -- name: GetProject :one
 SELECT
     p.id, p.name, p.description, p.status,

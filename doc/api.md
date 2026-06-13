@@ -229,8 +229,11 @@ The team's freeform markdown note for a part (one per team per part — the know
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| GET | `/parts/{partId}/note` | viewer | The team's note for the part. Returns `{body, manifest, updated_at?, updated_by?}`; `body` is `""` when no note exists yet (200, not 404). |
-| PUT | `/parts/{partId}/note` | member | `{body}` — upsert the note (created lazily on first save). Part must be visible to the team (global or team-owned), else 404. Body capped at 256 KiB. Returns the saved `{body, manifest, updated_at, updated_by}`. |
+| GET | `/parts/{partId}/note` | viewer | The team's note for the part. Returns `{body, manifest, flag, updated_at?, updated_by?}`; `body` is `""` and `flag` is `"none"` when no note exists yet (200, not 404). |
+| PUT | `/parts/{partId}/note` | member | `{body}` — upsert the note (created lazily on first save; leaves `flag` untouched). Part must be visible to the team (global or team-owned), else 404. Body capped at 256 KiB. Returns the saved `{body, manifest, flag, updated_at, updated_by}`. |
+| PUT | `/parts/{partId}/flag` | member | `{flag}` — set the team's opinion flag, one of `none\|preferred\|approved\|banned` (independent of the note body). 400 on an unknown value. Returns `{flag}`. `banned` surfaces as `resolved_part_flag` on BOM revision line items (a design-in warning). |
+| GET | `/projects/{projectId}/note` | viewer | The team's note for the project (stored on the project row — projects are single-team). Returns `{body, manifest, updated_at?, updated_by?}`. 404 if the project isn't the team's. |
+| PUT | `/projects/{projectId}/note` | member | `{body}` — update the project note. 404 if not the team's. Body capped at 256 KiB. |
 
 **Manifest shape** (`manifest`):
 ```json

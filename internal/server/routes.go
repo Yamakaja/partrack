@@ -210,8 +210,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// Part allocations
 					r.Get("/parts/{partId}/allocations", h.GetPartAllocations)
 
-					// Part notes (read; write is member+ below)
+					// Notes (read; write is member+ below)
 					r.Get("/parts/{partId}/note", h.GetPartNote)
+					r.Get("/projects/{projectId}/note", h.GetProjectNote)
 
 					// 15. General checkouts
 					r.Get("/checkouts", h.ListCheckouts)
@@ -238,8 +239,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// Attachments (image uploads for notes etc.)
 					r.Post("/attachments", h.UploadAttachment)
 
-					// Part notes (write)
+					// Notes + part flag (write)
 					r.Put("/parts/{partId}/note", h.PutPartNote)
+					r.Put("/parts/{partId}/flag", h.PutPartFlag)
+					r.Put("/projects/{projectId}/note", h.PutProjectNote)
 
 					// Inventory
 					r.Post("/inventory", h.CreateInventoryEntry)

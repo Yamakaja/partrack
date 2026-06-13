@@ -75,6 +75,8 @@ export interface BOMLineItem {
   has_linked_distributor: boolean;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
+  /** Team opinion flag on the resolved part; omitted when 'none'. */
+  resolved_part_flag?: import('$lib/api/notes.js').PartFlag;
   resolution_state: string | null;
   ignored: boolean;
   substitutes: BOMSubstitute[];

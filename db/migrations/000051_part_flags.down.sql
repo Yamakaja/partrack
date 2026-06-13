@@ -1,0 +1,2 @@
+ALTER TABLE part_notes DROP COLUMN IF EXISTS flag;
+DROP TYPE IF EXISTS part_flag;

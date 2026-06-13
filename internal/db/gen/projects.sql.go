@@ -172,6 +172,31 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (GetProj
 	return i, err
 }
 
+const getProjectNote = `-- name: GetProjectNote :one
+SELECT notes, notes_updated_by, notes_updated_at
+FROM projects
+WHERE id = $1 AND team_id = $2
+`
+
+type GetProjectNoteParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type GetProjectNoteRow struct {
+	Notes          string             `json:"notes"`
+	NotesUpdatedBy pgtype.UUID        `json:"notes_updated_by"`
+	NotesUpdatedAt pgtype.Timestamptz `json:"notes_updated_at"`
+}
+
+// Team-scoped: returns no rows (→ 404) if the project isn't owned by the team.
+func (q *Queries) GetProjectNote(ctx context.Context, arg GetProjectNoteParams) (GetProjectNoteRow, error) {
+	row := q.db.QueryRow(ctx, getProjectNote, arg.ID, arg.TeamID)
+	var i GetProjectNoteRow
+	err := row.Scan(&i.Notes, &i.NotesUpdatedBy, &i.NotesUpdatedAt)
+	return i, err
+}
+
 const listProjects = `-- name: ListProjects :many
 SELECT
     p.id, p.name, p.description, p.status,
@@ -423,5 +448,37 @@ func (q *Queries) UpdateProjectKeepConfig(ctx context.Context, arg UpdateProject
 		&i.CreatedBy,
 		&i.CreatedAt,
 	)
+	return i, err
+}
+
+const updateProjectNote = `-- name: UpdateProjectNote :one
+UPDATE projects
+SET notes = $3, notes_updated_by = $4, notes_updated_at = NOW()
+WHERE id = $1 AND team_id = $2
+RETURNING notes, notes_updated_by, notes_updated_at
+`
+
+type UpdateProjectNoteParams struct {
+	ID             pgtype.UUID `json:"id"`
+	TeamID         pgtype.UUID `json:"team_id"`
+	Notes          string      `json:"notes"`
+	NotesUpdatedBy pgtype.UUID `json:"notes_updated_by"`
+}
+
+type UpdateProjectNoteRow struct {
+	Notes          string             `json:"notes"`
+	NotesUpdatedBy pgtype.UUID        `json:"notes_updated_by"`
+	NotesUpdatedAt pgtype.Timestamptz `json:"notes_updated_at"`
+}
+
+func (q *Queries) UpdateProjectNote(ctx context.Context, arg UpdateProjectNoteParams) (UpdateProjectNoteRow, error) {
+	row := q.db.QueryRow(ctx, updateProjectNote,
+		arg.ID,
+		arg.TeamID,
+		arg.Notes,
+		arg.NotesUpdatedBy,
+	)
+	var i UpdateProjectNoteRow
+	err := row.Scan(&i.Notes, &i.NotesUpdatedBy, &i.NotesUpdatedAt)
 	return i, err
 }

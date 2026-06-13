@@ -59,6 +59,7 @@ type noteManifest struct {
 type noteResponse struct {
 	Body      string       `json:"body"`
 	Manifest  noteManifest `json:"manifest"`
+	Flag      *string      `json:"flag,omitempty"` // part notes only (team opinion flag)
 	UpdatedAt *string      `json:"updated_at,omitempty"`
 	UpdatedBy *string      `json:"updated_by,omitempty"`
 }
@@ -265,10 +266,12 @@ func (h *Handler) GetPartNote(w http.ResponseWriter, r *http.Request) {
 
 	var body string
 	var updatedAt, updatedBy *string
+	flag := string(dbgen.PartFlagNone)
 	note, err := h.Queries.GetPartNote(r.Context(), dbgen.GetPartNoteParams{TeamID: teamID, PartID: partID})
 	switch {
 	case err == nil:
 		body = note.Body
+		flag = string(note.Flag)
 		updatedAt = timestamptzString(note.UpdatedAt)
 		updatedBy = uuidPtrString(note.UpdatedBy)
 	case errors.Is(err, pgx.ErrNoRows):
@@ -284,7 +287,7 @@ func (h *Handler) GetPartNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, noteResponse{Body: body, Manifest: manifest, UpdatedAt: updatedAt, UpdatedBy: updatedBy})
+	writeJSON(w, http.StatusOK, noteResponse{Body: body, Manifest: manifest, Flag: &flag, UpdatedAt: updatedAt, UpdatedBy: updatedBy})
 }
 
 // PutPartNote handles PUT /api/v1/teams/{teamId}/parts/{partId}/note (member+).
@@ -351,10 +354,170 @@ func (h *Handler) PutPartNote(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
 
+	flag := string(note.Flag)
 	writeJSON(w, http.StatusOK, noteResponse{
 		Body:      note.Body,
 		Manifest:  manifest,
+		Flag:      &flag,
 		UpdatedAt: timestamptzString(note.UpdatedAt),
 		UpdatedBy: uuidPtrString(note.UpdatedBy),
+	})
+}
+
+// PutPartFlag handles PUT /api/v1/teams/{teamId}/parts/{partId}/flag (member+).
+// Sets the team's opinion flag on the part (none/preferred/approved/banned),
+// independent of the note body. Same part-accessibility guard as the note.
+func (h *Handler) PutPartFlag(w http.ResponseWriter, r *http.Request) {
+	var teamID, partID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+	if err := partID.Scan(chi.URLParam(r, "partId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid part ID", "BAD_REQUEST")
+		return
+	}
+
+	var req struct {
+		Flag string `json:"flag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	flag := dbgen.PartFlag(req.Flag)
+	switch flag {
+	case dbgen.PartFlagNone, dbgen.PartFlagPreferred, dbgen.PartFlagApproved, dbgen.PartFlagBanned:
+	default:
+		writeError(w, http.StatusBadRequest, "invalid flag", "BAD_REQUEST")
+		return
+	}
+
+	part, err := h.Queries.GetPart(r.Context(), partID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error(), "DB_ERROR")
+		return
+	}
+	if part.Scope == dbgen.PartScopeTeam && (!part.TeamID.Valid || part.TeamID != teamID) {
+		writeError(w, http.StatusNotFound, "part not found", "NOT_FOUND")
+		return
+	}
+
+	var updatedBy pgtype.UUID
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		_ = updatedBy.Scan(u.ID)
+	}
+
+	saved, err := h.Queries.SetPartFlag(r.Context(), dbgen.SetPartFlagParams{
+		TeamID:    teamID,
+		PartID:    partID,
+		Flag:      flag,
+		UpdatedBy: updatedBy,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "DB_ERROR")
+		return
+	}
+
+	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
+	writeJSON(w, http.StatusOK, map[string]string{"flag": string(saved)})
+}
+
+// GetProjectNote handles GET /api/v1/teams/{teamId}/projects/{projectId}/note.
+// The note lives on the project row (a project is owned by one team), so the
+// query is team-scoped and a missing project is a 404.
+func (h *Handler) GetProjectNote(w http.ResponseWriter, r *http.Request) {
+	var teamID, projectID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project ID", "BAD_REQUEST")
+		return
+	}
+
+	row, err := h.Queries.GetProjectNote(r.Context(), dbgen.GetProjectNoteParams{ID: projectID, TeamID: teamID})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		writeError(w, http.StatusNotFound, "project not found", "NOT_FOUND")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error(), "DB_ERROR")
+		return
+	}
+
+	manifest, err := h.resolveNoteManifest(r.Context(), teamID, row.Notes)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "DB_ERROR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, noteResponse{
+		Body:      row.Notes,
+		Manifest:  manifest,
+		UpdatedAt: timestamptzString(row.NotesUpdatedAt),
+		UpdatedBy: uuidPtrString(row.NotesUpdatedBy),
+	})
+}
+
+// PutProjectNote handles PUT /api/v1/teams/{teamId}/projects/{projectId}/note (member+).
+func (h *Handler) PutProjectNote(w http.ResponseWriter, r *http.Request) {
+	var teamID, projectID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+	if err := projectID.Scan(chi.URLParam(r, "projectId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project ID", "BAD_REQUEST")
+		return
+	}
+
+	var req struct {
+		Body string `json:"body"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxNoteBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+
+	var updatedBy pgtype.UUID
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		_ = updatedBy.Scan(u.ID)
+	}
+
+	row, err := h.Queries.UpdateProjectNote(r.Context(), dbgen.UpdateProjectNoteParams{
+		ID:             projectID,
+		TeamID:         teamID,
+		Notes:          req.Body,
+		NotesUpdatedBy: updatedBy,
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		writeError(w, http.StatusNotFound, "project not found", "NOT_FOUND")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error(), "DB_ERROR")
+		return
+	}
+
+	manifest, err := h.resolveNoteManifest(r.Context(), teamID, row.Notes)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "DB_ERROR")
+		return
+	}
+
+	h.publishEvent(r, "project_changed", teamID.String(), map[string]string{"project_id": projectID.String()})
+
+	writeJSON(w, http.StatusOK, noteResponse{
+		Body:      row.Notes,
+		Manifest:  manifest,
+		UpdatedAt: timestamptzString(row.NotesUpdatedAt),
+		UpdatedBy: uuidPtrString(row.NotesUpdatedBy),
 	})
 }

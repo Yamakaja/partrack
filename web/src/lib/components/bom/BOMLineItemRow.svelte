@@ -3,6 +3,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { TableRow, TableCell } from '$lib/components/ui/table/index.js';
   import { linkAction } from '$lib/router/index.svelte.js';
+  import FlagBadge from '$lib/components/notes/FlagBadge.svelte';
 
   const COLUMN_WIDTH: number = 80
 
@@ -95,6 +96,7 @@
           {:else}
             <span class="font-mono text-xs text-muted-foreground">{item.resolved_part_mpn}</span>
           {/if}
+          {#if item.resolved_part_flag}<FlagBadge flag={item.resolved_part_flag} />{/if}
         {/if}
       </button>
     {:else}
@@ -110,6 +112,7 @@
           {:else}
             <span class="font-mono text-xs text-muted-foreground">{item.resolved_part_mpn}</span>
           {/if}
+          {#if item.resolved_part_flag}<FlagBadge flag={item.resolved_part_flag} />{/if}
         {/if}
       </div>
     {/if}

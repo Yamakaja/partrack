@@ -185,6 +185,50 @@ func (ns NullParameterSourceType) Value() (driver.Value, error) {
 	return string(ns.ParameterSourceType), nil
 }
 
+type PartFlag string
+
+const (
+	PartFlagNone      PartFlag = "none"
+	PartFlagPreferred PartFlag = "preferred"
+	PartFlagApproved  PartFlag = "approved"
+	PartFlagBanned    PartFlag = "banned"
+)
+
+func (e *PartFlag) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PartFlag(s)
+	case string:
+		*e = PartFlag(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PartFlag: %T", src)
+	}
+	return nil
+}
+
+type NullPartFlag struct {
+	PartFlag PartFlag `json:"part_flag"`
+	Valid    bool     `json:"valid"` // Valid is true if PartFlag is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPartFlag) Scan(value interface{}) error {
+	if value == nil {
+		ns.PartFlag, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PartFlag.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPartFlag) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PartFlag), nil
+}
+
 type PartLifecycleStatus string
 
 const (
@@ -720,6 +764,7 @@ type PartNote struct {
 	Body      string             `json:"body"`
 	UpdatedBy pgtype.UUID        `json:"updated_by"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Flag      PartFlag           `json:"flag"`
 }
 
 type PartParameter struct {
@@ -774,6 +819,9 @@ type Project struct {
 	PreferredDistributorID pgtype.UUID        `json:"preferred_distributor_id"`
 	SourceUrl              *string            `json:"source_url"`
 	ProjectManagerID       pgtype.UUID        `json:"project_manager_id"`
+	Notes                  string             `json:"notes"`
+	NotesUpdatedBy         pgtype.UUID        `json:"notes_updated_by"`
+	NotesUpdatedAt         pgtype.Timestamptz `json:"notes_updated_at"`
 }
 
 type ScanSession struct {

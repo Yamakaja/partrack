@@ -36,6 +36,8 @@
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import { authStore } from '$lib/stores/auth.svelte.js';
   import NotePanel from '$lib/components/notes/NotePanel.svelte';
+  import PartFlagControl from '$lib/components/notes/PartFlagControl.svelte';
+  import { getPartNote, putPartNote } from '$lib/api/notes.js';
   import { hasMinRole } from '$lib/utils/roles.js';
 
   let { teamId, partId }: { teamId: string; partId: string } = $props();
@@ -367,6 +369,7 @@
         <Button variant="outline" size="sm" onclick={openEditPart}>
           <Pencil class="h-4 w-4 mr-1" /> Edit Part
         </Button>
+        <PartFlagControl {teamId} {partId} canEdit={canEditNotes} />
         {#if isPurchaser}
           <Button variant="outline" size="sm" onclick={() => openAddToCartDialog()}>
             <ShoppingCart class="h-4 w-4 mr-1" /> Add to Cart
@@ -528,7 +531,13 @@
           />
         </section>
 
-        <NotePanel {teamId} {partId} canEdit={canEditNotes} />
+        <NotePanel
+          {teamId}
+          queryKey={['part-note', teamId, partId]}
+          load={() => getPartNote(teamId, partId)}
+          save={(body) => putPartNote(teamId, partId, body)}
+          canEdit={canEditNotes}
+        />
 
         {#if tracked && (allocationsQuery.data?.items.length ?? 0) > 0}
           <section class="space-y-2">

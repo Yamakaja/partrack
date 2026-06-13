@@ -277,7 +277,10 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lineItems, err := h.Queries.ListBOMLineItemsWithResolveData(r.Context(), revID)
+	lineItems, err := h.Queries.ListBOMLineItemsWithResolveData(r.Context(), dbgen.ListBOMLineItemsWithResolveDataParams{
+		TeamID:        teamID,
+		BomRevisionID: revID,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -324,6 +327,7 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		HasLinkedDistributor bool             `json:"has_linked_distributor"`
 		ResolvedPartID       *string          `json:"resolved_part_id"`
 		ResolvedPartMpn      *string          `json:"resolved_part_mpn"`
+		ResolvedPartFlag     *string          `json:"resolved_part_flag,omitempty"`
 		ResolutionState      *string          `json:"resolution_state"`
 		Ignored              bool             `json:"ignored"`
 		Substitutes          []subEntry       `json:"substitutes"`
@@ -349,6 +353,10 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			ResolutionState:      li.ResolutionState,
 			Ignored:              li.Ignored,
 			Substitutes:          subsByItem[id],
+		}
+		if li.ResolvedPartFlag.Valid && li.ResolvedPartFlag.PartFlag != dbgen.PartFlagNone {
+			f := string(li.ResolvedPartFlag.PartFlag)
+			itemsResp[i].ResolvedPartFlag = &f
 		}
 		if li.ResolveItemID.Valid {
 			ri := &resolveItemResp{

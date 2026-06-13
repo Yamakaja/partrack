@@ -5,6 +5,10 @@
   import { listMembers } from '$lib/api/teams.js';
   import { listDistributorConfigs } from '$lib/api/distributors.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import NotePanel from '$lib/components/notes/NotePanel.svelte';
+  import { getProjectNote, putProjectNote } from '$lib/api/notes.js';
+  import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
+  import { hasMinRole } from '$lib/utils/roles.js';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import BOMImportDialog from '$lib/components/bom/BOMImportDialog.svelte';
@@ -23,6 +27,8 @@
   import {  projectStatusVariant } from '$lib/types/projects';
 
   let { teamId, projectId }: { teamId: string; projectId: string } = $props();
+
+  let canEditNotes = $derived(hasMinRole(activeTeamStore.current?.role ?? '', 'member'));
 
   const qc = useQueryClient();
 
@@ -231,6 +237,15 @@
         {/snippet}
       </MetadataCard>
     {/if}
+
+    <!-- Project notes -->
+    <NotePanel
+      {teamId}
+      queryKey={['project-note', teamId, projectId]}
+      load={() => getProjectNote(teamId, projectId)}
+      save={(body) => putProjectNote(teamId, projectId, body)}
+      canEdit={canEditNotes}
+    />
 
     <!-- Revisions table -->
     <div>
