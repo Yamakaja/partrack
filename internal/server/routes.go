@@ -103,6 +103,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				r.Get("/admin/ldap/providers", h.AdminLDAPProviders)
 				r.With(authLimiter).Post("/admin/ldap/test-connection", h.AdminLDAPTestConnection)
 				r.With(authLimiter).Post("/admin/ldap/diagnose", h.AdminLDAPDiagnose)
+				r.With(authLimiter).Post("/admin/ldap/inspect", h.AdminLDAPInspect)
 
 				r.Get("/admin/users", h.ListUsers)
 				r.Post("/admin/users", h.CreateUser)

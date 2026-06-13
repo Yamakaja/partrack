@@ -52,9 +52,6 @@ session, and no account is provisioned. Membership in **any** one of the listed
 groups is sufficient. The gate is checked on every login, so removing a user from
 the group(s) also locks out their existing account.
 
-> The deprecated singular `required_group: "<dn>"` is still accepted and folded
-> into `required_groups` at load time; prefer the list form.
-
 Group membership for the gate (and for `admin_group` / `group_mappings`) counts
 **nested groups** — see [Nested / transitive groups](#nested--transitive-groups).
 
@@ -280,7 +277,10 @@ no directory change required.
 
 - `url`: use `ldaps://` (port 636) or `ldap://` with `start_tls: true`.
 - `user_filter`: `(sAMAccountName=%s)` or `(userPrincipalName=%s)`.
-- `attr_unique_id`: `objectGUID`.
+- `attr_unique_id`: `objectGUID`. It is a **binary** attribute; partrack reads
+  its raw bytes and stores the canonical `xxxxxxxx-…` GUID string as the subject
+  (other binary unique-ids are hex-encoded), so it is safe in a text column and
+  readable in the diagnostics output.
 - AD populates `memberOf` with the user's **direct** group DNs, which is what
   `admin_group` / `group_mappings` match against. Nested AD groups are expanded
   by partrack's transitive walk (on by default); alternatively use the in-chain
@@ -340,6 +340,19 @@ It is strictly **read-only**: it performs DB reads to make the report precise bu
 never creates a user, identity, membership, or session. Use it to validate a new
 `ldap:` block (after restarting), debug connectivity/TLS, or confirm that a
 user's groups map to the teams and roles you expect.
+
+### Look up user (no password)
+
+A **Look up user** button (backed by `POST /api/v1/admin/ldap/inspect`) produces
+the *same* report from a **username alone** — it runs every lookup (search,
+identity, transitive groups, authorization, group existence, account resolution)
+but **skips the bind as that user**, so no password is needed and the user need
+not be present. This is how an admin debugs "why can't this person log in?"
+without their credentials: the bind trace shows the user-bind step as *skipped*,
+and the outcome banner says the password was not checked. Because the only thing
+it cannot tell you is whether the password is correct, everything else — does the
+account exist, is the filter unambiguous, is the user in the required group(s),
+what teams/roles they'd get — is answered exactly as a real login would see it.
 
 The page also offers a **Test connection** button (backed by
 `POST /api/v1/admin/ldap/test-connection`) that needs *no* user credentials. It:

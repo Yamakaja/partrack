@@ -32,6 +32,46 @@ func TestAuthenticateRejectsEmptyCredentials(t *testing.T) {
 			t.Fatalf("Authenticate(%q,%q): want ErrInvalidCredentials, got %v", c.user, c.pass, err)
 		}
 	}
+
+	// Inspect needs no password (it never binds as the user) but still requires a
+	// username; an empty one is rejected before any dial, same as above.
+	if _, _, err := a.Inspect(context.Background(), "", nil); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Inspect(\"\"): want ErrInvalidCredentials, got %v", err)
+	}
+}
+
+// TestEncodeUniqueID covers the three subject-encoding paths: printable text
+// passes through, AD's binary objectGUID becomes its canonical string (with the
+// mixed-endian byte order), and any other binary value is hex-encoded.
+func TestEncodeUniqueID(t *testing.T) {
+	// Canonical GUID 00112233-4455-6677-8899-aabbccddeeff as AD stores it:
+	// first three groups little-endian, the rest big-endian.
+	guidRaw := []byte{
+		0x33, 0x22, 0x11, 0x00,
+		0x55, 0x44,
+		0x77, 0x66,
+		0x88, 0x99,
+		0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+	}
+
+	cases := []struct {
+		name string
+		attr string
+		raw  []byte
+		want string
+	}{
+		{"empty", "objectGUID", nil, ""},
+		{"printable entryUUID", "entryUUID", []byte("9f8e7d6c-1234-5678-9abc-def012345678"), "9f8e7d6c-1234-5678-9abc-def012345678"},
+		{"objectGUID canonical", "objectGUID", guidRaw, "00112233-4455-6677-8899-aabbccddeeff"},
+		{"objectGUID case-insensitive attr", "objectguid", guidRaw, "00112233-4455-6677-8899-aabbccddeeff"},
+		{"other binary → hex", "entryUUID", []byte{0x00, 0xde, 0xad, 0xbe, 0xef}, "00deadbeef"},
+		{"non-16-byte binary → hex", "objectGUID", []byte{0xff, 0x00, 0x01}, "ff0001"},
+	}
+	for _, c := range cases {
+		if got := encodeUniqueID(c.attr, c.raw); got != c.want {
+			t.Errorf("%s: encodeUniqueID(%q, %v) = %q; want %q", c.name, c.attr, c.raw, got, c.want)
+		}
+	}
 }
 
 func TestEvaluateGroups(t *testing.T) {

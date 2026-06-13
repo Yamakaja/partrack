@@ -102,25 +102,62 @@ func (h *Handler) AdminLDAPDiagnose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, steps, err := entry.auth.Diagnose(r.Context(), req.Username, req.Password, ldapProbeGroups(entry.cfg))
+	writeJSON(w, http.StatusOK, h.ldapReport(r.Context(), req.Provider, entry.cfg, result, steps, err, true))
+}
 
-	resp := map[string]any{
-		"provider":      req.Provider,
-		"authenticated": err == nil,
-		"steps":         steps,
+// AdminLDAPInspect handles POST /api/v1/admin/ldap/inspect
+// Body: {provider, username}. Resolves an account by username alone — search,
+// identity, groups, authorization, group existence and account resolution —
+// without binding as the user, so no password is needed and the user need not
+// be present. For debugging why a specific account can or cannot log in. Like
+// diagnose it is strictly read-only.
+func (h *Handler) AdminLDAPInspect(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+		Username string `json:"username"`
 	}
-	if err != nil {
-		if errors.Is(err, pkgldap.ErrInvalidCredentials) {
-			resp["error"] = "invalid credentials"
-		} else {
-			// The admin owns this directory, so surfacing the operational error
-			// (TLS, unreachable host, misconfigured bind DN) is the whole point.
-			resp["error"] = err.Error()
-		}
-		writeJSON(w, http.StatusOK, resp)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Provider == "" || req.Username == "" {
+		writeError(w, http.StatusBadRequest, "provider and username are required", "BAD_REQUEST")
 		return
 	}
 
-	decision := pkgldap.EvaluateGroups(entry.cfg, result.Groups)
+	entry, ok := h.ldapEntries[req.Provider]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown LDAP provider", "NOT_FOUND")
+		return
+	}
+
+	result, steps, err := entry.auth.Inspect(r.Context(), req.Username, ldapProbeGroups(entry.cfg))
+	writeJSON(w, http.StatusOK, h.ldapReport(r.Context(), req.Provider, entry.cfg, result, steps, err, false))
+}
+
+// ldapReport renders the shared diagnose/inspect response from a directory
+// lookup. verified records whether the user's password was checked (diagnose)
+// vs skipped (inspect); it is surfaced as password_verified so the UI can label
+// the outcome. On error the report carries only the trace and a message.
+func (h *Handler) ldapReport(ctx context.Context, provider string, cfg config.LDAPProvider, result *pkgldap.Result, steps []pkgldap.Step, err error, verified bool) map[string]any {
+	resp := map[string]any{
+		"provider":          provider,
+		"password_verified": verified,
+		"steps":             steps,
+	}
+	if err != nil {
+		switch {
+		case !errors.Is(err, pkgldap.ErrInvalidCredentials):
+			// The admin owns this directory, so surfacing the operational error
+			// (TLS, unreachable host, misconfigured bind DN) is the whole point.
+			resp["error"] = err.Error()
+		case verified:
+			resp["error"] = "invalid credentials"
+		default:
+			// Inspect never checks a password, so this only means the search did
+			// not resolve to exactly one entry.
+			resp["error"] = "user not found, or the filter matched zero or multiple entries (see trace)"
+		}
+		return resp
+	}
+
+	decision := pkgldap.EvaluateGroups(cfg, result.Groups)
 	groups := result.Groups
 	if groups == nil {
 		// Marshal as [] not null — the diagnostics UI reads groups.length.
@@ -134,10 +171,10 @@ func (h *Handler) AdminLDAPDiagnose(w http.ResponseWriter, r *http.Request) {
 		"groups":       groups,
 	}
 	resp["authorization"] = decision
-	resp["group_checks"] = ldapGroupChecks(entry.cfg, result)
-	resp["resolution"] = h.resolveLDAPDiagnostics(r.Context(), entry.cfg, result, decision)
-	resp["warnings"] = ldapWarnings(entry.cfg, result, decision)
-	writeJSON(w, http.StatusOK, resp)
+	resp["group_checks"] = ldapGroupChecks(cfg, result)
+	resp["resolution"] = h.resolveLDAPDiagnostics(ctx, cfg, result, decision)
+	resp["warnings"] = ldapWarnings(cfg, result, decision)
+	return resp
 }
 
 // ldapProbeGroups is the set of group DNs partrack references (login gate, admin

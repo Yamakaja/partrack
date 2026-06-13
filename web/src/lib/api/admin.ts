@@ -196,7 +196,9 @@ export interface LdapGroupCheck {
 
 export interface LdapDiagnoseResult {
   provider: string;
-  authenticated: boolean;
+  // true when the user's password was verified (diagnose); false for inspect,
+  // which resolves the account without binding as the user.
+  password_verified: boolean;
   error?: string;
   steps: LdapStep[];
   identity?: {
@@ -240,5 +242,14 @@ export function diagnoseLdap(provider: string, username: string, password: strin
     provider,
     username,
     password,
+  });
+}
+
+// inspectLdap resolves an account by username alone (no password, no user bind),
+// for debugging why a specific user can or cannot log in.
+export function inspectLdap(provider: string, username: string) {
+  return request<LdapDiagnoseResult>('POST', '/api/v1/admin/ldap/inspect', {
+    provider,
+    username,
   });
 }

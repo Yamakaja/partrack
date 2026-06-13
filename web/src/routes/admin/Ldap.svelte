@@ -3,6 +3,7 @@
   import {
     listLdapProviders,
     diagnoseLdap,
+    inspectLdap,
     testLdapConnection,
     type LdapProviderInfo,
     type LdapDiagnoseResult,
@@ -20,6 +21,7 @@
   let username = $state('');
   let password = $state('');
   let loading = $state(false);
+  let inspecting = $state(false);
   let loadError = $state('');
   let result = $state<LdapDiagnoseResult | null>(null);
   let testingConn = $state(false);
@@ -38,6 +40,7 @@
     e.preventDefault();
     loading = true;
     result = null;
+    conn = null;
     loadError = '';
     try {
       result = await diagnoseLdap(provider, username, password);
@@ -45,6 +48,20 @@
       loadError = err.message ?? 'Diagnostics request failed';
     } finally {
       loading = false;
+    }
+  }
+
+  async function runInspect() {
+    inspecting = true;
+    result = null;
+    conn = null;
+    loadError = '';
+    try {
+      result = await inspectLdap(provider, username);
+    } catch (err: any) {
+      loadError = err.message ?? 'Inspection request failed';
+    } finally {
+      inspecting = false;
     }
   }
 
@@ -110,20 +127,26 @@
           <Input id="username" bind:value={username} autocomplete="off" required />
         </div>
         <div class="space-y-1">
-          <Label for="password">Password</Label>
-          <Input id="password" type="password" bind:value={password} autocomplete="off" required />
+          <Label for="password">Password <span class="text-muted-foreground font-normal">(login test only)</span></Label>
+          <Input id="password" type="password" bind:value={password} autocomplete="off" />
         </div>
 
-        <div class="flex items-center gap-2">
-          <Button type="submit" disabled={loading || !username || !password}>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button type="submit" disabled={loading || inspecting || !username || !password}>
             {loading ? 'Testing…' : 'Run login test'}
+          </Button>
+          <Button type="button" variant="outline" disabled={loading || inspecting || !username} onclick={runInspect}>
+            {inspecting ? 'Looking up…' : 'Look up user'}
           </Button>
           <Button type="button" variant="outline" disabled={testingConn} onclick={runConnection}>
             {testingConn ? 'Checking…' : 'Test connection'}
           </Button>
         </div>
         <p class="text-xs text-muted-foreground">
-          “Test connection” checks reachability, TLS, the service bind and configured DNs — no user credentials needed.
+          <strong>Look up user</strong> runs every lookup (search, groups, authorization, account resolution)
+          for the entered username <em>without</em> their password — use it to debug why a user can or can't sign
+          in. <strong>Test connection</strong> checks reachability, TLS, the service bind and configured DNs — no
+          username needed.
         </p>
       </form>
 
@@ -185,11 +208,19 @@
         <!-- Overall outcome -->
         <div
           class="rounded-md border px-4 py-3 text-sm font-medium
-            {result.authenticated
-            ? 'border-green-600/30 bg-green-600/10 text-green-700 dark:text-green-400'
-            : 'border-destructive/30 bg-destructive/10 text-destructive'}"
+            {result.error
+            ? 'border-destructive/30 bg-destructive/10 text-destructive'
+            : result.password_verified
+              ? 'border-green-600/30 bg-green-600/10 text-green-700 dark:text-green-400'
+              : 'border-blue-600/30 bg-blue-600/10 text-blue-700 dark:text-blue-400'}"
         >
-          {result.authenticated ? 'Authentication succeeded' : `Authentication failed${result.error ? ` — ${result.error}` : ''}`}
+          {#if result.error}
+            {result.password_verified ? 'Authentication failed' : 'Lookup failed'} — {result.error}
+          {:else if result.password_verified}
+            Authentication succeeded
+          {:else}
+            User resolved — password not checked (inspection only)
+          {/if}
         </div>
 
         {#if result.warnings && result.warnings.length > 0}
@@ -203,7 +234,7 @@
 
         <!-- Steps -->
         <section class="space-y-2">
-          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Bind trace</h3>
+          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{result.password_verified ? 'Bind trace' : 'Lookup trace'}</h3>
           <ul class="space-y-1.5">
             {#each result.steps as step (step.name)}
               <li class="flex items-start gap-2 text-sm">

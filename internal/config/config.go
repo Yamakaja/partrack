@@ -120,7 +120,7 @@ type LDAPProvider struct {
 	// Attribute names read off the user entry.
 	AttrEmail       string `yaml:"attr_email"`        // default "mail"
 	AttrDisplayName string `yaml:"attr_display_name"` // default "cn"
-	AttrUniqueID    string `yaml:"attr_unique_id"`    // stable subject; default "entryUUID"
+	AttrUniqueID    string `yaml:"attr_unique_id"`    // stable subject; default "entryUUID"; binary (e.g. AD objectGUID) is encoded
 	AttrMemberOf    string `yaml:"attr_member_of"`    // group membership attr; default "memberOf"
 
 	// GroupBaseDN enables group resolution by reverse search instead of reading
@@ -140,9 +140,6 @@ type LDAPProvider struct {
 	// a wrong password. Empty allows any directory user. Membership counts nested
 	// groups (see ExpandNestedGroups).
 	RequiredGroups []string `yaml:"required_groups"`
-	// RequiredGroup is the deprecated single-group form of RequiredGroups. If set
-	// it is folded into RequiredGroups at load time; prefer required_groups.
-	RequiredGroup string `yaml:"required_group"`
 
 	// ExpandNestedGroups, when true (the default), resolves group membership
 	// transitively: the user's groups include not only their direct groups but
@@ -309,12 +306,7 @@ func Load() *Config {
 		if p.TimeoutSeconds <= 0 {
 			p.TimeoutSeconds = 8
 		}
-		// Fold the deprecated single required_group into the plural form, and
-		// default nested-group expansion on when the operator did not set it.
-		if p.RequiredGroup != "" {
-			p.RequiredGroups = append(p.RequiredGroups, p.RequiredGroup)
-			p.RequiredGroup = ""
-		}
+		// Default nested-group expansion on when the operator did not set it.
 		if p.ExpandNestedGroups == nil {
 			on := true
 			p.ExpandNestedGroups = &on

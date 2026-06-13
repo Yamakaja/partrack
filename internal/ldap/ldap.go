@@ -14,12 +14,14 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Yamakaja/partrack/internal/config"
 	"github.com/go-ldap/ldap/v3"
@@ -34,7 +36,9 @@ var ErrInvalidCredentials = errors.New("ldap: invalid credentials")
 // Result is the normalized identity returned by a successful bind.
 type Result struct {
 	// Subject is the stable unique identifier (AttrUniqueID, e.g. entryUUID /
-	// objectGUID). Falls back to the user's DN if the attribute is absent.
+	// objectGUID). Binary values are encoded to a stable string (objectGUID to
+	// its canonical form, other binary to hex). Falls back to the user's DN if
+	// the attribute is absent.
 	Subject string
 	Email   string
 	// DisplayName is the human name; falls back to the username if absent.
@@ -119,7 +123,7 @@ func (a *Authenticator) Name() string { return a.cfg.Name }
 // resolved identity. Credential failures return ErrInvalidCredentials; all
 // other (operational) problems return a wrapped error.
 func (a *Authenticator) Authenticate(ctx context.Context, username, password string) (*Result, error) {
-	return a.authenticate(ctx, username, password, nil, nil)
+	return a.authenticate(ctx, username, password, true, nil, nil)
 }
 
 // Diagnose runs the same flow as Authenticate but records a step-by-step trace
@@ -129,16 +133,28 @@ func (a *Authenticator) Authenticate(ctx context.Context, username, password str
 // writes.
 func (a *Authenticator) Diagnose(ctx context.Context, username, password string, probeGroups []string) (*Result, []Step, error) {
 	var steps []Step
-	res, err := a.authenticate(ctx, username, password, probeGroups, func(s Step) { steps = append(steps, s) })
+	res, err := a.authenticate(ctx, username, password, true, probeGroups, func(s Step) { steps = append(steps, s) })
+	return res, steps, err
+}
+
+// Inspect resolves a user by username alone — search, identity, (transitive)
+// groups, authorization and the probeGroup existence checks — but never binds as
+// the user, so it needs no password. It lets an admin debug why a given account
+// would or wouldn't be able to log in, without that user being present. Like
+// Diagnose it is strictly read-only.
+func (a *Authenticator) Inspect(ctx context.Context, username string, probeGroups []string) (*Result, []Step, error) {
+	var steps []Step
+	res, err := a.authenticate(ctx, username, "", false, probeGroups, func(s Step) { steps = append(steps, s) })
 	return res, steps, err
 }
 
 // authenticate is the shared search-then-bind core. trace, when non-nil,
 // receives a Step for each phase; production passes nil. probeGroups, when
-// non-nil, requests existence checks for those DNs (diagnostics only). Return
-// values and error semantics are identical regardless of trace/probeGroups, so
-// diagnostics never alter real login behaviour.
-func (a *Authenticator) authenticate(ctx context.Context, username, password string, probeGroups []string, trace traceFunc) (*Result, error) {
+// non-nil, requests existence checks for those DNs (diagnostics only). When
+// verifyPassword is false (Inspect), the user re-bind is skipped and no password
+// is required — every other lookup is identical, so the inspect, diagnose and
+// login paths can never diverge.
+func (a *Authenticator) authenticate(ctx context.Context, username, password string, verifyPassword bool, probeGroups []string, trace traceFunc) (*Result, error) {
 	rec := func(name string, err error, detail string) {
 		if trace == nil {
 			return
@@ -152,8 +168,9 @@ func (a *Authenticator) authenticate(ctx context.Context, username, password str
 
 	// Reject empty credentials up front: RFC 4513 "unauthenticated bind" means a
 	// valid DN with an empty password can succeed as an anonymous bind, which
-	// would falsely authenticate the user.
-	if username == "" || password == "" {
+	// would falsely authenticate the user. Inspect (verifyPassword=false) never
+	// binds as the user, so it only needs a username.
+	if username == "" || (verifyPassword && password == "") {
 		rec("validate input", ErrInvalidCredentials, "username and password must both be non-empty")
 		return nil, ErrInvalidCredentials
 	}
@@ -200,18 +217,27 @@ func (a *Authenticator) authenticate(ctx context.Context, username, password str
 	entry := res.Entries[0]
 	rec("search", nil, fmt.Sprintf("filter=%s → 1 entry: %s", filter, entry.DN))
 
-	// Re-bind as the user to verify the password.
-	if err := conn.Bind(entry.DN, password); err != nil {
-		if ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
-			rec("user bind", ErrInvalidCredentials, "password rejected for "+entry.DN)
-			return nil, ErrInvalidCredentials
+	// Re-bind as the user to verify the password — skipped in inspect mode, which
+	// resolves the account without it.
+	if verifyPassword {
+		if err := conn.Bind(entry.DN, password); err != nil {
+			if ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
+				rec("user bind", ErrInvalidCredentials, "password rejected for "+entry.DN)
+				return nil, ErrInvalidCredentials
+			}
+			rec("user bind", err, "dn="+entry.DN)
+			return nil, fmt.Errorf("ldap: user bind failed: %w", err)
 		}
-		rec("user bind", err, "dn="+entry.DN)
-		return nil, fmt.Errorf("ldap: user bind failed: %w", err)
+		rec("user bind", nil, "password accepted for "+entry.DN)
+	} else {
+		rec("user bind", nil, "skipped — inspection only, password not verified")
 	}
-	rec("user bind", nil, "password accepted for "+entry.DN)
 
-	subject := entry.GetAttributeValue(a.cfg.AttrUniqueID)
+	// The unique-id attribute may be binary (e.g. AD's objectGUID), so read raw
+	// bytes and encode to a stable, valid-UTF-8 string before it becomes the
+	// subject — a raw GUID stored in a TEXT column would be rejected as invalid
+	// UTF-8 (or for its NUL bytes).
+	subject := encodeUniqueID(a.cfg.AttrUniqueID, entry.GetRawAttributeValue(a.cfg.AttrUniqueID))
 	subjectFromDN := subject == ""
 	if subjectFromDN {
 		subject = entry.DN // DNs can change, but better than no identity at all
@@ -514,6 +540,51 @@ var roleRank = map[string]int{"viewer": 0, "member": 1, "purchaser": 2, "admin":
 
 // ValidRole reports whether r is one of partrack's team roles.
 func ValidRole(r string) bool { _, ok := roleRank[r]; return ok }
+
+// encodeUniqueID turns a raw unique-id attribute value into a stable string
+// safe to store in a TEXT column and to display. Already-printable text values
+// (entryUUID, OIDC-style sub) pass through unchanged. AD's objectGUID is
+// rendered in its canonical mixed-endian form so it matches AD tooling; any
+// other binary value is hex-encoded. Empty input yields "" so the caller can
+// fall back to the DN.
+func encodeUniqueID(attr string, raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	if isPrintableText(raw) {
+		return string(raw)
+	}
+	if strings.EqualFold(attr, "objectGUID") && len(raw) == 16 {
+		return formatADGUID(raw)
+	}
+	return hex.EncodeToString(raw)
+}
+
+// isPrintableText reports whether b is valid UTF-8 with no NUL or control
+// characters (tab excepted) — i.e. usable as-is in a TEXT column.
+func isPrintableText(b []byte) bool {
+	if !utf8.Valid(b) {
+		return false
+	}
+	for _, r := range string(b) {
+		if r == 0 || (r < 0x20 && r != '\t') {
+			return false
+		}
+	}
+	return true
+}
+
+// formatADGUID renders a 16-byte Active Directory objectGUID as the canonical
+// "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" string. AD stores the first three
+// groups little-endian and the rest big-endian.
+func formatADGUID(b []byte) string {
+	return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		b[3], b[2], b[1], b[0],
+		b[5], b[4],
+		b[7], b[6],
+		b[8], b[9],
+		b[10], b[11], b[12], b[13], b[14], b[15])
+}
 
 // MappingMatch is the per-rule outcome of evaluating group_mappings, for display
 // in the diagnostics tool.
