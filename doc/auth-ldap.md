@@ -46,10 +46,17 @@ LDAP connections are not pooled.
 ## Restricting who may log in
 
 By default any user who binds successfully may log in (and be provisioned). Set
-`required_group` to a group DN to gate this: a user who authenticates but is
-**not** a member of that group is denied exactly like a wrong password — no
-session, and no account is provisioned. The gate is checked on every login, so
-removing a user from the group also locks out their existing account.
+`required_groups` to a list of group DNs to gate this: a user who authenticates
+but is a member of **none** of them is denied exactly like a wrong password — no
+session, and no account is provisioned. Membership in **any** one of the listed
+groups is sufficient. The gate is checked on every login, so removing a user from
+the group(s) also locks out their existing account.
+
+> The deprecated singular `required_group: "<dn>"` is still accepted and folded
+> into `required_groups` at load time; prefer the list form.
+
+Group membership for the gate (and for `admin_group` / `group_mappings`) counts
+**nested groups** — see [Nested / transitive groups](#nested--transitive-groups).
 
 ## Account linking and provisioning
 
@@ -158,8 +165,10 @@ ldap:
     # does not populate memberOf, or to expand AD nested groups:
     group_base_dn: ""                     # e.g. ou=groups,dc=corp,dc=example
     group_filter: "(member=%s)"           # %s = escaped user DN
+    expand_nested_groups: true            # transitive membership (default true)
 
-    required_group: "cn=partrack-users,ou=groups,dc=corp,dc=example"  # gate login
+    required_groups:                      # gate login (member of ANY suffices)
+      - "cn=partrack-users,ou=groups,dc=corp,dc=example"
     auto_provision: true                  # create a user on first login
 
     admin_group: "cn=partrack-admins,ou=groups,dc=corp,dc=example"
@@ -208,6 +217,35 @@ directories need `group_base_dn` instead:
 When `group_base_dn` is set, a user's groups are the DNs of entries under it that
 match `group_filter` (with the escaped user DN substituted for `%s`).
 
+### Nested / transitive groups
+
+partrack resolves group membership **transitively** by default: a user's groups
+include not only their direct groups but every group those are (recursively)
+members of. So if `alice` is in `cn=eng`, and `cn=eng` is a member of
+`cn=all-staff`, then a `required_groups` / `admin_group` / `group_mapping`
+referencing `cn=all-staff` matches her.
+
+This is a bounded server walk that works on **any** directory (AD *and*
+OpenLDAP), regardless of whether `memberOf` is populated:
+
+- In **memberOf mode**, each group's own `memberOf` is read to find its parents.
+- In **search mode** (`group_base_dn` set), `group_filter` is re-run with each
+  group's DN to find the groups that contain it.
+
+The walk is capped (≤ 50 groups, ≤ 10 levels) and cycle-guarded, so a deep or
+self-referential group graph can never make a login unboundedly slow. A single
+unreadable group is skipped rather than failing the login.
+
+Controls:
+
+- `expand_nested_groups: false` — consider only **direct** membership.
+- If `group_filter` uses AD's in-chain matching rule
+  (`(member:1.2.840.113556.1.4.1941:=%s)`) the reverse search is already
+  transitive server-side, so partrack skips its own walk automatically.
+
+The diagnostics tool's **Group checks** table labels each membership as
+`(direct)` or `(nested via …)` so you can see exactly why a user qualifies.
+
 ### Worked example: gated login + baseline team access + manual upgrades
 
 This is the common "everyone in a group gets viewer; promote individuals as
@@ -223,7 +261,8 @@ ldap:
     user_filter: "(uid=%s)"
 
     # 1. Only members of this group may log in (and be provisioned).
-    required_group: "cn=partrack-users,ou=groups,dc=corp,dc=example"
+    required_groups:
+      - "cn=partrack-users,ou=groups,dc=corp,dc=example"
     auto_provision: true
 
     # 2. Those users get viewer access to the Engineering team.
@@ -242,8 +281,11 @@ no directory change required.
 - `url`: use `ldaps://` (port 636) or `ldap://` with `start_tls: true`.
 - `user_filter`: `(sAMAccountName=%s)` or `(userPrincipalName=%s)`.
 - `attr_unique_id`: `objectGUID`.
-- AD populates `memberOf` with the user's group DNs, which is what
-  `admin_group` / `group_mappings` match against.
+- AD populates `memberOf` with the user's **direct** group DNs, which is what
+  `admin_group` / `group_mappings` match against. Nested AD groups are expanded
+  by partrack's transitive walk (on by default); alternatively use the in-chain
+  `group_filter` to have AD expand them server-side. See
+  [Nested / transitive groups](#nested--transitive-groups).
 
 ### Required vs optional fields
 
@@ -279,13 +321,20 @@ directory, then reports:
 - a step-by-step **bind trace** (connect/TLS, service bind, the exact search
   filter and match count, user re-bind) with the precise failure point and LDAP
   error when something goes wrong;
-- the **resolved identity** (DN, subject, email, display name, group DNs);
+- the **resolved identity** (DN, subject, email, display name, group DNs — the
+  full transitive set when nested expansion is on);
 - the **authorization** the user's groups produce (admin flag, per-mapping
   matches, resulting team roles);
+- **group checks** — for every group partrack references (each allowed login
+  group, the admin group, each team mapping), whether the group **exists** in the
+  directory and whether the user is a **member**, labelled `(direct)` or
+  `(nested via …)`. This is the place to answer "does this group exist, and is
+  this person in it?";
 - the **account resolution** — whether login would use an already-linked
   identity, link to an existing user by email, or auto-provision — plus, per
   team, whether the mapped role would be applied, removed, or **preserved**
-  because a manual override is in place.
+  because a manual override is in place, and the user's **current team
+  memberships** (the live DB state, with directory-managed vs manual).
 
 It is strictly **read-only**: it performs DB reads to make the report precise but
 never creates a user, identity, membership, or session. Use it to validate a new
@@ -297,10 +346,10 @@ The page also offers a **Test connection** button (backed by
 
 - dials the directory, negotiates TLS, and binds the service account — so you can
   validate URL / TLS / CA / `bind_dn` before you have a test user;
-- checks that every configured DN (`user_base_dn`, `group_base_dn`,
-  `required_group`, `admin_group`, and each `group_mappings` group) actually
-  **exists** in the directory — catching the single most common misconfig, a
-  mistyped group DN;
+- checks that every configured DN (`user_base_dn`, `group_base_dn`, each
+  `required_groups` entry, `admin_group`, and each `group_mappings` group)
+  actually **exists** in the directory — catching the single most common
+  misconfig, a mistyped group DN;
 - echoes the **effective configuration** (bind password redacted) so you can
   confirm env-var overrides such as `PARTRACK_LDAP_<NAME>_PASSWORD` took effect.
 
@@ -346,3 +395,7 @@ admin flag.
   pinned when `admin_group` is configured (see above).
 - One identity per `(provider, subject)`; renaming a directory's
   `attr_unique_id` source would orphan existing links.
+- Nested-group expansion is bounded (≤ 50 groups, ≤ 10 levels); a user whose
+  qualifying group sits beyond those bounds would not be matched. Raise the
+  directory's group nesting awareness or use the in-chain `group_filter` for
+  pathological hierarchies.

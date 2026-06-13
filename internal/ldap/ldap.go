@@ -46,8 +46,17 @@ type Result struct {
 	// SubjectFromDN is true when AttrUniqueID was empty and Subject fell back to
 	// the DN (an unstable identifier). Surfaced as a diagnostics warning.
 	SubjectFromDN bool
-	// GroupSource notes how Groups were resolved ("memberOf" or "group search").
+	// GroupSource notes how Groups were resolved ("memberOf" / "group search",
+	// plus a "+ nested walk (N groups)" suffix when transitive expansion ran).
 	GroupSource string
+	// Via maps each resolved group DN to the child group DN it was first reached
+	// through during nested expansion ("" means the user is a direct member). Used
+	// by diagnostics to label membership as direct vs nested; login ignores it.
+	Via map[string]string
+	// GroupExistence reports, keyed by lower-cased DN, whether each probe group
+	// (passed by the diagnostics path) exists in the directory. Nil on the
+	// production login path, which never probes.
+	GroupExistence map[string]DNCheck
 }
 
 // DNCheck reports whether a configured DN (group, base) exists in the directory.
@@ -110,23 +119,26 @@ func (a *Authenticator) Name() string { return a.cfg.Name }
 // resolved identity. Credential failures return ErrInvalidCredentials; all
 // other (operational) problems return a wrapped error.
 func (a *Authenticator) Authenticate(ctx context.Context, username, password string) (*Result, error) {
-	return a.authenticate(ctx, username, password, nil)
+	return a.authenticate(ctx, username, password, nil, nil)
 }
 
 // Diagnose runs the same flow as Authenticate but records a step-by-step trace
-// for the admin diagnostics endpoint. Steps are returned even on failure; the
-// Result is nil unless the user bind succeeded. It performs no writes.
-func (a *Authenticator) Diagnose(ctx context.Context, username, password string) (*Result, []Step, error) {
+// for the admin diagnostics endpoint, and additionally checks the existence of
+// each probeGroup DN (populating Result.GroupExistence). Steps are returned even
+// on failure; the Result is nil unless the user bind succeeded. It performs no
+// writes.
+func (a *Authenticator) Diagnose(ctx context.Context, username, password string, probeGroups []string) (*Result, []Step, error) {
 	var steps []Step
-	res, err := a.authenticate(ctx, username, password, func(s Step) { steps = append(steps, s) })
+	res, err := a.authenticate(ctx, username, password, probeGroups, func(s Step) { steps = append(steps, s) })
 	return res, steps, err
 }
 
 // authenticate is the shared search-then-bind core. trace, when non-nil,
-// receives a Step for each phase; production passes nil. Return values and
-// error semantics are identical regardless of trace, so diagnostics never alter
-// real login behaviour.
-func (a *Authenticator) authenticate(ctx context.Context, username, password string, trace traceFunc) (*Result, error) {
+// receives a Step for each phase; production passes nil. probeGroups, when
+// non-nil, requests existence checks for those DNs (diagnostics only). Return
+// values and error semantics are identical regardless of trace/probeGroups, so
+// diagnostics never alter real login behaviour.
+func (a *Authenticator) authenticate(ctx context.Context, username, password string, probeGroups []string, trace traceFunc) (*Result, error) {
 	rec := func(name string, err error, detail string) {
 		if trace == nil {
 			return
@@ -209,50 +221,138 @@ func (a *Authenticator) authenticate(ctx context.Context, username, password str
 		displayName = username
 	}
 
-	// Resolve groups: a reverse search (group_base_dn) when configured — needed
-	// for directories that don't populate memberOf or to expand nested groups —
-	// otherwise the memberOf attribute read off the user entry.
-	var groups []string
-	groupSource := "memberOf"
-	if a.cfg.GroupBaseDN != "" {
-		groupSource = "group search"
-		g, gerr := a.searchGroups(conn, entry.DN)
-		if gerr != nil {
-			rec("group search", gerr, "base="+a.cfg.GroupBaseDN)
-			return nil, fmt.Errorf("ldap: group search failed: %w", gerr)
-		}
-		groups = g
-		rec("group search", nil, fmt.Sprintf("base=%s → %d group(s)", a.cfg.GroupBaseDN, len(groups)))
-	} else {
-		groups = entry.GetAttributeValues(a.cfg.AttrMemberOf)
+	// The password is verified; everything that follows (group expansion,
+	// existence probes) reads the directory as the service account, since the
+	// user binding may lack read access to the group subtree.
+	if err := a.bindService(conn); err != nil {
+		rec("service re-bind", err, "bind_dn="+a.cfg.BindDN)
+		return nil, fmt.Errorf("ldap: service re-bind failed: %w", err)
 	}
+
+	// Resolve groups (transitively, when enabled) and surface how it was done.
+	groups, via, groupSource, gerr := a.resolveGroups(conn, entry)
+	if gerr != nil {
+		rec("group resolution", gerr, "base="+a.cfg.GroupBaseDN)
+		return nil, fmt.Errorf("ldap: group resolution failed: %w", gerr)
+	}
+	rec("group resolution", nil, fmt.Sprintf("%d group(s) via %s", len(groups), groupSource))
 
 	rec("read attributes", nil, fmt.Sprintf("%s=%s, %s=%s, %s=%s, %d group(s) via %s",
 		a.cfg.AttrEmail, entry.GetAttributeValue(a.cfg.AttrEmail),
 		a.cfg.AttrDisplayName, displayName,
 		a.cfg.AttrUniqueID, subject, len(groups), groupSource))
 
+	// Diagnostics existence probe: does each group partrack references actually
+	// exist? De-duplicated case-insensitively; failures are recorded per DN, not
+	// fatal.
+	var existence map[string]DNCheck
+	if probeGroups != nil {
+		existence = make(map[string]DNCheck, len(probeGroups))
+		for _, dn := range probeGroups {
+			key := strings.ToLower(dn)
+			if dn == "" || existence[key].DN != "" {
+				continue
+			}
+			ok, derr := a.dnExists(conn, dn)
+			c := DNCheck{DN: dn, Exists: ok}
+			if derr != nil {
+				c.Err = derr.Error()
+			}
+			existence[key] = c
+		}
+		rec("group existence", nil, fmt.Sprintf("checked %d group DN(s)", len(existence)))
+	}
+
 	return &Result{
-		Subject:       subject,
-		Email:         entry.GetAttributeValue(a.cfg.AttrEmail),
-		DisplayName:   displayName,
-		Groups:        groups,
-		DN:            entry.DN,
-		SubjectFromDN: subjectFromDN,
-		GroupSource:   groupSource,
+		Subject:        subject,
+		Email:          entry.GetAttributeValue(a.cfg.AttrEmail),
+		DisplayName:    displayName,
+		Groups:         groups,
+		DN:             entry.DN,
+		SubjectFromDN:  subjectFromDN,
+		GroupSource:    groupSource,
+		Via:            via,
+		GroupExistence: existence,
 	}, nil
 }
 
-// searchGroups resolves a user's groups by reverse search under GroupBaseDN. The
-// connection is re-bound as the service account first (the user binding may lack
-// read access to the group subtree). The user DN is escaped into GroupFilter.
-func (a *Authenticator) searchGroups(conn *ldap.Conn, userDN string) ([]string, error) {
-	if a.cfg.BindDN != "" {
-		if err := conn.Bind(a.cfg.BindDN, a.cfg.BindPassword); err != nil {
-			return nil, fmt.Errorf("re-bind service account: %w", err)
-		}
+// inChainMatchingRuleOID is Active Directory's LDAP_MATCHING_RULE_IN_CHAIN. When
+// it appears in group_filter the reverse search already returns the transitive
+// closure server-side, so partrack's own nested walk is redundant and skipped.
+const inChainMatchingRuleOID = "1.2.840.113556.1.4.1941"
+
+// Group-walk bounds: cap total groups discovered and nesting depth so a deep or
+// pathological group graph can never make a login unboundedly slow.
+const (
+	maxGroupWalk  = 50
+	maxGroupDepth = 10
+)
+
+// bindService binds the connection as the read-only service account, or no-ops
+// when no bind_dn is configured (anonymous access).
+func (a *Authenticator) bindService(conn *ldap.Conn) error {
+	if a.cfg.BindDN == "" {
+		return nil
 	}
-	filter := fmt.Sprintf(a.cfg.GroupFilter, ldap.EscapeFilter(userDN))
+	return conn.Bind(a.cfg.BindDN, a.cfg.BindPassword)
+}
+
+// resolveGroups returns the user's group DNs, the "reached via" map for nested
+// expansion, and a human label describing how resolution was done. The
+// connection must already be bound as the service account. Direct membership is
+// read from the memberOf attribute, or via a reverse group search when
+// group_base_dn is set. When ExpandNestedGroups is on (and the filter is not
+// already an in-chain rule) the direct set is expanded to its transitive closure
+// of parent groups, which works on any directory.
+func (a *Authenticator) resolveGroups(conn *ldap.Conn, entry *ldap.Entry) ([]string, map[string]string, string, error) {
+	searchMode := a.cfg.GroupBaseDN != ""
+	inChain := strings.Contains(a.cfg.GroupFilter, inChainMatchingRuleOID)
+	expand := a.cfg.NestedGroupsEnabled() && !inChain
+
+	var direct []string
+	source := "memberOf"
+	if searchMode {
+		source = "group search"
+		g, err := a.searchMembers(conn, entry.DN)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		direct = g
+	} else {
+		direct = entry.GetAttributeValues(a.cfg.AttrMemberOf)
+	}
+
+	if !expand {
+		via := make(map[string]string, len(direct))
+		for _, d := range direct {
+			via[d] = ""
+		}
+		if inChain {
+			source += " (in-chain transitive)"
+		}
+		return direct, via, source, nil
+	}
+
+	var parentsOf func(string) ([]string, error)
+	if searchMode {
+		parentsOf = func(dn string) ([]string, error) { return a.searchMembers(conn, dn) }
+	} else {
+		parentsOf = func(dn string) ([]string, error) { return a.readGroupMemberOf(conn, dn) }
+	}
+	groups, via, soft := expandGroups(direct, parentsOf, maxGroupWalk, maxGroupDepth)
+	source = fmt.Sprintf("%s + nested walk (%d groups)", source, len(groups))
+	if soft != nil {
+		source += " [partial: " + soft.Error() + "]"
+	}
+	return groups, via, source, nil
+}
+
+// searchMembers returns the DNs of groups that directly list memberDN, by
+// applying group_filter under group_base_dn. The connection must already be
+// service-bound. memberDN may be a user DN (direct groups) or a group DN
+// (parent groups during nested expansion).
+func (a *Authenticator) searchMembers(conn *ldap.Conn, memberDN string) ([]string, error) {
+	filter := fmt.Sprintf(a.cfg.GroupFilter, ldap.EscapeFilter(memberDN))
 	sr := ldap.NewSearchRequest(
 		a.cfg.GroupBaseDN,
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, int(a.timeout.Seconds()), false,
@@ -267,6 +367,81 @@ func (a *Authenticator) searchGroups(conn *ldap.Conn, userDN string) ([]string, 
 		groups = append(groups, e.DN)
 	}
 	return groups, nil
+}
+
+// readGroupMemberOf returns the parent-group DNs listed in groupDN's memberOf
+// attribute (memberOf-mode nested expansion). A missing entry yields no parents
+// rather than an error, so one unreadable group never breaks the walk.
+func (a *Authenticator) readGroupMemberOf(conn *ldap.Conn, groupDN string) ([]string, error) {
+	sr := ldap.NewSearchRequest(
+		groupDN,
+		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, int(a.timeout.Seconds()), false,
+		"(objectClass=*)", []string{a.cfg.AttrMemberOf}, nil,
+	)
+	res, err := conn.Search(sr)
+	if err != nil {
+		if ldap.IsErrorWithCode(err, ldap.LDAPResultNoSuchObject) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(res.Entries) != 1 {
+		return nil, nil
+	}
+	return res.Entries[0].GetAttributeValues(a.cfg.AttrMemberOf), nil
+}
+
+// expandGroups computes the transitive closure of parent groups starting from
+// direct, using parentsOf to find the groups each group is a member of. It is
+// bounded by maxGroups (total discovered) and maxDepth (nesting levels), and
+// guards against cycles with a visited set keyed by lower-cased DN. The returned
+// via map records, per discovered group (original-case DN), the child DN it was
+// first reached through ("" for a direct membership). A non-nil error is the
+// first parentsOf failure encountered; it is informational — expansion proceeds
+// past failing nodes so a single unreadable group does not break login.
+func expandGroups(direct []string, parentsOf func(dn string) ([]string, error), maxGroups, maxDepth int) ([]string, map[string]string, error) {
+	via := map[string]string{}
+	seen := map[string]bool{} // lower-cased DN
+	var order []string        // discovery order, original case
+
+	type qitem struct {
+		dn    string
+		depth int
+	}
+	var queue []qitem
+	add := func(dn, from string, depth int) {
+		key := strings.ToLower(dn)
+		if seen[key] || len(order) >= maxGroups {
+			return
+		}
+		seen[key] = true
+		order = append(order, dn)
+		via[dn] = from
+		queue = append(queue, qitem{dn, depth})
+	}
+
+	for _, d := range direct {
+		add(d, "", 0)
+	}
+	var firstErr error
+	for len(queue) > 0 {
+		it := queue[0]
+		queue = queue[1:]
+		if it.depth >= maxDepth {
+			continue
+		}
+		parents, err := parentsOf(it.dn)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, p := range parents {
+			add(p, it.dn, it.depth+1)
+		}
+	}
+	return order, via, firstErr
 }
 
 // TestConnection dials, negotiates TLS, and binds the service account — without
@@ -354,10 +529,10 @@ type MappingMatch struct {
 // independent of the database. The handler applies it (subject to manual
 // overrides); the admin tool displays it.
 type Decision struct {
-	// RequiredGroupConfigured is true when required_group gates login.
+	// RequiredGroupConfigured is true when required_groups gates login.
 	RequiredGroupConfigured bool `json:"required_group_configured"`
-	// LoginAllowed is false only when a required_group is configured and the user
-	// is not a member; such a user must be denied login (and not provisioned).
+	// LoginAllowed is false only when required_groups is configured and the user
+	// is in none of them; such a user must be denied login (and not provisioned).
 	LoginAllowed bool `json:"login_allowed"`
 	// AdminGroupConfigured is true when admin_group is set, meaning the instance
 	// admin flag is directory-controlled.
@@ -383,11 +558,23 @@ func EvaluateGroups(cfg config.LDAPProvider, groups []string) Decision {
 	}
 
 	d := Decision{
-		RequiredGroupConfigured: cfg.RequiredGroup != "",
+		RequiredGroupConfigured: len(cfg.RequiredGroups) > 0,
 		AdminGroupConfigured:    cfg.AdminGroup != "",
 		TeamRoles:               map[string]string{},
+		// Non-nil so they marshal as [] not null; the diagnostics UI reads
+		// .length on both. An install with no group_mappings has neither.
+		ManagedTeams: []string{},
+		Mappings:     []MappingMatch{},
 	}
-	d.LoginAllowed = !d.RequiredGroupConfigured || have[strings.ToLower(cfg.RequiredGroup)]
+	// Login is allowed when ungated, or when the user is in any one of the
+	// allowed groups (membership counts nested groups; see resolveGroups).
+	d.LoginAllowed = !d.RequiredGroupConfigured
+	for _, rg := range cfg.RequiredGroups {
+		if have[strings.ToLower(rg)] {
+			d.LoginAllowed = true
+			break
+		}
+	}
 	if d.AdminGroupConfigured {
 		d.IsAdmin = have[strings.ToLower(cfg.AdminGroup)]
 	}

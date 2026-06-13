@@ -3,6 +3,7 @@ package ldap
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Yamakaja/partrack/internal/config"
@@ -79,7 +80,7 @@ func TestEvaluateGroups(t *testing.T) {
 }
 
 func TestEvaluateGroupsLoginGate(t *testing.T) {
-	cfg := config.LDAPProvider{RequiredGroup: "cn=partrack-users,dc=x"}
+	cfg := config.LDAPProvider{RequiredGroups: []string{"cn=partrack-users,dc=x"}}
 
 	in := EvaluateGroups(cfg, []string{"CN=Partrack-Users,DC=x"})
 	if !in.RequiredGroupConfigured || !in.LoginAllowed {
@@ -89,5 +90,76 @@ func TestEvaluateGroupsLoginGate(t *testing.T) {
 	out := EvaluateGroups(cfg, []string{"cn=other,dc=x"})
 	if !out.RequiredGroupConfigured || out.LoginAllowed {
 		t.Errorf("non-member: want configured=true allowed=false; got configured=%v allowed=%v", out.RequiredGroupConfigured, out.LoginAllowed)
+	}
+}
+
+// TestEvaluateGroupsAllowedGroupsAny verifies the array form: login is allowed
+// when the user is in ANY one of the allowed groups, and denied when in none.
+func TestEvaluateGroupsAllowedGroupsAny(t *testing.T) {
+	cfg := config.LDAPProvider{RequiredGroups: []string{
+		"cn=staff,dc=x",
+		"cn=contractors,dc=x",
+	}}
+
+	// In the second allowed group only → allowed.
+	any := EvaluateGroups(cfg, []string{"CN=Contractors,DC=x"})
+	if !any.LoginAllowed {
+		t.Errorf("member of one allowed group: want LoginAllowed=true, got false")
+	}
+
+	// In neither → denied.
+	none := EvaluateGroups(cfg, []string{"cn=visitors,dc=x"})
+	if none.LoginAllowed {
+		t.Errorf("member of no allowed group: want LoginAllowed=false, got true")
+	}
+}
+
+// TestExpandGroups exercises the directory-agnostic nested-group walk in
+// isolation, with a fake parentsOf graph, covering transitive expansion, the
+// cycle guard, and the size cap. No live LDAP is needed.
+func TestExpandGroups(t *testing.T) {
+	// Graph: user ∈ eng; eng ∈ all-staff; all-staff ∈ everyone; plus a cycle
+	// everyone → all-staff to prove the visited-set guard holds.
+	parents := map[string][]string{
+		"cn=eng,dc=x":       {"cn=all-staff,dc=x"},
+		"cn=all-staff,dc=x": {"cn=everyone,dc=x"},
+		"cn=everyone,dc=x":  {"cn=all-staff,dc=x"}, // cycle back
+	}
+	parentsOf := func(dn string) ([]string, error) { return parents[strings.ToLower(dn)], nil }
+
+	groups, via, err := expandGroups([]string{"cn=eng,dc=x"}, parentsOf, 50, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]bool{"cn=eng,dc=x": true, "cn=all-staff,dc=x": true, "cn=everyone,dc=x": true}
+	if len(groups) != len(want) {
+		t.Fatalf("groups = %v; want the 3 transitive groups", groups)
+	}
+	for _, g := range groups {
+		if !want[g] {
+			t.Errorf("unexpected group %q", g)
+		}
+	}
+	if via["cn=eng,dc=x"] != "" {
+		t.Errorf("eng should be direct (via \"\"), got %q", via["cn=eng,dc=x"])
+	}
+	if via["cn=all-staff,dc=x"] != "cn=eng,dc=x" {
+		t.Errorf("all-staff via = %q; want cn=eng,dc=x", via["cn=all-staff,dc=x"])
+	}
+
+	// Cap: a fan-out larger than the cap is truncated, never unbounded.
+	fanout := func(dn string) ([]string, error) {
+		if dn == "cn=root,dc=x" {
+			out := make([]string, 100)
+			for i := range out {
+				out[i] = "cn=g" + string(rune('A'+i%26)) + string(rune('0'+i/26)) + ",dc=x"
+			}
+			return out, nil
+		}
+		return nil, nil
+	}
+	capped, _, _ := expandGroups([]string{"cn=root,dc=x"}, fanout, 10, 10)
+	if len(capped) > 10 {
+		t.Errorf("cap not enforced: got %d groups, want <= 10", len(capped))
 	}
 }

@@ -68,7 +68,7 @@
     provision_new_user: 'Provision a new user account',
     rejected_provisioning_disabled: 'Rejected — no matching user and auto-provision is disabled',
     rejected_no_email: 'Rejected — directory entry has no email to link or provision on',
-    rejected_not_in_login_group: 'Rejected — user is not a member of the required login group',
+    rejected_not_in_login_group: 'Rejected — user is not a member of any allowed login group',
     error: 'Error during resolution lookup',
   };
 </script>
@@ -233,9 +233,9 @@
               <dt class="text-muted-foreground">Display name</dt><dd>{result.identity.display_name || '—'}</dd>
               <dt class="text-muted-foreground">Groups</dt>
               <dd>
-                {#if result.identity.groups.length === 0}—{:else}
+                {#if (result.identity.groups ?? []).length === 0}—{:else}
                   <ul class="space-y-0.5">
-                    {#each result.identity.groups as g (g)}<li class="font-mono text-xs break-all">{g}</li>{/each}
+                    {#each result.identity.groups ?? [] as g (g)}<li class="font-mono text-xs break-all">{g}</li>{/each}
                   </ul>
                 {/if}
               </dd>
@@ -266,13 +266,13 @@
               <p class="text-sm text-muted-foreground">No admin group configured — instance admin flag is not directory-controlled.</p>
             {/if}
 
-            {#if result.authorization.mappings.length > 0}
+            {#if (result.authorization.mappings ?? []).length > 0}
               <table class="text-sm w-full max-w-3xl">
                 <thead class="text-muted-foreground text-left">
                   <tr><th class="py-1 pr-4 font-medium">Group</th><th class="py-1 pr-4 font-medium">Team</th><th class="py-1 pr-4 font-medium">Role</th><th class="py-1 font-medium">Matched</th></tr>
                 </thead>
                 <tbody>
-                  {#each result.authorization.mappings as m (m.group + m.team + m.role)}
+                  {#each result.authorization.mappings ?? [] as m (m.group + m.team + m.role)}
                     <tr class="border-t border-border">
                       <td class="py-1 pr-4 font-mono text-xs break-all">{m.group || '(all users)'}</td>
                       <td class="py-1 pr-4">{m.team}</td>
@@ -290,6 +290,51 @@
           </section>
         {/if}
 
+        {#if (result.group_checks ?? []).length > 0}
+          <!-- Group checks: does each referenced group exist, and is the user in it? -->
+          <section class="space-y-2">
+            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Group checks</h3>
+            <p class="text-xs text-muted-foreground max-w-3xl">
+              Every group partrack references — the allowed login group(s), the admin group, and each team
+              mapping — with whether it exists in the directory and whether this user is a member. Membership
+              counts nested groups.
+            </p>
+            <table class="text-sm w-full max-w-3xl">
+              <thead class="text-muted-foreground text-left">
+                <tr>
+                  <th class="py-1 pr-4 font-medium">Group</th>
+                  <th class="py-1 pr-4 font-medium">For</th>
+                  <th class="py-1 pr-4 font-medium">Exists</th>
+                  <th class="py-1 font-medium">Member</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each result.group_checks ?? [] as g (g.dn)}
+                  <tr class="border-t border-border align-top">
+                    <td class="py-1 pr-4 font-mono text-xs break-all">{g.dn}</td>
+                    <td class="py-1 pr-4 text-muted-foreground">{(g.purposes ?? []).join(', ')}</td>
+                    <td class="py-1 pr-4">
+                      {#if g.exists}<Check class="h-4 w-4 text-green-600" />{:else}
+                        <span class="flex items-center gap-1 text-destructive">
+                          <X class="h-4 w-4" />{#if g.exists_err}<span class="text-xs">{g.exists_err}</span>{/if}
+                        </span>
+                      {/if}
+                    </td>
+                    <td class="py-1">
+                      {#if g.member}
+                        <span class="flex items-center gap-1">
+                          <Check class="h-4 w-4 text-green-600" />
+                          {#if g.member_via}<span class="text-xs text-muted-foreground">({g.member_via})</span>{/if}
+                        </span>
+                      {:else}<X class="h-4 w-4 text-muted-foreground" />{/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </section>
+        {/if}
+
         {#if result.resolution}
           <!-- Resolution -->
           <section class="space-y-2">
@@ -302,19 +347,38 @@
               <p class="text-sm text-muted-foreground">Existing user by email: {result.resolution.existing_user_display_name}</p>
             {/if}
 
-            {#if result.resolution.teams.length > 0}
+            {#if (result.resolution.teams ?? []).length > 0}
+              <p class="text-xs font-medium text-muted-foreground pt-1">Team sync (what login would do)</p>
               <table class="text-sm w-full max-w-3xl">
                 <thead class="text-muted-foreground text-left">
                   <tr><th class="py-1 pr-4 font-medium">Team</th><th class="py-1 pr-4 font-medium">Action</th><th class="py-1 font-medium">Current</th></tr>
                 </thead>
                 <tbody>
-                  {#each result.resolution.teams as t (t.team)}
+                  {#each result.resolution.teams ?? [] as t (t.team)}
                     <tr class="border-t border-border">
                       <td class="py-1 pr-4">{t.team}{#if !t.exists}<span class="text-destructive"> (missing)</span>{/if}</td>
                       <td class="py-1 pr-4">{t.action}</td>
                       <td class="py-1 text-muted-foreground">
                         {#if t.current_role}{t.current_role}{t.current_directory_managed === false ? ' (manual)' : ''}{:else}—{/if}
                       </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+
+            {#if (result.resolution.team_memberships ?? []).length > 0}
+              <p class="text-xs font-medium text-muted-foreground pt-1">Current team memberships</p>
+              <table class="text-sm w-full max-w-3xl">
+                <thead class="text-muted-foreground text-left">
+                  <tr><th class="py-1 pr-4 font-medium">Team</th><th class="py-1 pr-4 font-medium">Role</th><th class="py-1 font-medium">Source</th></tr>
+                </thead>
+                <tbody>
+                  {#each result.resolution.team_memberships ?? [] as m (m.team)}
+                    <tr class="border-t border-border">
+                      <td class="py-1 pr-4">{m.team}</td>
+                      <td class="py-1 pr-4">{m.role}</td>
+                      <td class="py-1 text-muted-foreground">{m.directory_managed ? 'directory-managed' : 'manual'}</td>
                     </tr>
                   {/each}
                 </tbody>

@@ -134,11 +134,23 @@ type LDAPProvider struct {
 	// nested groups use "(member:1.2.840.113556.1.4.1941:=%s)".
 	GroupFilter string `yaml:"group_filter"`
 
-	// RequiredGroup, when set, gates login: only users who are members of this
-	// group DN may authenticate (and be provisioned). Anyone who binds
-	// successfully but is not a member is denied, exactly like a wrong password.
-	// Empty allows any directory user.
+	// RequiredGroups, when non-empty, gates login: only users who are members of
+	// at least one of these group DNs may authenticate (and be provisioned).
+	// Anyone who binds successfully but is in none of them is denied, exactly like
+	// a wrong password. Empty allows any directory user. Membership counts nested
+	// groups (see ExpandNestedGroups).
+	RequiredGroups []string `yaml:"required_groups"`
+	// RequiredGroup is the deprecated single-group form of RequiredGroups. If set
+	// it is folded into RequiredGroups at load time; prefer required_groups.
 	RequiredGroup string `yaml:"required_group"`
+
+	// ExpandNestedGroups, when true (the default), resolves group membership
+	// transitively: the user's groups include not only their direct groups but
+	// every group those are (recursively) members of. This works on any directory
+	// (AD and OpenLDAP) via a bounded server-side walk. Set false to consider only
+	// direct membership. Ignored (already transitive) when group_filter uses AD's
+	// in-chain matching rule. Pointer so an unset value defaults to true.
+	ExpandNestedGroups *bool `yaml:"expand_nested_groups"`
 
 	// AutoProvision creates a partrack user on first successful login when no
 	// existing user matches the directory email.
@@ -152,6 +164,13 @@ type LDAPProvider struct {
 	// the user's current directory groups (highest role wins on conflict);
 	// teams not referenced by any mapping are left untouched.
 	GroupMappings []LDAPGroupMapping `yaml:"group_mappings"`
+}
+
+// NestedGroupsEnabled reports whether transitive group expansion is on. It
+// defaults to true when unset, so a directly-constructed provider (e.g. in
+// tests) matches the documented default applied by Load.
+func (p LDAPProvider) NestedGroupsEnabled() bool {
+	return p.ExpandNestedGroups == nil || *p.ExpandNestedGroups
 }
 
 // LDAPGroupMapping binds a directory group to a partrack team membership.
@@ -289,6 +308,16 @@ func Load() *Config {
 		}
 		if p.TimeoutSeconds <= 0 {
 			p.TimeoutSeconds = 8
+		}
+		// Fold the deprecated single required_group into the plural form, and
+		// default nested-group expansion on when the operator did not set it.
+		if p.RequiredGroup != "" {
+			p.RequiredGroups = append(p.RequiredGroups, p.RequiredGroup)
+			p.RequiredGroup = ""
+		}
+		if p.ExpandNestedGroups == nil {
+			on := true
+			p.ExpandNestedGroups = &on
 		}
 		if p.GroupBaseDN != "" && p.GroupFilter == "" {
 			p.GroupFilter = "(member=%s)"

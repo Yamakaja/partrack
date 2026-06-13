@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -43,6 +44,14 @@ type ldapTeamResolution struct {
 	CurrentDirectoryManaged *bool  `json:"current_directory_managed,omitempty"`
 }
 
+// ldapTeamMembership is one of the resolved user's current DB team memberships,
+// shown so an admin can compare the live state against what login would do.
+type ldapTeamMembership struct {
+	Team             string `json:"team"`
+	Role             string `json:"role"`
+	DirectoryManaged bool   `json:"directory_managed"`
+}
+
 // ldapResolution is the read-only account/authorization outcome of a login.
 type ldapResolution struct {
 	Subject              string               `json:"subject"`
@@ -53,6 +62,21 @@ type ldapResolution struct {
 	ExistingUserDisplay  string               `json:"existing_user_display_name,omitempty"`
 	AutoProvisionEnabled bool                 `json:"auto_provision_enabled"`
 	Teams                []ldapTeamResolution `json:"teams"`
+	// TeamMemberships is the resolved user's current memberships (empty when no
+	// existing user is matched). Always non-nil so the UI can read .length.
+	TeamMemberships []ldapTeamMembership `json:"team_memberships"`
+}
+
+// ldapGroupCheck answers, for one group DN partrack references, the two
+// questions an admin debugs: does the group exist in the directory, and is this
+// user a member of it (directly or via nesting)?
+type ldapGroupCheck struct {
+	DN        string   `json:"dn"`
+	Purposes  []string `json:"purposes"` // why partrack cares: "login", "admin", "team: X (role)"
+	Exists    bool     `json:"exists"`
+	ExistsErr string   `json:"exists_err,omitempty"`
+	Member    bool     `json:"member"`
+	MemberVia string   `json:"member_via,omitempty"` // "direct" or "nested via <dn>"
 }
 
 // AdminLDAPDiagnose handles POST /api/v1/admin/ldap/diagnose
@@ -77,7 +101,7 @@ func (h *Handler) AdminLDAPDiagnose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, steps, err := entry.auth.Diagnose(r.Context(), req.Username, req.Password)
+	result, steps, err := entry.auth.Diagnose(r.Context(), req.Username, req.Password, ldapProbeGroups(entry.cfg))
 
 	resp := map[string]any{
 		"provider":      req.Provider,
@@ -97,17 +121,108 @@ func (h *Handler) AdminLDAPDiagnose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	decision := pkgldap.EvaluateGroups(entry.cfg, result.Groups)
+	groups := result.Groups
+	if groups == nil {
+		// Marshal as [] not null — the diagnostics UI reads groups.length.
+		groups = []string{}
+	}
 	resp["identity"] = map[string]any{
 		"subject":      result.Subject,
 		"email":        result.Email,
 		"display_name": result.DisplayName,
 		"dn":           result.DN,
-		"groups":       result.Groups,
+		"groups":       groups,
 	}
 	resp["authorization"] = decision
+	resp["group_checks"] = ldapGroupChecks(entry.cfg, result)
 	resp["resolution"] = h.resolveLDAPDiagnostics(r.Context(), entry.cfg, result, decision)
 	resp["warnings"] = ldapWarnings(entry.cfg, result, decision)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// ldapProbeGroups is the set of group DNs partrack references (login gate, admin
+// group, team mappings), de-duplicated case-insensitively, whose existence the
+// diagnostics tool checks against the directory.
+func ldapProbeGroups(cfg config.LDAPProvider) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(dn string) {
+		key := strings.ToLower(dn)
+		if dn == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, dn)
+	}
+	for _, g := range cfg.RequiredGroups {
+		add(g)
+	}
+	add(cfg.AdminGroup)
+	for _, m := range cfg.GroupMappings {
+		add(m.Group)
+	}
+	return out
+}
+
+// ldapGroupChecks joins directory existence (from result.GroupExistence) with
+// the user's resolved (transitive) membership to answer, per referenced group,
+// "does it exist and is this user in it?" Groups are keyed case-insensitively;
+// a single group may serve multiple purposes (e.g. login gate and a team map).
+func ldapGroupChecks(cfg config.LDAPProvider, result *pkgldap.Result) []ldapGroupCheck {
+	member := make(map[string]bool, len(result.Groups))
+	for _, g := range result.Groups {
+		member[strings.ToLower(g)] = true
+	}
+	via := make(map[string]string, len(result.Via))
+	for dn, from := range result.Via {
+		via[strings.ToLower(dn)] = from
+	}
+
+	byKey := map[string]*ldapGroupCheck{}
+	order := []*ldapGroupCheck{}
+	add := func(dn, purpose string) {
+		if dn == "" {
+			return
+		}
+		key := strings.ToLower(dn)
+		gc := byKey[key]
+		if gc == nil {
+			memberVia := ""
+			if member[key] {
+				if v := via[key]; v == "" {
+					memberVia = "direct"
+				} else {
+					memberVia = "nested via " + v
+				}
+			}
+			ex := result.GroupExistence[key]
+			gc = &ldapGroupCheck{
+				DN:        dn,
+				Purposes:  []string{},
+				Exists:    ex.Exists,
+				ExistsErr: ex.Err,
+				Member:    member[key],
+				MemberVia: memberVia,
+			}
+			byKey[key] = gc
+			order = append(order, gc)
+		}
+		gc.Purposes = append(gc.Purposes, purpose)
+	}
+
+	for _, g := range cfg.RequiredGroups {
+		add(g, "login")
+	}
+	add(cfg.AdminGroup, "admin")
+	for _, m := range cfg.GroupMappings {
+		add(m.Group, fmt.Sprintf("team: %s (%s)", m.Team, m.Role))
+	}
+
+	out := make([]ldapGroupCheck, 0, len(order))
+	for _, gc := range order {
+		out = append(out, *gc)
+	}
+	return out
 }
 
 // ldapWarnings flags likely misconfigurations from an otherwise-successful test.
@@ -162,7 +277,9 @@ func (h *Handler) AdminLDAPTestConnection(w http.ResponseWriter, r *http.Request
 	}
 	addDN(entry.cfg.UserBaseDN)
 	addDN(entry.cfg.GroupBaseDN)
-	addDN(entry.cfg.RequiredGroup)
+	for _, g := range entry.cfg.RequiredGroups {
+		addDN(g)
+	}
 	addDN(entry.cfg.AdminGroup)
 	for _, m := range entry.cfg.GroupMappings {
 		addDN(m.Group)
@@ -211,7 +328,8 @@ func redactedLDAPConfig(cfg config.LDAPProvider) map[string]any {
 		"attr_member_of":       cfg.AttrMemberOf,
 		"group_base_dn":        cfg.GroupBaseDN,
 		"group_filter":         cfg.GroupFilter,
-		"required_group":       cfg.RequiredGroup,
+		"required_groups":      cfg.RequiredGroups,
+		"expand_nested_groups": cfg.NestedGroupsEnabled(),
 		"admin_group":          cfg.AdminGroup,
 		"auto_provision":       cfg.AutoProvision,
 		"group_mappings":       cfg.GroupMappings,
@@ -221,7 +339,14 @@ func redactedLDAPConfig(cfg config.LDAPProvider) map[string]any {
 // resolveLDAPDiagnostics performs read-only DB lookups to turn the directory
 // result into the concrete outcome a login would have. It never writes.
 func (h *Handler) resolveLDAPDiagnostics(ctx context.Context, cfg config.LDAPProvider, result *pkgldap.Result, decision pkgldap.Decision) ldapResolution {
-	res := ldapResolution{Subject: result.Subject, AutoProvisionEnabled: cfg.AutoProvision}
+	res := ldapResolution{
+		Subject:              result.Subject,
+		AutoProvisionEnabled: cfg.AutoProvision,
+		// Non-nil so they marshal as [] not null — the frontend reads .length
+		// unconditionally, and a user in no mapped team has zero of each.
+		Teams:           []ldapTeamResolution{},
+		TeamMemberships: []ldapTeamMembership{},
+	}
 
 	// Login gate short-circuits everything: a denied user is neither resolved nor
 	// provisioned, and no team sync runs.
@@ -310,6 +435,20 @@ func (h *Handler) resolveLDAPDiagnostics(ctx context.Context, cfg config.LDAPPro
 			}
 		}
 		res.Teams = append(res.Teams, tr)
+	}
+
+	// The resolved user's current memberships (the live DB truth), so the admin
+	// can compare what login would do against where the user already sits.
+	if userKnown {
+		if mships, merr := h.Queries.ListUserTeams(ctx, targetUser); merr == nil {
+			for _, m := range mships {
+				res.TeamMemberships = append(res.TeamMemberships, ldapTeamMembership{
+					Team:             m.Name,
+					Role:             string(m.Role),
+					DirectoryManaged: m.DirectoryManaged,
+				})
+			}
+		}
 	}
 	return res
 }

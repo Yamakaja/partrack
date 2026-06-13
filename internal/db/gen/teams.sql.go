@@ -276,7 +276,8 @@ SELECT
     t.name,
     t.description,
     t.created_at,
-    tm.role
+    tm.role,
+    tm.directory_managed
 FROM team_memberships tm
 JOIN teams t ON t.id = tm.team_id
 WHERE tm.user_id = $1
@@ -284,14 +285,16 @@ ORDER BY t.name
 `
 
 type ListUserTeamsRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	Name        string             `json:"name"`
-	Description *string            `json:"description"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	Role        TeamRole           `json:"role"`
+	ID               pgtype.UUID        `json:"id"`
+	Name             string             `json:"name"`
+	Description      *string            `json:"description"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	Role             TeamRole           `json:"role"`
+	DirectoryManaged bool               `json:"directory_managed"`
 }
 
-// Teams the user is a member of, with their role in each.
+// Teams the user is a member of, with their role in each and whether the
+// membership is directory-managed (vs a manual override).
 func (q *Queries) ListUserTeams(ctx context.Context, userID pgtype.UUID) ([]ListUserTeamsRow, error) {
 	rows, err := q.db.Query(ctx, listUserTeams, userID)
 	if err != nil {
@@ -307,6 +310,7 @@ func (q *Queries) ListUserTeams(ctx context.Context, userID pgtype.UUID) ([]List
 			&i.Description,
 			&i.CreatedAt,
 			&i.Role,
+			&i.DirectoryManaged,
 		); err != nil {
 			return nil, err
 		}

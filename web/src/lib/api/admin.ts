@@ -165,6 +165,12 @@ export interface LdapTeamResolution {
   current_directory_managed?: boolean;
 }
 
+export interface LdapTeamMembership {
+  team: string;
+  role: string;
+  directory_managed: boolean;
+}
+
 export interface LdapResolution {
   subject: string;
   outcome: string;
@@ -174,6 +180,18 @@ export interface LdapResolution {
   existing_user_display_name?: string;
   auto_provision_enabled: boolean;
   teams: LdapTeamResolution[];
+  team_memberships: LdapTeamMembership[];
+}
+
+// LdapGroupCheck answers, per group partrack references: does it exist in the
+// directory, and is the user a member (directly or via nesting)?
+export interface LdapGroupCheck {
+  dn: string;
+  purposes: string[];
+  exists: boolean;
+  exists_err?: string;
+  member: boolean;
+  member_via?: string;
 }
 
 export interface LdapDiagnoseResult {
@@ -189,6 +207,7 @@ export interface LdapDiagnoseResult {
     groups: string[];
   };
   authorization?: LdapDecision;
+  group_checks?: LdapGroupCheck[];
   resolution?: LdapResolution;
   warnings?: string[];
 }

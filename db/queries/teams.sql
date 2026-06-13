@@ -5,13 +5,15 @@
 SELECT id, name, description, created_at FROM teams ORDER BY name;
 
 -- name: ListUserTeams :many
--- Teams the user is a member of, with their role in each.
+-- Teams the user is a member of, with their role in each and whether the
+-- membership is directory-managed (vs a manual override).
 SELECT
     t.id,
     t.name,
     t.description,
     t.created_at,
-    tm.role
+    tm.role,
+    tm.directory_managed
 FROM team_memberships tm
 JOIN teams t ON t.id = tm.team_id
 WHERE tm.user_id = $1

@@ -81,7 +81,7 @@ Higher roles inherit all permissions of lower roles.
 |--------|------|-------------|
 | GET | `/admin/ldap/providers` | List configured directories: `{providers: [{name, display_name, url}]}` |
 | POST | `/admin/ldap/test-connection` | `{provider}` → dial + TLS + service bind (no user credential), checks configured DNs exist, echoes redacted config: `{connected, error?, steps[], dn_checks[], config}`. **Read-only**. |
-| POST | `/admin/ldap/diagnose` | `{provider, username, password}` → runs the real search-then-bind + group evaluation and returns a report `{authenticated, error?, steps[], identity?, authorization?, resolution?, warnings[]}`. **Read-only** — never creates a user, identity, membership, or session. See [auth-ldap.md](auth-ldap.md). |
+| POST | `/admin/ldap/diagnose` | `{provider, username, password}` → runs the real search-then-bind + group evaluation and returns a report `{authenticated, error?, steps[], identity?, authorization?, group_checks[], resolution?, warnings[]}`. `group_checks[]` = `{dn, purposes[], exists, exists_err?, member, member_via?}` (per referenced group: does it exist + is the user in it; `member_via` = "direct"/"nested via <dn>"). `resolution.team_memberships[]` = `{team, role, directory_managed}` (the user's current memberships). Membership counts nested groups. **Read-only** — never creates a user, identity, membership, or session. See [auth-ldap.md](auth-ldap.md). |
 
 ### Parameter Registry
 
