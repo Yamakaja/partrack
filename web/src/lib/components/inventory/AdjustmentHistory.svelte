@@ -34,7 +34,7 @@
     {#if data.items.length === 0}
       <EmptyState title="No adjustments yet" description="Stock adjustments will appear here." />
     {:else}
-      <Table>
+      <Table class="[&_td]:py-2 [&_th]:h-9">
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>

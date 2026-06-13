@@ -15,7 +15,7 @@
 - **BOMs describe intent; inventory describes reality.** A BOM line item may or may not be resolved to a specific part. Stock checking bridges these two worlds.
 - **Orders are a procurement record.** They are not directly tied to a single BOM; they reflect what was actually purchased and from where.
 - **One manufacturer part number, many distributor listings.** A single Part (MPN) may be available from multiple distributors, and from a single distributor in multiple packaging types — each combination is a distinct Distributor Listing with its own pricing and ordering constraints.
-- **Parameter data from multiple sources coexist.** Distributor APIs may disagree on parameter values. All data is retained, user-specified values always take precedence, and a per-part preferred source can be designated to resolve conflicts between distributor sources.
+- **Parameter data from multiple sources coexist.** Distributor APIs may disagree on parameter values. All data is retained, user-specified values always take precedence, and a per-part preferred source can be designated to resolve conflicts between distributor sources. Each parameter is normalised against a canonical **parameter registry** and, where numeric, parsed into a base-SI value — so parts can be filtered and compared by parameter regardless of which distributor supplied the raw text.
 
 ---
 
@@ -112,18 +112,43 @@ A Part has:
 ### Part Parameter
 A structured key-value attribute of a Part.
 
-Multiple entries with the **same parameter name** may exist for a single Part when different sources (distributor APIs) report different values. All such entries are retained. The effective value used by the system is determined by the following precedence:
+Multiple entries for the **same parameter** may exist for a single Part when different sources (distributor APIs) report different values. All such entries are retained. The effective value used by the system is determined by the following precedence:
 
 1. **User-specified** entries always win and are never overridden.
 2. If the Part has a `preferred_parameter_source` set, only entries from that distributor source are used for distributor-sourced values.
 3. If no preferred source is set, entries from all distributor sources are available; the system may surface conflicts to the user.
 
 Key data:
-- **Parameter name** — a standardised key (e.g. `resistance`, `voltage_rating`, `capacitance`). Names are normalised across distributors via a system-level mapping (hardcoded or configuration file; not part of the data model).
-- Value (e.g. `10k`, `50`, `100n`)
+- **Raw name** — the parameter name as supplied by the source (distributor text such as `Resistance` or `Resistance (Ohms)`, or the key typed by a user).
+- **Canonical parameter** (`parameter_id`) — an optional reference to a **Parameter Definition** (below). Distributor values are mapped during enrichment via the Distributor Parameter Mapping; user values are resolved on write — inheriting a same-named distributor entry's mapping, or matching the registry by slug / display name. May be null for unmapped distributor params and free-text user params.
+- **Value** — the original text (e.g. `10k`, `50V`, `100n`).
+- **Numeric value(s)** (`numeric_value`, `numeric_value_max`) — the value parsed into base SI units (e.g. `10000` for `10k`), populated for numeric/range parameters once the canonical parameter is known. This is what powers value-based filtering and comparison; `numeric_value_max` carries the upper bound of a range. Null for text/enum parameters and unparseable values.
 - Unit (e.g. `Ω`, `V`, `F`)
 - **Source type**: `user` or `distributor`
 - **Source distributor** — reference to the Distributor that provided this value (only present when source type is `distributor`)
+
+Because the searchable representation (`parameter_id` + `numeric_value`) is computed on **every** write path — distributor enrichment and manual user entry alike — a user override participates in parameter columns and value search identically to the distributor value it supersedes. The user-wins precedence above therefore holds for search and comparison, not just display.
+
+---
+
+### Parameter Definition
+A canonical, system-level parameter in the **parameter registry** — the normalised identity that distributor-specific and user-entered parameter names map onto. Global and shared across all teams; seeded with a standard electronics set and extensible by instance admins.
+
+Key data:
+- **Slug** — stable key (e.g. `resistance`, `voltage_rating`, `capacitance`)
+- **Display name** (e.g. `Resistance`)
+- **Unit** and **unit symbol** — base SI unit identifier and display symbol (e.g. `ohm` / `Ω`)
+- **Value type** — `numeric`, `range`, `text`, or `enum`; determines whether and how raw values are parsed into `numeric_value`(`_max`)
+
+---
+
+### Distributor Parameter Mapping
+Maps a distributor's own parameter identifier to a Parameter Definition. Global, system-level. Rows are created automatically as enrichment encounters new distributor parameters (initially unmapped, awaiting admin review) and are curated by instance admins. This replaces the earlier notion of a hardcoded / config-file name mapping — the mapping is now first-class data.
+
+Key data:
+- **Distributor** and **distributor parameter id / name** — the source-side identity
+- **Parameter** (`parameter_id`) — the canonical definition it maps to; null while unmapped
+- **Ignored** — flag to suppress an irrelevant distributor parameter from the review queue
 
 ---
 
@@ -484,7 +509,8 @@ BOM Line Item
 Part  [global or team-scoped]
  ├── optional preferred_parameter_source  (→ Distributor)
  ├── has many Part Parameters
- │    └── each has source_type + optional source_distributor
+ │    └── each has source_type, optional source_distributor,
+ │        and optional canonical parameter_id (→ Parameter Definition)
  └── has many Distributor Listings
       (one per Distributor × Packaging Type combination)
 
@@ -578,9 +604,12 @@ erDiagram
     PART }o--o| DISTRIBUTOR : "preferred_parameter_source"
 
     PART_PARAMETER }o--o| DISTRIBUTOR : "source_distributor"
+    PART_PARAMETER }o--o| PARAMETER_DEFINITION : "canonical (parameter_id)"
 
     DISTRIBUTOR ||--o{ DISTRIBUTOR_LISTING : provides
     DISTRIBUTOR ||--o{ DISTRIBUTOR_CONFIG : configured_via
+    DISTRIBUTOR ||--o{ DISTRIBUTOR_PARAMETER_MAPPING : "parameter mappings"
+    DISTRIBUTOR_PARAMETER_MAPPING }o--o| PARAMETER_DEFINITION : "maps to"
 
     INVENTORY_ENTRY }o--|| PART : tracks
     INVENTORY_ENTRY }o--o| STORAGE_LOCATION : stored_at
@@ -626,9 +655,9 @@ erDiagram
 | 3 | Parts are scoped `global` or `team`. No user-level scope. |
 | 4 | Distributor Listing cache duration is configurable per distributor per team, stored in Distributor Config. |
 | 5 | Build quantity is **not** stored on Project. It is an ephemeral parameter at stock-check time and is recorded on a Build event when boards are actually assembled. |
-| 6 | Part parameters from multiple sources coexist. User-specified values always take precedence. A `preferred_parameter_source` on Part resolves conflicts between distributor sources. Conflicting parameter values from different distributors are shown to the user on the part's parameter page, where they can designate a preferred source or enter a user-defined override. |
+| 6 | Part parameters from multiple sources coexist. User-specified values always take precedence. A `preferred_parameter_source` on Part resolves conflicts between distributor sources. Conflicting parameter values from different distributors are shown to the user on the part's parameter page, where they can designate a preferred source or enter a user-defined override. Precedence applies to the **searchable** representation as well as display: every parameter (distributor or user) carries an optional canonical `parameter_id` and parsed `numeric_value`, computed on every write path, so a user override supersedes the distributor value in parameter columns and value-based search exactly as it does in the displayed value. |
 | 7 | Order generation selection logic is deferred. The data it requires is fully captured in Distributor Listing fields, Distributor Config preferred flag, and Inventory Entry preferred listing reference. |
-| 8 | When two distributor APIs return differing metadata for the same MPN, both sets of parameter values are stored as separate Part Parameter entries (distinguished by `source_distributor`). No separate de-duplication entity is needed. Conflicts are resolved by the user via the preferred parameter source mechanism. |
+| 8 | When two distributor APIs return differing metadata for the same MPN, both sets of parameter values are stored as separate Part Parameter entries (distinguished by `source_distributor`). No separate de-duplication entity is needed. Conflicts are resolved by the user via the preferred parameter source mechanism. The unified parameter view de-duplicates by canonical `parameter_id` (falling back to raw name for unmapped/free-text params), so a single canonical parameter shows once even when distributors name it differently. |
 | 9 | An Inventory Entry may exist with zero quantity. It is created (with zero stock) as soon as a Part becomes relevant to a Team, so team-specific preferences (storage location, preferred listing) can be recorded before any stock arrives. |
 | 10 | Orders are never automatically submitted. Cart → Order creates a Draft; submission (API or CSV export) is a deliberate user action. The external distributor reference is the key that enables API status tracking and is set either by API response or manual user entry. Both paths converge at `Placed` status. |
 | 11 | Authentication supports three methods: OIDC (primary), internal username/password (fallback), and API tokens (programmatic access). A User may have any combination of OIDC identities and/or a local password. |
@@ -636,3 +665,4 @@ erDiagram
 | 13 | Session tokens and API tokens are stored as SHA-256 hashes only. The raw token is shown once and never retrievable. |
 | 14 | User attribution is recorded on all operational entities: Project (`created_by`), BOM Revision (`imported_by`), Build (`recorded_by`), General Checkout (`performed_by`), Order (`created_by`), and Stock Adjustment (`created_by`). These references are non-nullable — every event has an accountable user. Deactivated users are preserved so historical references remain valid. |
 | 15 | Team Membership uses four ordered roles: `viewer` (read-only) < `member` (inventory ops) < `purchaser` (procurement) < `admin` (configuration + user management). Roles are strictly hierarchical; there are no per-user permission overrides. |
+| 16 | Parameter normalisation is backed by a first-class registry rather than a hardcoded map: **Parameter Definition** (canonical parameters, with a `value_type` driving SI parsing) and **Distributor Parameter Mapping** (distributor parameter → definition, auto-populated and admin-curated). Both are global/system-level. Part Parameters carry a nullable `parameter_id` plus parsed `numeric_value`/`numeric_value_max`; user-entered parameters are resolved and parsed on write the same as distributor values, so manual parts and overrides are searchable. Numeric value-based search/filtering by parameter is in scope and implemented; automated parameter-based substitution matching remains a future concern. |

@@ -66,6 +66,33 @@ func TestParse(t *testing.T) {
 		{"temp range2", "-55°C ~ 125°C", "range", pf(-55), pf(125)},
 		{"resistance range", "10 kOhm ~ 100 kOhm", "range", pf(10000), pf(100000)},
 
+		// Fractions (resistor power ratings etc.)
+		{"frac 1/8 W", "1/8W", "numeric", pf(0.125), nil},
+		{"frac 1/16 space W", "1/16 W", "numeric", pf(0.0625), nil},
+		{"frac 1/4 W", "1/4W", "numeric", pf(0.25), nil},
+		{"frac 1/2 space W", "1/2 W", "numeric", pf(0.5), nil},
+		{"frac no unit", "3/8", "numeric", pf(0.375), nil},
+		{"frac range", "1/8 ~ 1/4", "range", pf(0.125), pf(0.25)},
+		{"frac div zero", "1/0", "numeric", nil, nil},
+
+		// Compound units (consistent denominator per parameter assumed): the
+		// magnitude is kept with the numerator SI-prefix normalised; the denominator
+		// is an opaque label and is not applied.
+		{"slew rate no space", "0.6V/µs", "numeric", pf(0.6), nil},
+		{"slew rate spaced", "13 V/µs", "numeric", pf(13), nil},
+		{"slew rate us", "5 V/us", "numeric", pf(5), nil},
+		{"slew rate ms", "600 V/ms", "numeric", pf(600), nil},
+		{"current rate", "1.2 A/µs", "numeric", pf(1.2), nil},
+		{"thermal resistance", "2.5 °C/W", "numeric", pf(2.5), nil},
+		{"tempco mV per C", "10mV/°C", "numeric", pf(0.01), nil},
+		// ppm/ppb in a compound unit normalise to percent-equivalent (1 ppm = 1e-4 %,
+		// 1 ppb = 1e-7 %) so ppm and ppb values on one parameter stay comparable:
+		// 50 ppb/°C (5e-6) correctly sorts below 100 ppm/°C (0.01).
+		{"tempco ppm per C", "100 ppm/°C", "numeric", pf(0.01), nil},
+		{"tempco ppm per C nospace", "30ppm/°C", "numeric", pf(30e-4), nil},
+		{"tempco ppb per C", "50 ppb/°C", "numeric", pf(50e-7), nil},
+		{"gain V per V", "100 V/V", "numeric", pf(100), nil},
+
 		// Voltage
 		{"volts", "3.3V", "numeric", pf(3.3), nil},
 		{"kilovolt", "1 kV", "numeric", pf(1000), nil},

@@ -55,6 +55,29 @@ var inchMmRe = regexp.MustCompile(
 // trailingParenRe matches a trailing parenthetical annotation like " (x2 Channels)".
 var trailingParenRe = regexp.MustCompile(`\s*\([^)]*\)\s*$`)
 
+// ppmRatioRe matches a magnitude followed by a ppm/ppb ratio unit, optionally
+// with a denominator (e.g. `100 ppm/°C`, `50ppb/°C`). Group 2 captures m|b so the
+// ratio can be normalised to the same percent-equivalent base the tolerance path
+// uses — essential because ppm and ppb routinely appear on the *same* parameter
+// (e.g. oscillator frequency stability: a coarse part in ppm, a precise one in
+// ppb) and must stay numerically comparable. The leading "pp" must not be split as
+// an SI prefix (the `p` in `ppm` is not pico). The denominator is treated as an
+// opaque, per-parameter-consistent label. (Plain `100 ppm` tolerances are
+// normalised earlier in Parse via ppmToleranceRe; this handles the compound and
+// range forms that bypass it.)
+var ppmRatioRe = regexp.MustCompile(
+	`^([+-]?[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?)\s*pp([mb])(?:\s*/.*)?$`,
+)
+
+// fractionRe matches a simple fraction with an optional SI prefix and unit,
+// e.g. `1/8`, `1/16 W`, `1/4W`. Common for resistor power ratings.
+// Groups: 1=numerator, 2=denominator, 3=prefix, 4=unit-text.
+var fractionRe = regexp.MustCompile(
+	`^([+-]?[0-9]+)\s*/\s*([0-9]+)\s*` +
+		`([TGMkmKunpµ]?)` +
+		`\s*([A-Za-zΩ°%]*)\s*$`,
+)
+
 // storageSizeRe matches storage size values with SI or IEC binary prefixes.
 // Binary prefixes (Ki/Mi/Gi/Ti) must appear before single-char SI prefixes in the
 // alternation so they are tried first. Groups: 1=number, 2=prefix, 3=unit.
@@ -147,6 +170,31 @@ func parseScalar(s string) *float64 {
 	// Fast path for purely numeric strings (no unit)
 	if v, err := strconv.ParseFloat(s, 64); err == nil {
 		return &v
+	}
+
+	// Fraction: "1/8", "1/16 W", "3/8W" → decimal (resistor power ratings etc.)
+	if m := fractionRe.FindStringSubmatch(s); m != nil {
+		num, errN := strconv.ParseFloat(m[1], 64)
+		den, errD := strconv.ParseFloat(m[2], 64)
+		if errN == nil && errD == nil && den != 0 {
+			v := (num / den) * prefixMultiplier(m[3])
+			return &v
+		}
+	}
+
+	// ppm/ppb ratio unit: "100 ppm/°C" → 0.01, "50 ppb/°C" → 5e-6. Normalised to the
+	// percent-equivalent base (1 ppm = 1e-4 %, 1 ppb = 1e-7 %) so ppm and ppb on one
+	// parameter stay comparable. Checked before numericRe, which would otherwise
+	// greedily read the first "p" of "ppm" as pico.
+	if m := ppmRatioRe.FindStringSubmatch(s); m != nil {
+		if v, err := strconv.ParseFloat(m[1], 64); err == nil {
+			if m[2] == "b" {
+				v *= 1e-7
+			} else {
+				v *= 1e-4
+			}
+			return &v
+		}
 	}
 
 	// Storage size: "9 Mbit", "1 KiB", "256 GiB" → value in bits

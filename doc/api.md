@@ -89,10 +89,11 @@ Higher roles inherit all permissions of lower roles.
 |--------|------|-------------|
 | GET | `/admin/parameter-definitions` | List parameter definitions |
 | POST | `/admin/parameter-definitions` | `{slug, display_name, unit?, unit_symbol?, value_type}` |
-| PATCH | `/admin/parameter-definitions/{id}` | Update definition fields |
+| PATCH | `/admin/parameter-definitions/{id}` | Update definition fields. Changing `value_type` re-parses every part parameter mapped to this definition. Response includes `reparsed_count`. |
 | DELETE | `/admin/parameter-definitions/{id}` | Delete definition; linked part parameters and distributor mappings have their `parameter_id` set to null |
 | GET | `/admin/distributor-parameter-mappings` | Query: `distributor_id?`, `unmapped=true?` |
-| PATCH | `/admin/distributor-parameter-mappings/{id}` | `{parameter_id?, ignored?}` |
+| GET | `/admin/distributor-parameter-mappings/{id}/parse-preview` | Query: `value_type?` (default `numeric`), `limit?` (default 12, max 100). Parses the mapping's distinct real sample values under `value_type`; returns `{value_type, results:[{value, parsed, numeric_value, numeric_value_max}]}` for an admin to preview parsing before linking. |
+| PATCH | `/admin/distributor-parameter-mappings/{id}` | `{parameter_id?, ignored?}`. Linking back-fills matching distributor-sourced part parameters with the canonical `parameter_id` and re-parses their numeric values (no re-enrichment needed). Response `{reparsed_count}`. |
 
 ---
 
@@ -118,7 +119,7 @@ Higher roles inherit all permissions of lower roles.
 | PATCH | `/parts/{partId}` | `{description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?, preferred_parameter_source_id?}`. Team-scoped parts require team membership. |
 | DELETE | `/parts/{partId}` | **Global admin only.** Permanently deletes the part and all associated data (inventory entries, listings, parameters, BOM references, stock history, order history). Irreversible. 204. |
 | GET | `/parts/{partId}/parameters` | User + distributor-sourced parameters |
-| POST | `/parts/{partId}/parameters` | `{name, value, unit?}` — create/upsert user parameter |
+| POST | `/parts/{partId}/parameters` | `{name, value, unit?}` — create/upsert user parameter. The value is resolved to a canonical parameter (inheriting a same-named distributor parameter's mapping, else matching the registry by slug/display name) and parsed to `numeric_value`/`numeric_value_max`, so user values appear in parameter columns and value search. Response echoes `parameter_id`, `numeric_value`, `numeric_value_max` (null when unresolved). |
 | DELETE | `/parts/{partId}/parameters/{parameterId}` | Delete user parameter |
 | GET | `/parts/{partId}/listings` | Distributor listings for part |
 

@@ -74,6 +74,31 @@ ORDER BY part_count DESC, dpm.distributor_param_name;
 -- name: SetMappingParameterID :exec
 UPDATE distributor_parameter_mappings SET parameter_id = $2 WHERE id = $1;
 
+-- name: ApplyMappingToPartParameters :execrows
+-- Points all distributor-sourced part parameters matching this mapping's
+-- distributor + parameter name at the mapping's currently-linked definition.
+-- Run after a (re)link so existing rows pick up the canonical parameter_id
+-- without waiting for re-enrichment; rows already on that definition are skipped.
+UPDATE part_parameters pp
+SET parameter_id = dpm.parameter_id
+FROM distributor_parameter_mappings dpm
+WHERE dpm.id = $1
+  AND pp.source_distributor_id = dpm.distributor_id
+  AND pp.name = dpm.distributor_param_name
+  AND pp.source_type = 'distributor'
+  AND pp.parameter_id IS DISTINCT FROM dpm.parameter_id;
+
+-- name: GetMappingSampleValues :many
+-- Distinct raw values seen for a distributor parameter mapping, newest first, for
+-- the admin parse-preview. Bounded by the caller-supplied limit.
+SELECT DISTINCT pp.value
+FROM part_parameters pp
+JOIN distributor_parameter_mappings dpm ON dpm.id = sqlc.arg('mapping_id')
+WHERE pp.source_distributor_id = dpm.distributor_id
+  AND pp.name = dpm.distributor_param_name
+  AND pp.source_type = 'distributor'
+LIMIT sqlc.arg('max_values');
+
 -- name: SetMappingIgnored :exec
 UPDATE distributor_parameter_mappings SET ignored = $2 WHERE id = $1;
 

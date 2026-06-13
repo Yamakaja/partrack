@@ -19,6 +19,7 @@
   let {
     partId,
     teamId,
+    title = null,
     mpn = null,
     manufacturer = null,
     listings,
@@ -34,6 +35,7 @@
   }: {
     partId: string;
     teamId?: string;
+    title?: string | null;
     mpn?: string | null;
     manufacturer?: string | null;
     listings: Listing[];
@@ -168,20 +170,27 @@
 </script>
 
 <div class="space-y-2">
-  {#if teamId}
-    <div class="flex justify-end gap-2">
-      {#if listings.length > 0}
-        <Button size="sm" variant="outline" disabled={refreshingAll} onclick={doRefreshAll}>
-          <RefreshCw class="h-3.5 w-3.5 mr-1 {refreshingAll ? 'animate-spin' : ''}" /> Refresh Stock
-        </Button>
+  {#if title || teamId}
+    <div class="flex items-center justify-between gap-2">
+      {#if title}
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{title}</h3>
       {/if}
-      <Button size="sm" variant="outline" onclick={() => (addListingOpen = true)}>
-        <Plus class="h-3.5 w-3.5 mr-1" /> Add Listing
-      </Button>
+      {#if teamId}
+        <div class="flex gap-2 ml-auto">
+          {#if listings.length > 0}
+            <Button size="sm" variant="outline" disabled={refreshingAll} onclick={doRefreshAll}>
+              <RefreshCw class="h-3.5 w-3.5 mr-1 {refreshingAll ? 'animate-spin' : ''}" /> Refresh Stock
+            </Button>
+          {/if}
+          <Button size="sm" variant="outline" onclick={() => (addListingOpen = true)}>
+            <Plus class="h-3.5 w-3.5 mr-1" /> Add Listing
+          </Button>
+        </div>
+      {/if}
     </div>
   {/if}
 
-  <Table>
+  <Table class="[&_td]:py-2 [&_th]:h-9">
     <TableHeader>
       <TableRow>
         <TableHead class="w-6"></TableHead>

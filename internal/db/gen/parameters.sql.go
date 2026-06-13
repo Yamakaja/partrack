@@ -11,6 +11,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const applyMappingToPartParameters = `-- name: ApplyMappingToPartParameters :execrows
+UPDATE part_parameters pp
+SET parameter_id = dpm.parameter_id
+FROM distributor_parameter_mappings dpm
+WHERE dpm.id = $1
+  AND pp.source_distributor_id = dpm.distributor_id
+  AND pp.name = dpm.distributor_param_name
+  AND pp.source_type = 'distributor'
+  AND pp.parameter_id IS DISTINCT FROM dpm.parameter_id
+`
+
+// Points all distributor-sourced part parameters matching this mapping's
+// distributor + parameter name at the mapping's currently-linked definition.
+// Run after a (re)link so existing rows pick up the canonical parameter_id
+// without waiting for re-enrichment; rows already on that definition are skipped.
+func (q *Queries) ApplyMappingToPartParameters(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, applyMappingToPartParameters, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createParameterDefinition = `-- name: CreateParameterDefinition :one
 INSERT INTO parameter_definitions (slug, display_name, unit, unit_symbol, value_type)
 VALUES ($1, $2, $3, $4, $5)
@@ -311,6 +334,43 @@ func (q *Queries) GetMappedParameter(ctx context.Context, arg GetMappedParameter
 		&i.ValueType,
 	)
 	return i, err
+}
+
+const getMappingSampleValues = `-- name: GetMappingSampleValues :many
+SELECT DISTINCT pp.value
+FROM part_parameters pp
+JOIN distributor_parameter_mappings dpm ON dpm.id = $1
+WHERE pp.source_distributor_id = dpm.distributor_id
+  AND pp.name = dpm.distributor_param_name
+  AND pp.source_type = 'distributor'
+LIMIT $2
+`
+
+type GetMappingSampleValuesParams struct {
+	MappingID pgtype.UUID `json:"mapping_id"`
+	MaxValues int32       `json:"max_values"`
+}
+
+// Distinct raw values seen for a distributor parameter mapping, newest first, for
+// the admin parse-preview. Bounded by the caller-supplied limit.
+func (q *Queries) GetMappingSampleValues(ctx context.Context, arg GetMappingSampleValuesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getMappingSampleValues, arg.MappingID, arg.MaxValues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		items = append(items, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getParameterBySlug = `-- name: GetParameterBySlug :one

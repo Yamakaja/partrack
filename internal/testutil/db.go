@@ -61,7 +61,7 @@ func Truncate(t *testing.T, pool *pgxpool.Pool) {
 	const q = `TRUNCATE
 		users, sessions, api_tokens, user_credentials, user_preferences,
 		external_identities, teams, team_memberships, distributor_configs,
-		parts, part_parameters, distributor_listings,
+		parts, part_parameters, distributor_listings, distributor_parameter_mappings,
 		storage_locations, inventory_entries, stock_adjustments,
 		projects, bom_revisions, bom_line_items, bom_line_item_substitutes,
 		shopping_carts, cart_line_items,

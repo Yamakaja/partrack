@@ -46,6 +46,10 @@
   const qc = useQueryClient();
   let tracking = $state(false);
 
+  // Aliases are reference info — show a few inline, expand the rest on demand.
+  let aliasesExpanded = $state(false);
+  const aliasPreviewCount = 3;
+
   // Adjust stock dialog
   let adjustOpen = $state(false);
 
@@ -399,7 +403,7 @@
       {@const part = partQuery.data}
       <div class="space-y-6">
         <!-- Overview card -->
-        <MetadataCard title={part.mpn ?? '—'} titleClass="font-mono" description={part.short_description ?? part.description ?? '—'}>
+        <MetadataCard title={part.mpn ?? '—'} titleClass="font-mono" description={part.description ?? part.short_description ?? '—'}>
           <!-- Part metadata -->
           <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div><span class="text-muted-foreground">Manufacturer:</span> <span class="font-medium">{part.manufacturer ?? '—'}</span></div>
@@ -412,8 +416,13 @@
               <div><span class="text-muted-foreground">Product Page:</span> <a href={part.product_url} target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Link</a></div>
             {/if}
           </div>
-          {#if part.description && part.short_description && part.description !== part.short_description}
-            <p class="text-sm text-muted-foreground">{part.description}</p>
+          {#if part.aliases?.length > 0}
+            <div class="text-sm text-muted-foreground">
+              <span>Also known as:</span>
+              <span class="font-mono">{(aliasesExpanded ? part.aliases : part.aliases.slice(0, aliasPreviewCount)).join(', ')}</span>{#if part.aliases.length > aliasPreviewCount}
+                <button type="button" class="text-primary hover:underline" onclick={() => (aliasesExpanded = !aliasesExpanded)}>{aliasesExpanded ? 'show less' : `+${part.aliases.length - aliasPreviewCount} more`}</button>
+              {/if}
+            </div>
           {/if}
 
           {#snippet rightFull()}
@@ -489,24 +498,11 @@
           {/snippet}
         </MetadataCard>
 
-        <!-- Aliases -->
-        {#if part.aliases?.length > 0}
-          <section class="space-y-2">
-            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Also Known As</h3>
-            <div class="flex flex-wrap gap-1.5">
-              {#each part.aliases as alias}
-                <span class="inline-flex items-center rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground">{alias}</span>
-              {/each}
-            </div>
-          </section>
-        {/if}
-
-        <!-- Stacked sections -->
         <section class="space-y-2">
-          <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Listings</h3>
           <ListingTable
             {partId}
             {teamId}
+            title="Listings"
             mpn={part.mpn}
             manufacturer={part.manufacturer}
             listings={part.listings ?? []}
@@ -544,17 +540,16 @@
 
         {#if tracked && (allocationsQuery.data?.items.length ?? 0) > 0}
           <section class="space-y-2">
-            
             <DataTable
               source={allocSource}
               getRowKey={(a) => a.build_id}
               onRowClick={(a) => navigate(`/teams/${teamId}/builds/${a.build_id}`)}
               renderers={{ build_status: renderAllocStatus }}
               emptyMessage="No active reservations"
+              compact
               title="Reservations" />
           </section>
         {/if}
-
 
         {#if tracked}
           <section class="space-y-2">

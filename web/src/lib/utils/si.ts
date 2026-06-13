@@ -18,6 +18,9 @@ const PREFIX_MAP: Record<string, number> = {
  */
 export function formatSI(value: number, unitSymbol: string | null | undefined): string {
   if (!unitSymbol) return String(parseFloat(value.toPrecision(4)));
+  // Compound / ratio units (e.g. "V/µs", "ppm/°C") don't compose with a single SI
+  // prefix — a value is stored in the parameter's own unit, so show it as-is.
+  if (unitSymbol.includes('/')) return `${parseFloat(value.toPrecision(4))} ${unitSymbol}`;
   const abs = Math.abs(value);
   for (const [factor, prefix] of SI_PREFIXES) {
     if (abs >= factor || factor === 1e-12) {

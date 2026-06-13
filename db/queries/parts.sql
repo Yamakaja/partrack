@@ -241,21 +241,64 @@ LEFT JOIN parameter_definitions pd ON pd.id = pp.parameter_id
 WHERE pp.part_id = $1
 ORDER BY pp.source_type, pp.name;
 
+-- name: ResolveUserParameterMapping :one
+-- Resolves the canonical parameter definition for a user-specified parameter on a
+-- part, so user-entered values (new params and overrides of distributor values)
+-- can carry a parameter_id + parsed numeric_value and thus appear in the list-view
+-- parameter columns and participate in value search. Preference order:
+--   1. Inherit the mapping of an existing distributor-sourced parameter on this
+--      part with the same name — the override case (the edit UI reuses the
+--      distributor param's raw name, so this matches reliably).
+--   2. Otherwise match the registry directly by slug or case-insensitive display
+--      name, covering manually-entered parts that have no distributor sibling.
+-- Returns no rows when the name maps to no canonical parameter, in which case the
+-- caller leaves parameter_id NULL (today's free-text behaviour).
+WITH sibling AS (
+    SELECT pp.parameter_id
+    FROM part_parameters pp
+    WHERE pp.part_id = sqlc.arg('part_id')
+      AND pp.name = sqlc.arg('name')
+      AND pp.source_type = 'distributor'
+      AND pp.parameter_id IS NOT NULL
+    LIMIT 1
+)
+SELECT pd.id, pd.value_type
+FROM parameter_definitions pd
+WHERE pd.id = (SELECT parameter_id FROM sibling)
+   OR pd.slug = sqlc.arg('name')
+   OR lower(pd.display_name) = lower(sqlc.arg('name'))
+ORDER BY (pd.id = (SELECT parameter_id FROM sibling)) DESC NULLS LAST, pd.id
+LIMIT 1;
+
 -- name: UpsertUserParameter :one
 -- Replaces any existing user-specified parameter with the same name, then inserts.
+-- parameter_id / numeric_value(_max) are resolved by the caller (see
+-- ResolveUserParameterMapping + paramparse) so a user override participates in the
+-- list-view parameter columns and value search exactly like the distributor value
+-- it supersedes — honouring the user-wins precedence GetParametersByPartIDs relies on.
 WITH deleted AS (
     DELETE FROM part_parameters
     WHERE part_id = $1 AND name = $2 AND source_type = 'user'
 )
-INSERT INTO part_parameters (part_id, name, value, unit, source_type)
-VALUES ($1, $2, $3, $4, 'user')
-RETURNING id, part_id, name, value, unit, source_type, source_distributor_id;
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, parameter_id, numeric_value, numeric_value_max)
+VALUES ($1, $2, $3, $4, 'user', $5, $6, $7)
+RETURNING id, part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max;
 
 -- name: DeleteParameter :exec
 -- Only deletes user-specified parameters; distributor-sourced ones are ignored.
 -- Bound to part_id so a parameter cannot be deleted via an unrelated part route.
 DELETE FROM part_parameters
 WHERE id = $1 AND part_id = $2 AND source_type = 'user';
+
+-- name: ListPartParameterValuesByParameterID :many
+-- Raw values of every part parameter mapped to a canonical definition. Used to
+-- re-parse numeric_value(_max) after the definition's value_type changes or a new
+-- mapping links additional rows (admin parameter registry maintenance).
+SELECT id, value FROM part_parameters WHERE parameter_id = $1;
+
+-- name: SetPartParameterNumeric :exec
+-- Overwrites the parsed numeric representation of a single part parameter row.
+UPDATE part_parameters SET numeric_value = $2, numeric_value_max = $3 WHERE id = $1;
 
 -- name: ListListings :many
 SELECT

@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -255,5 +256,85 @@ func TestCreateAndDeleteUserParameter(t *testing.T) {
 		nil, token)
 	if status != http.StatusNoContent {
 		t.Fatalf("expected 204 on delete, got %d", status)
+	}
+}
+
+// TestUserParameterResolution verifies that a user-specified parameter is
+// resolved to a canonical parameter definition (and parsed to a numeric value)
+// on write, so user values participate in the list-view parameter columns and
+// value search the same way distributor-sourced values do.
+func TestUserParameterResolution(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+
+	userID := testutil.CreateAdminUser(t, testDB, "param-resolve@example.com", "pw", "Params")
+	token := testutil.CreateSession(t, testDB, userID)
+	partID := testutil.CreatePart(t, testDB, "global", "RESOLVE-PART", nil)
+
+	// Use the canonical parameter definitions seeded by migration 000018
+	// (reference data, not truncated between tests).
+	var resistanceID, capacitanceID int32
+	if err := testDB.QueryRow(ctx,
+		`SELECT id FROM parameter_definitions WHERE slug = 'resistance'`).Scan(&resistanceID); err != nil {
+		t.Fatalf("lookup resistance def: %v", err)
+	}
+	if err := testDB.QueryRow(ctx,
+		`SELECT id FROM parameter_definitions WHERE slug = 'capacitance'`).Scan(&capacitanceID); err != nil {
+		t.Fatalf("lookup capacitance def: %v", err)
+	}
+
+	createParam := func(name, value string) map[string]any {
+		t.Helper()
+		body, status := testutil.Do(t, testEnv.Server,
+			http.MethodPost, fmt.Sprintf("/api/v1/parts/%s/parameters", partID),
+			map[string]any{"name": name, "value": value, "unit": "Ω"}, token)
+		if status != http.StatusCreated {
+			t.Fatalf("create %q: expected 201, got %d: %v", name, status, body)
+		}
+		return body
+	}
+
+	// 1. Registry match by slug → resolves + parses.
+	b := createParam("resistance", "10k")
+	if got := b["parameter_id"]; got != float64(resistanceID) {
+		t.Errorf("slug match: parameter_id = %v, want %d", got, resistanceID)
+	}
+	if got := b["numeric_value"]; got != float64(10000) {
+		t.Errorf("slug match: numeric_value = %v, want 10000", got)
+	}
+
+	// 2. Registry match by case-insensitive display name.
+	b = createParam("RESISTANCE", "4.7k")
+	if got := b["parameter_id"]; got != float64(resistanceID) {
+		t.Errorf("display-name match: parameter_id = %v, want %d", got, resistanceID)
+	}
+	if got := b["numeric_value"]; got != float64(4700) {
+		t.Errorf("display-name match: numeric_value = %v, want 4700", got)
+	}
+
+	// 3. No registry match → stays free-text (NULL parameter_id / numeric_value).
+	b = createParam("custom_widget_count", "hello")
+	if got := b["parameter_id"]; got != nil {
+		t.Errorf("no match: parameter_id = %v, want nil", got)
+	}
+	if got := b["numeric_value"]; got != nil {
+		t.Errorf("no match: numeric_value = %v, want nil", got)
+	}
+
+	// 4. Override inheritance: a distributor param whose raw name matches no
+	//    definition still lets a same-name user override inherit its mapping.
+	distID := testutil.GetTestDistributorID(t, testDB)
+	if _, err := testDB.Exec(ctx,
+		`INSERT INTO part_parameters (part_id, name, value, source_type, source_distributor_id, parameter_id, numeric_value)
+		 VALUES ($1, 'Cap.', '47n', 'distributor', $2, $3, $4)`,
+		partID, distID, capacitanceID, 47e-9); err != nil {
+		t.Fatalf("seed distributor param: %v", err)
+	}
+	b = createParam("Cap.", "100n")
+	if got := b["parameter_id"]; got != float64(capacitanceID) {
+		t.Errorf("override inherit: parameter_id = %v, want %d", got, capacitanceID)
+	}
+	if got, ok := b["numeric_value"].(float64); !ok || got < 9.99e-8 || got > 1.001e-7 {
+		t.Errorf("override inherit: numeric_value = %v, want ~1e-7", b["numeric_value"])
 	}
 }

@@ -33,12 +33,12 @@
 </script>
 
 <TableRow class="bg-muted/30 hover:bg-muted/30">
-  <TableCell colspan={9} class="py-3 px-4">
+  <TableCell colspan={9} class="py-3 pr-4 pl-0">
     <div class="flex divide-x divide-border">
 
       <!-- Product Image -->
       {#if item.part_image_url}
-        <div class="shrink-0 pr-6 flex items-center justify-center">
+        <div class="shrink-0 px-8 flex items-center justify-center">
           <img
             src={item.part_image_url}
             alt={item.part_mpn ?? 'Part image'}
@@ -48,7 +48,7 @@
       {/if}
 
       <!-- Part Details -->
-      <div class="space-y-2 shrink-0 pr-8">
+      <div class="space-y-2 shrink-0 px-8">
         <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Part Details</p>
         <dl class="text-xs grid grid-cols-[5.5rem_auto] gap-x-4 gap-y-1">
           {#if item.part_mpn}

@@ -7,8 +7,11 @@
     deleteParameterDefinition,
     listDistributorParamMappings,
     updateDistributorParamMapping,
+    parseMappingPreview,
+    type ParsePreviewResult,
   } from '$lib/api/admin.js';
   import type { ParameterDefinition, DistributorParamMapping } from '$lib/types/parts.js';
+  import { formatSI } from '$lib/utils/si.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Tabs, TabsList, TabsTrigger, TabsContent } from '$lib/components/ui/tabs/index.js';
@@ -18,7 +21,7 @@
   import { Dialog, Popover } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-  import { Plus, Link, EyeOff, Wand2, Trash2 } from 'lucide-svelte';
+  import { Plus, Link, EyeOff, Wand2, Trash2, TriangleAlert } from 'lucide-svelte';
 
   const qc = useQueryClient();
 
@@ -37,6 +40,39 @@
     queryFn: () => listDistributorParamMappings(),
   }));
 
+  // Distinct unit identifier → display symbol pairs already in use, for the
+  // datalist suggestions and to couple the two fields when a known one is picked.
+  const unitPairs = $derived.by(() => {
+    const seen = new Map<string, string>();
+    for (const d of defsQuery.data ?? []) {
+      if (d.unit && !seen.has(d.unit)) seen.set(d.unit, d.unit_symbol ?? '');
+    }
+    return [...seen.entries()].map(([unit, symbol]) => ({ unit, symbol }));
+  });
+
+  // When the user picks a known unit/symbol, auto-fill its counterpart if blank —
+  // never clobbering a value they've already typed.
+  function applyUnitDefaults(unit: string, scope: 'add' | 'edit') {
+    const match = unitPairs.find((p) => p.unit === unit);
+    if (scope === 'add') {
+      addUnit = unit;
+      if (match?.symbol && !addUnitSymbol) addUnitSymbol = match.symbol;
+    } else {
+      editUnit = unit;
+      if (match?.symbol && !editUnitSymbol) editUnitSymbol = match.symbol;
+    }
+  }
+  function applySymbolDefaults(symbol: string, scope: 'add' | 'edit') {
+    const match = unitPairs.find((p) => p.symbol === symbol);
+    if (scope === 'add') {
+      addUnitSymbol = symbol;
+      if (match?.unit && !addUnit) addUnit = match.unit;
+    } else {
+      editUnitSymbol = symbol;
+      if (match?.unit && !editUnit) editUnit = match.unit;
+    }
+  }
+
   // ── Add parameter definition dialog ─────────────────────────────────────────
   let addOpen = $state(false);
   let addSlug = $state('');
@@ -46,6 +82,17 @@
   let addValueType = $state<ParameterDefinition['value_type']>('numeric');
   let adding = $state(false);
   let pendingLinkMappingId = $state<string | null>(null);
+
+  // Live parse preview for the "Make New" flow: parse the source mapping's real
+  // sample values under the currently-selected value_type so the admin can see
+  // how the registry will interpret them (and spot anything that won't parse).
+  const previewable = $derived(addValueType === 'numeric' || addValueType === 'range');
+  const previewQuery = createQuery(() => ({
+    queryKey: ['admin', 'param-parse-preview', pendingLinkMappingId, addValueType],
+    queryFn: () => parseMappingPreview(pendingLinkMappingId!, addValueType, 12),
+    enabled: addOpen && !!pendingLinkMappingId && previewable,
+    staleTime: 60_000,
+  }));
 
   function openAdd() {
     addSlug = '';
@@ -70,6 +117,23 @@
     addOpen = true;
   }
 
+  // Toast detail for a re-parse, and invalidation of any open parts views so the
+  // newly-parsed numeric values show up there too.
+  function reparsedMsg(n: number): string | undefined {
+    return n > 0 ? `Re-parsed ${n} part value${n === 1 ? '' : 's'}.` : undefined;
+  }
+  // Format a preview row's parsed numeric value(s) with the pending symbol.
+  function fmtPreview(r: ParsePreviewResult): string {
+    const sym = addUnitSymbol || null;
+    const lo = r.numeric_value != null ? formatSI(r.numeric_value, sym) : '—';
+    return r.numeric_value_max != null ? `${lo} ~ ${formatSI(r.numeric_value_max, sym)}` : lo;
+  }
+  function invalidatePartViews() {
+    qc.invalidateQueries({ queryKey: ['parts'] });
+    qc.invalidateQueries({ queryKey: ['part'] });
+    qc.invalidateQueries({ queryKey: ['category-params'] });
+  }
+
   async function handleAdd(e: Event) {
     e.preventDefault();
     adding = true;
@@ -82,9 +146,10 @@
         value_type: addValueType,
       });
       if (pendingLinkMappingId) {
-        await updateDistributorParamMapping(pendingLinkMappingId, { parameter_id: newDef.id });
+        const res = await updateDistributorParamMapping(pendingLinkMappingId, { parameter_id: newDef.id });
         qc.invalidateQueries({ queryKey: ['admin', 'distributor-param-mappings'] });
-        pushToast('success', `Created and linked "${newDef.display_name}"`);
+        invalidatePartViews();
+        pushToast('success', `Created and linked "${newDef.display_name}"`, reparsedMsg(res.reparsed_count));
       } else {
         pushToast('success', 'Parameter definition created');
       }
@@ -123,7 +188,7 @@
     if (!editDef) return;
     editing = true;
     try {
-      await updateParameterDefinition(editDef.id, {
+      const res = await updateParameterDefinition(editDef.id, {
         slug: editSlug,
         display_name: editDisplayName,
         unit: editUnit || null,
@@ -132,7 +197,8 @@
       });
       editOpen = false;
       qc.invalidateQueries({ queryKey: ['admin', 'parameter-definitions'] });
-      pushToast('success', 'Parameter definition updated');
+      if (res.reparsed_count > 0) invalidatePartViews();
+      pushToast('success', 'Parameter definition updated', reparsedMsg(res.reparsed_count));
     } catch (err: any) {
       pushToast('error', 'Failed to update parameter', err.message);
     } finally {
@@ -173,10 +239,11 @@
   async function handleLink(mapping: DistributorParamMapping, paramId: number) {
     linking = true;
     try {
-      await updateDistributorParamMapping(mapping.id, { parameter_id: paramId });
+      const res = await updateDistributorParamMapping(mapping.id, { parameter_id: paramId });
       linkOpen[mapping.id] = false;
       qc.invalidateQueries({ queryKey: ['admin', 'distributor-param-mappings'] });
-      pushToast('success', `Linked "${mapping.distributor_param_name}"`);
+      invalidatePartViews();
+      pushToast('success', `Linked "${mapping.distributor_param_name}"`, reparsedMsg(res.reparsed_count));
     } catch (err: any) {
       pushToast('error', 'Failed to link parameter', err.message);
     } finally {
@@ -231,7 +298,7 @@
     </Popover.Trigger>
     <Popover.Content
       align="end"
-      class="z-50 w-64 rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+      class="z-50 w-96 rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
     >
       <div class="border-b border-border px-2 py-1.5">
         <input
@@ -243,20 +310,18 @@
           use:focusAndSelect
         />
       </div>
-      <div class="max-h-48 overflow-y-auto py-1">
+      <div class="max-h-64 overflow-y-auto py-1">
         {#if filteredDefs.length === 0}
           <p class="px-2 py-1.5 text-xs text-muted-foreground">No results</p>
         {:else}
           {#each filteredDefs as d (d.id)}
             <button
-              class="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left disabled:opacity-50"
+              class="flex w-full items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left disabled:opacity-50"
               disabled={linking}
               onmousedown={(e) => { e.preventDefault(); handleLink(m, d.id); }}
             >
-              <span class="font-medium">{d.display_name}</span>
-              <span class="text-muted-foreground font-mono">({d.slug}) {#if d.unit_symbol}
-                {d.unit_symbol}
-              {/if}</span>
+              <span class="font-medium truncate">{d.display_name}</span>
+              <span class="flex-shrink-0 text-muted-foreground font-mono">{d.slug}{#if d.unit_symbol} · {d.unit_symbol}{/if} · {d.value_type}</span>
             </button>
           {/each}
         {/if}
@@ -535,7 +600,7 @@
 <Dialog.Root bind:open={addOpen}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 bg-black/80" />
-    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+    <Dialog.Content class="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
       <Dialog.Title class="text-lg font-semibold mb-1">Add Parameter Definition</Dialog.Title>
       {#if pendingLinkMappingId}
         <p class="text-xs text-muted-foreground mb-4">Will be linked to the mapping after creation.</p>
@@ -555,11 +620,13 @@
         <div class="grid grid-cols-2 gap-2">
           <div class="space-y-1">
             <Label for="add-unit">Unit identifier</Label>
-            <Input id="add-unit" bind:value={addUnit} placeholder="ohm" />
+            <Input id="add-unit" value={addUnit} list="param-unit-options" placeholder="ohm"
+              oninput={(e: Event) => applyUnitDefaults((e.target as HTMLInputElement).value, 'add')} />
           </div>
           <div class="space-y-1">
             <Label for="add-symbol">Display symbol</Label>
-            <Input id="add-symbol" bind:value={addUnitSymbol} placeholder="Ω" />
+            <Input id="add-symbol" value={addUnitSymbol} list="param-symbol-options" placeholder="Ω"
+              oninput={(e: Event) => applySymbolDefaults((e.target as HTMLInputElement).value, 'add')} />
           </div>
         </div>
         <div class="space-y-1">
@@ -575,6 +642,45 @@
             <option value="enum">enum</option>
           </select>
         </div>
+
+        {#if pendingLinkMappingId && previewable}
+          <div class="space-y-1 rounded-md border border-border bg-muted/30 p-2">
+            <p class="text-xs font-medium text-muted-foreground">
+              Parse preview <span class="font-normal">— real sample values as <span class="font-mono">{addValueType}</span></span>
+            </p>
+            {#if previewQuery.isPending}
+              <p class="text-xs text-muted-foreground">Loading sample values…</p>
+            {:else if previewQuery.isError}
+              <p class="text-xs text-destructive">Could not load sample values.</p>
+            {:else if previewQuery.data}
+              {#if previewQuery.data.results.length === 0}
+                <p class="text-xs text-muted-foreground">No sample values found for this mapping.</p>
+              {:else}
+                {@const failed = previewQuery.data.results.filter((r) => !r.parsed).length}
+                <div class="max-h-40 overflow-y-auto space-y-0.5">
+                  {#each previewQuery.data.results as r (r.value)}
+                    <div class="flex items-center justify-between gap-2 text-xs">
+                      <span class="font-mono truncate text-muted-foreground" title={r.value}>{r.value}</span>
+                      {#if r.parsed}
+                        <span class="font-mono flex-shrink-0">→ {fmtPreview(r)}</span>
+                      {:else}
+                        <span class="flex-shrink-0 inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-destructive">
+                          <TriangleAlert class="h-3 w-3" /> no parse
+                        </span>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+                {#if failed > 0}
+                  <p class="text-xs text-destructive">
+                    {failed} of {previewQuery.data.results.length} didn't parse — if these look valid, report it so the parser can be improved.
+                  </p>
+                {/if}
+              {/if}
+            {/if}
+          </div>
+        {/if}
+
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onclick={() => { addOpen = false; pendingLinkMappingId = null; }}>Cancel</Button>
           <Button type="submit" disabled={adding || !addSlug || !addDisplayName}>
@@ -620,11 +726,13 @@
         <div class="grid grid-cols-2 gap-2">
           <div class="space-y-1">
             <Label for="edit-unit">Unit identifier</Label>
-            <Input id="edit-unit" bind:value={editUnit} />
+            <Input id="edit-unit" value={editUnit} list="param-unit-options"
+              oninput={(e: Event) => applyUnitDefaults((e.target as HTMLInputElement).value, 'edit')} />
           </div>
           <div class="space-y-1">
             <Label for="edit-symbol">Display symbol</Label>
-            <Input id="edit-symbol" bind:value={editUnitSymbol} />
+            <Input id="edit-symbol" value={editUnitSymbol} list="param-symbol-options"
+              oninput={(e: Event) => applySymbolDefaults((e.target as HTMLInputElement).value, 'edit')} />
           </div>
         </div>
         <div class="space-y-1">
@@ -639,6 +747,9 @@
             <option value="text">text</option>
             <option value="enum">enum</option>
           </select>
+          {#if editDef && editValueType !== editDef.value_type}
+            <p class="text-xs text-muted-foreground">Changing the value type re-parses all part values mapped to this parameter.</p>
+          {/if}
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onclick={() => { editOpen = false; }}>Cancel</Button>
@@ -650,3 +761,15 @@
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>
+
+<!-- Suggestions for unit identifier / display symbol from existing definitions -->
+<datalist id="param-unit-options">
+  {#each unitPairs as p (p.unit)}
+    <option value={p.unit}>{p.symbol}</option>
+  {/each}
+</datalist>
+<datalist id="param-symbol-options">
+  {#each unitPairs.filter((p) => p.symbol) as p (p.symbol)}
+    <option value={p.symbol}>{p.unit}</option>
+  {/each}
+</datalist>

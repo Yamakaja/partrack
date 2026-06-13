@@ -1,15 +1,59 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
+	"github.com/Yamakaja/partrack/internal/paramparse"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// reparseParameterValues re-runs the numeric parser over every part_parameters
+// row mapped to the given canonical parameter, using the definition's current
+// value_type, and overwrites numeric_value/numeric_value_max. Returns the number
+// of rows touched. Synchronous — callers are admin registry-maintenance endpoints
+// (linking a mapping, changing a definition's value_type), so existing data stays
+// in sync without waiting for re-enrichment.
+func (h *Handler) reparseParameterValues(ctx context.Context, parameterID int32) (int, error) {
+	def, err := h.Queries.GetParameterDefinition(ctx, parameterID)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := h.Queries.ListPartParameterValuesByParameterID(ctx, &parameterID)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	tx, err := h.DB.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	qtx := h.Queries.WithTx(tx)
+
+	for _, row := range rows {
+		pr := paramparse.Parse(row.Value, def.ValueType)
+		if err := qtx.SetPartParameterNumeric(ctx, dbgen.SetPartParameterNumericParams{
+			ID:              row.ID,
+			NumericValue:    pr.Value,
+			NumericValueMax: pr.ValueMax,
+		}); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
 
 // GetCategoryParameters handles GET /api/v1/categories/{categoryId}/parameters
 // Returns the parameter definitions present in a category (and its descendants),
@@ -211,6 +255,7 @@ func (h *Handler) AdminUpdateParameterDefinition(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusNotFound, "parameter definition not found", "NOT_FOUND")
 		return
 	}
+	originalValueType := existing.ValueType
 
 	var req struct {
 		Slug        *string `json:"slug"`
@@ -253,13 +298,28 @@ func (h *Handler) AdminUpdateParameterDefinition(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	// A changed value_type changes how raw values parse, so re-parse every part
+	// parameter mapped to this definition. (Unit/symbol/name changes don't affect
+	// parsing.)
+	reparsed := 0
+	if updated.ValueType != originalValueType {
+		n, err := h.reparseParameterValues(r.Context(), int32(updated.ID))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		reparsed = n
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":           int32(updated.ID),
-		"slug":         updated.Slug,
-		"display_name": updated.DisplayName,
-		"unit":         updated.Unit,
-		"unit_symbol":  updated.UnitSymbol,
-		"value_type":   updated.ValueType,
+		"id":             int32(updated.ID),
+		"slug":           updated.Slug,
+		"display_name":   updated.DisplayName,
+		"unit":           updated.Unit,
+		"unit_symbol":    updated.UnitSymbol,
+		"value_type":     updated.ValueType,
+		"reparsed_count": reparsed,
 	})
 }
 
@@ -348,6 +408,7 @@ func (h *Handler) AdminUpdateDistributorParamMapping(w http.ResponseWriter, r *h
 		return
 	}
 
+	reparsed := 0
 	if req.ParameterID != nil {
 		if err := h.Queries.SetMappingParameterID(r.Context(), dbgen.SetMappingParameterIDParams{
 			ID:          mappingID,
@@ -356,6 +417,19 @@ func (h *Handler) AdminUpdateDistributorParamMapping(w http.ResponseWriter, r *h
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
+		// Back-fill existing part parameters with the newly-linked canonical id and
+		// re-parse their numeric values, so the parts table reflects the link
+		// immediately rather than only after the next enrichment.
+		if _, err := h.Queries.ApplyMappingToPartParameters(r.Context(), mappingID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		n, err := h.reparseParameterValues(r.Context(), *req.ParameterID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		reparsed = n
 	}
 	if req.Ignored != nil {
 		if err := h.Queries.SetMappingIgnored(r.Context(), dbgen.SetMappingIgnoredParams{
@@ -367,5 +441,59 @@ func (h *Handler) AdminUpdateDistributorParamMapping(w http.ResponseWriter, r *h
 		}
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]any{"reparsed_count": reparsed})
+}
+
+// AdminParseMappingPreview handles
+// GET /api/v1/admin/distributor-parameter-mappings/{id}/parse-preview
+// Query: value_type (default numeric), limit (default 12, max 100). Fetches
+// distinct raw values seen for the mapping and parses each under the given
+// value_type, so an admin can preview how the registry will interpret real data
+// before committing to a link or value_type.
+func (h *Handler) AdminParseMappingPreview(w http.ResponseWriter, r *http.Request) {
+	var mappingID pgtype.UUID
+	if err := mappingID.Scan(chi.URLParam(r, "id")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid mapping ID", "BAD_REQUEST")
+		return
+	}
+	valueType := r.URL.Query().Get("value_type")
+	if valueType == "" {
+		valueType = "numeric"
+	}
+	limit := 12
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	values, err := h.Queries.GetMappingSampleValues(r.Context(), dbgen.GetMappingSampleValuesParams{
+		MappingID: mappingID,
+		MaxValues: int32(limit),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type result struct {
+		Value           string   `json:"value"`
+		Parsed          bool     `json:"parsed"`
+		NumericValue    *float64 `json:"numeric_value"`
+		NumericValueMax *float64 `json:"numeric_value_max"`
+	}
+	out := make([]result, len(values))
+	for i, v := range values {
+		pr := paramparse.Parse(v, valueType)
+		out[i] = result{
+			Value:           v,
+			Parsed:          pr.Value != nil,
+			NumericValue:    pr.Value,
+			NumericValueMax: pr.ValueMax,
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"value_type": valueType,
+		"results":    out,
+	})
 }

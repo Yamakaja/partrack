@@ -117,6 +117,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				r.Patch("/admin/parameter-definitions/{id}", h.AdminUpdateParameterDefinition)
 				r.Delete("/admin/parameter-definitions/{id}", h.AdminDeleteParameterDefinition)
 				r.Get("/admin/distributor-parameter-mappings", h.AdminListDistributorParamMappings)
+				r.Get("/admin/distributor-parameter-mappings/{id}/parse-preview", h.AdminParseMappingPreview)
 				r.Patch("/admin/distributor-parameter-mappings/{id}", h.AdminUpdateDistributorParamMapping)
 			})
 

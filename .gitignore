@@ -5,3 +5,4 @@ config.yaml
 doc/work/
 .claude
 reference_material
+data

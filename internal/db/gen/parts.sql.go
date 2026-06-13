@@ -881,6 +881,38 @@ func (q *Queries) ListPartCategoryCounts(ctx context.Context, teamID pgtype.UUID
 	return items, nil
 }
 
+const listPartParameterValuesByParameterID = `-- name: ListPartParameterValuesByParameterID :many
+SELECT id, value FROM part_parameters WHERE parameter_id = $1
+`
+
+type ListPartParameterValuesByParameterIDRow struct {
+	ID    pgtype.UUID `json:"id"`
+	Value string      `json:"value"`
+}
+
+// Raw values of every part parameter mapped to a canonical definition. Used to
+// re-parse numeric_value(_max) after the definition's value_type changes or a new
+// mapping links additional rows (admin parameter registry maintenance).
+func (q *Queries) ListPartParameterValuesByParameterID(ctx context.Context, parameterID *int32) ([]ListPartParameterValuesByParameterIDRow, error) {
+	rows, err := q.db.Query(ctx, listPartParameterValuesByParameterID, parameterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPartParameterValuesByParameterIDRow
+	for rows.Next() {
+		var i ListPartParameterValuesByParameterIDRow
+		if err := rows.Scan(&i.ID, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listParts = `-- name: ListParts :many
 WITH RECURSIVE cat_tree AS (
   SELECT id FROM categories WHERE id = $4
@@ -1244,6 +1276,54 @@ func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithI
 	return items, nil
 }
 
+const resolveUserParameterMapping = `-- name: ResolveUserParameterMapping :one
+WITH sibling AS (
+    SELECT pp.parameter_id
+    FROM part_parameters pp
+    WHERE pp.part_id = $2
+      AND pp.name = $1
+      AND pp.source_type = 'distributor'
+      AND pp.parameter_id IS NOT NULL
+    LIMIT 1
+)
+SELECT pd.id, pd.value_type
+FROM parameter_definitions pd
+WHERE pd.id = (SELECT parameter_id FROM sibling)
+   OR pd.slug = $1
+   OR lower(pd.display_name) = lower($1)
+ORDER BY (pd.id = (SELECT parameter_id FROM sibling)) DESC NULLS LAST, pd.id
+LIMIT 1
+`
+
+type ResolveUserParameterMappingParams struct {
+	Name   string      `json:"name"`
+	PartID pgtype.UUID `json:"part_id"`
+}
+
+type ResolveUserParameterMappingRow struct {
+	ID        int32  `json:"id"`
+	ValueType string `json:"value_type"`
+}
+
+// Resolves the canonical parameter definition for a user-specified parameter on a
+// part, so user-entered values (new params and overrides of distributor values)
+// can carry a parameter_id + parsed numeric_value and thus appear in the list-view
+// parameter columns and participate in value search. Preference order:
+//  1. Inherit the mapping of an existing distributor-sourced parameter on this
+//     part with the same name — the override case (the edit UI reuses the
+//     distributor param's raw name, so this matches reliably).
+//  2. Otherwise match the registry directly by slug or case-insensitive display
+//     name, covering manually-entered parts that have no distributor sibling.
+//
+// Returns no rows when the name maps to no canonical parameter, in which case the
+// caller leaves parameter_id NULL (today's free-text behaviour).
+func (q *Queries) ResolveUserParameterMapping(ctx context.Context, arg ResolveUserParameterMappingParams) (ResolveUserParameterMappingRow, error) {
+	row := q.db.QueryRow(ctx, resolveUserParameterMapping, arg.Name, arg.PartID)
+	var i ResolveUserParameterMappingRow
+	err := row.Scan(&i.ID, &i.ValueType)
+	return i, err
+}
+
 const setPartEnriched = `-- name: SetPartEnriched :exec
 UPDATE parts
 SET enrichment_source_id = $2,
@@ -1293,6 +1373,22 @@ func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams
 		arg.ImageUrl,
 		arg.NewCategoryID,
 	)
+	return err
+}
+
+const setPartParameterNumeric = `-- name: SetPartParameterNumeric :exec
+UPDATE part_parameters SET numeric_value = $2, numeric_value_max = $3 WHERE id = $1
+`
+
+type SetPartParameterNumericParams struct {
+	ID              pgtype.UUID `json:"id"`
+	NumericValue    *float64    `json:"numeric_value"`
+	NumericValueMax *float64    `json:"numeric_value_max"`
+}
+
+// Overwrites the parsed numeric representation of a single part parameter row.
+func (q *Queries) SetPartParameterNumeric(ctx context.Context, arg SetPartParameterNumericParams) error {
+	_, err := q.db.Exec(ctx, setPartParameterNumeric, arg.ID, arg.NumericValue, arg.NumericValueMax)
 	return err
 }
 
@@ -1449,37 +1545,37 @@ WITH deleted AS (
     DELETE FROM part_parameters
     WHERE part_id = $1 AND name = $2 AND source_type = 'user'
 )
-INSERT INTO part_parameters (part_id, name, value, unit, source_type)
-VALUES ($1, $2, $3, $4, 'user')
-RETURNING id, part_id, name, value, unit, source_type, source_distributor_id
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, parameter_id, numeric_value, numeric_value_max)
+VALUES ($1, $2, $3, $4, 'user', $5, $6, $7)
+RETURNING id, part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max
 `
 
 type UpsertUserParameterParams struct {
-	PartID pgtype.UUID `json:"part_id"`
-	Name   string      `json:"name"`
-	Value  string      `json:"value"`
-	Unit   *string     `json:"unit"`
-}
-
-type UpsertUserParameterRow struct {
-	ID                  pgtype.UUID         `json:"id"`
-	PartID              pgtype.UUID         `json:"part_id"`
-	Name                string              `json:"name"`
-	Value               string              `json:"value"`
-	Unit                *string             `json:"unit"`
-	SourceType          ParameterSourceType `json:"source_type"`
-	SourceDistributorID pgtype.UUID         `json:"source_distributor_id"`
+	PartID          pgtype.UUID `json:"part_id"`
+	Name            string      `json:"name"`
+	Value           string      `json:"value"`
+	Unit            *string     `json:"unit"`
+	ParameterID     *int32      `json:"parameter_id"`
+	NumericValue    *float64    `json:"numeric_value"`
+	NumericValueMax *float64    `json:"numeric_value_max"`
 }
 
 // Replaces any existing user-specified parameter with the same name, then inserts.
-func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParameterParams) (UpsertUserParameterRow, error) {
+// parameter_id / numeric_value(_max) are resolved by the caller (see
+// ResolveUserParameterMapping + paramparse) so a user override participates in the
+// list-view parameter columns and value search exactly like the distributor value
+// it supersedes — honouring the user-wins precedence GetParametersByPartIDs relies on.
+func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParameterParams) (PartParameter, error) {
 	row := q.db.QueryRow(ctx, upsertUserParameter,
 		arg.PartID,
 		arg.Name,
 		arg.Value,
 		arg.Unit,
+		arg.ParameterID,
+		arg.NumericValue,
+		arg.NumericValueMax,
 	)
-	var i UpsertUserParameterRow
+	var i PartParameter
 	err := row.Scan(
 		&i.ID,
 		&i.PartID,
@@ -1488,6 +1584,9 @@ func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParamet
 		&i.Unit,
 		&i.SourceType,
 		&i.SourceDistributorID,
+		&i.ParameterID,
+		&i.NumericValue,
+		&i.NumericValueMax,
 	)
 	return i, err
 }

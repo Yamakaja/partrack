@@ -2,10 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/paramparse"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -97,22 +100,49 @@ func (h *Handler) CreateParameter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	param, err := h.Queries.UpsertUserParameter(r.Context(), dbgen.UpsertUserParameterParams{
+	// Resolve the user value to a canonical parameter where possible so the
+	// override carries a parameter_id + parsed numeric value, letting it appear in
+	// the list-view parameter columns and participate in value search — the same
+	// treatment distributor-sourced values get during enrichment. When the name
+	// resolves to nothing (custom free-text param), parameter_id stays NULL.
+	var paramID *int32
+	var numericValue, numericValueMax *float64
+	if m, err := h.Queries.ResolveUserParameterMapping(r.Context(), dbgen.ResolveUserParameterMappingParams{
 		PartID: partID,
 		Name:   req.Name,
-		Value:  req.Value,
-		Unit:   req.Unit,
+	}); err == nil {
+		id := m.ID
+		paramID = &id
+		pr := paramparse.Parse(req.Value, m.ValueType)
+		numericValue = pr.Value
+		numericValueMax = pr.ValueMax
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	param, err := h.Queries.UpsertUserParameter(r.Context(), dbgen.UpsertUserParameterParams{
+		PartID:          partID,
+		Name:            req.Name,
+		Value:           req.Value,
+		Unit:            req.Unit,
+		ParameterID:     paramID,
+		NumericValue:    numericValue,
+		NumericValueMax: numericValueMax,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":          param.ID.String(),
-		"name":        param.Name,
-		"value":       param.Value,
-		"unit":        param.Unit,
-		"source_type": string(param.SourceType),
+		"id":                param.ID.String(),
+		"name":              param.Name,
+		"value":             param.Value,
+		"unit":              param.Unit,
+		"source_type":       string(param.SourceType),
+		"parameter_id":      param.ParameterID,
+		"numeric_value":     param.NumericValue,
+		"numeric_value_max": param.NumericValueMax,
 	})
 }
 

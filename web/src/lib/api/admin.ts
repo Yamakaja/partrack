@@ -75,7 +75,11 @@ export function updateParameterDefinition(
   id: number,
   body: Partial<Pick<ParameterDefinition, 'slug' | 'display_name' | 'unit' | 'unit_symbol' | 'value_type'>>,
 ) {
-  return request<ParameterDefinition>('PATCH', `/api/v1/admin/parameter-definitions/${id}`, body);
+  return request<ParameterDefinition & { reparsed_count: number }>(
+    'PATCH',
+    `/api/v1/admin/parameter-definitions/${id}`,
+    body,
+  );
 }
 
 export function deleteParameterDefinition(id: number) {
@@ -93,7 +97,30 @@ export function updateDistributorParamMapping(
   id: string,
   body: { parameter_id?: number | null; ignored?: boolean },
 ) {
-  return request<void>('PATCH', `/api/v1/admin/distributor-parameter-mappings/${id}`, body);
+  return request<{ reparsed_count: number }>(
+    'PATCH',
+    `/api/v1/admin/distributor-parameter-mappings/${id}`,
+    body,
+  );
+}
+
+export interface ParsePreviewResult {
+  value: string;
+  parsed: boolean;
+  numeric_value: number | null;
+  numeric_value_max: number | null;
+}
+
+/** Preview how a distributor mapping's real sample values parse under a value_type. */
+export function parseMappingPreview(
+  mappingId: string,
+  valueType: ParameterDefinition['value_type'],
+  limit = 12,
+) {
+  return request<{ value_type: string; results: ParsePreviewResult[] }>(
+    'GET',
+    `/api/v1/admin/distributor-parameter-mappings/${mappingId}/parse-preview?${qs({ value_type: valueType, limit })}`,
+  );
 }
 
 // ── LDAP diagnostics ────────────────────────────────────────────────────────
