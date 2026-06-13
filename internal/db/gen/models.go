@@ -780,6 +780,7 @@ type PartParameter struct {
 	ParameterID         *int32              `json:"parameter_id"`
 	NumericValue        *float64            `json:"numeric_value"`
 	NumericValueMax     *float64            `json:"numeric_value_max"`
+	EnumValues          []string            `json:"enum_values"`
 }
 
 type PartResolveItem struct {

@@ -107,15 +107,20 @@ func (h *Handler) CreateParameter(w http.ResponseWriter, r *http.Request) {
 	// resolves to nothing (custom free-text param), parameter_id stays NULL.
 	var paramID *int32
 	var numericValue, numericValueMax *float64
+	var enumValues []string
 	if m, err := h.Queries.ResolveUserParameterMapping(r.Context(), dbgen.ResolveUserParameterMappingParams{
 		PartID: partID,
 		Name:   req.Name,
 	}); err == nil {
 		id := m.ID
 		paramID = &id
-		pr := paramparse.Parse(req.Value, m.ValueType)
-		numericValue = pr.Value
-		numericValueMax = pr.ValueMax
+		if m.ValueType == "enum_set" {
+			enumValues = paramparse.ParseEnumSet(req.Value)
+		} else {
+			pr := paramparse.Parse(req.Value, m.ValueType)
+			numericValue = pr.Value
+			numericValueMax = pr.ValueMax
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -129,6 +134,7 @@ func (h *Handler) CreateParameter(w http.ResponseWriter, r *http.Request) {
 		ParameterID:     paramID,
 		NumericValue:    numericValue,
 		NumericValueMax: numericValueMax,
+		EnumValues:      enumValues,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")

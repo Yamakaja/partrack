@@ -1,6 +1,7 @@
 package paramparse
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -101,6 +102,14 @@ func Parse(text string, valueType string) ParseResult {
 
 	text = normalizeText(text)
 
+	// Conditional / point spec: keep only the leading value; the bias conditions
+	// after "@" (`40µA @ 60V`, `380mΩ @ 650mA, 4.5V`) are display-only context and
+	// remain in the stored raw value. Stripping here also removes their commas before
+	// the alternate-representation collapse below.
+	if i := strings.IndexByte(text, '@'); i >= 0 {
+		text = strings.TrimSpace(text[:i])
+	}
+
 	// Dual-unit inch+mm: `0.015" (0.37mm)` → `0.37mm`
 	if m := inchMmRe.FindStringSubmatch(text); m != nil {
 		text = m[1] + "mm"
@@ -153,7 +162,76 @@ func Parse(text string, valueType string) ParseResult {
 		return ParseResult{Value: v}
 	}
 
+	// Alternate representations: some distributors return the same value twice in
+	// different forms ("0.063W, 1/16W"). Collapse to one when the comma-separated
+	// parts agree; genuine tuples (differing values, e.g. "1.8V, 4.5V") are left
+	// unparsed for later decomposition.
+	if v := collapseEquivalent(text); v != nil {
+		return ParseResult{Value: v}
+	}
+
 	return ParseResult{}
+}
+
+// collapseEquivalent parses comma-separated alternate representations of one value
+// and returns it when all parts agree (within 2%, to tolerate a rounded decimal
+// vs an exact fraction). Returns nil if there is no comma, any part is unparseable,
+// or the parts represent distinct values (a tuple, not an alternate representation).
+func collapseEquivalent(text string) *float64 {
+	parts := strings.Split(text, ",")
+	if len(parts) < 2 {
+		return nil
+	}
+	var first *float64
+	for _, p := range parts {
+		v := parseScalar(strings.TrimSpace(p))
+		if v == nil {
+			return nil
+		}
+		if first == nil {
+			first = v
+		} else if !approxEqual(*first, *v) {
+			return nil
+		}
+	}
+	return first
+}
+
+// approxEqual reports whether a and b are equal within 2% relative tolerance.
+func approxEqual(a, b float64) bool {
+	if a == b {
+		return true
+	}
+	m := math.Max(math.Abs(a), math.Abs(b))
+	if m == 0 {
+		return true
+	}
+	return math.Abs(a-b)/m <= 0.02
+}
+
+// ParseEnumSet splits a multi-valued enum string ("CANbus, EBI/EMI, Ethernet")
+// into its distinct member values, trimming whitespace and dropping empties.
+// Order is preserved and duplicates are removed. Returns nil when there are no
+// members so callers store SQL NULL rather than an empty array.
+func ParseEnumSet(text string) []string {
+	parts := strings.Split(text, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // parseScalar attempts to parse a single numeric value (with optional SI prefix)

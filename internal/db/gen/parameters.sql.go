@@ -127,7 +127,7 @@ SELECT DISTINCT pp.part_id
 FROM part_parameters pp
 JOIN parts p ON p.id = pp.part_id
 WHERE pp.parameter_id = $1
-  AND pp.value = ANY($2::text[])
+  AND (pp.value = ANY($2::text[]) OR pp.enum_values && $2::text[])
   AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $3))
 `
 
@@ -138,7 +138,10 @@ type FindPartIDsByParameterValuesParams struct {
 }
 
 // Returns distinct part IDs where a specific parameter matches any of the given values.
-// Used to pre-filter parts for enum/text parameter-based search.
+// Handles both scalar enum/text (value equals a selected value) and enum_set
+// (the value array overlaps the selected values — contains-any). One query covers
+// both because enum_values is NULL for scalar params and value never equals a
+// single member for enum_set, so only the relevant branch can match.
 func (q *Queries) FindPartIDsByParameterValues(ctx context.Context, arg FindPartIDsByParameterValuesParams) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, findPartIDsByParameterValues, arg.ParameterID, arg.Column2, arg.TeamID)
 	if err != nil {
@@ -242,12 +245,16 @@ SELECT
     MIN(CASE WHEN pd.value_type = 'numeric' THEN pp.numeric_value END) AS min_numeric,
     MAX(CASE WHEN pd.value_type = 'numeric' THEN pp.numeric_value END) AS max_numeric,
     array_remove(
-        array_agg(DISTINCT CASE WHEN pd.value_type IN ('enum', 'text') AND pp.value IS NOT NULL THEN pp.value END),
+        array_agg(DISTINCT CASE
+            WHEN pd.value_type IN ('enum', 'text') AND pp.value IS NOT NULL THEN pp.value
+            WHEN pd.value_type = 'enum_set' THEN ev.elem
+        END),
         NULL
     ) AS enum_values
 FROM part_parameters pp
 JOIN parts p ON p.id = pp.part_id
 JOIN parameter_definitions pd ON pd.id = pp.parameter_id
+LEFT JOIN LATERAL unnest(pp.enum_values) AS ev(elem) ON pd.value_type = 'enum_set'
 WHERE p.category_id IN (SELECT ct2.id FROM cat_tree ct2)
   AND pp.parameter_id IS NOT NULL
   AND pd.value_type != 'range'
@@ -276,6 +283,8 @@ type GetCategoryParametersRow struct {
 // Returns parameter definitions present for parts in a category (and all descendant categories),
 // including numeric value ranges and distinct enum/text values found across those parts.
 // Range-type parameters are excluded. Optional team_id scopes to global + team-owned parts.
+// For enum_set params, fan out the value array so its members appear as distinct
+// filter options; for other kinds this is a no-op (single NULL-elem row).
 func (q *Queries) GetCategoryParameters(ctx context.Context, arg GetCategoryParametersParams) ([]GetCategoryParametersRow, error) {
 	rows, err := q.db.Query(ctx, getCategoryParameters, arg.ID, arg.TeamID)
 	if err != nil {

@@ -94,7 +94,7 @@ export interface ParameterDefinition {
   display_name: string;
   unit: string | null;
   unit_symbol: string | null;
-  value_type: 'numeric' | 'range' | 'text' | 'enum';
+  value_type: 'numeric' | 'range' | 'text' | 'enum' | 'enum_set';
 }
 
 export interface DistributorParamMapping {
@@ -166,7 +166,7 @@ export interface CategoryParameter {
   display_name: string;
   unit: string | null;
   unit_symbol: string | null;
-  value_type: 'numeric' | 'text' | 'enum';
+  value_type: 'numeric' | 'text' | 'enum' | 'enum_set';
   min_numeric: number | null;
   max_numeric: number | null;
   enum_values: string[];

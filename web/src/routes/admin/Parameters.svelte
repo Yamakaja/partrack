@@ -640,6 +640,7 @@
             <option value="range">range</option>
             <option value="text">text</option>
             <option value="enum">enum</option>
+            <option value="enum_set">enum set (list)</option>
           </select>
         </div>
 
@@ -746,6 +747,7 @@
             <option value="range">range</option>
             <option value="text">text</option>
             <option value="enum">enum</option>
+            <option value="enum_set">enum set (list)</option>
           </select>
           {#if editDef && editValueType !== editDef.value_type}
             <p class="text-xs text-muted-foreground">Changing the value type re-parses all part values mapped to this parameter.</p>

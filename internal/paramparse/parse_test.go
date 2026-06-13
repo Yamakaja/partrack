@@ -14,6 +14,33 @@ func approx(a, b float64) bool {
 
 func pf(v float64) *float64 { return &v }
 
+func TestParseEnumSet(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"CANbus, EBI/EMI, Ethernet", []string{"CANbus", "EBI/EMI", "Ethernet"}},
+		{"Current Limit, Enable", []string{"Current Limit", "Enable"}},
+		{"SPI", []string{"SPI"}},
+		{"A, A, B", []string{"A", "B"}},    // dedupe
+		{" A ,  , B ", []string{"A", "B"}}, // trim + drop empties
+		{"", nil},
+		{" , ", nil},
+	}
+	for _, tt := range tests {
+		got := ParseEnumSet(tt.in)
+		if len(got) != len(tt.want) {
+			t.Errorf("ParseEnumSet(%q) = %v, want %v", tt.in, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("ParseEnumSet(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -92,6 +119,18 @@ func TestParse(t *testing.T) {
 		{"tempco ppm per C nospace", "30ppm/°C", "numeric", pf(30e-4), nil},
 		{"tempco ppb per C", "50 ppb/°C", "numeric", pf(50e-7), nil},
 		{"gain V per V", "100 V/V", "numeric", pf(100), nil},
+
+		// Point / conditional specs: leading value is searchable, "@ conditions"
+		// are display-only context (dropped before parsing).
+		{"point uA", "40 µA @ 60 V", "numeric", pf(40e-6), nil},
+		{"point mV", "280 mV @ 10 mA", "numeric", pf(0.28), nil},
+		{"point nC", "23.4 nC @ 8 V", "numeric", pf(23.4e-9), nil},
+		{"point mOhm two conds", "380mOhm @ 650mA, 4.5V", "numeric", pf(0.38), nil},
+		{"point pF two conds", "17pF @ 0V, 1MHz", "numeric", pf(17e-12), nil},
+
+		// Alternate representations of one value collapse; tuples do not.
+		{"alt-rep dec+frac", "0.063W, 1/16W", "numeric", pf(0.063), nil},
+		{"tuple not collapsed", "1.8V, 4.5V", "numeric", nil, nil},
 
 		// Voltage
 		{"volts", "3.3V", "numeric", pf(3.3), nil},

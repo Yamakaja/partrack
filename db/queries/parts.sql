@@ -280,8 +280,8 @@ WITH deleted AS (
     DELETE FROM part_parameters
     WHERE part_id = $1 AND name = $2 AND source_type = 'user'
 )
-INSERT INTO part_parameters (part_id, name, value, unit, source_type, parameter_id, numeric_value, numeric_value_max)
-VALUES ($1, $2, $3, $4, 'user', $5, $6, $7)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, parameter_id, numeric_value, numeric_value_max, enum_values)
+VALUES ($1, $2, $3, $4, 'user', $5, $6, $7, $8)
 RETURNING id, part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max;
 
 -- name: DeleteParameter :exec
@@ -296,9 +296,10 @@ WHERE id = $1 AND part_id = $2 AND source_type = 'user';
 -- mapping links additional rows (admin parameter registry maintenance).
 SELECT id, value FROM part_parameters WHERE parameter_id = $1;
 
--- name: SetPartParameterNumeric :exec
--- Overwrites the parsed numeric representation of a single part parameter row.
-UPDATE part_parameters SET numeric_value = $2, numeric_value_max = $3 WHERE id = $1;
+-- name: SetPartParameterParsed :exec
+-- Overwrites the parsed representation of a single part parameter row (numeric for
+-- numeric/range parameters, enum_values for enum_set; the unused ones are NULL).
+UPDATE part_parameters SET numeric_value = $2, numeric_value_max = $3, enum_values = $4 WHERE id = $1;
 
 -- name: ListListings :many
 SELECT
@@ -393,8 +394,8 @@ DELETE FROM part_parameters
 WHERE part_id = $1 AND source_type = 'distributor' AND source_distributor_id = $2;
 
 -- name: InsertDistributorParameter :one
-INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max)
-VALUES ($1, $2, $3, $4, 'distributor', $5, $6, $7, $8)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max, enum_values)
+VALUES ($1, $2, $3, $4, 'distributor', $5, $6, $7, $8, $9)
 RETURNING id;
 
 -- name: GetPartByMPN :one

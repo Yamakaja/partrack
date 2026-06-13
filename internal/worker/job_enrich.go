@@ -340,6 +340,7 @@ func persistEnrichmentResult(
 		for _, p := range result.Parameters {
 			var paramID *int32
 			var numericValue, numericValueMax *float64
+			var enumValues []string
 
 			if p.DistributorParamID != "" {
 				// Upsert the mapping row so newly-seen params appear in the admin UI
@@ -358,11 +359,16 @@ func persistEnrichmentResult(
 				}); err == nil {
 					id := int32(mapped.ID)
 					paramID = &id
-					// Parse numeric value using the parameter's value_type.
+					// Parse using the parameter's value_type: enum_set yields a
+					// value list, everything else a numeric (or nothing).
 					valueType := paramDefValueType[id]
-					pr := paramparse.Parse(p.Value, valueType)
-					numericValue = pr.Value
-					numericValueMax = pr.ValueMax
+					if valueType == "enum_set" {
+						enumValues = paramparse.ParseEnumSet(p.Value)
+					} else {
+						pr := paramparse.Parse(p.Value, valueType)
+						numericValue = pr.Value
+						numericValueMax = pr.ValueMax
+					}
 				}
 			}
 
@@ -374,6 +380,7 @@ func persistEnrichmentResult(
 				ParameterID:         paramID,
 				NumericValue:        numericValue,
 				NumericValueMax:     numericValueMax,
+				EnumValues:          enumValues,
 			}); err != nil {
 				return fmt.Errorf("insert parameter %q: %w", p.Name, err)
 			}

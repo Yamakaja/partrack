@@ -88,7 +88,7 @@ Higher roles inherit all permissions of lower roles.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/admin/parameter-definitions` | List parameter definitions |
-| POST | `/admin/parameter-definitions` | `{slug, display_name, unit?, unit_symbol?, value_type}` |
+| POST | `/admin/parameter-definitions` | `{slug, display_name, unit?, unit_symbol?, value_type}`. `value_type` ∈ `numeric`/`range`/`text`/`enum`/`enum_set` (`enum_set` = list value, e.g. `CANbus, Ethernet`). |
 | PATCH | `/admin/parameter-definitions/{id}` | Update definition fields. Changing `value_type` re-parses every part parameter mapped to this definition. Response includes `reparsed_count`. |
 | DELETE | `/admin/parameter-definitions/{id}` | Delete definition; linked part parameters and distributor mappings have their `parameter_id` set to null |
 | GET | `/admin/distributor-parameter-mappings` | Query: `distributor_id?`, `unmapped=true?` |
@@ -113,7 +113,7 @@ Higher roles inherit all permissions of lower roles.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/parts` | List parts; query: `team_id?`, `q?`, `category_id?`, `package?`, `mpn?`, `lifecycle_status?`, `scope?` (`global`/`team`), `stock_status?`, `param_{id}_min/max`, `param_{id}_values`, `limit`, `offset`. When `category_id` set, includes parameters in response. When `team_id` set, includes inventory fields. |
+| GET | `/parts` | List parts; query: `team_id?`, `q?`, `category_id?`, `package?`, `mpn?`, `lifecycle_status?`, `scope?` (`global`/`team`), `stock_status?`, `param_{id}_min/max`, `param_{id}_values` (for `enum`/`text`/`enum_set` params; matches contains-any), `limit`, `offset`. When `category_id` set, includes parameters in response. When `team_id` set, includes inventory fields. |
 | POST | `/parts` | Create part. Body: `{scope, team_id?, mpn?, manufacturer?, description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?}`. `scope` required (`global` requires admin; `team` requires team membership + `team_id`). Returns 409 `PART_EXISTS` with existing part if MPN+manufacturer match found. 201. |
 | GET | `/parts/{partId}` | Part details with parameters (user + distributor-sourced) and listings. Query: `team_id?` (adds inventory fields). |
 | PATCH | `/parts/{partId}` | `{description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?, preferred_parameter_source_id?}`. Team-scoped parts require team membership. |

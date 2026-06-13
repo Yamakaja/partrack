@@ -40,11 +40,19 @@ func (h *Handler) reparseParameterValues(ctx context.Context, parameterID int32)
 	qtx := h.Queries.WithTx(tx)
 
 	for _, row := range rows {
-		pr := paramparse.Parse(row.Value, def.ValueType)
-		if err := qtx.SetPartParameterNumeric(ctx, dbgen.SetPartParameterNumericParams{
+		var numericValue, numericValueMax *float64
+		var enumValues []string
+		if def.ValueType == "enum_set" {
+			enumValues = paramparse.ParseEnumSet(row.Value)
+		} else {
+			pr := paramparse.Parse(row.Value, def.ValueType)
+			numericValue, numericValueMax = pr.Value, pr.ValueMax
+		}
+		if err := qtx.SetPartParameterParsed(ctx, dbgen.SetPartParameterParsedParams{
 			ID:              row.ID,
-			NumericValue:    pr.Value,
-			NumericValueMax: pr.ValueMax,
+			NumericValue:    numericValue,
+			NumericValueMax: numericValueMax,
+			EnumValues:      enumValues,
 		}); err != nil {
 			return 0, err
 		}

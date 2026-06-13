@@ -684,8 +684,8 @@ func (q *Queries) GetPartsForReenrichment(ctx context.Context, teamID pgtype.UUI
 }
 
 const insertDistributorParameter = `-- name: InsertDistributorParameter :one
-INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max)
-VALUES ($1, $2, $3, $4, 'distributor', $5, $6, $7, $8)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max, enum_values)
+VALUES ($1, $2, $3, $4, 'distributor', $5, $6, $7, $8, $9)
 RETURNING id
 `
 
@@ -698,6 +698,7 @@ type InsertDistributorParameterParams struct {
 	ParameterID         *int32      `json:"parameter_id"`
 	NumericValue        *float64    `json:"numeric_value"`
 	NumericValueMax     *float64    `json:"numeric_value_max"`
+	EnumValues          []string    `json:"enum_values"`
 }
 
 func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDistributorParameterParams) (pgtype.UUID, error) {
@@ -710,6 +711,7 @@ func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDist
 		arg.ParameterID,
 		arg.NumericValue,
 		arg.NumericValueMax,
+		arg.EnumValues,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -1376,19 +1378,26 @@ func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams
 	return err
 }
 
-const setPartParameterNumeric = `-- name: SetPartParameterNumeric :exec
-UPDATE part_parameters SET numeric_value = $2, numeric_value_max = $3 WHERE id = $1
+const setPartParameterParsed = `-- name: SetPartParameterParsed :exec
+UPDATE part_parameters SET numeric_value = $2, numeric_value_max = $3, enum_values = $4 WHERE id = $1
 `
 
-type SetPartParameterNumericParams struct {
+type SetPartParameterParsedParams struct {
 	ID              pgtype.UUID `json:"id"`
 	NumericValue    *float64    `json:"numeric_value"`
 	NumericValueMax *float64    `json:"numeric_value_max"`
+	EnumValues      []string    `json:"enum_values"`
 }
 
-// Overwrites the parsed numeric representation of a single part parameter row.
-func (q *Queries) SetPartParameterNumeric(ctx context.Context, arg SetPartParameterNumericParams) error {
-	_, err := q.db.Exec(ctx, setPartParameterNumeric, arg.ID, arg.NumericValue, arg.NumericValueMax)
+// Overwrites the parsed representation of a single part parameter row (numeric for
+// numeric/range parameters, enum_values for enum_set; the unused ones are NULL).
+func (q *Queries) SetPartParameterParsed(ctx context.Context, arg SetPartParameterParsedParams) error {
+	_, err := q.db.Exec(ctx, setPartParameterParsed,
+		arg.ID,
+		arg.NumericValue,
+		arg.NumericValueMax,
+		arg.EnumValues,
+	)
 	return err
 }
 
@@ -1545,8 +1554,8 @@ WITH deleted AS (
     DELETE FROM part_parameters
     WHERE part_id = $1 AND name = $2 AND source_type = 'user'
 )
-INSERT INTO part_parameters (part_id, name, value, unit, source_type, parameter_id, numeric_value, numeric_value_max)
-VALUES ($1, $2, $3, $4, 'user', $5, $6, $7)
+INSERT INTO part_parameters (part_id, name, value, unit, source_type, parameter_id, numeric_value, numeric_value_max, enum_values)
+VALUES ($1, $2, $3, $4, 'user', $5, $6, $7, $8)
 RETURNING id, part_id, name, value, unit, source_type, source_distributor_id, parameter_id, numeric_value, numeric_value_max
 `
 
@@ -1558,6 +1567,20 @@ type UpsertUserParameterParams struct {
 	ParameterID     *int32      `json:"parameter_id"`
 	NumericValue    *float64    `json:"numeric_value"`
 	NumericValueMax *float64    `json:"numeric_value_max"`
+	EnumValues      []string    `json:"enum_values"`
+}
+
+type UpsertUserParameterRow struct {
+	ID                  pgtype.UUID         `json:"id"`
+	PartID              pgtype.UUID         `json:"part_id"`
+	Name                string              `json:"name"`
+	Value               string              `json:"value"`
+	Unit                *string             `json:"unit"`
+	SourceType          ParameterSourceType `json:"source_type"`
+	SourceDistributorID pgtype.UUID         `json:"source_distributor_id"`
+	ParameterID         *int32              `json:"parameter_id"`
+	NumericValue        *float64            `json:"numeric_value"`
+	NumericValueMax     *float64            `json:"numeric_value_max"`
 }
 
 // Replaces any existing user-specified parameter with the same name, then inserts.
@@ -1565,7 +1588,7 @@ type UpsertUserParameterParams struct {
 // ResolveUserParameterMapping + paramparse) so a user override participates in the
 // list-view parameter columns and value search exactly like the distributor value
 // it supersedes — honouring the user-wins precedence GetParametersByPartIDs relies on.
-func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParameterParams) (PartParameter, error) {
+func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParameterParams) (UpsertUserParameterRow, error) {
 	row := q.db.QueryRow(ctx, upsertUserParameter,
 		arg.PartID,
 		arg.Name,
@@ -1574,8 +1597,9 @@ func (q *Queries) UpsertUserParameter(ctx context.Context, arg UpsertUserParamet
 		arg.ParameterID,
 		arg.NumericValue,
 		arg.NumericValueMax,
+		arg.EnumValues,
 	)
-	var i PartParameter
+	var i UpsertUserParameterRow
 	err := row.Scan(
 		&i.ID,
 		&i.PartID,

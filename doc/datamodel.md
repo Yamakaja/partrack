@@ -122,7 +122,8 @@ Key data:
 - **Raw name** — the parameter name as supplied by the source (distributor text such as `Resistance` or `Resistance (Ohms)`, or the key typed by a user).
 - **Canonical parameter** (`parameter_id`) — an optional reference to a **Parameter Definition** (below). Distributor values are mapped during enrichment via the Distributor Parameter Mapping; user values are resolved on write — inheriting a same-named distributor entry's mapping, or matching the registry by slug / display name. May be null for unmapped distributor params and free-text user params.
 - **Value** — the original text (e.g. `10k`, `50V`, `100n`).
-- **Numeric value(s)** (`numeric_value`, `numeric_value_max`) — the value parsed into base SI units (e.g. `10000` for `10k`), populated for numeric/range parameters once the canonical parameter is known. This is what powers value-based filtering and comparison; `numeric_value_max` carries the upper bound of a range. Null for text/enum parameters and unparseable values.
+- **Numeric value(s)** (`numeric_value`, `numeric_value_max`) — the value parsed into base SI units (e.g. `10000` for `10k`), populated for numeric/range parameters once the canonical parameter is known. This is what powers value-based filtering and comparison; `numeric_value_max` carries the upper bound of a range. Null for text/enum/enum_set parameters and unparseable values.
+- **Enum members** (`enum_values`, text[]) — the parsed member list for `enum_set` parameters (e.g. `{CANbus, EBI/EMI, Ethernet}`), GIN-indexed for contains-any membership search. Null for all other kinds.
 - Unit (e.g. `Ω`, `V`, `F`)
 - **Source type**: `user` or `distributor`
 - **Source distributor** — reference to the Distributor that provided this value (only present when source type is `distributor`)
@@ -138,7 +139,7 @@ Key data:
 - **Slug** — stable key (e.g. `resistance`, `voltage_rating`, `capacitance`)
 - **Display name** (e.g. `Resistance`)
 - **Unit** and **unit symbol** — base SI unit identifier and display symbol (e.g. `ohm` / `Ω`)
-- **Value type** — `numeric`, `range`, `text`, or `enum`; determines whether and how raw values are parsed into `numeric_value`(`_max`)
+- **Value type** — `numeric`, `range`, `text`, `enum`, or `enum_set`; determines how the raw value is parsed. `numeric`/`range` parse into `numeric_value`(`_max`) (SI-normalised, with handling for fractions, dual-unit, point/conditional specs, and ppm/ppb); `enum_set` (a list value like `CANbus, EBI/EMI, Ethernet`) parses into the `enum_values` text[] for contains-any membership search
 
 ---
 

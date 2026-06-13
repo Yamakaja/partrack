@@ -492,7 +492,7 @@
         </Popover.Content>
       </Popover.Root>
 
-    {:else if param?.value_type === 'enum' || param?.value_type === 'text'}
+    {:else if param?.value_type === 'enum' || param?.value_type === 'text' || param?.value_type === 'enum_set'}
       {@const selectedValues = source.filters.get(col.key) ?? new Set<string>()}
       {@const isFiltered = selectedValues.size > 0}
       <Popover.Root

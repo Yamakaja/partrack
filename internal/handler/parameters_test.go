@@ -6,8 +6,97 @@ import (
 	"net/http"
 	"testing"
 
+	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/paramparse"
 	"github.com/Yamakaja/partrack/internal/testutil"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+func uuid(t *testing.T, s string) pgtype.UUID {
+	t.Helper()
+	var u pgtype.UUID
+	if err := u.Scan(s); err != nil {
+		t.Fatalf("scan uuid %q: %v", s, err)
+	}
+	return u
+}
+
+// TestEnumSetStorageAndSearch verifies that an enum_set parameter stores its parsed
+// member array and that value search matches via contains-any (overlap).
+func TestEnumSetStorageAndSearch(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+	q := dbgen.New(testDB)
+
+	// parameter_definitions is seeded reference data (not truncated between tests),
+	// so upsert idempotently rather than plain-insert.
+	var protocolsID int32
+	if err := testDB.QueryRow(ctx,
+		`INSERT INTO parameter_definitions (slug, display_name, value_type)
+		 VALUES ('protocols', 'Protocols', 'enum_set')
+		 ON CONFLICT (slug) DO UPDATE SET value_type = 'enum_set' RETURNING id`).Scan(&protocolsID); err != nil {
+		t.Fatalf("seed enum_set def: %v", err)
+	}
+
+	distID := uuid(t, testutil.GetTestDistributorID(t, testDB))
+	partA := testutil.CreatePart(t, testDB, "global", "ENUMSET-A", nil)
+	partB := testutil.CreatePart(t, testDB, "global", "ENUMSET-B", nil)
+
+	insert := func(partID, value string) {
+		t.Helper()
+		if _, err := q.InsertDistributorParameter(ctx, dbgen.InsertDistributorParameterParams{
+			PartID:              uuid(t, partID),
+			Name:                "Protocols",
+			Value:               value,
+			SourceDistributorID: distID,
+			ParameterID:         &protocolsID,
+			EnumValues:          paramparse.ParseEnumSet(value),
+		}); err != nil {
+			t.Fatalf("insert %q: %v", value, err)
+		}
+	}
+	insert(partA, "CANbus, Ethernet, SPI")
+	insert(partB, "USB, I2C")
+
+	// The parsed array landed in enum_values.
+	var stored []string
+	if err := testDB.QueryRow(ctx,
+		`SELECT enum_values FROM part_parameters WHERE part_id = $1`, partA).Scan(&stored); err != nil {
+		t.Fatalf("read enum_values: %v", err)
+	}
+	if len(stored) != 3 || stored[0] != "CANbus" || stored[1] != "Ethernet" || stored[2] != "SPI" {
+		t.Errorf("enum_values = %v, want [CANbus Ethernet SPI]", stored)
+	}
+
+	find := func(values ...string) []string {
+		t.Helper()
+		ids, err := q.FindPartIDsByParameterValues(ctx, dbgen.FindPartIDsByParameterValuesParams{
+			ParameterID: &protocolsID,
+			Column2:     values,
+		})
+		if err != nil {
+			t.Fatalf("find %v: %v", values, err)
+		}
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = id.String()
+		}
+		return out
+	}
+
+	if got := find("Ethernet"); len(got) != 1 || got[0] != partA {
+		t.Errorf("find Ethernet = %v, want [%s]", got, partA)
+	}
+	if got := find("USB"); len(got) != 1 || got[0] != partB {
+		t.Errorf("find USB = %v, want [%s]", got, partB)
+	}
+	if got := find("Ethernet", "USB"); len(got) != 2 { // contains-any → both
+		t.Errorf("find Ethernet,USB = %v, want both parts", got)
+	}
+	if got := find("Bluetooth"); len(got) != 0 {
+		t.Errorf("find Bluetooth = %v, want none", got)
+	}
+}
 
 // seedUnmappedDistributorParam creates a global part with two distributor-sourced
 // parameters (initially unmapped) and an unmapped mapping row for them. Returns
