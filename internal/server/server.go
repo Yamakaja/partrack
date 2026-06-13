@@ -5,6 +5,7 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/blob"
@@ -82,8 +83,15 @@ func spaHandler() http.Handler {
 	fileServer := http.FileServer(http.FS(sub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Translate the HTTP request path to an io/fs path: fs.ValidPath rejects a
+		// leading slash, so strip it (root "/" maps to "."). Without this every
+		// Open errors and every request falls through to index.html.
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" {
+			name = "."
+		}
 		// Try to open the requested path in the embedded FS.
-		f, err := sub.Open(r.URL.Path)
+		f, err := sub.Open(name)
 		if err != nil {
 			// Path not found — serve index.html for client-side routing.
 			r2 := *r

@@ -290,10 +290,11 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// Parts (team-scoped mutations)
 					r.Post("/parts/import", h.ImportPart)
-					r.Post("/parts/enrich-all", h.ReEnrichAll)
+					r.Post("/parts/refresh-parameters", h.RefreshSearchParameters)
 					r.Post("/parts/{partId}/enrich", h.EnrichPart)
 					r.Post("/parts/{partId}/listings", h.AddListing)
 					r.Delete("/parts/{partId}/listings/{listingId}", h.DeleteListing)
+					r.Post("/parts/refresh-listings", h.RefreshSearchListings)
 					r.Post("/parts/{partId}/listings/refresh", h.RefreshAllListings)
 					r.Post("/parts/{partId}/listings/{listingId}/refresh", h.RefreshListing)
 

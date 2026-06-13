@@ -408,7 +408,7 @@ func (h *Handler) RefreshCartListings(w http.ResponseWriter, r *http.Request) {
 		ListingIDs: ids,
 		UserID:     userIDFromContext(r),
 	})
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "listing_count": len(ids)})
 }
 
 // ClearCart handles DELETE /api/v1/teams/{teamId}/cart

@@ -14,6 +14,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// EnrichTarget identifies one part to enrich from a specific distributor SKU.
+type EnrichTarget struct {
+	PartID        string
+	Sku           string
+	DistributorID string
+}
+
+// PartEnrichBatchPayload is the job payload for JobPartEnrichBatch — a bounded
+// bulk re-enrichment of the parts matching a search (see RefreshSearchParameters).
+type PartEnrichBatchPayload struct {
+	Targets []EnrichTarget
+	UserID  string
+}
+
 func (q *Queue) handlePartEnrich(job Job) {
 	ctx := context.Background()
 
@@ -55,56 +69,15 @@ func (q *Queue) handlePartEnrich(job Job) {
 	}
 
 	queries := dbgen.New(q.db)
-
-	part, err := queries.GetPart(ctx, partID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			q.publishError(job, fmt.Sprintf("part %s not found", partIDStr))
-		} else {
-			q.publishError(job, "failed to get part: "+err.Error())
-		}
-		return
-	}
-
-	// Find the specific distributor config for this team + distributor.
 	configs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
 	if err != nil {
 		q.publishError(job, "failed to list distributor configs: "+err.Error())
 		return
 	}
-	var cfg *dbgen.ListEnabledDistributorConfigsForTeamRow
-	for i := range configs {
-		if configs[i].DistributorID == distributorID {
-			cfg = &configs[i]
-			break
-		}
-	}
-	if cfg == nil {
-		q.publishError(job, fmt.Sprintf("distributor %s not configured or not enabled for this team", distIDStr))
-		return
-	}
-	if cfg.ApiType == nil {
-		q.publishError(job, "distributor has no API integration")
-		return
-	}
-	client := q.distributors.Lookup(*cfg.ApiType)
-	if client == nil {
-		q.publishError(job, fmt.Sprintf("no client registered for api_type %s", *cfg.ApiType))
-		return
-	}
 
-	// Determine whether this distributor is the authoritative source for part
-	// metadata and parameters. Priority order:
-	//   1. Part's explicit preferred_parameter_source_id (user-set override).
-	//   2. Team's preferred distributor config flag.
-	//   3. Team's preferred listing distributor for this part.
-	// If none of the above designate a different distributor, treat this one as
-	// authoritative (no competing preference to protect).
-	isAuthoritative := isEnrichmentAuthoritative(ctx, queries, part, distributorID, teamID, cfg.Preferred, configs)
-
-	result, err := client.EnrichPart(ctx, sku, json.RawMessage(cfg.ApiCredentials))
+	result, err := q.enrichOnePart(ctx, queries, teamID, partID, distributorID, sku, configs)
 	if err != nil {
-		q.publishError(job, "enrichment failed: "+err.Error())
+		q.publishError(job, err.Error())
 		return
 	}
 	if result == nil {
@@ -112,24 +85,6 @@ func (q *Queue) handlePartEnrich(job Job) {
 			"status":         "not_found",
 			"distributor_id": distIDStr,
 		})
-		return
-	}
-
-	tx, err := q.db.Begin(ctx)
-	if err != nil {
-		q.publishError(job, "failed to begin transaction: "+err.Error())
-		return
-	}
-	qtx := queries.WithTx(tx)
-
-	if err := persistEnrichmentResult(ctx, qtx, partID, cfg.DistributorID, result, isAuthoritative, isAuthoritative); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		q.publishError(job, "failed to persist enrichment: "+err.Error())
-		return
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		q.publishError(job, "failed to commit: "+err.Error())
 		return
 	}
 
@@ -146,6 +101,156 @@ func (q *Queue) handlePartEnrich(job Job) {
 	cartData, _ := json.Marshal(map[string]string{})
 	q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: cartData})
 	q.invalidateCart(job.TeamID)
+}
+
+// handlePartEnrichBatch enriches every target in the payload, one live API call
+// per part, emitting a per-part `part_enrich_done` progress event and a terminal
+// `part_enrich_complete` {total, done, not_found, failed}. Subscribers rely on the
+// terminal event rather than counting per-part events.
+func (q *Queue) handlePartEnrichBatch(job Job) {
+	ctx := context.Background()
+
+	payload, ok := job.Payload.(PartEnrichBatchPayload)
+	if !ok {
+		q.publishError(job, "invalid payload type")
+		return
+	}
+	var teamID pgtype.UUID
+	if err := teamID.Scan(job.TeamID); err != nil {
+		q.publishError(job, "invalid team_id: "+job.TeamID)
+		return
+	}
+
+	queries := dbgen.New(q.db)
+	configs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
+	if err != nil {
+		q.publishError(job, "failed to list distributor configs: "+err.Error())
+		return
+	}
+
+	var done, notFound, failed int
+	changedParts := make([]string, 0, len(payload.Targets))
+	publishComplete := func() {
+		q.publishProgress(job, "part_enrich_complete", map[string]any{
+			"status":    "complete",
+			"total":     len(payload.Targets),
+			"done":      done,
+			"not_found": notFound,
+			"failed":    failed,
+		})
+	}
+
+	for _, t := range payload.Targets {
+		var partID, distID pgtype.UUID
+		if err := partID.Scan(t.PartID); err != nil {
+			failed++
+			q.publishProgress(job, "part_enrich_done", map[string]any{"status": "error", "part_id": t.PartID, "error": "invalid part_id"})
+			continue
+		}
+		if err := distID.Scan(t.DistributorID); err != nil {
+			failed++
+			q.publishProgress(job, "part_enrich_done", map[string]any{"status": "error", "part_id": t.PartID, "error": "invalid distributor_id"})
+			continue
+		}
+		result, err := q.enrichOnePart(ctx, queries, teamID, partID, distID, t.Sku, configs)
+		if err != nil {
+			failed++
+			q.publishProgress(job, "part_enrich_done", map[string]any{"status": "error", "part_id": t.PartID, "error": err.Error()})
+			continue
+		}
+		if result == nil {
+			notFound++
+			q.publishProgress(job, "part_enrich_done", map[string]any{"status": "not_found", "part_id": t.PartID})
+			continue
+		}
+		done++
+		changedParts = append(changedParts, t.PartID)
+		q.publishProgress(job, "part_enrich_done", map[string]any{"status": "done", "part_id": t.PartID})
+	}
+
+	// Notify other users' views of the changed parts; the acting user is skipped
+	// (UserID) and refreshes its own views on completion.
+	for _, partID := range changedParts {
+		data, _ := json.Marshal(map[string]string{"part_id": partID})
+		q.Publish(Event{Type: "part_changed", TeamID: job.TeamID, UserID: payload.UserID, Data: data})
+	}
+	cartData, _ := json.Marshal(map[string]string{})
+	q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: cartData})
+	q.invalidateCart(job.TeamID)
+	publishComplete()
+}
+
+// enrichOnePart runs enrichment for a single (part, sku, distributor) and persists
+// the result within its own transaction. It returns the EnrichmentResult on success,
+// nil if the distributor returned no match (not found), or an error. It publishes
+// no events — callers decide how to report progress.
+func (q *Queue) enrichOnePart(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	teamID, partID, distributorID pgtype.UUID,
+	sku string,
+	configs []dbgen.ListEnabledDistributorConfigsForTeamRow,
+) (*distributor.EnrichmentResult, error) {
+	part, err := queries.GetPart(ctx, partID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("part %s not found", partID.String())
+		}
+		return nil, fmt.Errorf("failed to get part: %w", err)
+	}
+
+	// Find the specific distributor config for this team + distributor.
+	var cfg *dbgen.ListEnabledDistributorConfigsForTeamRow
+	for i := range configs {
+		if configs[i].DistributorID == distributorID {
+			cfg = &configs[i]
+			break
+		}
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("distributor %s not configured or not enabled for this team", distributorID.String())
+	}
+	if cfg.ApiType == nil {
+		return nil, fmt.Errorf("distributor has no API integration")
+	}
+	client := q.distributors.Lookup(*cfg.ApiType)
+	if client == nil {
+		return nil, fmt.Errorf("no client registered for api_type %s", *cfg.ApiType)
+	}
+
+	// Determine whether this distributor is the authoritative source for part
+	// metadata and parameters. Priority order:
+	//   1. Part's explicit preferred_parameter_source_id (user-set override).
+	//   2. Team's preferred distributor config flag.
+	//   3. Team's preferred listing distributor for this part.
+	// If none of the above designate a different distributor, treat this one as
+	// authoritative (no competing preference to protect).
+	isAuthoritative := isEnrichmentAuthoritative(ctx, queries, part, distributorID, teamID, cfg.Preferred, configs)
+
+	result, err := client.EnrichPart(ctx, sku, json.RawMessage(cfg.ApiCredentials))
+	if err != nil {
+		return nil, fmt.Errorf("enrichment failed: %w", err)
+	}
+	if result == nil {
+		return nil, nil
+	}
+
+	tx, err := q.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	qtx := queries.WithTx(tx)
+
+	if err := persistEnrichmentResult(ctx, qtx, partID, cfg.DistributorID, result, isAuthoritative, isAuthoritative); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		return nil, fmt.Errorf("failed to persist enrichment: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
+	}
+
+	return result, nil
 }
 
 // ApplyEnrichmentResult finds or creates a part matching result, applies parameters

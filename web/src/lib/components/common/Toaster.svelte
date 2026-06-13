@@ -29,11 +29,28 @@
         variants[toast.type]
       )}
     >
-      <Icon class="h-4 w-4 mt-0.5 shrink-0" />
+      <Icon class={cn('h-4 w-4 mt-0.5 shrink-0', toast.progress && toast.progress.total === 0 && 'animate-spin')} />
       <div class="flex-1 min-w-0">
         <p class="font-medium">{toast.message}</p>
         {#if toast.detail}
           <p class="mt-0.5 opacity-75 text-xs">{toast.detail}</p>
+        {/if}
+        {#if toast.progress}
+          {@const pct = toast.progress.total > 0
+            ? Math.min(100, Math.round((toast.progress.current / toast.progress.total) * 100))
+            : 0}
+          <div class="mt-2 flex items-center gap-2">
+            <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-current/15">
+              {#if toast.progress.total > 0}
+                <div class="h-full rounded-full bg-current transition-[width] duration-300" style="width: {pct}%"></div>
+              {:else}
+                <div class="h-full w-1/3 animate-pulse rounded-full bg-current"></div>
+              {/if}
+            </div>
+            {#if toast.progress.total > 0}
+              <span class="shrink-0 text-xs tabular-nums opacity-75">{toast.progress.current}/{toast.progress.total}</span>
+            {/if}
+          </div>
         {/if}
       </div>
       <button

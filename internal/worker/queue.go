@@ -25,6 +25,7 @@ type JobType string
 const (
 	JobBOMImport                 JobType = "bom_import"
 	JobPartEnrich                JobType = "part_enrich"
+	JobPartEnrichBatch           JobType = "part_enrich_batch"
 	JobListingRefresh            JobType = "listing_refresh"
 	JobOrderImport               JobType = "order_import"
 	JobOrderLink                 JobType = "order_link"
@@ -289,6 +290,8 @@ func (q *Queue) process(job Job) {
 		handler = q.handleBOMImport
 	case JobPartEnrich:
 		handler = q.handlePartEnrich
+	case JobPartEnrichBatch:
+		handler = q.handlePartEnrichBatch
 	case JobListingRefresh:
 		handler = q.handleListingRefresh
 	case JobOrderImport:

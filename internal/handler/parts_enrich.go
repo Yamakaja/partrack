@@ -117,35 +117,75 @@ func (h *Handler) EnrichPart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }
 
-// ReEnrichAll handles POST /api/v1/teams/{teamId}/parts/enrich-all
-// Enqueues enrichment for every part in the team's inventory that has a listing.
-// Restricted to global admins only.
-func (h *Handler) ReEnrichAll(w http.ResponseWriter, r *http.Request) {
-	user := middleware.UserFromContext(r.Context())
-	if !user.IsAdmin {
-		writeError(w, http.StatusForbidden, "requires global admin", "FORBIDDEN")
-		return
-	}
+// maxSearchEnrichParts caps how many parts a single search-scoped re-enrichment may
+// enqueue, so a broad search can't make thousands of live distributor API calls.
+// Callers should narrow their search when this is exceeded.
+const maxSearchEnrichParts = 1000
 
+// RefreshSearchParameters handles POST /api/v1/teams/{teamId}/parts/refresh-parameters
+// It re-enriches (one live distributor API call per part) every part that matches the
+// same filter set as ListParts (q, mpn, category, package, lifecycle, scope, stock,
+// storage, param_*) and has at least one API-integrated listing, scoping the operation
+// to the user's current search. Returns 202 {"job_id","part_count"}, 204 if no parts
+// are enrichable, or 400 if the match set exceeds the cap.
+func (h *Handler) RefreshSearchParameters(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
 		return
 	}
 
-	rows, err := h.Queries.GetPartsForReenrichment(r.Context(), teamID)
+	f, matchedNone, ok := h.resolvePartFilters(w, r, teamID)
+	if !ok {
+		return
+	}
+	if matchedNone {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	rows, err := h.Queries.GetPartsForReenrichmentInSearch(r.Context(), dbgen.GetPartsForReenrichmentInSearchParams{
+		TeamID:            f.TeamID,
+		Q:                 f.Q,
+		MpnExact:          f.MpnExact,
+		CategoryID:        f.CategoryID,
+		Package:           f.Package,
+		LifecycleStatus:   f.LifecycleStatus,
+		FilterScope:       f.FilterScope,
+		StockStatus:       f.StockStatus,
+		StorageLocationID: f.StorageLocationID,
+		StorageCells:      f.StorageCells,
+		PartIDFilter:      f.PartIDFilter,
+	})
 	if err != nil {
-		slog.Error("GetPartsForReenrichment failed", "team_id", chi.URLParam(r, "teamId"), "err", err)
+		slog.Error("GetPartsForReenrichmentInSearch failed", "team_id", teamID.String(), "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-
-	teamIDStr := chi.URLParam(r, "teamId")
-	for _, row := range rows {
-		h.enqueueEnrich(teamIDStr, row.PartID.String(), row.Sku, row.DistributorID.String(), user.ID)
+	if len(rows) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if len(rows) > maxSearchEnrichParts {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("too many parts to enrich (%d, max %d) — narrow your search", len(rows), maxSearchEnrichParts),
+			"TOO_MANY_PARTS")
+		return
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_count": len(rows)})
+	targets := make([]worker.EnrichTarget, len(rows))
+	for i, row := range rows {
+		targets[i] = worker.EnrichTarget{
+			PartID:        row.PartID.String(),
+			Sku:           row.Sku,
+			DistributorID: row.DistributorID.String(),
+		}
+	}
+	jobID := h.Worker.Enqueue(worker.JobPartEnrichBatch, teamID.String(), worker.PartEnrichBatchPayload{
+		Targets: targets,
+		UserID:  userIDFromContext(r),
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "part_count": len(targets)})
 }
 
 // enqueueEnrich enqueues a JobPartEnrich worker task and returns the job ID.

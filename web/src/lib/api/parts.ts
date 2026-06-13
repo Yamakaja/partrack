@@ -26,7 +26,10 @@ export interface ListPartsParams {
   offset?: number;
 }
 
-export function listParts({ param_filters, ...rest }: ListPartsParams = {}) {
+// Serializes the shared parts filter set (q, mpn, category, lifecycle, stock,
+// storage, param_*) into query params. Used by both listParts and the bulk
+// search-scoped listing refresh so they resolve to the same part set.
+function partsQuery({ param_filters, ...rest }: ListPartsParams): URLSearchParams {
   const p = new URLSearchParams(qs(rest));
   if (param_filters) {
     for (const [id, f] of Object.entries(param_filters)) {
@@ -38,7 +41,22 @@ export function listParts({ param_filters, ...rest }: ListPartsParams = {}) {
       }
     }
   }
-  return request<PaginatedResponse<PartSummary>>('GET', `/api/v1/parts?${p.toString()}`);
+  return p;
+}
+
+export function listParts(params: ListPartsParams = {}) {
+  return request<PaginatedResponse<PartSummary>>('GET', `/api/v1/parts?${partsQuery(params).toString()}`);
+}
+
+// Enqueues a stock/price refresh for every refreshable listing belonging to a
+// part that matches the given filters. Returns the job id + total listing count
+// for progress tracking, or undefined (HTTP 204) when nothing is refreshable.
+export function refreshSearchListings(teamId: string, params: ListPartsParams) {
+  const p = partsQuery({ ...params, team_id: undefined, limit: undefined, offset: undefined });
+  const q = p.toString();
+  return request<{ job_id: string; listing_count: number } | undefined>(
+    'POST', `/api/v1/teams/${teamId}/parts/refresh-listings${q ? `?${q}` : ''}`,
+  );
 }
 
 export function getCategoryParameters(categoryId: number, teamId?: string) {
@@ -101,8 +119,15 @@ export function refreshAllListings(partId: string, teamId: string) {
   return request<{ job_id: string; listing_count: number }>('POST', `/api/v1/teams/${teamId}/parts/${partId}/listings/refresh`);
 }
 
-export function reenrichAllParts(teamId: string) {
-  return request<{ job_count: number }>('POST', `/api/v1/teams/${teamId}/parts/enrich-all`);
+// Enqueues a re-enrichment (one live distributor API call per part) for every part
+// matching the given filters that has an API-integrated listing. Returns the job id
+// + part count for progress tracking, or undefined (HTTP 204) when nothing is enrichable.
+export function refreshSearchParameters(teamId: string, params: ListPartsParams) {
+  const p = partsQuery({ ...params, team_id: undefined, limit: undefined, offset: undefined });
+  const q = p.toString();
+  return request<{ job_id: string; part_count: number } | undefined>(
+    'POST', `/api/v1/teams/${teamId}/parts/refresh-parameters${q ? `?${q}` : ''}`,
+  );
 }
 
 export interface PartAllocation {

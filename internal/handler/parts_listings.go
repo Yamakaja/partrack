@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -218,4 +219,70 @@ func (h *Handler) RefreshAllListings(w http.ResponseWriter, r *http.Request) {
 		UserID:     userIDFromContext(r),
 	})
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "listing_count": len(listings)})
+}
+
+// maxSearchRefreshListings caps how many listings a single search-scoped refresh
+// may enqueue, so an unfiltered "refresh the whole catalog" can't hammer
+// distributor APIs. Callers should narrow their search when this is exceeded.
+const maxSearchRefreshListings = 1000
+
+// RefreshSearchListings handles POST /api/v1/teams/{teamId}/parts/refresh-listings
+// It refreshes price/stock for every refreshable listing (distributor has an API
+// integration) belonging to a part that matches the same filter set as ListParts
+// (q, mpn, category, package, lifecycle, scope, stock, storage, param_*), scoping
+// the refresh to the user's current search. Returns 202 {"job_id","listing_count"},
+// 204 if nothing is refreshable, or 400 if the match set exceeds the cap.
+func (h *Handler) RefreshSearchListings(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+
+	f, matchedNone, ok := h.resolvePartFilters(w, r, teamID)
+	if !ok {
+		return
+	}
+	if matchedNone {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	listingIDs, err := h.Queries.GetRefreshableListingsForPartSearch(r.Context(), dbgen.GetRefreshableListingsForPartSearchParams{
+		TeamID:            f.TeamID,
+		Q:                 f.Q,
+		MpnExact:          f.MpnExact,
+		CategoryID:        f.CategoryID,
+		Package:           f.Package,
+		LifecycleStatus:   f.LifecycleStatus,
+		FilterScope:       f.FilterScope,
+		StockStatus:       f.StockStatus,
+		StorageLocationID: f.StorageLocationID,
+		StorageCells:      f.StorageCells,
+		PartIDFilter:      f.PartIDFilter,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if len(listingIDs) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if len(listingIDs) > maxSearchRefreshListings {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("too many listings to refresh (%d, max %d) — narrow your search", len(listingIDs), maxSearchRefreshListings),
+			"TOO_MANY_LISTINGS")
+		return
+	}
+
+	ids := make([]string, len(listingIDs))
+	for i, id := range listingIDs {
+		ids[i] = id.String()
+	}
+	jobID := h.Worker.Enqueue(worker.JobListingRefresh, teamID.String(), worker.ListingRefreshPayload{
+		ListingIDs: ids,
+		UserID:     userIDFromContext(r),
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "listing_count": len(ids)})
 }

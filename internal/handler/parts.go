@@ -19,66 +19,66 @@ import (
 
 // ListParts handles GET /api/v1/parts
 // Query: team_id?, q?, category?, package?, mpn?, lifecycle_status?, scope?, stock_status?, limit, offset
-func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
+// partFilterParams holds the resolved parts-list filters shared by ListParts and
+// the bulk listing refresh (RefreshSearchListings). It mirrors the narg set of
+// ListPartsWithInventory, minus pagination.
+type partFilterParams struct {
+	TeamID            pgtype.UUID
+	Q                 *string
+	MpnExact          *string
+	CategoryID        *int32
+	Package           *string
+	LifecycleStatus   *string
+	FilterScope       dbgen.NullPartScope
+	StockStatus       *string
+	StorageLocationID pgtype.UUID
+	StorageCells      *string
+	PartIDFilter      *string
+}
+
+// resolvePartFilters parses the shared parts query filters (q, mpn, category,
+// package, lifecycle, scope, stock, storage) plus the param_* parameter filters
+// from the request, scoped to teamID. Parameter filters are resolved by fanning
+// out FindPartIDsBy* queries in parallel and intersecting the results into
+// PartIDFilter. When parameter filters are present but match no parts, matchedNone
+// is true and the caller should short-circuit with an empty result. On internal
+// error it writes the response and returns ok=false.
+func (h *Handler) resolvePartFilters(w http.ResponseWriter, r *http.Request, teamID pgtype.UUID) (f partFilterParams, matchedNone bool, ok bool) {
 	q := r.URL.Query()
-	limit, offset := parsePaginationParams(r)
+	f.TeamID = teamID
 
-	params := dbgen.ListPartsWithInventoryParams{Limit: limit, Offset: offset}
-	countParams := dbgen.CountPartsWithInventoryParams{}
-
-	if v := q.Get("team_id"); v != "" {
-		var teamID pgtype.UUID
-		if err := teamID.Scan(v); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
-			return
-		}
-		if !h.requireTeamMembership(w, r, teamID) {
-			return
-		}
-		params.TeamID = teamID
-		countParams.TeamID = teamID
-	}
 	if v := q.Get("q"); v != "" {
-		params.Q = &v
-		countParams.Q = &v
+		f.Q = &v
 	}
 	if v := q.Get("mpn"); v != "" {
-		params.MpnExact = &v
-		countParams.MpnExact = &v
+		f.MpnExact = &v
 	}
 	if v := q.Get("category_id"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			n32 := int32(n)
-			params.CategoryID = &n32
-			countParams.CategoryID = &n32
+			f.CategoryID = &n32
 		}
 	}
 	if v := q.Get("package"); v != "" {
-		params.Package = &v
-		countParams.Package = &v
+		f.Package = &v
 	}
 	if v := q.Get("lifecycle_status"); v != "" {
-		params.LifecycleStatus = &v
-		countParams.LifecycleStatus = &v
+		f.LifecycleStatus = &v
 	}
 	if v := q.Get("scope"); v != "" {
-		params.FilterScope = dbgen.NullPartScope{PartScope: dbgen.PartScope(v), Valid: true}
-		countParams.FilterScope = params.FilterScope
+		f.FilterScope = dbgen.NullPartScope{PartScope: dbgen.PartScope(v), Valid: true}
 	}
 	if v := q.Get("stock_status"); v != "" {
-		params.StockStatus = &v
-		countParams.StockStatus = &v
+		f.StockStatus = &v
 	}
 	if v := q.Get("storage_location_id"); v != "" {
 		var uid pgtype.UUID
 		if err := uid.Scan(v); err == nil {
-			params.StorageLocationID = uid
-			countParams.StorageLocationID = uid
+			f.StorageLocationID = uid
 		}
 	}
 	if v := q.Get("storage_cells"); v != "" {
-		params.StorageCells = &v
-		countParams.StorageCells = &v
+		f.StorageCells = &v
 	}
 
 	// Parameter filters: param_{id}_min, param_{id}_max (numeric) and param_{id}_values (enum/text)
@@ -105,111 +105,159 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		} else {
 			continue
 		}
-		f := paramFilters[paramID]
-		if f == nil {
-			f = &paramFilter{}
-			paramFilters[paramID] = f
+		pf := paramFilters[paramID]
+		if pf == nil {
+			pf = &paramFilter{}
+			paramFilters[paramID] = pf
 		}
 		switch suffix {
 		case "min":
 			if v, err := strconv.ParseFloat(vals[0], 64); err == nil {
-				f.isNumeric = true
-				f.min = &v
+				pf.isNumeric = true
+				pf.min = &v
 			}
 		case "max":
 			if v, err := strconv.ParseFloat(vals[0], 64); err == nil {
-				f.isNumeric = true
-				f.max = &v
+				pf.isNumeric = true
+				pf.max = &v
 			}
 		case "values":
-			f.values = vals // repeated query params: param_{id}_values=A&param_{id}_values=B
+			pf.values = vals // repeated query params: param_{id}_values=A&param_{id}_values=B
 		}
 	}
 
-	if len(paramFilters) > 0 {
-		teamID := params.TeamID
-		// Fan out all parameter filter queries in parallel, then intersect results.
-		type indexedSet struct {
-			idx int
-			set map[string]struct{}
+	if len(paramFilters) == 0 {
+		return f, false, true
+	}
+
+	// Fan out all parameter filter queries in parallel, then intersect results.
+	type indexedSet struct {
+		idx int
+		set map[string]struct{}
+	}
+	results := make([]indexedSet, len(paramFilters))
+	eg, egCtx := errgroup.WithContext(r.Context())
+	i := 0
+	for paramID, pf := range paramFilters {
+		idx := i
+		pid := paramID
+		pf := pf
+		i++
+		eg.Go(func() error {
+			var uuids []pgtype.UUID
+			var queryErr error
+			if pf.isNumeric {
+				uuids, queryErr = h.Queries.FindPartIDsByParameterRange(egCtx, dbgen.FindPartIDsByParameterRangeParams{
+					ParameterID: &pid,
+					MinVal:      pf.min,
+					MaxVal:      pf.max,
+					TeamID:      teamID,
+				})
+			} else if len(pf.values) > 0 {
+				uuids, queryErr = h.Queries.FindPartIDsByParameterValues(egCtx, dbgen.FindPartIDsByParameterValuesParams{
+					ParameterID: &pid,
+					Column2:     pf.values,
+					TeamID:      teamID,
+				})
+			}
+			if queryErr != nil {
+				return queryErr
+			}
+			set := make(map[string]struct{}, len(uuids))
+			for _, u := range uuids {
+				set[u.String()] = struct{}{}
+			}
+			results[idx] = indexedSet{idx: idx, set: set}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return f, false, false
+	}
+
+	// Intersect all sets
+	var intersection map[string]struct{}
+	for i, res := range results {
+		if i == 0 {
+			intersection = res.set
+			continue
 		}
-		results := make([]indexedSet, len(paramFilters))
-		eg, egCtx := errgroup.WithContext(r.Context())
-		i := 0
-		for paramID, f := range paramFilters {
-			idx := i
-			pid := paramID
-			f := f
-			i++
-			eg.Go(func() error {
-				var uuids []pgtype.UUID
-				var queryErr error
-				if f.isNumeric {
-					uuids, queryErr = h.Queries.FindPartIDsByParameterRange(egCtx, dbgen.FindPartIDsByParameterRangeParams{
-						ParameterID: &pid,
-						MinVal:      f.min,
-						MaxVal:      f.max,
-						TeamID:      teamID,
-					})
-				} else if len(f.values) > 0 {
-					uuids, queryErr = h.Queries.FindPartIDsByParameterValues(egCtx, dbgen.FindPartIDsByParameterValuesParams{
-						ParameterID: &pid,
-						Column2:     f.values,
-						TeamID:      teamID,
-					})
-				}
-				if queryErr != nil {
-					return queryErr
-				}
-				set := make(map[string]struct{}, len(uuids))
-				for _, u := range uuids {
-					set[u.String()] = struct{}{}
-				}
-				results[idx] = indexedSet{idx: idx, set: set}
-				return nil
-			})
+		merged := make(map[string]struct{})
+		for id := range res.set {
+			if _, ok := intersection[id]; ok {
+				merged[id] = struct{}{}
+			}
 		}
-		if err := eg.Wait(); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		intersection = merged
+	}
+
+	if len(intersection) == 0 {
+		return f, true, true
+	}
+
+	// Build comma-joined UUID string for the SQL filter
+	ids := make([]string, 0, len(intersection))
+	for id := range intersection {
+		ids = append(ids, id)
+	}
+	joined := strings.Join(ids, ",")
+	f.PartIDFilter = &joined
+	return f, false, true
+}
+
+func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePaginationParams(r)
+
+	var teamID pgtype.UUID
+	if v := r.URL.Query().Get("team_id"); v != "" {
+		if err := teamID.Scan(v); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
 			return
 		}
-		var idSets []map[string]struct{}
-		for _, res := range results {
-			idSets = append(idSets, res.set)
-		}
-
-		// Intersect all sets
-		var intersection map[string]struct{}
-		for i, set := range idSets {
-			if i == 0 {
-				intersection = set
-				continue
-			}
-			merged := make(map[string]struct{})
-			for id := range set {
-				if _, ok := intersection[id]; ok {
-					merged[id] = struct{}{}
-				}
-			}
-			intersection = merged
-		}
-
-		if len(intersection) == 0 {
-			// No parts match the parameter filters; return empty result immediately
-			writeJSON(w, http.StatusOK, map[string]any{
-				"total": int64(0), "limit": limit, "offset": offset, "items": []any{},
-			})
+		if !h.requireTeamMembership(w, r, teamID) {
 			return
 		}
+	}
 
-		// Build comma-joined UUID string for the SQL filter
-		ids := make([]string, 0, len(intersection))
-		for id := range intersection {
-			ids = append(ids, id)
-		}
-		joined := strings.Join(ids, ",")
-		params.PartIDFilter = &joined
-		countParams.PartIDFilter = &joined
+	f, matchedNone, ok := h.resolvePartFilters(w, r, teamID)
+	if !ok {
+		return
+	}
+	if matchedNone {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"total": int64(0), "limit": limit, "offset": offset, "items": []any{},
+		})
+		return
+	}
+
+	params := dbgen.ListPartsWithInventoryParams{
+		Limit:             limit,
+		Offset:            offset,
+		TeamID:            f.TeamID,
+		Q:                 f.Q,
+		MpnExact:          f.MpnExact,
+		CategoryID:        f.CategoryID,
+		Package:           f.Package,
+		LifecycleStatus:   f.LifecycleStatus,
+		FilterScope:       f.FilterScope,
+		StockStatus:       f.StockStatus,
+		StorageLocationID: f.StorageLocationID,
+		StorageCells:      f.StorageCells,
+		PartIDFilter:      f.PartIDFilter,
+	}
+	countParams := dbgen.CountPartsWithInventoryParams{
+		TeamID:            f.TeamID,
+		Q:                 f.Q,
+		MpnExact:          f.MpnExact,
+		CategoryID:        f.CategoryID,
+		Package:           f.Package,
+		LifecycleStatus:   f.LifecycleStatus,
+		FilterScope:       f.FilterScope,
+		StockStatus:       f.StockStatus,
+		StorageLocationID: f.StorageLocationID,
+		StorageCells:      f.StorageCells,
+		PartIDFilter:      f.PartIDFilter,
 	}
 
 	total, err := h.Queries.CountPartsWithInventory(r.Context(), countParams)

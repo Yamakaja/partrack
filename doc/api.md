@@ -217,11 +217,12 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 | POST | `/parts/resolve/{resolveItemId}/commit` | member | `{primary_distributor_id, primary_sku, additional_listings?:[{distributor_id,sku}], initial_qty?, initial_qty_reason?, storage_location_id?}` → `{part_id}` — write part/listings/inventory from cached enrichment; no API re-call. `primary_distributor_id`+`primary_sku` identify the preferred listing (used for enrichment/metadata authority); only the selected SKUs from that distributor are persisted. `additional_listings` selects individual listings from any distributor at SKU granularity (can include extra SKUs from the primary distributor). `initial_qty` creates a stock adjustment; `storage_location_id` sets the inventory entry location. |
 | POST | `/parts/resolve/{resolveItemId}/retry-distributors` | member | `{distributor_ids:[]}` → `202 {job_id}` — re-query only failed distributors; merges into existing results |
 | POST | `/parts/import` | member | `{sku, distributor_id}` → `{part_id}` — atomic synchronous import: part + listings + inventory (single distributor) |
-| POST | `/parts/enrich-all` | member | Enqueue enrichment for all parts with listings → 202 `{job_count}` |
+| POST | `/parts/refresh-parameters` | member | Enqueue a re-enrichment (one live distributor API call per part) for every part matching the given ListParts filters (same query params as `/parts/refresh-listings`) that has an API-integrated listing. Scopes the operation to the current search. → 202 `{job_id, part_count}`, 204 if nothing enrichable, or 400 `TOO_MANY_PARTS` if the match set exceeds 1000. Progress streams over SSE: per-part `part_enrich_done` events then a terminal `part_enrich_complete` `{total, done, not_found, failed}` (all carry `job_id`). |
 | POST | `/parts/{partId}/enrich` | member | `{sku, distributor_id}` → 202 `{job_id}` |
 | POST | `/parts/{partId}/listings` | member | `{sku, distributor_id}` → 202 `{job_id}` |
 | DELETE | `/parts/{partId}/listings/{listingId}` | member | Remove listing + distributor-sourced parameters |
-| POST | `/parts/{partId}/listings/refresh` | member | Enqueue refresh for all listings → 202 `{job_count}` |
+| POST | `/parts/refresh-listings` | member | Enqueue a stock/price refresh for every refreshable listing whose part matches the given ListParts filters (same query params: `q`, `mpn`, `category_id`, `package`, `lifecycle_status`, `scope`, `stock_status`, `storage_location_id`, `storage_cells`, `param_*`). Scopes the refresh to the current search. → 202 `{job_id, listing_count}`, 204 if nothing refreshable, or 400 `TOO_MANY_LISTINGS` if the match set exceeds 1000. Progress streams over SSE: per-listing `listing_refresh_done` events then a terminal `listing_refresh_complete` `{total, done, unavailable, failed}` (all carry `job_id`). |
+| POST | `/parts/{partId}/listings/refresh` | member | Enqueue refresh for all of a part's listings → 202 `{job_id, listing_count}` |
 | POST | `/parts/{partId}/listings/{listingId}/refresh` | member | → 202 `{job_id}` |
 
 ### Part Notes
@@ -298,7 +299,7 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 | PATCH | `/cart/items/{itemId}` | purchaser | `{quantity?, listing_id?}` → 204. Demand floors enforced for `bom_shortfall`/`inventory_maintenance` sources. |
 | DELETE | `/cart/items/{itemId}` | purchaser | Remove item; 204 |
 | POST | `/cart/add-low-stock` | purchaser | Add items to reach reorder levels → `{added_count}` |
-| POST | `/cart/refresh-listings` | purchaser | Enqueue refresh for all cart listings → 202 `{job_id}` (or 204 if nothing to refresh) |
+| POST | `/cart/refresh-listings` | purchaser | Enqueue refresh for all cart listings → 202 `{job_id, listing_count}` (or 204 if nothing to refresh). Progress streams over SSE: per-listing `listing_refresh_done` then a terminal `listing_refresh_complete` `{total, done, unavailable, failed}`. |
 | POST | `/cart/convert` | purchaser | Convert to orders grouped by distributor; links pending builds, creates allocations, transitions pending→ordered/ready. Returns 422 if cart empty or items missing listings. → `{order_ids}` |
 
 ### Orders

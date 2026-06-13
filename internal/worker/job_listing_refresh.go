@@ -111,11 +111,27 @@ func (q *Queue) handleListingRefresh(job Job) {
 	// Batch mode: fetch all listing rows, group by (distributor_id, part_id),
 	// make one API call per group, update all listings whose SKU appears in the response.
 
+	// Tally outcomes so a definitive listing_refresh_complete event can be emitted
+	// at the end. Subscribers rely on that terminal event rather than counting
+	// per-listing events, which can fall short if a listing is deleted between
+	// enqueue and processing.
+	var done, unavailable, failed int
+	publishComplete := func() {
+		q.publishProgress(job, "listing_refresh_complete", map[string]any{
+			"status":      "complete",
+			"total":       len(payload.ListingIDs),
+			"done":        done,
+			"unavailable": unavailable,
+			"failed":      failed,
+		})
+	}
+
 	// Parse all IDs upfront.
 	ids := make([]pgtype.UUID, 0, len(payload.ListingIDs))
 	for _, idStr := range payload.ListingIDs {
 		var id pgtype.UUID
 		if err := id.Scan(idStr); err != nil {
+			failed++
 			q.publishProgress(job, "listing_refresh_done", map[string]any{
 				"status":     "error",
 				"listing_id": idStr,
@@ -130,6 +146,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 		data, _ := json.Marshal(map[string]string{})
 		q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: data})
 		q.invalidateCart(job.TeamID)
+		publishComplete()
 		return
 	}
 
@@ -148,6 +165,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 	groupOrder := []groupKey{} // preserve deterministic order
 	for _, row := range rows {
 		if row.ApiType == nil {
+			failed++
 			q.publishProgress(job, "listing_refresh_done", map[string]any{
 				"status":     "error",
 				"listing_id": row.ID.String(),
@@ -172,6 +190,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 		client := q.distributors.Lookup(grp.apiType)
 		if client == nil {
 			for _, row := range grp.rows {
+				failed++
 				q.publishProgress(job, "listing_refresh_done", map[string]any{
 					"status":     "error",
 					"listing_id": row.ID.String(),
@@ -186,6 +205,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 		results, err := client.RefreshListing(ctx, representativeSKU, credsByDist[grp.distributorID])
 		if err != nil {
 			for _, row := range grp.rows {
+				failed++
 				q.publishProgress(job, "listing_refresh_done", map[string]any{
 					"status":     "error",
 					"listing_id": row.ID.String(),
@@ -205,13 +225,18 @@ func (q *Queue) handleListingRefresh(job Job) {
 		for _, row := range grp.rows {
 			matched := resultBySKU[row.Sku]
 			if matched == nil {
+				unavailable++
 				q.publishProgress(job, "listing_refresh_done", map[string]any{
 					"status":     "unavailable",
 					"listing_id": row.ID.String(),
 				})
 				continue
 			}
-			_ = q.updateListingFromResult(ctx, queries, row.ID, row.ID.String(), matched, job)
+			if err := q.updateListingFromResult(ctx, queries, row.ID, row.ID.String(), matched, job); err != nil {
+				failed++
+			} else {
+				done++
+			}
 		}
 	}
 
@@ -230,6 +255,7 @@ func (q *Queue) handleListingRefresh(job Job) {
 	data, _ := json.Marshal(map[string]string{})
 	q.Publish(Event{Type: "cart_changed", TeamID: job.TeamID, Data: data})
 	q.invalidateCart(job.TeamID)
+	publishComplete()
 }
 
 // updateListingFromResult writes refreshed price/stock data for one listing and

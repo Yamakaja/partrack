@@ -40,7 +40,9 @@ FROM alpine:3.21 AS runtime
 
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S partrack && \
-    adduser  -S -G partrack partrack
+    adduser  -S -G partrack partrack && \
+    mkdir -p /data && \
+    chown partrack:partrack /data
 
 COPY --from=backend --chown=partrack:partrack /partrack /usr/local/bin/partrack
 

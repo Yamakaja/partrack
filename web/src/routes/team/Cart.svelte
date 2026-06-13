@@ -3,6 +3,7 @@
   import {
     getCart, addLowStock, convertCart, refreshCartListings,
   } from '$lib/api/cart.js';
+  import { trackListingRefresh } from '$lib/api/batchJob.js';
   import { listBuilds } from '$lib/api/builds.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
@@ -53,8 +54,17 @@
   async function handleRefreshListings() {
     refreshingListings = true;
     try {
-      await refreshCartListings(teamId);
-      pushToast('success', 'Refresh queued — cart will update automatically');
+      const result = await refreshCartListings(teamId);
+      if (!result || result.listing_count === 0) {
+        pushToast('info', 'Nothing to refresh', 'No cart listings have a distributor integration.');
+        return;
+      }
+      trackListingRefresh({
+        teamId,
+        jobId: result.job_id,
+        total: result.listing_count,
+        onDone: () => qc.invalidateQueries({ queryKey: ['cart', teamId] }),
+      });
     } catch (err: any) {
       pushToast('error', 'Failed to queue refresh', err.message);
     } finally {

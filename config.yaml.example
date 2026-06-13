@@ -1,0 +1,64 @@
+server:
+  listen_addr: ":8080"
+  trusted_proxies: ["127.0.0.1"]
+
+database:
+  url: "postgres://partrack:partrack@test-postgres/partrack"
+
+auth:
+  session_secret: "change-me-in-production-change-m"
+
+# LDAP / Active Directory directory login. Users without a local password
+# authenticate via the normal login form (search-then-bind). Optional.
+# ldap:
+#   - name: corp                       # slug stored in external_identities.provider
+#     display_name: "Company Directory"
+#     url: "ldaps://ldap.corp.example:636"   # or ldap://… with start_tls: true
+#     ca_cert_file: ""                 # PEM bundle to trust a corporate CA (keeps verification on)
+#     timeout_seconds: 8               # connect/bind timeout
+#     bind_dn: "cn=svc-partrack,ou=svc,dc=corp,dc=example"
+#     bind_password: "…"               # or env PARTRACK_LDAP_CORP_PASSWORD
+#     user_base_dn: "ou=people,dc=corp,dc=example"
+#     user_filter: "(uid=%s)"          # %s = escaped login username
+#     email_domains: ["corp.example"]  # route this domain's logins here (optional, for multi-directory)
+#     strip_domain: false              # send only the local part to user_filter
+#     attr_email: "mail"               # defaults: mail / cn / entryUUID / memberOf
+#     attr_display_name: "cn"
+#     attr_unique_id: "entryUUID"      # stable subject for identity linking
+#     group_base_dn: ""                # resolve groups by search instead of memberOf (OpenLDAP/AD nested)
+#     group_filter: "(member=%s)"      # %s = escaped user DN
+#     required_group: "cn=partrack-users,ou=groups,dc=corp,dc=example"  # gate login to this group
+#     auto_provision: true             # create a user on first login
+#     admin_group: "cn=partrack-admins,ou=groups,dc=corp,dc=example"
+#     group_mappings:                  # directory group → partrack team + role
+#       - { group: "",                                       team: "Engineering", role: "viewer" }    # "" = all users (default)
+#       - { group: "cn=eng,ou=groups,dc=corp,dc=example",   team: "Engineering", role: "member" }
+#       - { group: "cn=buyers,ou=groups,dc=corp,dc=example", team: "Engineering", role: "purchaser" }
+#     # Group sync only manages directory-granted memberships; a manual role
+#     # change in the team UI pins it and survives later logins. Admins can test
+#     # all of this read-only at Administration → LDAP.
+
+log:
+  level: "info"
+
+app:
+  base_url: "https://partrack.yamakaja.me"
+
+# Content-addressed blob storage for uploaded images (note embeds) and documents
+# (datasheets/office/images/S-params pinned to parts & projects). Bytes are stored
+# on the local filesystem under data_dir, addressed by SHA-256. Back up this
+# directory alongside the database (dump the DB first, then archive the dir, so any
+# blob the DB references is guaranteed present). Overrides: PARTRACK_STORAGE_DATA_DIR,
+# PARTRACK_STORAGE_MAX_UPLOAD_BYTES, PARTRACK_STORAGE_MAX_DOCUMENT_BYTES.
+storage:
+  backend: "file"
+  data_dir: "./data"
+  # Note-embed images: type sniffed from bytes, validated against allowed_types.
+  max_upload_bytes: 5242880      # 5 MiB
+  allowed_types: ["image/png", "image/jpeg", "image/webp", "image/gif"]
+  # Documents: classified by extension (allowed_document_extensions); only PDFs &
+  # raster images render inline, everything else downloads.
+  max_document_bytes: 26214400   # 25 MiB
+  allowed_document_extensions: [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
+    ".csv", ".tsv", ".txt", ".md", ".zip", ".s1p", ".s2p", ".s3p", ".s4p"]

@@ -2,9 +2,12 @@
   import { createQuery } from '@tanstack/svelte-query';
   import { untrack } from 'svelte';
   import { Popover } from 'bits-ui';
-  import { X, Hash, ListFilter } from 'lucide-svelte';
+  import { X, Hash, ListFilter, RefreshCw, Sparkles } from 'lucide-svelte';
   import { currentRoute } from '$lib/router/index.svelte.js';
-  import { listParts, getCategoryParameters, type ParamFilter } from '$lib/api/parts.js';
+  import { listParts, refreshSearchListings, refreshSearchParameters, getCategoryParameters, type ParamFilter, type ListPartsParams } from '$lib/api/parts.js';
+  import { trackListingRefresh, trackPartEnrich } from '$lib/api/batchJob.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { Dialog } from '$lib/components/ui/dialog/index.js';
   import { listCategories, listPartCategories } from '$lib/api/categories.js';
   import { listStorageLocations } from '$lib/api/storage.js';
   import type { PartSummary, CategoryParameter } from '$lib/types/parts.js';
@@ -81,50 +84,108 @@
     },
   ];
 
+  // Builds the ListParts filter set from the active filters + search query.
+  // Shared by the table fetcher and the bulk stock-refresh button so the refresh
+  // is scoped to exactly the parts the current search returns.
+  function buildListPartsParams(filters: Map<string, Set<string>>, q: string): ListPartsParams {
+    const stockStatus = [...(filters.get('stock_status') ?? [])];
+    const lifecycleStatus = [...(filters.get('lifecycle_status') ?? [])];
+    const categoryIdStr = [...(filters.get('category_id') ?? [])][0] ?? undefined;
+
+    // Convert param_* filter entries back to ParamFilter format for the API
+    const catParams = categoryParamsQuery.data ?? [];
+    const pf: Record<number, ParamFilter> = {};
+    for (const [key, values] of filters) {
+      if (!key.startsWith('param_')) continue;
+      const slug = key.slice(6);
+      const paramDef = catParams.find((cp) => cp.slug === slug);
+      if (!paramDef) continue;
+      if (paramDef.value_type === 'numeric') {
+        const encoded = [...values][0] ?? '';
+        let min: number | undefined, max: number | undefined;
+        if (encoded.includes('|')) {
+          const [lo, hi] = encoded.split('|');
+          min = Number(lo); max = Number(hi);
+        } else if (encoded.startsWith('>=')) { min = Number(encoded.slice(2)); }
+        else if (encoded.startsWith('<='))   { max = Number(encoded.slice(2)); }
+        else if (encoded.startsWith('='))    { min = max = Number(encoded.slice(1)); }
+        if (min !== undefined || max !== undefined)
+          pf[paramDef.id] = { type: 'numeric', min, max };
+      } else {
+        const vals = [...values];
+        if (vals.length) pf[paramDef.id] = { type: 'enum', values: vals };
+      }
+    }
+
+    const storageLocationId = [...(filters.get('storage_location_id') ?? [])][0] ?? undefined;
+    const storageCellStrs = [...(filters.get('storage_cells') ?? [])];
+
+    return {
+      team_id: teamId,
+      q: q || undefined,
+      stock_status: stockStatus.length ? stockStatus : undefined,
+      lifecycle_status: lifecycleStatus.length ? lifecycleStatus : undefined,
+      category_id: categoryIdStr ? Number(categoryIdStr) : undefined,
+      param_filters: Object.keys(pf).length ? pf : undefined,
+      storage_location_id: storageLocationId,
+      storage_cells: storageCellStrs.length ? storageCellStrs.join('|') : undefined,
+    };
+  }
+
+  // Both bulk actions are scoped to the current search and gated behind a
+  // confirmation dialog (they make many live distributor API calls).
+  let refreshListingsConfirmOpen = $state(false);
+  let refreshParamsConfirmOpen = $state(false);
+  let refreshingListings = $state(false);
+  let refreshingParams = $state(false);
+
+  async function doRefreshListings() {
+    refreshingListings = true;
+    try {
+      const result = await refreshSearchListings(teamId, buildListPartsParams(source.filters, searchValue));
+      if (!result || result.listing_count === 0) {
+        pushToast('info', 'Nothing to refresh', 'No parts in the current results have a distributor integration.');
+        return;
+      }
+      trackListingRefresh({
+        teamId,
+        jobId: result.job_id,
+        total: result.listing_count,
+        onDone: () => source.refresh(),
+      });
+    } catch (err: any) {
+      pushToast('error', 'Refresh failed', err.message);
+    } finally {
+      refreshingListings = false;
+    }
+  }
+
+  async function doRefreshParameters() {
+    refreshingParams = true;
+    try {
+      const result = await refreshSearchParameters(teamId, buildListPartsParams(source.filters, searchValue));
+      if (!result || result.part_count === 0) {
+        pushToast('info', 'Nothing to refresh', 'No parts in the current results have a distributor integration.');
+        return;
+      }
+      trackPartEnrich({
+        teamId,
+        jobId: result.job_id,
+        total: result.part_count,
+        onDone: () => source.refresh(),
+      });
+    } catch (err: any) {
+      pushToast('error', 'Parameter refresh failed', err.message);
+    } finally {
+      refreshingParams = false;
+    }
+  }
+
   const source = new RemoteDataSource<PartSummary>(
     baseColumns,
     async (params) => {
-      const stockStatus = [...(params.filters.get('stock_status') ?? [])];
-      const lifecycleStatus = [...(params.filters.get('lifecycle_status') ?? [])];
-      const categoryIdStr = [...(params.filters.get('category_id') ?? [])][0] ?? undefined;
-
-      // Convert param_* filter entries back to ParamFilter format for the API
-      const catParams = categoryParamsQuery.data ?? [];
-      const pf: Record<number, ParamFilter> = {};
-      for (const [key, values] of params.filters) {
-        if (!key.startsWith('param_')) continue;
-        const slug = key.slice(6);
-        const paramDef = catParams.find((cp) => cp.slug === slug);
-        if (!paramDef) continue;
-        if (paramDef.value_type === 'numeric') {
-          const encoded = [...values][0] ?? '';
-          let min: number | undefined, max: number | undefined;
-          if (encoded.includes('|')) {
-            const [lo, hi] = encoded.split('|');
-            min = Number(lo); max = Number(hi);
-          } else if (encoded.startsWith('>=')) { min = Number(encoded.slice(2)); }
-          else if (encoded.startsWith('<='))   { max = Number(encoded.slice(2)); }
-          else if (encoded.startsWith('='))    { min = max = Number(encoded.slice(1)); }
-          if (min !== undefined || max !== undefined)
-            pf[paramDef.id] = { type: 'numeric', min, max };
-        } else {
-          const vals = [...values];
-          if (vals.length) pf[paramDef.id] = { type: 'enum', values: vals };
-        }
-      }
-
-      const storageLocationId = [...(params.filters.get('storage_location_id') ?? [])][0] ?? undefined;
-      const storageCellStrs = [...(params.filters.get('storage_cells') ?? [])];
-
       const result = await listParts({
-        team_id: teamId,
-        q: (params.extra.q as string) || undefined,
-        stock_status: stockStatus.length ? stockStatus : undefined,
-        lifecycle_status: lifecycleStatus.length ? lifecycleStatus : undefined,
-        category_id: categoryIdStr ? Number(categoryIdStr) : undefined,
-        param_filters: Object.keys(pf).length ? pf : undefined,
-        storage_location_id: storageLocationId,
-        storage_cells: storageCellStrs.length ? storageCellStrs.join('|') : undefined,
+        ...buildListPartsParams(params.filters, (params.extra.q as string) || ''),
         limit: params.pageSize,
         offset: (params.page - 1) * params.pageSize,
       });
@@ -592,4 +653,64 @@
       }}
     />
   {/snippet}
+  {#snippet toolbarRight()}
+    <Button
+      variant="outline"
+      size="sm"
+      onclick={() => (refreshListingsConfirmOpen = true)}
+      disabled={refreshingListings}
+      title="Refresh stock & prices for the listings in the current search results"
+    >
+      <RefreshCw class={cn('h-4 w-4 mr-1', refreshingListings && 'animate-spin')} />
+      {refreshingListings ? 'Queuing…' : 'Refresh Stock & Prices'}
+    </Button>
+    <Button
+      variant="outline"
+      size="sm"
+      onclick={() => (refreshParamsConfirmOpen = true)}
+      disabled={refreshingParams}
+      title="Re-enrich parameters & metadata for the parts in the current search results"
+    >
+      <Sparkles class={cn('h-4 w-4 mr-1', refreshingParams && 'animate-spin')} />
+      {refreshingParams ? 'Queuing…' : 'Refresh Parameters'}
+    </Button>
+  {/snippet}
 </DataTable>
+
+<Dialog
+  bind:open={refreshListingsConfirmOpen}
+  title="Refresh stock & prices?"
+  confirmLabel="Refresh"
+  onConfirm={doRefreshListings}
+>
+  {#snippet children()}
+    <div class="text-sm text-muted-foreground space-y-2">
+      <p>
+        This refreshes stock and pricing for the distributor listings of the
+        <span class="font-medium text-foreground">{source.totalRows.toLocaleString()}</span>
+        part{source.totalRows === 1 ? '' : 's'} in the current search. Parts without a
+        distributor integration are skipped.
+      </p>
+      <p>Each listing makes a live distributor API call and counts against your rate limits.</p>
+    </div>
+  {/snippet}
+</Dialog>
+
+<Dialog
+  bind:open={refreshParamsConfirmOpen}
+  title="Refresh parameters?"
+  confirmLabel="Refresh"
+  onConfirm={doRefreshParameters}
+>
+  {#snippet children()}
+    <div class="text-sm text-muted-foreground space-y-2">
+      <p>
+        This re-enriches parameters and metadata for the
+        <span class="font-medium text-foreground">{source.totalRows.toLocaleString()}</span>
+        part{source.totalRows === 1 ? '' : 's'} in the current search. Parts without a
+        distributor integration are skipped.
+      </p>
+      <p>Each part makes a live distributor API call and counts against your rate limits.</p>
+    </div>
+  {/snippet}
+</Dialog>

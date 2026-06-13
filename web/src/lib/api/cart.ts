@@ -36,5 +36,7 @@ export function convertCart(teamId: string) {
 }
 
 export function refreshCartListings(teamId: string) {
-  return request<{ job_id: string }>('POST', `/api/v1/teams/${teamId}/cart/refresh-listings`);
+  return request<{ job_id: string; listing_count: number } | undefined>(
+    'POST', `/api/v1/teams/${teamId}/cart/refresh-listings`,
+  );
 }
