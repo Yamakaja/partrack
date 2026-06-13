@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +32,16 @@ type StorageConfig struct {
 	// AllowedTypes is the sniffed-content-type allowlist for uploads. Defaults to
 	// common raster image types when unset. SVG is intentionally excluded (XSS).
 	AllowedTypes []string `yaml:"allowed_types"`
+	// MaxDocumentBytes caps a single document (datasheet/office/Touchstone)
+	// upload. Documents are larger than note images, so this defaults to 25 MiB.
+	MaxDocumentBytes int64 `yaml:"max_document_bytes"`
+	// AllowedDocumentExtensions is the lowercased file-extension allowlist for
+	// document uploads (including the leading dot). Office and Touchstone files
+	// have no distinctive magic bytes, so documents are classified by extension;
+	// non-PDF documents are always served as a download, never inline, so this
+	// list can be liberal without inline-execution (XSS) risk. Defaults applied
+	// when unset.
+	AllowedDocumentExtensions []string `yaml:"allowed_document_extensions"`
 }
 
 type ServerConfig struct {
@@ -177,10 +188,20 @@ func defaults() *Config {
 			RateLimitPerMinute: 10,
 		},
 		Storage: StorageConfig{
-			Backend:        "file",
-			DataDir:        "./data",
-			MaxUploadBytes: 5 << 20, // 5 MiB
-			AllowedTypes:   []string{"image/png", "image/jpeg", "image/webp", "image/gif"},
+			Backend:          "file",
+			DataDir:          "./data",
+			MaxUploadBytes:   5 << 20,  // 5 MiB
+			MaxDocumentBytes: 25 << 20, // 25 MiB
+			AllowedTypes:     []string{"image/png", "image/jpeg", "image/webp", "image/gif"},
+			AllowedDocumentExtensions: []string{
+				".pdf",
+				".png", ".jpg", ".jpeg", ".gif", ".webp", // raster images
+				".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+				".odt", ".ods", ".odp",
+				".csv", ".tsv", ".txt", ".md",
+				".zip",
+				".s1p", ".s2p", ".s3p", ".s4p", // Touchstone S-parameter files
+			},
 		},
 	}
 }
@@ -226,6 +247,16 @@ func Load() *Config {
 	}
 	if v := os.Getenv("PARTRACK_STORAGE_DATA_DIR"); v != "" {
 		cfg.Storage.DataDir = v
+	}
+	if v := os.Getenv("PARTRACK_STORAGE_MAX_UPLOAD_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Storage.MaxUploadBytes = n
+		}
+	}
+	if v := os.Getenv("PARTRACK_STORAGE_MAX_DOCUMENT_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Storage.MaxDocumentBytes = n
+		}
 	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET

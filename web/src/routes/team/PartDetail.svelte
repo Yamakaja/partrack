@@ -37,6 +37,7 @@
   import { authStore } from '$lib/stores/auth.svelte.js';
   import NotePanel from '$lib/components/notes/NotePanel.svelte';
   import PartFlagControl from '$lib/components/notes/PartFlagControl.svelte';
+  import DocumentsPanel from '$lib/components/documents/DocumentsPanel.svelte';
   import { getPartNote, putPartNote } from '$lib/api/notes.js';
   import { hasMinRole } from '$lib/utils/roles.js';
 
@@ -538,6 +539,8 @@
           save={(body) => putPartNote(teamId, partId, body)}
           canEdit={canEditNotes}
         />
+
+        <DocumentsPanel {teamId} ownerKind="part" ownerId={partId} canEdit={canEditNotes} />
 
         {#if tracked && (allocationsQuery.data?.items.length ?? 0) > 0}
           <section class="space-y-2">

@@ -436,6 +436,8 @@ type Attachment struct {
 	OriginalFilename *string            `json:"original_filename"`
 	UploadedBy       pgtype.UUID        `json:"uploaded_by"`
 	UploadedAt       pgtype.Timestamptz `json:"uploaded_at"`
+	OwnerKind        *string            `json:"owner_kind"`
+	OwnerID          pgtype.UUID        `json:"owner_id"`
 }
 
 type Blob struct {

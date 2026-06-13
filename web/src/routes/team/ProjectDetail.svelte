@@ -6,6 +6,7 @@
   import { listDistributorConfigs } from '$lib/api/distributors.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import NotePanel from '$lib/components/notes/NotePanel.svelte';
+  import DocumentsPanel from '$lib/components/documents/DocumentsPanel.svelte';
   import { getProjectNote, putProjectNote } from '$lib/api/notes.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { hasMinRole } from '$lib/utils/roles.js';
@@ -246,6 +247,9 @@
       save={(body) => putProjectNote(teamId, projectId, body)}
       canEdit={canEditNotes}
     />
+
+    <!-- Project documents -->
+    <DocumentsPanel {teamId} ownerKind="project" ownerId={projectId} canEdit={canEditNotes} />
 
     <!-- Revisions table -->
     <div>

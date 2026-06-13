@@ -244,6 +244,21 @@ The team's freeform markdown note for a part (one per team per part — the know
 ```
 Each `objects` entry is a normalized, render-ready link: the server computes `label`, the route `href` (per-kind — e.g. revisions nest under their project), and an optional `status` (lifecycle/order/build/project status, used for styling). Only resolvable references appear: attachments and objects are team-scoped (parts also include global). Dangling references are omitted (the renderer falls back to the stored label, struck-through).
 
+### Documents
+
+File attachments (datasheets, images, office files, Touchstone S-parameters, …) pinned to a **part** or **project** and listed **separately from note markdown**. They reuse the blob/attachment layer: ownership is recorded on the `attachments` row (`owner_kind`/`owner_id`); a note-embedded image leaves the owner NULL and is not a document. Classification is by **file extension** (office/Touchstone files have no distinctive magic bytes); PDFs and raster images are **served inline** (and verified to actually sniff as an inline-safe type), every other type is **forced to download** so no uploaded bytes can execute in-origin.
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/parts/{partId}/documents` | viewer | List the team's documents on the part (team-scoped; global part visible). Returns `{documents: [{id, filename, content_type, byte_size, viewable, uploaded_by?, uploaded_at?}]}`, newest first. `viewable` = PDF or raster image. 404 if the part isn't visible to the team. |
+| POST | `/parts/{partId}/documents` | member | Upload a document. Body is the **raw file bytes**; `?filename=` is **required** (drives extension classification + the download name). 201 with the document row. 415 unsupported extension or content not matching an inline type; 413 over the cap (default 25 MiB). |
+| GET | `/projects/{projectId}/documents` | viewer | List the project's documents. Same shape; 404 if not the team's. |
+| POST | `/projects/{projectId}/documents` | member | Upload a document to the project. 404 if not the team's. |
+| GET | `/documents/{docId}/content` | viewer | Serve the bytes — **access-controlled** (resolved team-scoped) and filename-aware, unlike `/blobs/{sha}`. `Content-Disposition: inline` for PDF/image, else `attachment`; pass `?download=1` to force download with the original filename. Strong `ETag` (blob hash), `If-None-Match`→304, `nosniff`, `Cache-Control: private, immutable`. `HEAD` supported. 404 cross-team. |
+| DELETE | `/documents/{docId}` | member | Remove the document attachment (the shared blob is retained — no-GC). 204; 404 if not the team's. |
+
+Upload/delete publish the owner's existing entity-change event (`part_changed` / `project_changed`), so other clients refetch the document list.
+
 ### Distributor Search
 
 | Method | Path | Role | Description |

@@ -30,6 +30,7 @@ export function activateTeamInvalidation(teamId: string) {
       if (partId) {
         qc!.invalidateQueries({ queryKey: ['part', partId, teamId] });
         qc!.invalidateQueries({ queryKey: ['part-note', teamId, partId] });
+        qc!.invalidateQueries({ queryKey: ['documents', teamId, 'part', partId] });
       }
       qc!.invalidateQueries({ queryKey: ['parts', teamId] });
     }),
@@ -66,6 +67,7 @@ export function activateTeamInvalidation(teamId: string) {
       if (projectId) {
         qc!.invalidateQueries({ queryKey: ['project', teamId, projectId] });
         qc!.invalidateQueries({ queryKey: ['project-note', teamId, projectId] });
+        qc!.invalidateQueries({ queryKey: ['documents', teamId, 'project', projectId] });
         qc!.invalidateQueries({ queryKey: ['revisions', teamId, projectId] });
       }
     }),

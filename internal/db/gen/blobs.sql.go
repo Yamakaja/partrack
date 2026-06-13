@@ -24,14 +24,23 @@ type CreateAttachmentParams struct {
 	UploadedBy       pgtype.UUID `json:"uploaded_by"`
 }
 
-func (q *Queries) CreateAttachment(ctx context.Context, arg CreateAttachmentParams) (Attachment, error) {
+type CreateAttachmentRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	TeamID           pgtype.UUID        `json:"team_id"`
+	BlobSha256       string             `json:"blob_sha256"`
+	OriginalFilename *string            `json:"original_filename"`
+	UploadedBy       pgtype.UUID        `json:"uploaded_by"`
+	UploadedAt       pgtype.Timestamptz `json:"uploaded_at"`
+}
+
+func (q *Queries) CreateAttachment(ctx context.Context, arg CreateAttachmentParams) (CreateAttachmentRow, error) {
 	row := q.db.QueryRow(ctx, createAttachment,
 		arg.TeamID,
 		arg.BlobSha256,
 		arg.OriginalFilename,
 		arg.UploadedBy,
 	)
-	var i Attachment
+	var i CreateAttachmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -54,9 +63,18 @@ type GetAttachmentParams struct {
 	TeamID pgtype.UUID `json:"team_id"`
 }
 
-func (q *Queries) GetAttachment(ctx context.Context, arg GetAttachmentParams) (Attachment, error) {
+type GetAttachmentRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	TeamID           pgtype.UUID        `json:"team_id"`
+	BlobSha256       string             `json:"blob_sha256"`
+	OriginalFilename *string            `json:"original_filename"`
+	UploadedBy       pgtype.UUID        `json:"uploaded_by"`
+	UploadedAt       pgtype.Timestamptz `json:"uploaded_at"`
+}
+
+func (q *Queries) GetAttachment(ctx context.Context, arg GetAttachmentParams) (GetAttachmentRow, error) {
 	row := q.db.QueryRow(ctx, getAttachment, arg.ID, arg.TeamID)
-	var i Attachment
+	var i GetAttachmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,

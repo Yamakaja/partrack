@@ -214,6 +214,14 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/parts/{partId}/note", h.GetPartNote)
 					r.Get("/projects/{projectId}/note", h.GetProjectNote)
 
+					// Documents (file attachments on parts/projects; read +
+					// serve. Serving is access-controlled + filename-aware, unlike
+					// the capability-by-hash /blobs path.)
+					r.Get("/parts/{partId}/documents", h.ListPartDocuments)
+					r.Get("/projects/{projectId}/documents", h.ListProjectDocuments)
+					r.Get("/documents/{docId}/content", h.ServeDocument)
+					r.Head("/documents/{docId}/content", h.ServeDocument)
+
 					// 15. General checkouts
 					r.Get("/checkouts", h.ListCheckouts)
 					r.Get("/checkouts/{checkoutId}", h.GetCheckout)
@@ -243,6 +251,11 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Put("/parts/{partId}/note", h.PutPartNote)
 					r.Put("/parts/{partId}/flag", h.PutPartFlag)
 					r.Put("/projects/{projectId}/note", h.PutProjectNote)
+
+					// Documents (upload + delete)
+					r.Post("/parts/{partId}/documents", h.UploadPartDocument)
+					r.Post("/projects/{projectId}/documents", h.UploadProjectDocument)
+					r.Delete("/documents/{docId}", h.DeleteDocument)
 
 					// Inventory
 					r.Post("/inventory", h.CreateInventoryEntry)
