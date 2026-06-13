@@ -7,15 +7,16 @@ export interface NoteManifestAttachment {
   height?: number;
 }
 
-export interface NoteManifestPart {
-  mpn: string | null;
-  manufacturer: string | null;
-  lifecycle_status: string;
+export interface NoteManifestObject {
+  kind: string;
+  label: string;
+  href: string;
+  status?: string;
 }
 
 export interface NoteManifest {
   attachments: Record<string, NoteManifestAttachment>;
-  parts: Record<string, NoteManifestPart>;
+  objects: Record<string, NoteManifestObject>;
 }
 
 export interface PartNote {

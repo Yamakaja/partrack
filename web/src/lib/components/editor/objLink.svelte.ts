@@ -1,20 +1,21 @@
-// Custom Milkdown node: a partrack "part chip" — an inline, atomic reference to
-// a Part. It round-trips losslessly through markdown as a remark *text directive*
-// (`:part[label]{#id}`) and renders, while editing, as a mounted Svelte component
-// (the node-view bridge we wanted to prove out).
-// Milkdown's factory helpers are `$`-prefixed; rune-mode (.svelte.ts) forbids
-// `$`-prefixed local bindings, so alias them on import.
+// Custom Milkdown node: a partrack "object link" — an inline, atomic reference
+// to any linkable object (part/project/revision/order/build/storage). It
+// round-trips through markdown as a remark *text directive* whose name is the
+// object kind (`:project[label]{#uuid}`) and renders, while editing, as a
+// mounted Svelte chip (the node-view bridge).
 import { $node as defNode, $view as defView, $remark as defRemark } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView, NodeView } from '@milkdown/kit/prose/view';
 import remarkDirective from 'remark-directive';
 import { mount, unmount } from 'svelte';
-import PartChip from './PartChip.svelte';
+import ObjectChip from './ObjectChip.svelte';
+import { OBJECT_KINDS, type ObjectKind } from '$lib/components/notes/objectKinds.js';
 
-// Registers micromark/mdast directive support so `:part[...]{...}` is parsed
-// into / serialized from a `textDirective` node. Shared by the read-only
-// renderer later — directive parsing is defined once at the remark layer.
+// Registers micromark/mdast directive support, shared with the viewer's remark
+// pipeline (directive parsing defined once at the remark layer).
 export const directiveRemark = defRemark('partrack-directive', () => remarkDirective);
+
+const KINDS = new Set<string>(OBJECT_KINDS);
 
 interface DirectiveNode {
   type: string;
@@ -23,22 +24,24 @@ interface DirectiveNode {
   children?: { type: string; value?: string }[];
 }
 
-export const partChipNode = defNode('part_chip', () => ({
+export const objLinkNode = defNode('obj_link', () => ({
   group: 'inline',
   inline: true,
   atom: true,
   selectable: true,
   draggable: false,
   attrs: {
+    kind: { default: 'part' },
     id: { default: '' },
     label: { default: '' },
   },
   parseDOM: [
     {
-      tag: 'span[data-part-chip]',
+      tag: 'span[data-obj-link]',
       getAttrs: (dom) => {
         const el = dom as HTMLElement;
         return {
+          kind: el.getAttribute('data-kind') ?? 'part',
           id: el.getAttribute('data-id') ?? '',
           label: el.getAttribute('data-label') ?? el.textContent ?? '',
         };
@@ -48,7 +51,8 @@ export const partChipNode = defNode('part_chip', () => ({
   toDOM: (node) => [
     'span',
     {
-      'data-part-chip': 'true',
+      'data-obj-link': 'true',
+      'data-kind': node.attrs.kind,
       'data-id': node.attrs.id,
       'data-label': node.attrs.label,
     },
@@ -57,45 +61,43 @@ export const partChipNode = defNode('part_chip', () => ({
   parseMarkdown: {
     match: (node) => {
       const n = node as unknown as DirectiveNode;
-      return n.type === 'textDirective' && n.name === 'part';
+      return n.type === 'textDirective' && !!n.name && KINDS.has(n.name);
     },
     runner: (state, node, type) => {
       const n = node as unknown as DirectiveNode;
+      const kind = n.name ?? 'part';
       const id = n.attributes?.id ?? '';
       const label = n.children?.[0]?.value ?? n.attributes?.label ?? '';
-      state.addNode(type, { id, label });
+      state.addNode(type, { kind, id, label });
     },
   },
   toMarkdown: {
-    match: (node) => node.type.name === 'part_chip',
+    match: (node) => node.type.name === 'obj_link',
     runner: (state, node) => {
       state.addNode(
         'textDirective',
         [{ type: 'text', value: node.attrs.label }] as never,
         undefined,
-        { name: 'part', attributes: { id: node.attrs.id } },
+        { name: node.attrs.kind, attributes: { id: node.attrs.id } },
       );
     },
   },
 }));
 
-// Node-view: mount the Svelte <PartChip> into the node's DOM and keep its props
-// in sync when the node's attrs change. Svelte owns the inner DOM, so we tell
-// ProseMirror to ignore mutations within it.
-export const partChipView = defView(partChipNode, () => {
+export const objLinkView = defView(objLinkNode, () => {
   return ((node: ProseNode, _view: EditorView): NodeView => {
     const dom = document.createElement('span');
-    dom.setAttribute('data-part-chip', 'true');
+    dom.setAttribute('data-obj-link', 'true');
     dom.style.whiteSpace = 'nowrap';
 
-    const props = $state({ id: node.attrs.id as string, label: node.attrs.label as string });
-    const component = mount(PartChip, { target: dom, props });
+    const props = $state({ kind: node.attrs.kind as ObjectKind, label: node.attrs.label as string });
+    const component = mount(ObjectChip, { target: dom, props });
 
     return {
       dom,
       update: (updated) => {
-        if (updated.type.name !== 'part_chip') return false;
-        props.id = updated.attrs.id;
+        if (updated.type.name !== 'obj_link') return false;
+        props.kind = updated.attrs.kind;
         props.label = updated.attrs.label;
         return true;
       },

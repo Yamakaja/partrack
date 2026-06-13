@@ -225,7 +225,7 @@ All storage location responses include: `{id, team_id, parent_id: string|null, l
 
 ### Part Notes
 
-The team's freeform markdown note for a part (one per team per part — the knowledge profile, parallel to the inventory entry). The body is markdown that may embed images as `attachment:<uuid>` (uploaded via `POST /attachments`) and object links as `:part[label]{#<uuid>}` (remark directives). Both endpoints return a **manifest** that resolves those references server-side (batched), so the renderer needs no per-reference round-trips.
+The team's freeform markdown note for a part (one per team per part — the knowledge profile, parallel to the inventory entry). The body is markdown that may embed images as `attachment:<uuid>` (uploaded via `POST /attachments`) and **object links** as `:<kind>[label]{#<uuid>}` remark directives, where `kind` ∈ `part | project | revision | order | build | storage`. Both endpoints return a **manifest** that resolves those references server-side (batched), so the renderer needs no per-reference round-trips.
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -236,10 +236,10 @@ The team's freeform markdown note for a part (one per team per part — the know
 ```json
 {
   "attachments": { "<attachment-uuid>": { "url": "/api/v1/blobs/<sha256>", "content_type": "image/png", "width": 800, "height": 600 } },
-  "parts": { "<part-uuid>": { "mpn": "STM32F407VGT6", "manufacturer": "STMicroelectronics", "lifecycle_status": "active" } }
+  "objects": { "<object-uuid>": { "kind": "project", "label": "Power Supply v2", "href": "/teams/<tid>/projects/<id>", "status": "active" } }
 }
 ```
-Only resolvable references appear: attachments are scoped to the team; parts are scoped to those the team can see (global or team-owned). Dangling references are simply omitted from the manifest (the renderer falls back to placeholder text).
+Each `objects` entry is a normalized, render-ready link: the server computes `label`, the route `href` (per-kind — e.g. revisions nest under their project), and an optional `status` (lifecycle/order/build/project status, used for styling). Only resolvable references appear: attachments and objects are team-scoped (parts also include global). Dangling references are omitted (the renderer falls back to the stored label, struck-through).
 
 ### Distributor Search
 
@@ -321,7 +321,7 @@ Only resolvable references appear: attachments are scoped to the team; parts are
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| GET | `/search?q=` | viewer | Full-text search across parts, projects, orders, builds, storage (min 2 chars) |
+| GET | `/search?q=` | viewer | Full-text search across parts, projects, BOM revisions, orders, builds, storage (min 2 chars). Returns `{parts, projects, revisions, orders, builds, storage_locations}` |
 | GET | `/events` | viewer | SSE stream. Events: `part_changed`, `inventory_changed`, `cart_changed`, `order_changed`, `storage_changed`, `project_changed`, `revision_changed`, `build_changed`. Events from the acting user's own actions are skipped. |
 
 ---

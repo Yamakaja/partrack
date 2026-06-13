@@ -1,8 +1,8 @@
 import type { NoteManifest } from '$lib/api/notes.js';
+import { OBJECT_KINDS } from './objectKinds.js';
 
 export interface ManifestOptions {
   manifest: NoteManifest;
-  teamId: string;
 }
 
 // Loose mdast node — we only touch a few known shapes.
@@ -16,20 +16,21 @@ interface MdNode {
   data?: { hName?: string; hProperties?: Record<string, unknown> };
 }
 
+const KINDS = new Set<string>(OBJECT_KINDS);
+
 // remarkManifest resolves a note's references against the server-provided
 // manifest at transform time, baking the result into hast properties so the
 // renderer components stay dumb (no render-time lookups / no extra requests):
-//   - `:part[label]{#uuid}` text directives → a <part-chip> element carrying the
-//     part's current mpn/lifecycle and a link href.
+//   - `:<kind>[label]{#uuid}` text directives → an <obj-link> element carrying
+//     the object's resolved kind, label, href, and status. Unresolved refs keep
+//     the directive's own label and render struck-through with no link.
 //   - `attachment:<uuid>` image sources → the resolved blob URL + dimensions.
-// (Images inserted by the editor today already carry a real blob URL, so the
-// attachment-scheme rewrite is forward-compat for the relocatable/S3 backend.)
 export function remarkManifest(options: ManifestOptions) {
-  const { manifest, teamId } = options;
+  const { manifest } = options;
 
   function visit(node: MdNode) {
-    if ((node.type === 'textDirective' || node.type === 'leafDirective') && node.name === 'part') {
-      applyPart(node);
+    if ((node.type === 'textDirective' || node.type === 'leafDirective') && node.name && KINDS.has(node.name)) {
+      applyObject(node);
     } else if (node.type === 'image' && typeof node.url === 'string' && node.url.startsWith('attachment:')) {
       applyImage(node);
     }
@@ -38,20 +39,15 @@ export function remarkManifest(options: ManifestOptions) {
     }
   }
 
-  function applyPart(node: MdNode) {
+  function applyObject(node: MdNode) {
     const id = (node.attributes?.id ?? '').toLowerCase();
-    const label = node.children?.[0]?.value ?? node.attributes?.label ?? id;
-    const part = id ? manifest.parts[id] : undefined;
+    const fallbackLabel = node.children?.[0]?.value ?? node.attributes?.label ?? id;
+    const obj = id ? manifest.objects[id] : undefined;
     node.data = node.data ?? {};
-    node.data.hName = 'part-chip';
-    node.data.hProperties = {
-      partId: id,
-      label,
-      mpn: part?.mpn ?? null,
-      lifecycle: part?.lifecycle_status ?? null,
-      href: id ? `/teams/${teamId}/parts/${id}` : null,
-      resolved: part ? 'true' : 'false',
-    };
+    node.data.hName = 'obj-link';
+    node.data.hProperties = obj
+      ? { kind: obj.kind, label: obj.label, href: obj.href, status: obj.status ?? null, exists: 'true' }
+      : { kind: node.name ?? 'part', label: fallbackLabel, href: null, status: null, exists: 'false' };
     // Atom node: drop the directive's label children so the renderer doesn't
     // also emit them as loose text next to the chip.
     node.children = [];

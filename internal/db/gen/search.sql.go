@@ -11,6 +11,54 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const searchBOMRevisions = `-- name: SearchBOMRevisions :many
+SELECT br.id, br.label, br.project_id, pr.name AS project_name
+FROM bom_revisions br
+JOIN projects pr ON pr.id = br.project_id
+WHERE pr.team_id = $1
+  AND (pr.name ILIKE '%' || $2 || '%' OR br.label ILIKE '%' || $2 || '%')
+ORDER BY pr.name, br.label
+LIMIT $3
+`
+
+type SearchBOMRevisionsParams struct {
+	TeamID pgtype.UUID `json:"team_id"`
+	Q      *string     `json:"q"`
+	Lim    int32       `json:"lim"`
+}
+
+type SearchBOMRevisionsRow struct {
+	ID          pgtype.UUID `json:"id"`
+	Label       string      `json:"label"`
+	ProjectID   pgtype.UUID `json:"project_id"`
+	ProjectName string      `json:"project_name"`
+}
+
+func (q *Queries) SearchBOMRevisions(ctx context.Context, arg SearchBOMRevisionsParams) ([]SearchBOMRevisionsRow, error) {
+	rows, err := q.db.Query(ctx, searchBOMRevisions, arg.TeamID, arg.Q, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchBOMRevisionsRow
+	for rows.Next() {
+		var i SearchBOMRevisionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Label,
+			&i.ProjectID,
+			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchBuilds = `-- name: SearchBuilds :many
 SELECT b.id, b.status, b.quantity,
        pr.name AS project_name, br.label AS revision_label

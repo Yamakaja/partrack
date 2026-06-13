@@ -65,6 +65,7 @@ func TestPartNoteManifestResolves(t *testing.T) {
 	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Note Team 2")
 	token := testutil.CreateSession(t, testDB, userID)
 	partID := testutil.CreatePart(t, testDB, "global", "STM32F407VGT6", nil)
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Power Supply")
 
 	// Upload an attachment to embed.
 	resp := uploadAttachment(t, teamID, token, makePNG(t, 4, 5))
@@ -75,8 +76,11 @@ func TestPartNoteManifestResolves(t *testing.T) {
 	}
 	attID, _ := up["id"].(string)
 
-	// A body referencing both a part chip and the uploaded image.
-	body := fmt.Sprintf("The MCU is :part[STM32F407VGT6]{#%s}\n\n![cap](attachment:%s)\n", partID, attID)
+	// A body referencing a part chip, a project chip, and the uploaded image.
+	body := fmt.Sprintf(
+		"MCU :part[STM32F407VGT6]{#%s} used in :project[Power Supply]{#%s}\n\n![cap](attachment:%s)\n",
+		partID, projectID, attID,
+	)
 	saved, status := putNote(t, teamID, partID, token, body)
 	if status != http.StatusOK {
 		t.Fatalf("PUT status = %d, want 200 (%v)", status, saved)
@@ -86,15 +90,30 @@ func TestPartNoteManifestResolves(t *testing.T) {
 	if !ok {
 		t.Fatalf("manifest missing/!object: %v", saved["manifest"])
 	}
+	objects, _ := manifest["objects"].(map[string]any)
 
-	// Part reference resolves to current display fields.
-	parts, _ := manifest["parts"].(map[string]any)
-	pEntry, ok := parts[partID].(map[string]any)
+	// Part reference resolves to a normalized object entry.
+	pEntry, ok := objects[partID].(map[string]any)
 	if !ok {
-		t.Fatalf("part %s not in manifest: %v", partID, parts)
+		t.Fatalf("part %s not in objects: %v", partID, objects)
 	}
-	if pEntry["mpn"] != "STM32F407VGT6" {
-		t.Errorf("manifest part mpn = %v, want STM32F407VGT6", pEntry["mpn"])
+	if pEntry["kind"] != "part" || pEntry["label"] != "STM32F407VGT6" {
+		t.Errorf("part entry = %v, want kind=part label=STM32F407VGT6", pEntry)
+	}
+	if href, _ := pEntry["href"].(string); !strings.Contains(href, "/parts/"+partID) {
+		t.Errorf("part href = %v, want .../parts/%s", pEntry["href"], partID)
+	}
+
+	// Project reference resolves too.
+	prEntry, ok := objects[projectID].(map[string]any)
+	if !ok {
+		t.Fatalf("project %s not in objects: %v", projectID, objects)
+	}
+	if prEntry["kind"] != "project" || prEntry["label"] != "Power Supply" {
+		t.Errorf("project entry = %v, want kind=project label='Power Supply'", prEntry)
+	}
+	if href, _ := prEntry["href"].(string); !strings.Contains(href, "/projects/"+projectID) {
+		t.Errorf("project href = %v, want .../projects/%s", prEntry["href"], projectID)
 	}
 
 	// Attachment reference resolves to a blob URL.

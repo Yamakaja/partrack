@@ -21,7 +21,8 @@ const maxNoteBytes = 256 << 10 // 256 KiB
 
 // A note body embeds two kinds of references that the manifest resolves:
 //   - images as `attachment:<uuid>` (an `attachment:` URL scheme in markdown)
-//   - object links as `:part[label]{#<uuid>}` (remark text directives)
+//   - object links as `:<kind>[label]{#<uuid>}` (remark text directives), where
+//     kind is one of part/project/revision/order/build/storage.
 //
 // We extract the UUIDs with regexes rather than a full markdown parse — the
 // resolver only needs the IDs, and the renderer re-parses the body anyway.
@@ -29,7 +30,8 @@ const uuidPat = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-
 
 var (
 	attachmentRefRe = regexp.MustCompile(`attachment:(` + uuidPat + `)`)
-	partRefRe       = regexp.MustCompile(`:part\[[^\]]*\]\{#(` + uuidPat + `)`)
+	// group 1 = kind, group 2 = uuid
+	objRefRe = regexp.MustCompile(`:(part|project|revision|order|build|storage)\[[^\]]*\]\{#(` + uuidPat + `)`)
 )
 
 type noteManifestAttachment struct {
@@ -39,15 +41,19 @@ type noteManifestAttachment struct {
 	Height      *int32 `json:"height,omitempty"`
 }
 
-type noteManifestPart struct {
-	MPN             *string `json:"mpn"`
-	Manufacturer    *string `json:"manufacturer"`
-	LifecycleStatus string  `json:"lifecycle_status"`
+// noteManifestObject is a normalized, render-ready reference to any linkable
+// partrack object — the server computes the label, href, and (optional) status
+// so the frontend chip stays kind-agnostic.
+type noteManifestObject struct {
+	Kind   string  `json:"kind"`
+	Label  string  `json:"label"`
+	Href   string  `json:"href"`
+	Status *string `json:"status,omitempty"`
 }
 
 type noteManifest struct {
 	Attachments map[string]noteManifestAttachment `json:"attachments"`
-	Parts       map[string]noteManifestPart       `json:"parts"`
+	Objects     map[string]noteManifestObject     `json:"objects"`
 }
 
 type noteResponse struct {
@@ -73,6 +79,22 @@ func uniqueRefs(re *regexp.Regexp, body string) []string {
 	return out
 }
 
+// objRefsByKind returns the distinct object-link UUIDs in body, grouped by kind.
+func objRefsByKind(body string) map[string][]string {
+	byKind := map[string][]string{}
+	seen := map[string]struct{}{}
+	for _, m := range objRefRe.FindAllStringSubmatch(body, -1) {
+		kind, id := m[1], strings.ToLower(m[2])
+		key := kind + ":" + id
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		byKind[kind] = append(byKind[kind], id)
+	}
+	return byKind
+}
+
 func toPgUUIDs(ids []string) []pgtype.UUID {
 	out := make([]pgtype.UUID, 0, len(ids))
 	for _, id := range ids {
@@ -84,13 +106,13 @@ func toPgUUIDs(ids []string) []pgtype.UUID {
 	return out
 }
 
-// resolveNoteManifest batch-resolves the attachment and part references found in
-// body into a manifest the frontend uses to render images and chips without
-// per-reference round-trips. Both lookups are team-scoped.
+// resolveNoteManifest batch-resolves the attachment and object-link references
+// found in body into a manifest the frontend uses to render images and chips
+// without per-reference round-trips. All lookups are team-scoped.
 func (h *Handler) resolveNoteManifest(ctx context.Context, teamID pgtype.UUID, body string) (noteManifest, error) {
 	m := noteManifest{
 		Attachments: map[string]noteManifestAttachment{},
-		Parts:       map[string]noteManifestPart{},
+		Objects:     map[string]noteManifestObject{},
 	}
 
 	if ids := uniqueRefs(attachmentRefRe, body); len(ids) > 0 {
@@ -115,24 +137,116 @@ func (h *Handler) resolveNoteManifest(ctx context.Context, teamID pgtype.UUID, b
 		}
 	}
 
-	if ids := uniqueRefs(partRefRe, body); len(ids) > 0 {
-		rows, err := h.Queries.GetPartsForManifest(ctx, dbgen.GetPartsForManifestParams{
-			Ids:    toPgUUIDs(ids),
-			TeamID: teamID,
-		})
-		if err != nil {
-			return m, err
-		}
-		for _, row := range rows {
-			m.Parts[row.ID.String()] = noteManifestPart{
-				MPN:             row.Mpn,
-				Manufacturer:    row.Manufacturer,
-				LifecycleStatus: string(row.LifecycleStatus),
-			}
-		}
+	if err := h.resolveObjectRefs(ctx, teamID, body, m.Objects); err != nil {
+		return m, err
 	}
 
 	return m, nil
+}
+
+// resolveObjectRefs fills objects with normalized entries for every resolvable
+// object-link in body. The href routes are owned here so per-kind URL shape
+// (e.g. revisions nest under their project) lives in one place.
+func (h *Handler) resolveObjectRefs(ctx context.Context, teamID pgtype.UUID, body string, objects map[string]noteManifestObject) error {
+	byKind := objRefsByKind(body)
+	tid := teamID.String()
+
+	for kind, ids := range byKind {
+		pg := toPgUUIDs(ids)
+		switch kind {
+		case "part":
+			rows, err := h.Queries.GetPartsForManifest(ctx, dbgen.GetPartsForManifestParams{Ids: pg, TeamID: teamID})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				id := r.ID.String()
+				label := "part"
+				if r.Mpn != nil && *r.Mpn != "" {
+					label = *r.Mpn
+				}
+				objects[id] = noteManifestObject{
+					Kind:   "part",
+					Label:  label,
+					Href:   "/teams/" + tid + "/parts/" + id,
+					Status: strPtr(string(r.LifecycleStatus)),
+				}
+			}
+		case "project":
+			rows, err := h.Queries.GetProjectsByIDs(ctx, dbgen.GetProjectsByIDsParams{Ids: pg, TeamID: teamID})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				id := r.ID.String()
+				objects[id] = noteManifestObject{
+					Kind:   "project",
+					Label:  r.Name,
+					Href:   "/teams/" + tid + "/projects/" + id,
+					Status: strPtr(string(r.Status)),
+				}
+			}
+		case "revision":
+			rows, err := h.Queries.GetBOMRevisionsByIDs(ctx, dbgen.GetBOMRevisionsByIDsParams{Ids: pg, TeamID: teamID})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				id := r.ID.String()
+				objects[id] = noteManifestObject{
+					Kind:  "revision",
+					Label: r.ProjectName + " — " + r.Label,
+					Href:  "/teams/" + tid + "/projects/" + r.ProjectID.String() + "/revisions/" + id,
+				}
+			}
+		case "order":
+			rows, err := h.Queries.GetOrdersByIDs(ctx, dbgen.GetOrdersByIDsParams{Ids: pg, TeamID: teamID})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				id := r.ID.String()
+				label := firstNonEmpty(derefStr(r.PurchaseOrderNumber), derefStr(r.ExternalReference))
+				if label == "" {
+					label = r.DistributorName + " order"
+				}
+				objects[id] = noteManifestObject{
+					Kind:   "order",
+					Label:  label,
+					Href:   "/teams/" + tid + "/orders/" + id,
+					Status: strPtr(string(r.Status)),
+				}
+			}
+		case "build":
+			rows, err := h.Queries.GetBuildsByIDs(ctx, dbgen.GetBuildsByIDsParams{Ids: pg, TeamID: teamID})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				id := r.ID.String()
+				objects[id] = noteManifestObject{
+					Kind:   "build",
+					Label:  r.ProjectName + " " + r.RevisionLabel,
+					Href:   "/teams/" + tid + "/builds/" + id,
+					Status: strPtr(r.Status),
+				}
+			}
+		case "storage":
+			rows, err := h.Queries.GetStorageLocationsByIDs(ctx, dbgen.GetStorageLocationsByIDsParams{Ids: pg, TeamID: teamID})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				id := r.ID.String()
+				objects[id] = noteManifestObject{
+					Kind:  "storage",
+					Label: r.Label,
+					Href:  "/teams/" + tid + "/storage/" + id,
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // GetPartNote handles GET /api/v1/teams/{teamId}/parts/{partId}/note.

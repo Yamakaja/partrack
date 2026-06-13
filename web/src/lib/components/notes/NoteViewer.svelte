@@ -4,20 +4,20 @@
   import remarkDirective from 'remark-directive';
   import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
   import { remarkManifest } from './remarkManifest.js';
-  import PartChipView from './PartChipView.svelte';
+  import ObjectChipView from './ObjectChipView.svelte';
   import type { NoteManifest } from '$lib/api/notes.js';
 
-  let { body, manifest, teamId }: { body: string; manifest: NoteManifest; teamId: string } = $props();
+  let { body, manifest }: { body: string; manifest: NoteManifest; teamId?: string } = $props();
 
   // The viewer renders stored markdown another teammate wrote — a stored-XSS
   // vector — so sanitize is mandatory. Extend the (GitHub) default schema to
-  // allow our <part-chip> element and the props remarkManifest bakes onto it.
+  // allow our <obj-link> element and the props remarkManifest bakes onto it.
   const schema = {
     ...defaultSchema,
-    tagNames: [...(defaultSchema.tagNames ?? []), 'part-chip'],
+    tagNames: [...(defaultSchema.tagNames ?? []), 'obj-link'],
     attributes: {
       ...defaultSchema.attributes,
-      'part-chip': ['partId', 'label', 'mpn', 'lifecycle', 'href', 'resolved'],
+      'obj-link': ['kind', 'label', 'href', 'status', 'exists'],
       img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height'],
     },
   };
@@ -26,9 +26,9 @@
   let plugins = $derived<Plugin[]>([
     gfmPlugin(),
     { remarkPlugin: remarkDirective },
-    { remarkPlugin: [remarkManifest, { manifest, teamId }] },
+    { remarkPlugin: [remarkManifest, { manifest }] },
     { rehypePlugin: [rehypeSanitize, schema] },
-    { renderer: { 'part-chip': PartChipView } },
+    { renderer: { 'obj-link': ObjectChipView } },
   ]);
 </script>
 

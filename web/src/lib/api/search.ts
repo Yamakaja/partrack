@@ -16,6 +16,13 @@ export interface ProjectSearchResult {
   status: string;
 }
 
+export interface RevisionSearchResult {
+  id: string;
+  label: string;
+  project_id: string;
+  project_name: string;
+}
+
 export interface OrderSearchResult {
   id: string;
   status: string;
@@ -42,6 +49,7 @@ export interface StorageSearchResult {
 export interface SearchResults {
   parts: PartSearchResult[];
   projects: ProjectSearchResult[];
+  revisions: RevisionSearchResult[];
   orders: OrderSearchResult[];
   builds: BuildSearchResult[];
   storage_locations: StorageSearchResult[];

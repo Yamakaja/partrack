@@ -21,6 +21,15 @@ WHERE team_id = @team_id
 ORDER BY name
 LIMIT @lim;
 
+-- name: SearchBOMRevisions :many
+SELECT br.id, br.label, br.project_id, pr.name AS project_name
+FROM bom_revisions br
+JOIN projects pr ON pr.id = br.project_id
+WHERE pr.team_id = @team_id
+  AND (pr.name ILIKE '%' || @q || '%' OR br.label ILIKE '%' || @q || '%')
+ORDER BY pr.name, br.label
+LIMIT @lim;
+
 -- name: SearchOrders :many
 SELECT o.id, o.status, o.purchase_order_number, o.external_reference, d.name AS distributor_name
 FROM orders o

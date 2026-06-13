@@ -13,6 +13,7 @@ import (
 type searchResults struct {
 	Parts            []dbgen.SearchPartsRow            `json:"parts"`
 	Projects         []dbgen.SearchProjectsRow         `json:"projects"`
+	Revisions        []dbgen.SearchBOMRevisionsRow     `json:"revisions"`
 	Orders           []dbgen.SearchOrdersRow           `json:"orders"`
 	Builds           []dbgen.SearchBuildsRow           `json:"builds"`
 	StorageLocations []dbgen.SearchStorageLocationsRow `json:"storage_locations"`
@@ -25,6 +26,7 @@ func (h *Handler) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, searchResults{
 			Parts:            []dbgen.SearchPartsRow{},
 			Projects:         []dbgen.SearchProjectsRow{},
+			Revisions:        []dbgen.SearchBOMRevisionsRow{},
 			Orders:           []dbgen.SearchOrdersRow{},
 			Builds:           []dbgen.SearchBuildsRow{},
 			StorageLocations: []dbgen.SearchStorageLocationsRow{},
@@ -44,6 +46,7 @@ func (h *Handler) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 	results := searchResults{
 		Parts:            []dbgen.SearchPartsRow{},
 		Projects:         []dbgen.SearchProjectsRow{},
+		Revisions:        []dbgen.SearchBOMRevisionsRow{},
 		Orders:           []dbgen.SearchOrdersRow{},
 		Builds:           []dbgen.SearchBuildsRow{},
 		StorageLocations: []dbgen.SearchStorageLocationsRow{},
@@ -98,6 +101,23 @@ func (h *Handler) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		if rows != nil {
 			mu.Lock()
 			results.Projects = rows
+			mu.Unlock()
+		}
+		return nil
+	})
+
+	run(func() error {
+		rows, err := h.Queries.SearchBOMRevisions(ctx, dbgen.SearchBOMRevisionsParams{
+			TeamID: teamID,
+			Q:      &q,
+			Lim:    3,
+		})
+		if err != nil {
+			return err
+		}
+		if rows != nil {
+			mu.Lock()
+			results.Revisions = rows
 			mu.Unlock()
 		}
 		return nil

@@ -10,7 +10,7 @@
   import '@milkdown/kit/prose/view/style/prosemirror.css';
   import '@milkdown/kit/prose/tables/style/tables.css';
   import '@milkdown/kit/prose/gapcursor/style/gapcursor.css';
-  import { directiveRemark, partChipNode, partChipView } from './partChip.svelte.js';
+  import { directiveRemark, objLinkNode, objLinkView } from './objLink.svelte.js';
   import { slash, slashView } from './slash.svelte.js';
   import { uploadAttachment } from '$lib/api/attachments.js';
 
@@ -63,8 +63,8 @@
       .use(upload)
       .use(listItemBlockComponent)
       .use(directiveRemark)
-      .use(partChipNode)
-      .use(partChipView)
+      .use(objLinkNode)
+      .use(objLinkView)
       .use(slash)
       .create();
   });

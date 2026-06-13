@@ -9,7 +9,7 @@ import { mount, unmount } from 'svelte';
 import SlashMenu from './SlashMenu.svelte';
 import type { SlashActions } from './types.js';
 import { uploadAttachment } from '$lib/api/attachments.js';
-import type { PartSummary } from '$lib/types/parts.js';
+import type { ObjectKind } from '$lib/components/notes/objectKinds.js';
 
 export const slash = slashFactory('partrack-slash');
 
@@ -37,7 +37,7 @@ export function slashView(teamId: string) {
     const props = $state<{ teamId: string; query: string; actions: SlashActions }>({
       teamId,
       query: '',
-      actions: { insertPart, insertImageFile, close },
+      actions: { insertObject, insertImageFile, close },
     });
 
     // Reads the "/query" token immediately before an empty cursor, if any.
@@ -64,11 +64,11 @@ export function slashView(teamId: string) {
       provider.hide();
     }
 
-    function insertPart(part: PartSummary) {
+    function insertObject(kind: ObjectKind, id: string, label: string) {
       const v = currentView;
-      const type = v.state.schema.nodes.part_chip;
+      const type = v.state.schema.nodes.obj_link;
       if (!type) return;
-      const node = type.create({ id: part.id, label: part.mpn ?? part.id });
+      const node = type.create({ kind, id, label });
       v.dispatch(deleteTrigger(v).replaceSelectionWith(node, false));
       provider.hide();
       v.focus();
