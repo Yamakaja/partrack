@@ -66,8 +66,9 @@ export interface PartSummary {
   minimum_stock_quantity: number | null;
   reorder_quantity: number | null;
   storage_location_label: string | null;
-  /** Parameter values keyed by slug. Numeric: number; range: {min,max}; text/enum: string. */
-  parameters?: Record<string, number | string | { min: number; max?: number }>;
+  /** Original (unaltered) display text per parameter, keyed by slug — shown verbatim
+   *  in the table. Normalization for filtering/sorting happens server-side. */
+  parameters?: Record<string, string>;
 }
 
 export interface Parameter {

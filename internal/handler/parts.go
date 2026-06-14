@@ -329,20 +329,19 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		// Build map: partID → slug → value
+		// Build map: partID → slug → original display value. The table shows the
+		// unaltered source text (e.g. "100 Ohm @ 1 MHz"); normalization to
+		// numeric_value/numeric_value_max is used only for server-side filtering.
 		paramMap := make(map[string]map[string]any, len(parts))
 		for _, row := range paramRows {
+			if row.Value == "" {
+				continue
+			}
 			partID := row.PartID.String()
 			if _, ok := paramMap[partID]; !ok {
 				paramMap[partID] = make(map[string]any)
 			}
-			if row.NumericValue != nil && row.NumericValueMax != nil && *row.NumericValue != *row.NumericValueMax {
-				paramMap[partID][row.Slug] = map[string]any{"min": *row.NumericValue, "max": *row.NumericValueMax}
-			} else if row.NumericValue != nil {
-				paramMap[partID][row.Slug] = *row.NumericValue
-			} else if row.Value != "" {
-				paramMap[partID][row.Slug] = row.Value
-			}
+			paramMap[partID][row.Slug] = row.Value
 		}
 		for i := range items {
 			if pm, ok := paramMap[items[i].ID]; ok {

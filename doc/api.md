@@ -114,7 +114,7 @@ Higher roles inherit all permissions of lower roles.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/parts` | List parts; query: `team_id?`, `q?`, `category_id?`, `package?`, `mpn?`, `lifecycle_status?`, `scope?` (`global`/`team`), `stock_status?`, `param_{id}_min/max`, `param_{id}_values` (for `enum`/`text`/`enum_set` params; matches contains-any), `limit`, `offset`. When `category_id` set, includes parameters in response. When `team_id` set, includes inventory fields. |
+| GET | `/parts` | List parts; query: `team_id?`, `q?`, `category_id?`, `package?`, `mpn?`, `lifecycle_status?`, `scope?` (`global`/`team`), `stock_status?`, `param_{id}_min/max`, `param_{id}_values` (for `enum`/`text`/`enum_set` params; matches contains-any), `limit`, `offset`. When `category_id` set, includes a `parameters` object (slug → original unaltered display text, e.g. `"100 Ohm @ 1 MHz"`; normalization is used only for filtering). When `team_id` set, includes inventory fields. |
 | POST | `/parts` | Create part. Body: `{scope, team_id?, mpn?, manufacturer?, description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?}`. `scope` required (`global` requires admin; `team` requires team membership + `team_id`). Returns 409 `PART_EXISTS` with existing part if MPN+manufacturer match found. 201. |
 | GET | `/parts/{partId}` | Part details with parameters (user + distributor-sourced) and listings. Query: `team_id?` (adds inventory fields). |
 | PATCH | `/parts/{partId}` | `{description?, category?, category_id?, package?, datasheet_url?, lifecycle_status?, preferred_parameter_source_id?}`. Team-scoped parts require team membership. |

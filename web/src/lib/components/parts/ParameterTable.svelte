@@ -6,7 +6,6 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Plus, Trash2, Pencil, Check, X } from 'lucide-svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
-  import { formatSI } from '$lib/utils/si.js';
 
   let {
     partId,
@@ -143,20 +142,14 @@
   }
 
   /**
-   * Display value with the unit merged in: prefer the formatted numeric (which
-   * carries the SI-prefixed unit symbol), falling back to the raw text + unit.
-   * `title` carries the original distributor text when it differs.
+   * Display value: the original, unaltered parameter text — with the unit appended
+   * when it is stored separately (as for user-specified params; distributor values
+   * already embed their unit). Normalization is deliberately not applied here: the
+   * filters and sorting use the normalized numeric values, but the table shows
+   * exactly what the source reported (e.g. "100 Ohm @ 1 MHz", not "100 Ω").
    */
-  function paramValue(param: Parameter): { text: string; title: string | null } {
-    if (param.numeric_value != null) {
-      const unit = param.parameter_unit_symbol ?? param.unit;
-      let text = formatSI(param.numeric_value, unit);
-      if (param.numeric_value_max != null) {
-        text += ` ~ ${formatSI(param.numeric_value_max, unit)}`;
-      }
-      return { text, title: param.value !== text ? param.value : null };
-    }
-    return { text: param.unit ? `${param.value} ${param.unit}` : param.value, title: null };
+  function paramValue(param: Parameter): string {
+    return param.unit ? `${param.value} ${param.unit}` : param.value;
   }
 
   /** Single-letter source marker (U for user, first letter of the distributor). */
@@ -192,10 +185,9 @@
       {#if editable && editingParamId === param.id}
         {@render editRow()}
       {:else}
-        {@const v = paramValue(param)}
         <div class="group flex items-center gap-2 break-inside-avoid border-b border-border/40 py-1">
           <span class="w-2/5 shrink-0 truncate text-muted-foreground" title={paramLabel(param)}>{paramLabel(param)}</span>
-          <span class="min-w-0 flex-1 font-medium tabular-nums" title={v.title}>{v.text}</span>
+          <span class="min-w-0 flex-1 font-medium tabular-nums">{paramValue(param)}</span>
           {#if showSource}
             <span
               class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-medium {param.displaySource === 'User' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}"

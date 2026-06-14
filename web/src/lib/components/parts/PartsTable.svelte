@@ -190,18 +190,15 @@
         offset: (params.page - 1) * params.pageSize,
       });
 
-      // Flatten parameters into param_${slug} keys for column rendering
+      // Flatten parameter display values into param_${slug} keys for column
+      // rendering. Values are the original, unaltered source text (e.g.
+      // "100 Ohm @ 1 MHz"); the normalized values used for filtering live
+      // server-side, not on the row.
       const items = result.items.map((p) => {
         if (!p.parameters) return p;
         const flat: Record<string, unknown> = {};
         for (const [slug, val] of Object.entries(p.parameters)) {
-          if (val !== null && typeof val === 'object' && 'min' in val) {
-            flat[`param_${slug}`] = (val as { min: number }).min;
-            const maxVal = (val as { min: number; max?: number }).max;
-            if (maxVal != null) flat[`param_${slug}__max`] = maxVal;
-          } else {
-            flat[`param_${slug}`] = val;
-          }
+          flat[`param_${slug}`] = val;
         }
         return { ...p, ...flat } as PartSummary;
       });
@@ -310,20 +307,10 @@
         type: 'text' as const,
         sortable: false,
         group: 'Parameters',
-        cellText: (value, row) => {
+        // Show the original, unaltered value text verbatim. The normalized numeric
+        // form (via fmt) is reserved for the filter chip label below.
+        cellText: (value) => {
           if (value == null || value === '') return '—';
-          const maxVal = (row as unknown as Record<string, unknown>)[`param_${p.slug}__max`];
-          if (p.value_type === 'numeric') {
-            const n = Number(value);
-            if (isNaN(n)) return String(value);
-            const fmtMin = fmt(n);
-            if (maxVal != null) {
-              const m = Number(maxVal);
-              const fmtMax = fmt(m);
-              if (fmtMin !== fmtMax) return `${fmtMin}–${fmtMax}`;
-            }
-            return fmtMin;
-          }
           return String(value);
         },
         filterFormatter: (values) => {
