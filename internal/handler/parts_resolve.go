@@ -3,9 +3,11 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
@@ -221,6 +223,21 @@ func (h *Handler) CommitPartResolveItem(w http.ResponseWriter, r *http.Request) 
 
 	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": partID.String()})
+
+	// The initial stock adjustment is applied server-side inside CommitResolveItem
+	// (unlike the known-part paths, which go through CreateAdjustment). Record the
+	// matching activity event here so it lands in the log like any other adjustment.
+	if body.InitialQty != nil && *body.InitialQty != 0 {
+		h.record(r, activity.Event{
+			TeamID:  teamID,
+			Action:  "inventory.adjusted",
+			Feed:    activity.FeedTeam,
+			Subject: &activity.Ref{Type: "part", ID: partID.String()},
+			Values:  map[string]any{"delta": *body.InitialQty},
+			Summary: fmt.Sprintf("Adjusted stock (%+d)", *body.InitialQty),
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"part_id": partID.String()})
 }
 
