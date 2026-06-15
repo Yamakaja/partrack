@@ -58,7 +58,7 @@
   let memberToRemove = $state<TeamMember | null>(null);
   let removing = $state(false);
 
-  const roles = ['owner', 'admin', 'member', 'viewer'];
+  const roles = ['admin', 'purchaser', 'member', 'viewer'];
 
   function openAdd() {
     userQuery = '';
