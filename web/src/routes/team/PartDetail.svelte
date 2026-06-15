@@ -29,7 +29,7 @@
   import { Select } from '$lib/components/ui/select/index.js';
   import { Dialog } from 'bits-ui';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { navigate } from '$lib/router/index.svelte.js';
+  import { navigate, linkAction } from '$lib/router/index.svelte.js';
   import { ArrowLeft, PackagePlus, Pencil, QrCode, ShoppingCart, Trash2 } from 'lucide-svelte';
   import { generatePartQRPayload } from '$lib/utils/ipc2d.js';
   import QRDialog from '$lib/components/common/QRDialog.svelte';
@@ -407,7 +407,7 @@
           <!-- Part metadata -->
           <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div><span class="text-muted-foreground">Manufacturer:</span> <span class="font-medium">{part.manufacturer ?? '—'}</span></div>
-            <div><span class="text-muted-foreground">Category:</span> <span class="font-medium">{part.category_name ?? '—'}</span>{#if part.category_source === 'user'}<span class="ml-1 text-xs text-muted-foreground" title="Manually assigned">✎</span>{/if}</div>
+            <div><span class="text-muted-foreground">Category:</span> {#if part.category_id != null && part.category_name}<a href={`/teams/${teamId}/parts#category_id=${part.category_id}`} use:linkAction class="font-medium text-primary hover:underline" title="Filter parts by this category">{part.category_name}</a>{:else}<span class="font-medium">{part.category_name ?? '—'}</span>{/if}{#if part.category_source === 'user'}<span class="ml-1 text-xs text-muted-foreground" title="Manually assigned">✎</span>{/if}</div>
             <div><span class="text-muted-foreground">Package:</span> <span class="font-medium">{part.package ?? '—'}</span></div>
             {#if part.datasheet_url}
               <div><span class="text-muted-foreground">Datasheet:</span> <a href={part.datasheet_url} target="_blank" class="text-primary hover:underline">Link</a></div>
