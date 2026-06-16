@@ -1,0 +1,259 @@
+# Generic-spec parser — test corpus
+#
+# Purpose: a shared, annotated set of inputs the "spec parser" must handle,
+# used to drive table-tests once the parser package exists. This is both a
+# brainstorming artifact and a future test fixture (yaml.v3 is already a dep, so
+# it can move to internal/<pkg>/testdata/ verbatim).
+#
+# Design principles this corpus encodes:
+#   1. The parser is a *best-effort token scanner*, NOT a strict grammar. It
+#      extracts whatever it can from whatever fields exist and leaves the rest
+#      null for review. Partial results are expected and fine.
+#   2. CLASS SUPPLIES THE UNIT. `5k` is 5 kΩ only because the refdes is R. The
+#      class (from refdes prefix, corroborated by footprint class token) must be
+#      resolved before the value field can be interpreted.
+#   3. Component value and footprint are assumed to live in separate source
+#      fields, but either may be absent and info may leak across them — so
+#      package extraction scans the value field too, and vice versa.
+#   4. Output lands in the EXISTING representation: category + package are
+#      `parts` columns; each extracted value becomes a user-sourced
+#      part_parameter (slug + SI numeric). No new search machinery.
+#
+# Case schema:
+#   in:      the raw source fields a BOM row might provide (any may be "")
+#   expect.route:    parametric | mpn | ignore | unknown
+#       parametric -> create/match a (possibly generic) part from extracted params
+#       mpn        -> value is really an identifier; hand back to MPN resolution
+#       ignore     -> virtual / non-procurable (DNP, testpoint, fiducial, ...)
+#       unknown    -> nothing reliably extractable; needs human review
+#   expect.category: canonical category, or null
+#   expect.package:  IMPERIAL size code (canonical), or null
+#   expect.mounting: smd | tht | null
+#   expect.params:   list of {slug, raw, si}  (si in base SI units)
+#   note:    why this case is interesting / what it guards against
+
+# ---------------------------------------------------------------------------
+# 1. Reference designators -> component class
+#    The prefix letters (not the digits) carry the class.
+# ---------------------------------------------------------------------------
+refdes:
+  - { in: { refdes: "R1" },        class: Resistor }
+  - { in: { refdes: "R10, R11" },  class: Resistor, note: "multi-designator, comma list" }
+  - { in: { refdes: "R1-R4" },     class: Resistor, note: "designator range -> qty 4" }
+  - { in: { refdes: "C3" },        class: Capacitor }
+  - { in: { refdes: "L2" },        class: Inductor }
+  - { in: { refdes: "FB1" },       class: "Ferrite Bead", note: "two-letter prefix; must beat single-letter F=Fuse" }
+  - { in: { refdes: "F1" },        class: Fuse }
+  - { in: { refdes: "D5" },        class: Diode }
+  - { in: { refdes: "LED1" },      class: LED }
+  - { in: { refdes: "D1" },        class: Diode, note: "LEDs are often D-prefixed; class may need value/footprint to refine to LED" }
+  - { in: { refdes: "U7" },        class: IC }
+  - { in: { refdes: "Q2" },        class: Transistor }
+  - { in: { refdes: "Y1" },        class: Crystal }
+  - { in: { refdes: "X1" },        class: Crystal, note: "X also used for oscillators/connectors -> ambiguous" }
+  - { in: { refdes: "J3" },        class: Connector }
+  - { in: { refdes: "P1" },        class: Connector }
+  - { in: { refdes: "SW2" },       class: Switch }
+  - { in: { refdes: "JP1" },       class: Jumper }
+  - { in: { refdes: "RV1" },       class: Varistor, note: "RV/VR overlap with potentiometer naming" }
+  - { in: { refdes: "TP4" },       class: TestPoint }
+  - { in: { refdes: "FID1" },      class: Fiducial }
+  - { in: { refdes: "MH2" },       class: MountingHole }
+  - { in: { refdes: "H1" },        class: MountingHole, note: "H is also generic 'hardware'" }
+
+# ---------------------------------------------------------------------------
+# 2. Footprint -> imperial package size + mounting
+#    KiCad convention: <Class>_<IMPERIAL>_<METRIC>Metric_<extras>
+#    *** THE METRIC TRAP ***: a naive "search for the substring 0603" is WRONG.
+#    In `R_0201_0603Metric` the 0603 is the METRIC code; the imperial is 0201.
+#    The rule must be: the size code immediately BEFORE `_<NNNN>Metric` is the
+#    imperial one; the NNNN in `<NNNN>Metric` is metric and must be mapped.
+#    metric->imperial: 0201->008004 0402->01005 0603->0201 1005->0402
+#                      1608->0603 2012->0805 3216->1206 3225->1210
+#                      4532->1812 5025->2010 6332->2512 3246->1218 7142->2816
+#    *** Imperial codes are VARIABLE LENGTH *** — not always 4 digits: 01005 (5)
+#    and 008004 (6) exist. And the metric/imperial ambiguity CASCADES: "0402" is
+#    imperial (1005 metric) AND the metric twin of imperial 01005; "0603" is
+#    imperial AND the metric twin of 0201. With no _Metric structural cue, default
+#    to the imperial reading for codes in the common imperial set.
+# ---------------------------------------------------------------------------
+footprint:
+  - in: { footprint: "R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" }
+    expect: { class_hint: Resistor, package: "0805", mounting: smd }
+    note: "imperial 0805 precedes metric 2012; HandSolder pad variant is noise"
+  - in: { footprint: "R_0201_0603Metric" }
+    expect: { class_hint: Resistor, package: "0201", mounting: smd }
+    note: "THE TRAP. Contains '0603' but it is metric; imperial is 0201. Pure substring search fails here."
+  - in: { footprint: "R_01005_0402Metric" }
+    expect: { class_hint: Resistor, package: "01005", mounting: smd }
+    note: "CASCADE TRAP. imperial 01005 (5 digits!), metric twin 0402 — which is itself imperial 0402's metric-name collision. Variable-length code; take the token before _Metric."
+  - in: { footprint: "C_008004_0201Metric" }
+    expect: { class_hint: Capacitor, package: "008004", mounting: smd }
+    note: "smallest common chip size: imperial 008004 (6 digits), metric 0201"
+  - in: { footprint: "0402" }
+    expect: { class_hint: null, package: "0402", mounting: smd }
+    note: "bare ambiguous code: imperial 0402 (1005 metric) vs metric twin of 01005. No _Metric cue -> default imperial 0402."
+  - in: { footprint: "R_0201_0603Metric_Pad0.64x0.40mm_HandSolder" }
+    expect: { class_hint: Resistor, package: "0201", mounting: smd }
+  - in: { footprint: "R_1210_3225Metric_Pad1.30x2.65mm_HandSolder" }
+    expect: { class_hint: Resistor, package: "1210", mounting: smd }
+  - in: { footprint: "R_2512_6332Metric_Pad1.40x3.35mm_HandSolder" }
+    expect: { class_hint: Resistor, package: "2512", mounting: smd }
+  - in: { footprint: "R_1218_3246Metric" }
+    expect: { class_hint: Resistor, package: "1218", mounting: smd }
+  - in: { footprint: "R_1218_3246Metric_Pad1.22x4.75mm_HandSolder" }
+    expect: { class_hint: Resistor, package: "1218", mounting: smd }
+  - in: { footprint: "R_2816_7142Metric" }
+    expect: { class_hint: Resistor, package: "2816", mounting: smd }
+  - in: { footprint: "C_0805_2012Metric" }
+    expect: { class_hint: Capacitor, package: "0805", mounting: smd }
+  - in: { footprint: "L_0805_2012Metric" }
+    expect: { class_hint: Inductor, package: "0805", mounting: smd }
+  - in: { footprint: "LED_0805_2012Metric_Pad1.15x1.40mm_HandSolder" }
+    expect: { class_hint: LED, package: "0805", mounting: smd }
+  - in: { footprint: "R_Shunt_Vishay_WSK2512_6332Metric_T1.19mm" }
+    expect: { class_hint: Resistor, package: "2512", mounting: smd }
+    note: "imperial 2512 is embedded inside 'WSK2512'; metric 6332 corroborates"
+  - in: { footprint: "R_Shunt_Vishay_WSK2512_6332Metric_T2.21mm" }
+    expect: { class_hint: Resistor, package: "2512", mounting: smd }
+  - in: { footprint: "R_Array_Convex_2x0606" }
+    expect: { class_hint: Resistor, package: null, mounting: smd }
+    note: "resistor array: '2x0606' is element geometry, not a standard 2-pad size -> do NOT confidently extract; flag for review"
+  - in: { footprint: "R_Array_Convex_2x1206" }
+    expect: { class_hint: Resistor, package: null, mounting: smd }
+  - in: { footprint: "R_Cat16-4" }
+    expect: { class_hint: Resistor, package: null, mounting: smd }
+    note: "CAT16 array, no standard imperial chip size -> null package, review"
+  - in: { footprint: "R_Cat16-8" }
+    expect: { class_hint: Resistor, package: null, mounting: smd }
+  - in: { footprint: "0603" }
+    expect: { class_hint: null, package: "0603", mounting: smd }
+    note: "bare imperial code (Altium-style). 4-digit code in the common imperial set -> imperial."
+  - in: { footprint: "0805" }
+    expect: { class_hint: null, package: "0805", mounting: smd }
+  - in: { footprint: "2012Metric" }
+    expect: { class_hint: null, package: "0805", mounting: smd }
+    note: "metric-only string -> map to imperial 0805"
+  - in: { footprint: "RESC1608X55N" }
+    expect: { class_hint: Resistor, package: "0603", mounting: smd }
+    note: "IPC-7351 name: RESC<metric>... -> 1608 metric -> 0603 imperial (optional: needs IPC awareness)"
+  - in: { footprint: "CAPC2012X127N" }
+    expect: { class_hint: Capacitor, package: "0805", mounting: smd }
+  - in: { footprint: "R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm" }
+    expect: { class_hint: Resistor, package: "Axial DIN0207", mounting: tht }
+    note: "through-hole: no chip size; keep descriptive package, mounting=tht"
+  - in: { footprint: "SOT-23" }
+    expect: { class_hint: null, package: "SOT-23", mounting: smd }
+    note: "active-device package; not a chip size; pass through verbatim"
+  - in: { footprint: "SOIC-8" }
+    expect: { class_hint: null, package: "SOIC-8", mounting: smd }
+  - in: { footprint: "Package_TO_SOT_SMD:SOT-23-5" }
+    expect: { class_hint: null, package: "SOT-23-5", mounting: smd }
+    note: "library:footprint qualified name; strip the library prefix"
+
+# ---------------------------------------------------------------------------
+# 3. Resistor values  (class=Resistor -> primary unit = ohm)
+# ---------------------------------------------------------------------------
+resistor_values:
+  - { in: { refdes: R1, value: "5k" },     expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "5k", si: 5000}] } }
+  - { in: { refdes: R1, value: "4k7" },    expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "4k7", si: 4700}] }, note: "RKM: prefix replaces decimal point" }
+  - { in: { refdes: R1, value: "4R7" },    expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "4R7", si: 4.7}] }, note: "RKM with R = ohms, no prefix" }
+  - { in: { refdes: R1, value: "0R22" },   expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "0R22", si: 0.22}] } }
+  - { in: { refdes: R1, value: "1M5" },    expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "1M5", si: 1500000}] }, note: "M = MEGA here (ohms), NOT milli. Class context matters." }
+  - { in: { refdes: R1, value: "2mOhm" },  expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "2mOhm", si: 0.002}] }, note: "explicit unit; m = milli" }
+  - { in: { refdes: R1, value: "9Meg" },   expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "9Meg", si: 9000000}] }, note: "'Meg' spelled out" }
+  - { in: { refdes: R1, value: "100R" },   expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "100R", si: 100}] } }
+  - { in: { refdes: R1, value: "49.9" },   expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "49.9", si: 49.9}] }, note: "bare number, unit implied by class = ohms" }
+  - { in: { refdes: R1, value: "10k 1%" }, expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "10k", si: 10000}, {slug: tolerance, raw: "1%", si: 1}] }, note: "compound: value + tolerance" }
+  - { in: { refdes: R1, value: "10k 0402 1/16W" }, expect: { route: parametric, category: Resistor, package: "0402", params: [{slug: resistance, raw: "10k", si: 10000}, {slug: power_rating, raw: "1/16W", si: 0.0625}] }, note: "package leaks into value field; power as fraction" }
+  - { in: { refdes: R1, value: "0R" },     expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "0R", si: 0}] }, note: "zero-ohm jumper" }
+  - { in: { refdes: R1, value: "0" },      expect: { route: parametric, category: Resistor, params: [{slug: resistance, raw: "0", si: 0}] }, note: "bare zero -> 0R jumper" }
+
+# ---------------------------------------------------------------------------
+# 4. Capacitor values  (class=Capacitor -> primary unit = farad)
+# ---------------------------------------------------------------------------
+capacitor_values:
+  - { in: { refdes: C1, value: "9 µF" },   expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "9 µF", si: 0.000009}] } }
+  - { in: { refdes: C1, value: "100n" },   expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "100n", si: 0.0000001}] }, note: "no unit, prefix only; class supplies farad" }
+  - { in: { refdes: C1, value: "10nF" },   expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "10nF", si: 0.00000001}] } }
+  - { in: { refdes: C1, value: "4u7" },    expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "4u7", si: 0.0000047}] }, note: "RKM with u" }
+  - { in: { refdes: C1, value: "4n7" },    expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "4n7", si: 0.0000000047}] }, note: "SAME string is 4.7nH for an inductor; class disambiguates the unit" }
+  - { in: { refdes: C1, value: "0.1uF" },  expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "0.1uF", si: 0.0000001}] } }
+  - { in: { refdes: C1, value: "10 nF X7R" }, expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "10 nF", si: 0.00000001}, {slug: dielectric, raw: "X7R", si: null}] }, note: "compound: value + dielectric (enum, no SI)" }
+  - { in: { refdes: C1, value: "100nF X7R" }, expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "100nF", si: 0.0000001}, {slug: dielectric, raw: "X7R", si: null}] } }
+  - { in: { refdes: C1, value: "1uF 25V" }, expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "1uF", si: 0.000001}, {slug: voltage_rating, raw: "25V", si: 25}] }, note: "compound: value + voltage rating" }
+  - { in: { refdes: C1, value: "100µF 16V 20%" }, expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "100µF", si: 0.0001}, {slug: voltage_rating, raw: "16V", si: 16}, {slug: tolerance, raw: "20%", si: 20}] }, note: "three params in one field" }
+  - { in: { refdes: C1, value: "2.2pF C0G" }, expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "2.2pF", si: 0.0000000000022}, {slug: dielectric, raw: "C0G", si: null}] } }
+  - { in: { refdes: C1, value: "1000pF" },  expect: { route: parametric, category: Capacitor, params: [{slug: capacitance, raw: "1000pF", si: 0.000000001}] }, note: "equals 1nF; SI normalisation makes 1000pF and 1nF match" }
+
+# ---------------------------------------------------------------------------
+# 5. Inductor / ferrite values  (class=Inductor -> primary unit = henry)
+# ---------------------------------------------------------------------------
+inductor_values:
+  - { in: { refdes: L1, value: "10uH" },  expect: { route: parametric, category: Inductor, params: [{slug: inductance, raw: "10uH", si: 0.00001}] } }
+  - { in: { refdes: L1, value: "4n7" },   expect: { route: parametric, category: Inductor, params: [{slug: inductance, raw: "4n7", si: 0.0000000047}] }, note: "RKM 4.7nH; identical text to the 4.7nF cap case above" }
+  - { in: { refdes: L1, value: "1mH" },   expect: { route: parametric, category: Inductor, params: [{slug: inductance, raw: "1mH", si: 0.001}] } }
+  - { in: { refdes: FB1, value: "600R @ 100MHz" }, expect: { route: parametric, category: "Ferrite Bead", params: [{slug: resistance, raw: "600R", si: 600}] }, note: "ferrite impedance spec; '@ 100MHz' is a bias condition, kept as display context only (paramparse already strips @)" }
+
+# ---------------------------------------------------------------------------
+# 6. Value-is-really-an-MPN  -> route back to MPN resolution, NOT generic
+# ---------------------------------------------------------------------------
+mpn_as_value:
+  - { in: { refdes: D1, value: "1N4148" },          expect: { route: mpn }, note: "diode part number, not a parametric magnitude" }
+  - { in: { refdes: U1, value: "LM358" },           expect: { route: mpn } }
+  - { in: { refdes: U1, value: "STM32F103C8T6" },   expect: { route: mpn } }
+  - { in: { refdes: Q1, value: "BC547" },           expect: { route: mpn } }
+  - { in: { refdes: LED1, value: "WS2812B" },       expect: { route: mpn }, note: "addressable LED; an MPN despite refdes class LED" }
+  - { in: { refdes: C1, value: "GRM188R71C104KA01D" }, expect: { route: mpn }, note: "full cap MPN sometimes dropped in the value field" }
+
+# ---------------------------------------------------------------------------
+# 7. Class-specific non-numeric values (enum/text, not a magnitude)
+# ---------------------------------------------------------------------------
+nonnumeric_values:
+  - { in: { refdes: LED1, value: "Red" },     expect: { route: parametric, category: LED, params: [{slug: color, raw: "Red", si: null}] }, note: "LED colour is an enum, not parseable as a number" }
+  - { in: { refdes: Y1, value: "32.768kHz" }, expect: { route: parametric, category: Crystal, params: [{slug: frequency, raw: "32.768kHz", si: 32768}] } }
+  - { in: { refdes: Y1, value: "16MHz" },     expect: { route: parametric, category: Crystal, params: [{slug: frequency, raw: "16MHz", si: 16000000}] } }
+
+# ---------------------------------------------------------------------------
+# 8. Virtual / non-procurable -> ignore
+# ---------------------------------------------------------------------------
+ignore:
+  - { in: { refdes: TP1, value: "" },             expect: { route: ignore }, note: "test point" }
+  - { in: { refdes: FID1, value: "" },            expect: { route: ignore }, note: "fiducial" }
+  - { in: { refdes: MH1, value: "" },             expect: { route: ignore }, note: "mounting hole" }
+  - { in: { refdes: R5, value: "DNP" },           expect: { route: ignore }, note: "Do Not Populate marker in value field" }
+  - { in: { refdes: R5, value: "DNI" },           expect: { route: ignore } }
+  - { in: { refdes: R5, value: "Do Not Populate" }, expect: { route: ignore } }
+  - { in: { refdes: J9,  value: "NC" },           expect: { route: ignore }, note: "no-connect / not fitted" }
+  - { in: { refdes: "",  value: "LOGO" },         expect: { route: ignore } }
+
+# ---------------------------------------------------------------------------
+# 9. Degenerate / unknown -> needs review, extract nothing confidently
+# ---------------------------------------------------------------------------
+unknown:
+  - { in: { refdes: R1, value: "" },        expect: { route: unknown }, note: "resistor with no value at all" }
+  - { in: { refdes: "", value: "~" },       expect: { route: unknown }, note: "KiCad no-value tilde" }
+  - { in: { refdes: U3, value: "" },        expect: { route: unknown }, note: "IC with no MPN/value -> nothing to do automatically" }
+  - { in: { refdes: "", value: "10k" },     expect: { route: unknown }, note: "value present but no class -> cannot assign a unit; ohms is a GUESS, leave for review" }
+
+# ---------------------------------------------------------------------------
+# 10. Realistic end-to-end rows (all fields together)
+# ---------------------------------------------------------------------------
+full_rows:
+  - in: { refdes: "R1, R2, R3", footprint: "R_0402_1005Metric", value: "10k" }
+    expect: { route: parametric, category: Resistor, package: "0402", mounting: smd, params: [{slug: resistance, raw: "10k", si: 10000}] }
+    note: "generic resistor: only package + value -> matches any 10k 0402 incl. generic part"
+  - in: { refdes: "C12", footprint: "C_0603_1608Metric", value: "100nF" }
+    expect: { route: parametric, category: Capacitor, package: "0603", mounting: smd, params: [{slug: capacitance, raw: "100nF", si: 0.0000001}] }
+  - in: { refdes: "C13", footprint: "C_0603_1608Metric", value: "100nF 16V X7R 10%" }
+    expect: { route: parametric, category: Capacitor, package: "0603", mounting: smd, params: [{slug: capacitance, raw: "100nF", si: 0.0000001}, {slug: voltage_rating, raw: "16V", si: 16}, {slug: dielectric, raw: "X7R", si: null}, {slug: tolerance, raw: "10%", si: 10}] }
+    note: "fully specified -> a generic 100nF 0603 would be PRECLUDED by the extra param filters"
+  - in: { refdes: "R7", footprint: "R_0201_0603Metric", value: "4k7" }
+    expect: { route: parametric, category: Resistor, package: "0201", mounting: smd, params: [{slug: resistance, raw: "4k7", si: 4700}] }
+    note: "metric trap + RKM together: package is 0201 (NOT 0603), value 4700"
+  - in: { refdes: "U5", footprint: "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm", value: "LM358" }
+    expect: { route: mpn, category: IC, package: "SOIC-8", mounting: smd }
+    note: "extract package for context but route the value to MPN resolution"
+  - in: { refdes: "D2", footprint: "LED_0805_2012Metric", value: "Green" }
+    expect: { route: parametric, category: LED, package: "0805", mounting: smd, params: [{slug: color, raw: "Green", si: null}] }
+    note: "footprint class token (LED_) refines refdes D -> LED"

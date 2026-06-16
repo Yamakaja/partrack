@@ -1,597 +1,757 @@
-# BOM Import — Resolution & Review Design
+# BOM Import — Interpretation, Satisfaction & Review Design
 
-This document describes the end-to-end BOM import flow in partrack, with a focus on
-how BOM **line items are resolved to Parts** and how the user reviews and fixes
-unclear mappings.
+This document describes the end-to-end BOM import flow in partrack, with a focus
+on how BOM **line items become resolved to Parts** — including the common
+prototyping/research case where parts are specified *generically* (a footprint
+and a value, e.g. `0603` `10nF`) rather than by a specific MPN or distributor
+SKU.
 
-It is a **planning document** only. It defines behaviour, states, and
+It is a **planning document**. It defines behaviour, states, and
 responsibilities for the frontend, backend handlers, background worker, and data
-model, but does not prescribe concrete code.
+model. It does not prescribe concrete code, but it is meant to be precise enough
+to implement against.
 
 Relevant background:
 
 - [architecture.md](architecture.md) — overall system architecture
 - [datamodel.md](datamodel.md) — conceptual entities (Projects, BOM Revisions,
-  BOM Line Items, Parts, Distributor Listings, Inventory Entries, …)
+  BOM Line Items, Parts, Distributor Listings, Inventory Entries, Parameter
+  Definitions, Categories, …)
 - [userstory.md](userstory.md) — **Epic 1: BOM Import** and US-1.1/US-1.3
-- `internal/handler/revisions.go` — `ImportRevision` handler
-- `internal/worker/queue.go` — `JobBOMImport` / `handleBOMImport`
-- `web/src/lib/components/bom/BOMImportDialog.svelte` — frontend CSV import UI
-
----
-
-## 1. Goals & Non‑Goals
-
-### 1.1 Goals
-
-- Allow users to import BOMs from their EDA tools with **minimal friction**.
-- Make **clear-cut matches fully automatic**:
-  - Valid distributor + SKU with known listing → auto-resolve to Part.
-  - Clear MPN match to an existing Part → auto-resolve.
-  - When possible, import new Parts + Distributor Listings from APIs
-    transparently.
-- Surface **ambiguous or missing mappings** in a dedicated review UI where the
-  user can:
-  - Ignore virtual/non-procurable components.
-  - Link to an existing Part.
-  - Import a new Part via distributor APIs (SKU or MPN).
-- Ensure that a BOM revision is marked **ready for stock checking** only when
-  every line item is either:
-  - Resolved to a primary Part, or
-  - Explicitly marked as *ignored*.
-
-### 1.2 Non‑Goals
-
-- Fuzzy, parameter-based matching ("find me any 10k resistor") during the
-  initial import job. That belongs in substitution tooling and manual review.
-- Hard real-time resolution. Import runs as a background job and reports
-  progress via SSE; users can leave and return.
-- Handling multi-quantity / parametric optimization for order generation.
-  BOM import only concerns *which Part* each line item refers to.
-
----
-
-## 2. High‑Level Flow
-
-The BOM import flow consists of three stages:
-
-1. **Frontend parsing & mapping** (current)
-2. **Backend analysis & auto‑resolution** (current, to be enhanced)
-3. **Revision review & manual resolution** (new)
-
-### 2.1 Stage 1 — Frontend CSV Parsing & Mapping
-
-Responsible component:
-- `web/src/lib/components/bom/BOMImportDialog.svelte`
-
-Behaviour:
-
-1. User selects a CSV file for a specific Project.
-2. Frontend uses PapaParse to parse rows, with user-configurable options:
-   - delimiter, quote/escape char, comments, header row, skip first N lines.
-3. User maps CSV columns to roles (`ColumnRole`):
-
-   ```ts
-   type ColumnRole =
-     | 'ignore'
-     | 'designators'
-     | 'quantity'
-     | 'mpn'
-     | 'description'
-     | 'manufacturer'
-     | 'name'
-     | 'sku'
-     | 'distributor';
-   ```
-
-4. If any `distributor` column is present, the dialog performs a **distributor
-   mapping** step:
-   - Extract unique textual distributor names from the BOM.
-   - For each, let the user map it to a known `distributors.id` or choose
-     "None" (do not use for resolution).
-5. When the user confirms, the frontend POSTs to
-   `POST /teams/{teamId}/projects/{projectId}/revisions` (`ImportRevision`)
-   with:
-   - `label` (revision label)
-   - `set_active: true|false`
-   - `bom_import_config` (all parse & column mapping options, plus
-     distributor mappings) to be stored on the Project
-   - `items[]` — the BOM Line Item imports built from the mapped columns.
-
-See §3 for the exact item payload and how it maps into DB fields.
-
-### 2.2 Stage 2 — Backend Import & Auto‑Resolution
-
-Responsible components:
-
+- [work/genspec-parser-examples.yaml](work/genspec-parser-examples.yaml) — the
+  parser test corpus (refdes/footprint/value cases with expected interpretations)
 - `internal/handler/revisions.go` — `ImportRevision`
-- `internal/worker/queue.go` — `JobBOMImport` / `handleBOMImport`
-- `db/migrations/000002_bom_line_item_extra_fields.up.sql`
-- `db/migrations/000003_bom_line_item_resolved_distributor.up.sql`
-
-Behaviour (current, conceptualised):
-
-1. `ImportRevision`:
-   - Creates a `bom_revisions` row.
-   - Inserts one `bom_line_items` row per frontend `item`.
-   - Optionally sets the Project's active revision and persists
-     `bom_import_config` JSON from the frontend.
-   - Enqueues `JobBOMImport` with `{ bom_revision_id, project_id }`.
-2. `JobBOMImport` loads all BOM line items for the revision and tries to
-   resolve each to a Part in the background.
-3. Progress is reported via SSE events of type `bom_import_progress` with
-   `{resolved, total, status}`.
-
-### 2.3 Stage 3 — Revision Review (New)
-
-Responsible components (planned):
-
-- Frontend: `RevisionDetail` page for a BOM revision
-  (`web/src/routes/team/RevisionDetail.svelte` + BOM line item components).
-- Backend: new endpoints on `revisions.go` / `items.go` for manual resolution
-  actions (link/ignore/create).
-
-Behaviour (desired):
-
-1. Once `JobBOMImport` completes, the user opens the revision detail view.
-2. The UI shows each BOM line item with a **resolution state** (see §5.1):
-   - Auto-resolved (by SKU or MPN)
-   - Ambiguous match
-   - Unresolved
-   - Ignored
-3. The user works through unresolved/ambiguous items using a dedicated
-   **review mode** until all items are either resolved or ignored.
-4. Only then is the revision treated as **ready** for stock checking (see
-   US-1.3 acceptance criteria).
+- `internal/worker/queue.go` — `JobBOMImport`
+- `internal/paramparse/` — SI-aware value parser (the *bottom* of the parse stack)
+- `web/src/lib/components/bom/BOMImportDialog.svelte` — CSV import UI
 
 ---
 
-## 3. Input & Persistence Model
+## 1. Two Worlds: Identity and Parametric
 
-### 3.1 Frontend → Backend — Import Payload
+A BOM line item can describe the part it needs in one of two fundamentally
+different ways:
 
-The frontend currently builds `items[]` in `BOMImportDialog.svelte` via
-`buildItems()` and sends objects of the form:
+- **By identity** — a Manufacturer Part Number (with manufacturer) or a
+  distributor SKU. This names *one specific, catalogable component*. This is the
+  manufacturing/production workflow and is fully supported today.
+- **Parametrically** — a category (implied by the reference designator), a
+  footprint/package, and a value (`10k`, `100nF X7R`, `4k7`). This names a
+  *class* of components that many MPNs satisfy. This is the prototyping/research
+  workflow: the user grabs whatever 0603 10nF cap is in the drawer.
+
+partrack supports both. The parametric world is mapped onto the **same Part
+catalog** as the identity world — a "generic part" is simply a plain
+team-scoped `parts` row with no MPN, carrying a category, a package, and a small
+set of value parameters (see §7). Nothing in inventory, the stock ledger,
+builds, checkout, or stock-checking needs to special-case it.
+
+This document's central job is to describe how a line item from *either* world
+is turned into a Part link, with the parametric world handled by a new
+**interpretation** phase that precedes resolution.
+
+---
+
+## 2. The Core Model: Interpret → Satisfy
+
+Resolution is split into two phases with a **review gate** between them:
+
+1. **Interpret.** Turn the raw line item (reference designators, footprint,
+   value, plus any mpn/sku/manufacturer) into a structured **interpretation**:
+   *what does this row mean?* — is it an identity reference or a parametric
+   spec, what category, what package, and what constraints (parameters) were
+   extracted. This is the output of the parser (§5). It is fuzzy, best-effort,
+   and **cheap to review** because it is small and structured.
+
+2. **Review the interpretation (gate).** The user is shown the parser's reading
+   of every line and confirms or corrects it (§6). Ideally they change nothing,
+   but they can flip the assumed route, fix a mis-extracted value, or correct a
+   package. **Nothing touches the Part catalog until the interpretation is
+   accepted.**
+
+3. **Satisfy.** Take the *confirmed* interpretation and fulfil it against the
+   catalog (§7): for identity rows, match/import the specific Part; for
+   parametric rows, find an existing Part meeting the constraints or create a
+   generic one. Because the fuzzy step (parsing) has already been validated by a
+   human, satisfaction can run largely automatically.
+
+The key principle: **the human checks the cheap structured thing
+(interpretation) before any expensive or hard-to-undo thing (creating/linking
+parts) happens.** Misparses are caught at the point they are cheapest to fix.
+
+A BOM line item is, after interpretation, effectively a **constraint set**.
+Satisfaction is the act of finding or creating a Part that meets the
+constraints. Identity rows have one tight constraint (the MPN/SKU); parametric
+rows have a small set (`category=Resistor, package=0603, resistance=10k`).
+
+---
+
+## 3. High-Level Flow
+
+Three stages, mapping onto frontend / backend / review responsibilities:
+
+```
+ ┌─────────────────────────┐   ┌──────────────────────────┐   ┌─────────────────────────┐
+ │ Stage 1: Parse & Map    │   │ Stage 2: Interpret       │   │ Stage 3: Satisfy        │
+ │ (frontend, synchronous) │ → │ (backend job) + REVIEW   │ → │ (backend) + REVIEW      │
+ │                         │   │ GATE (user confirms      │   │ (auto where possible,   │
+ │ CSV → columns → roles   │   │ interpretation)          │   │ review only true gaps)  │
+ └─────────────────────────┘   └──────────────────────────┘   └─────────────────────────┘
+```
+
+- **Stage 1 — Parse & Map** (`BOMImportDialog.svelte`): the user parses the CSV
+  and maps columns to roles. Unchanged except for two new roles (`value`,
+  `footprint`) — see §4.
+- **Stage 2 — Interpret + Review**: the import job runs the parser over every
+  line, producing and persisting a per-line interpretation. The user reviews
+  interpretations and accepts them. This is the new primary human gate.
+- **Stage 3 — Satisfy + Review**: confirmed interpretations are fulfilled. Most
+  rows resolve with no further input; only genuine catalog ambiguity (an MPN
+  matching several manufacturers, a distributor import needing a pick) surfaces
+  for a second, narrow review.
+
+Stages 2 and 3 may be presented as one continuous review experience in the UI,
+but they are conceptually and in the data model distinct.
+
+---
+
+## 4. Stage 1 — Parse & Column Mapping
+
+Responsible component: `web/src/lib/components/bom/BOMImportDialog.svelte`.
+
+The user parses the CSV (delimiter, quoting, comments, header row, skip-N) and
+maps each column to a **role**. Roles act as **resolution-strategy selectors**:
+the columns the user maps implicitly declare how each row should be interpreted.
+
+```ts
+type ColumnRole =
+  | 'ignore'
+  | 'designators'   // reference designators  → component class + quantity
+  | 'quantity'
+  // identity columns → identity resolution
+  | 'mpn'
+  | 'manufacturer'
+  | 'sku'
+  | 'distributor'
+  // parametric columns → parametric/generic resolution   (NEW)
+  | 'value'         // EDA value field: "10k", "100nF X7R", "4k7"
+  | 'footprint'     // EDA footprint/package: "R_0805_2012Metric...", "0603"
+  // metadata
+  | 'description'   // verbatim free text, kept for traceability
+  | 'name';
+```
+
+Notes:
+
+- **`value` is distinct from `description`.** `description` is verbatim free
+  text kept for traceability (`raw_description`); `value` is the terse,
+  class-aware parametric input that drives the parser. Both may be present.
+- **`footprint` is a single role** covering both messy EDA footprint strings and
+  clean package codes; the parser normalises either to a canonical imperial
+  package (§5.2).
+- **Roles are not mutually exclusive per row.** A BOM may carry both an MPN and a
+  Value. Identity wins (the MPN resolves the row), but the parsed value still
+  **enriches and validates** (we know it should be 10k; a mismatch can be
+  flagged). A pure prototyping BOM maps only `designators`, `quantity`, `value`,
+  `footprint` and has no MPN at all — the headline parametric case.
+- The distributor-name mapping sub-step (textual distributor → `distributors.id`)
+  only appears when a `distributor`/`sku` column is mapped. Unchanged.
+
+On confirm, the frontend POSTs to
+`POST /teams/{teamId}/projects/{projectId}/revisions` with `label`,
+`set_active`, `bom_import_config` (parse + column mapping, persisted on the
+Project), and `items[]`.
+
+---
+
+## 5. Stage 2 — Interpretation (the Parser)
+
+The parser turns each raw line into a structured interpretation. It lives
+backend-side (a new package, working name `genspec`, layered above
+`paramparse`) so it is reusable by import, manual entry, and scanning. It is a
+**best-effort token scanner, not a strict grammar**: it extracts whatever it can
+and leaves the rest null for review.
+
+### 5.1 Classification — class supplies the unit
+
+The decisive first step. **`5k` is 5 kΩ only because the reference designator is
+`R`.** The same text on a `C` is meaningless. So the class must be resolved
+before the value field can be interpreted.
+
+- **Reference designator prefix** → component class (primary signal):
+  `R`→Resistor, `C`→Capacitor, `L`→Inductor, `D`→Diode, `LED`→LED, `FB`→Ferrite
+  Bead, `Y`/`X`→Crystal, `U`→IC, `Q`→Transistor, `J`/`P`→Connector, `F`→Fuse,
+  `TP`/`FID`/`MH`/`H`→virtual. Two-letter prefixes (`FB`, `JP`) must be tested
+  before single-letter ones.
+- **Footprint class token** corroborates (`R_…`, `C_…`, `LED_…`). Agreement →
+  high confidence; conflict (refdes `R` vs footprint `C_…`) → flagged for review.
+- The class resolves to a **partrack category** (§8) and, via that category's
+  **class profile** (§8.2), to a *primary parameter* (the magnitude the value
+  field encodes) and a set of *recognised secondary parameters*.
+
+### 5.2 Footprint → package — structured scan, not naive substring
+
+Extract a **canonical package** (§5.2.1) plus mounting type. Chip-size packages
+normalise to an **imperial** size code; other families keep a cleaned standard
+name. A naive substring search is wrong because of the metric twin:
+
+```
+R_0201_0603Metric   →  imperial 0201   (the 0603 is the METRIC twin!)
+R_0805_2012Metric   →  imperial 0805
+R_Shunt_..._WSK2512_6332Metric  →  imperial 2512
+```
+
+Rules:
+
+- The imperial code is the size token immediately **before** `_<NNNN>Metric`.
+- A standalone `<NNNN>Metric` (or an IPC name like `RESC1608…`) is metric → map
+  to imperial via the pairing table below.
+- **Imperial codes are variable length** — not always four digits. Modern parts
+  go down to `01005` (5 digits) and `008004` (6 digits), so the scanner must not
+  assume a fixed width.
+- **A bare code is genuinely ambiguous** between imperial and metric, and the
+  ambiguity now *cascades*: `0402` is imperial (1005 metric) **and** the metric
+  twin of imperial `01005`; `0603` is imperial **and** the metric twin of `0201`.
+  With no `_Metric` structural cue, default to the **imperial** reading when the
+  code is in the common imperial set (unambiguous 5/6-digit codes like `01005`
+  need no guess).
+- Metric↔imperial pairing (extend as needed), metric → imperial:
+  `0201→008004, 0402→01005, 0603→0201, 1005→0402, 1608→0603, 2012→0805,
+   3216→1206, 3225→1210, 4532→1812, 5025→2010, 6332→2512`. Note `0402`/`0603`
+   appear on *both* sides — hence the structural-cue rule above.
+- Through-hole / array / active-device footprints (`R_Axial_DIN0207…`,
+  `R_Array_…`, `SOT-23`, `SOIC-8`) have no chip size → canonical package is the
+  cleaned family name, mounting set (`tht`/`smd`), no invented size.
+- Always retain the raw footprint string verbatim for traceability.
+
+If no `footprint` column was mapped, the parser may also scan the `value` and
+`description` text for a package token (lower confidence).
+
+#### 5.2.1 Canonical package
+
+The chip-size set is **not** the whole story — partrack catalogs every package
+family (chip, SOT/SOIC/QFN/BGA, axial/radial, modules, …). "Canonical package"
+means a **normalised package identifier**, of which imperial chip codes are one
+(important) sub-case; other families normalise to a standard token (strip
+library prefixes and `HandSolder`/pad variants → `SOT-23`, etc.).
+
+This normaliser must run on **both sides** of any package comparison. Today
+`parts.package` is free text, exact-matched (`package = $1`), and enrichment
+stores distributor-formatted strings like `"0603 (1608 Metric)"` — so a generic
+part with `package = "0603"` would **never** match. The fix is a stored
+`canonical_package` (or normalise-at-query), populated by the *same* normaliser
+on distributor enrichment **and** on generic-part creation, and used by the
+satisfaction search. **Required, not optional** (§14).
+
+### 5.3 Value → parameters — class-aware, multi-parameter
+
+Given the class's primary parameter and unit, parse the value field into one or
+more parameters:
+
+- **RKM notation** (the prefix replaces the decimal point): `4k7`→4700,
+  `4R7`→4.7, `0R22`→0.22, `1M5`→1.5e6, `4u7`→4.7e-6, `4n7`→4.7e-9. *(New;
+  belongs in `paramparse` so every caller benefits — see §5.5.)* Note `1M5` is
+  mega (ohms) for a resistor, while `m` elsewhere is milli — the class/position
+  disambiguates.
+- **Plain SI**: `5k`, `9 µF`, `2mOhm`, `9Meg`, `100n` — once the unit is supplied
+  by the class.
+- **Compound specs**: tokenise and recognise secondaries — `\d+%`→`tolerance`,
+  `X7R|C0G|NP0|Y5V`→`dielectric`, a bare `\d+V`→`voltage_rating`,
+  `1/16W`→`power_rating`. `10 nF X7R` → `{capacitance: 10n, dielectric: X7R}`;
+  `9k 1%` → `{resistance: 9k, tolerance: 1}`. A package token leaking into the
+  value field (`10k 0402 1/16W`) is extracted as package.
+
+### 5.4 The MPN escape hatch
+
+If the value field looks like an identifier rather than a magnitude
+(`1N4148`, `LM358`, `STM32F103C8T6`, `WS2812B`, a full passive MPN like
+`GRM188R71C104KA01D`), the interpretation route is set to **identity**, not
+parametric, and the value is handed to MPN resolution. This judgement is part of
+the interpretation and is **user-overridable** at the review gate.
+
+### 5.5 Relationship to `paramparse`
+
+`paramparse.Parse(text, valueType)` is a *value* parser: given a kind it extracts
+an SI number (handling SI prefixes, fractions, ppm/ppb, ranges, dual-unit,
+conditional `@` specs). It does **not** classify, does **not** handle RKM, and
+does **not** split compound strings. The `genspec` layer sits above it: it
+classifies, splits the value into `(slug, raw)` pairs, and calls
+`paramparse.Parse` on each. RKM support is added *into* `paramparse`.
+
+### 5.6 Interpretation output
+
+For each line item the parser produces:
 
 ```jsonc
 {
-  "reference_designators": "R1,R2",
-  "quantity": 2,
-  "raw_description": "10k 1% 0402",
-  "mpn": "RC0402FR-0710KL",
-  "manufacturer": "Yageo",
-  "name": "RES SMD 10K OHM 1% 1/16W 0402",
-  "sku": "311-10KLRTR-ND",
-  "distributor_name": "Digi-Key",
-  "resolved_distributor_id": "<UUID>|null"
+  "route": "parametric",         // identity | parametric | ignore | unknown
+  "category_id": 30,             // resolved partrack category (Resistors)
+  "class_confidence": 0.95,
+  "package": "0603",             // canonical imperial, or descriptive, or null
+  "mounting": "smd",             // smd | tht | null
+  "params": [                    // extracted constraints
+    { "slug": "resistance", "raw": "10k", "value_si": 10000 },
+    { "slug": "tolerance",  "raw": "1%",  "value_si": 1 }
+  ],
+  "flags": ["class_footprint_conflict"],   // anything needing attention
+  "source": "auto"               // auto | user (set to user once edited)
 }
 ```
 
-Key points:
-
-- `reference_designators` and `quantity` are **required**.
-- All other fields are optional and come from mapped columns if available.
-- `resolved_distributor_id` is set only when the user mapped the textual
-  `distributor_name` to a known Distributor in the *distributor mapping* step.
-
-### 3.2 Backend Persistence — `bom_line_items`
-
-Relevant columns added for BOM import:
-
-- `manufacturer TEXT`
-- `mpn TEXT`
-- `part_name TEXT`
-- `sku TEXT`
-- `distributor_name TEXT`
-- `resolved_distributor_id UUID REFERENCES distributors(id)`
-
-The import handler maps fields as follows:
-
-| JSON field               | DB column              |
-|--------------------------|------------------------|
-| `reference_designators`  | `reference_designators`|
-| `quantity`               | `quantity`             |
-| `raw_description`        | `raw_description`      |
-| `manufacturer`           | `manufacturer`         |
-| `mpn`                    | `mpn`                  |
-| `name`                   | `part_name`            |
-| `sku`                    | `sku`                  |
-| `distributor_name`       | `distributor_name`     |
-| `resolved_distributor_id`| `resolved_distributor_id`|
-
-Additionally, each line item can eventually reference:
-
-- `resolved_part_id` — the primary Part chosen for this line item.
-
-> Note: MPNs are **not globally unique**; they are unique only within a given
-> manufacturer. Our matching logic therefore needs to consider `manufacturer`
-> + `mpn` together when possible (see §4.2).
+`route = unknown` means nothing reliable was extractable (e.g. a value with no
+class to give it a unit) — the row needs human attention but the parser declines
+to guess.
 
 ---
 
-## 4. Auto‑Resolution Strategy (Backend Job)
+## 6. The Interpretation Review Gate
 
-The auto-resolution logic runs inside `JobBOMImport`. It should be deterministic
-and conservative: only make decisions automatically when they are clear-cut,
-and leave ambiguous cases for user review.
+A new review step (the primary human gate). The user is shown the parser's
+reading of every line and accepts or corrects it **before any catalog
+satisfaction runs**.
 
-Terminology:
+Per line, the interpretation card shows:
 
-- **Line item** — a row in `bom_line_items`.
-- **Explicit distributor mapping** — the combination of `sku` and
-  `resolved_distributor_id` present on the line item.
+- **Route / assumption** — *Specific (identity)* · *Parametric/Generic* ·
+  *Ignore* — **togglable**. The user can flip a row the parser guessed wrong
+  (e.g. "that `1N4148` in the value column *is* the part — treat as identity",
+  or "this isn't generic, I want a specific part here").
+- **Category, package, mounting** — editable; category from a picker (§8).
+- **The constraint list** — each parameter with value + unit
+  (`resistance = 10 kΩ`, `tolerance = 1%`), editable: add, remove, correct.
+- **Confidence & flags** — low-confidence parses and conflicts (class↔footprint
+  mismatch, metric-trap ambiguity) surfaced for attention.
+- **Raw inputs** alongside, for reference.
 
-### 4.1 Pre‑Filtering
+UX requirements:
 
-For each line item in the revision:
+- **One dense list, sorted attention-first.** Show *every* line (a "wall" is
+  fine), ordered by confidence/flags ascending: problematic and low-confidence
+  rows at the top to deal with first, the confident rows below to scroll through
+  and spot-check (parses can be wrong even when confident — §14.5). Do **not**
+  hide the confident rows.
+- **Bulk operations** — group identical/similar interpretations ("12 lines →
+  generic 0603 parts") and offer *Accept all* / *Create generic parts* across a
+  selection. Generic interpretation is high-volume and repetitive; batch
+  affordances are essential.
+- Editing a line sets its interpretation `source = user`; subsequent re-parses
+  must never clobber a user-edited interpretation (§9).
 
-1. If `resolved_part_id` is already set, the job **skips** the item (e.g. it
-   was manually resolved in a previous import run).
-2. Items with `quantity <= 0` are kept but never auto-resolved. They will
-   appear in review and can be ignored.
-
-### 4.2 Step 1 — Resolution by Distributor SKU
-
-This is the most reliable signal: a concrete SKU from a known distributor.
-
-Conditions:
-
-- `sku` is non-empty, **and**
-- `resolved_distributor_id` is non-null.
-
-Resolution process:
-
-1. **Local listing lookup**
-   - Query `distributor_listings` by `sku` + `distributor_id` (case-insensitive
-     SKU comparison).
-   - If exactly one listing is found, resolve the BOM line to
-     `listing.part_id` and mark the auto-resolution reason as *by SKU*.
-   - Ensure an `inventory_entries` row exists for `(team, part)` (create with
-     quantity 0 if missing).
-2. **Listing import via Distributor API** (when no local listing exists)
-   - If the team has an enabled `distributor_configs` row for this distributor
-     and the distributor has an API client:
-     - Use the distributor-specific client to look up the SKU.
-       - For DigiKey, this would be a `RefreshListing`/pricing lookup with SKU.
-     - If the API returns a product:
-       - Create or update the corresponding `parts` row.
-       - Create/update the `distributor_listings` row(s) for this SKU.
-       - Resolve the BOM line to the Part and ensure an Inventory Entry exists.
-   - If the SKU is **not found** via the API or credentials are missing:
-     - Do **not** auto-resolve; leave the item for review.
-
-Notes:
-
-- This path **never** auto-resolves to multiple parts. Ambiguity is not
-  expected for `(distributor, sku)`; if multiple listings somehow exist, the
-  line is treated as ambiguous and left unresolved.
-- If the BOM provided `manufacturer`/`mpn` as well, they are stored on the
-  line item but are not required for SKU-based resolution.
-
-### 4.3 Step 2 — Resolution by MPN (with optional Manufacturer)
-
-If Step 1 did not yield a result, the job uses MPN-based matching.
-
-Conditions:
-
-- `mpn` is non-empty.
-
-Resolution tiers:
-
-1. **Exact MPN + Manufacturer match**
-   - If `manufacturer` is present on the line item, search `parts` for
-     candidates where:
-       - `parts.mpn = line.mpn`, and
-       - `parts.manufacturer` matches `line.manufacturer` (case-insensitive
-         equality, stripping minor punctuation differences where reasonable).
-   - If **exactly one** such Part exists → auto-resolve.
-   - If more than one candidate exists → mark as **ambiguous** for review.
-2. **Exact MPN match (ignore manufacturer)**
-   - If step 1 did not resolve, search for `parts.mpn = line.mpn` regardless of
-     manufacturer.
-   - If exactly one Part exists → auto-resolve and record the reason as
-     *MPN-only*. The mismatch between BOM `manufacturer` and Part
-     `manufacturer` (if any) should be surfaced in the review UI as a warning.
-   - If multiple Parts share this MPN → **ambiguous**; user must choose.
-3. **No local MPN match — import from distributor APIs (optional)**
-   - If the team has one or more enabled distributor configs:
-     - For each enabled distributor, in deterministic order:
-       - Call `EnrichPart(mpn)` on the distributor client.
-       - If a Part is found/created, stop at the first success and use that
-         Part.
-       - Persist the Part and its Distributor Listings in the catalog.
-   - If a Part was imported:
-     - Resolve the BOM line to the new Part.
-     - Create an Inventory Entry for `(team, part)`.
-   - If no distributor returns a match, the line item remains unresolved.
-
-Notes:
-
-- Distributor MPN lookups may be ambiguous (multiple manufacturers with the
-  same MPN). The initial implementation can rely on the distributor client to
-  pick a best guess, but the BOM review UI should make it clear which
-  manufacturer was chosen.
-- To avoid duplicates, the enrichment path **must** check for an existing Part
-  with the same `(manufacturer, mpn)` before inserting a new one.
-
-### 4.4 Step 3 — Fallbacks & Virtual Components
-
-If a line item is still unresolved after SKU and MPN resolution:
-
-- The job does **not** attempt fuzzy matching against local Parts.
-- The line item proceeds to the review stage with status **unresolved**.
-
-Typical unresolved cases:
-
-- Virtual / non-procurable components:
-  - Test points, mounting holes, mechanical outlines, logos.
-  - Design-specific things like "DO NOT POPULATE", jumpers, configuration
-    links.
-- BOM lines without MPN/SKU (e.g. only a human-readable description).
-
-Heuristics such as auto-classifying common virtual components (e.g. based on
-keywords in `raw_description` like "TP", "TESTPOINT", "FIDUCIAL") can be added
-later, but the final decision remains with the user via the review UI.
-
-### 4.5 Inventory Entry Creation
-
-Whenever a BOM line item becomes resolved (automatically or later via manual
-actions), the backend should ensure that an `inventory_entries` row exists for
-the `(team, part)` pair (see [datamodel.md](datamodel.md)):
-
-- If `GetInventoryEntryByPartID(team, part)` returns `no rows`, create a new
-  entry with quantity 0.
-- This enables users to immediately configure storage location, preferred
-  listing, min stock, and reorder quantity for new parts discovered via BOM
-  import.
+Once the user accepts, the confirmed interpretations are frozen and Stage 3 runs.
 
 ---
 
-## 5. Review Stage & Manual Resolution
+## 7. Stage 3 — Satisfaction
 
-The review stage is where the user resolves ambiguous or unresolved BOM line
-items and confirms or corrects automatic assignments.
+Fulfil each confirmed interpretation against the catalog. Because interpretation
+is already validated, this is mostly deterministic.
 
-### 5.1 Line Item Resolution State
+### 7.1 Identity route
 
-Each `bom_line_items` row carries a `resolution_state TEXT` column and an
-`ignored BOOLEAN` flag (both added in migration `000004`). The five states form
-a four-tier priority ladder:
+Existing behaviour, conservative and automatic where clear-cut:
 
-| Tier | `resolution_state` | `resolved_part_id` | Meaning |
-|------|--------------------|--------------------|---------|
-| 0 | `auto_sku` | set | Worker resolved the item via an exact `(distributor, sku)` lookup against `distributor_listings`. Highest confidence — no user action needed. |
-| 1 | `auto_mpn` | set | Worker found **exactly one** `parts` row matching the item's `mpn` (within global + team scope). Single-candidate sign-off — no user action needed. |
-| 2 | `ambiguous` | **null** | Worker found **more than one** Part matching the MPN. `resolved_part_id` is intentionally null until the user picks a candidate in the review UI. |
-| 3 | `null` | **null** | No match found yet. Item needs user attention: ignore it, link it to an existing Part, or import from a distributor. |
-| — | `manual` | set | User explicitly linked the item to a Part in the review UI. |
-| — | `ignored` | **null** | `ignored = TRUE`; item is excluded from stock checks and shortfall calculations. Can be toggled back by the user. |
+1. **By SKU** — `(distributor, sku)` lookup against `distributor_listings`;
+   import the listing via the distributor API if absent and the team has an
+   enabled config. Exactly-one → resolve; otherwise ambiguous → review.
+2. **By MPN (+ manufacturer)** — exact match in `parts` (team + global scope);
+   single candidate → resolve; multiple → ambiguous; none → optional distributor
+   `EnrichPart`/search to import. (See §10 for the per-tier state.)
 
-Notes:
+### 7.2 Parametric route — match-only (never auto-create)
 
-- A `null` `resolution_state` with `ignored = FALSE` means the item is
-  **unresolved** (Tier 3).
-- `ambiguous` items remain unresolved (`resolved_part_id = null`) until the user
-  selects one candidate; at that point `resolution_state` is updated to `manual`.
-- An item is “ready” when `resolved_part_id IS NOT NULL OR ignored = TRUE`.
+The confirmed interpretation is a constraint set `{category, package, params}`.
 
-### 5.2 Review UI — General Behaviour
+1. **Search the catalog** for Parts satisfying the constraints, using the
+   existing parametric search (`FindPartIDsByParameterRange` etc.) with the
+   value/tolerance policy of §7.5 and canonical-package comparison (§5.2.1).
+   Generic and specific Parts are both candidates.
+   - **Exactly one match** → resolve to it (auto, `auto_generic`).
+   - **Multiple matches** → present the candidates; the user picks.
+   - **No match** → **leave the line unresolved**. The review surfaces it with an
+     explicit *Create generic part* action (§7.3).
+2. On resolution, ensure an `inventory_entries` row exists for `(team, part)`
+   (quantity 0), as for any resolved line.
 
-The revision detail view should support:
+**Satisfaction never writes new Parts.** Auto-creating Parts from fuzzy parses
+would silently pollute the catalog, and a single BOM's many identical passives
+would race to create duplicates of each other. Generic-part creation is therefore
+always an explicit, user-initiated action (§7.3) — which, as a side benefit,
+dissolves the in-batch dedup race entirely (there is nothing to race).
 
-- **Filtering & grouping**
-  - Tabs or filters for: All, Unresolved, Ambiguous, Auto-resolved,
-    Ignored.
-  - Optional grouping by category, manufacturer, or whether the Part exists
-    in inventory.
-- **Per-line item summary**
-  - Reference designators & quantity.
-  - Raw description / name.
-  - Manufacturer + MPN (from BOM).
-  - Current resolution (Part name + MPN, if resolved) and reason.
-  - Quick actions: *Ignore*, *Change Part*, *Resolve*.
+### 7.3 Creating a generic Part (explicit user action)
 
-### 5.3 Actions on a BOM Line Item
+Generic-part creation happens only when the user asks for it in review — never
+automatically (§7.2). It can be done per row or in bulk (select several
+unresolved parametric rows → *Create generic parts*). The UI shows any existing
+parametric matches first, so the user **links instead of duplicating**.
 
-For any non-ignored line item, the UI should offer these actions.
+A generic Part is an ordinary `parts` row — no new entity, no `kind`
+discriminator:
 
-#### 5.3.1 Ignore Component
+- `scope = 'team'`, `team_id` set, `mpn = NULL`, `manufacturer = NULL`.
+- `category_id`, `package`, and **`canonical_package`** (§5.2.1) from the
+  interpretation.
+- A user-sourced `part_parameters` row per extracted constraint, written through
+  the **existing** user-param write path so each carries its canonical
+  `parameter_id` + parsed `numeric_value` and is immediately searchable — this is
+  what later lets the same spec on a future BOM *match* this part.
+- `lifecycle_status = 'active'`; an `inventory_entries` row at quantity 0.
 
-Use when:
+Creation is **local and synchronous** — unlike `unknown_part_import` (which needs
+distributor enrichment), a generic Part is fully described by the interpretation,
+so no background job is required. Because creation is user-initiated and
+low-concurrency, a **create-or-get** keyed by the normalised constraint tuple
+(category + canonical_package + sorted params) is enough to prevent accidental
+duplicates; no DB-level uniqueness constraint is required.
 
-- The line item represents a virtual component or something that should not be
-  procured or tracked.
+The **kit / E-series generator** (a separate tool) is the bulk way to
+*pre-populate* the generic catalog, so import-time satisfaction increasingly
+*finds* generics rather than leaving them unresolved.
 
-Behaviour:
+### 7.4 Matching semantics (why generic "just works")
 
-- Mark the line as **ignored**.
-- Do not require or attempt `resolved_part_id`.
-- Exclude the item from stock checks and shortfall → cart flows.
-- Display ignored items distinctly (e.g. greyed out) so users can revisit.
+Matching is the existing parametric intersection, which is **closed-world**: a
+filter on a parameter only returns parts that *have* that parameter in range. So:
 
-#### 5.3.2 Link to Existing Part
+- A generic `{Resistor, 0603, 10k}` (no tolerance) **matches** a loose query
+  `{Resistor, 0603, 10k}` and is **excluded** by a stricter
+  `{…, tolerance=1%}` query, because it has no tolerance row to satisfy the
+  filter.
+- Symmetry falls out for free: *a generic BOM line matches a generic part; a
+  fully-specified line demands a specific part.* You never silently satisfy a 1%
+  requirement with a part of unknown tolerance.
 
-Use when:
+No new matching code is required.
 
-- The Part already exists in the catalog (global or team-scoped) but was not
-  auto-detected, or when the user wants to correct an auto-resolution.
+### 7.5 Value & tolerance matching policy
 
-UX flow:
+Matching a parsed magnitude against catalog Parts is **not** exact equality —
+values parse with rounding, and real parts carry their own tolerance. Defaults
+(tunable):
 
-1. The user opens a **"Select Part" modal** for the line item.
-2. The modal offers search across the **local Part catalog** and may also
-   surface **distributor-backed search suggestions**:
-   - Local search by:
-     - MPN
-     - Manufacturer
-     - Name / description
-     - Category, package, etc. (as available)
-   - Optional remote search using the distributor search API (see
-     `internal/distributor.Client.SearchParts` and the DigiKey
-     `/products/v4/search/keyword` endpoint) to propose candidate parts from
-     distributor catalogs alongside local results.
-3. The search box should be pre-populated with a reasonable default:
-   - Prefer `mpn` if present.
-   - Else prefer `name` or `raw_description`.
-4. When the user selects a Part:
-   - Set `resolved_part_id` on the line item.
-   - If no Inventory Entry exists for `(team, part)`, create it with quantity 0.
+- **BOM line with no tolerance** (a bare generic spec like `10k`): accept a
+  candidate whose value is within **±1%** of the nominal (the default epsilon).
+  `10k` → `[9 900, 10 100] Ω`.
+- **BOM line with a tolerance `T`** (e.g. `1k 10%`), judged on two axes:
+  - **Value proximity** — candidate *nominal* within `0.1 × T` of the BOM
+    nominal (for `T = 10%`, ±1%; for `T = 1%`, ±0.1%). So a `1010 Ω` part is
+    acceptable for `1k 10%`.
+  - **Tolerance similarity** — candidate tolerance must **meet** the spec (no
+    looser than `T`) but should be **similar**, not wastefully tighter: don't
+    spend `0.1%` parts to satisfy a `10%` generic. Prefer same tolerance class;
+    allow modestly tighter.
+- **Closed-world still holds** (§7.4): a generic part with *no* tolerance
+  parameter is matched only by no-tolerance BOM lines (via the ±1% epsilon); a
+  tolerance-bearing line filters it out.
 
-#### 5.3.3 Import / Create Part via Distributor
-
-Use when:
-
-- The BOM provides a valid distributor + SKU, or at least an MPN, but no
-  matching local Part exists yet. No this is not right. The review should run after the automatic linking job has gone through all parts, and thus we are only reviewing things which need eyeballs on them. If the user supplied a valid distributor + SKU, there are no questions left to answer here.
-
-UX flow:
-
-- **If SKU + distributor are available** (either `resolved_distributor_id` or a
-  mapping selected in the modal):
-  1. Offer an action like “Import from &lt;Distributor&gt; by SKU”.
-  2. Backend uses the distributor client to look up the SKU and either
-     reuses an existing Part or creates a new one.
-  3. On success, resolve the BOM line to the resulting Part and create an
-     Inventory Entry if necessary.
-
-  
-- **If only MPN (and possibly manufacturer) is available:**
-  1. Offer actions like **“Search distributors by MPN”** and **“Search
-     distributors by keyword”**.
-  2. For discovery, backend calls the distributor search API with a
-     `SearchQuery` built from the line item:
-     - When manufacturer is known, use `"{manufacturer} {mpn}"` as
-       `Keywords`.
-     - Otherwise, use the raw `mpn`, `name`, or `raw_description` as
-       free-text keywords (e.g. `"10k 1% 0402 resistor"`).
-     - For DigiKey, this maps to `POST /products/v4/search/keyword` (see
-       `doc/distributor/distributor-digikey.md`).
-  3. Present the returned `SearchResult.Products` to the user as distributor
-     candidates (with manufacturer, MPN, brief description, package, stock,
-     and price preview when available).
-  4. When the user selects a distributor product:
-     - Perform a follow-up enrichment call (e.g. DigiKey `productdetails`
-       via `EnrichPart`) to create/merge the canonical Part and associated
-       Listings.
-     - Resolve the BOM line to that Part and ensure an Inventory Entry
-       exists.
-  5. If multiple conflicting candidates remain (e.g. several manufacturers
-     share the same MPN), the modal behaves like a choose-from-candidates UI;
-     no automatic choice is made without explicit user confirmation.
-
-These flows align BOM review with the existing **Part Enrichment** behaviour
-documented in `distributor/distributor-*.md`.
-
-### 5.4 Completion Criteria for a BOM Revision
-
-A BOM revision is considered **ready for stock checking** when, for every
-`bom_line_items` row:
-
-- Either `resolved_part_id` is non-null, or
-- The line is explicitly marked as **ignored**.
-
-The UI should surface this as a status badge (e.g. “Ready” / “Needs
-resolution”) and potentially block stock-check actions on revisions that are
-still in “needs resolution” state, or at least warn the user.
+These thresholds share DNA with the deferred order-generation/substitution
+selection logic; here they apply only to *matching a BOM line to a Part*, and
+live as tunable defaults (candidate epsilon, proximity factor, tolerance band).
 
 ---
 
-## 6. Integration with Stock Checking & Downstream Flows
+## 8. Generic Part Classes & Parameter Mapping
 
-Once a revision is ready:
+This is where the abstract parser meets partrack's concrete reference data. It is
+also the area with the most open design choices (§15).
 
-- **Stock checks**:
-  - Operate only on non-ignored, resolved line items.
-  - Merge line items for the same Part when computing required vs on-hand
-    quantities (as per US-1.1 / US-2.1).
-- **Shortfall → Cart**:
-  - Uses the resolved Part IDs to add Cart Line Items.
-  - If an Inventory Entry has a preferred Distributor Listing, that listing is
-    used when populating the cart; otherwise cart items start without a
-    listing and must be resolved in the cart UI.
-- **Order creation / receipt**:
-  - Function independently of how the BOM was imported; BOM import’s job is
-    purely to establish accurate `BOM Line Item → Part` links.
+### 8.1 Classes are Categories
 
----
+A "class" (Resistor, Capacitor, Inductor, …) is a row in the **`categories`**
+table (606 seeded, hierarchical via `parent_id`, DigiKey-derived; e.g. Resistors
+= 30, Capacitors = 5, Inductors/Coils/Chokes = 15, Crystals/Oscillators = 8).
+Classification (§5.1) resolves a reference designator to a category. For generic
+parts the **broad top-level category** is normally sufficient (a generic
+"0603 10k" is simply category *Resistors*); a finer subcategory is optional.
 
-## 7. SSE & Progress Reporting
+`distributor_category_mappings` already maps distributor categories → partrack
+categories; the refdes→category mapping for generics is a small, separate,
+mostly-static table (refdes prefix → category slug).
 
-`JobBOMImport` should continue to publish `bom_import_progress` SSE events as it
-processes items. Over time, these events can be extended to provide richer
-information for the frontend, for example:
+### 8.2 The class profile: `primary_params` + a new `value_param`
 
-- Initial event:
+The class profile combines two pieces of category data:
 
-  ```jsonc
-  {
-    "status": "starting",
-    "resolved": 0,
-    "total": 42,
-    "job_id": "…"
-  }
-  ```
+- **`categories.primary_params`** (existing; a `JSONB` ordered array of parameter
+  slugs, exposed as `string[]`, **currently empty for all seeded categories**) —
+  the parameters that matter for the category. It already serves the parts-search
+  UI (primary filter columns); here it doubles as the set of **recognised
+  secondary parameters** for compound-value splitting. E.g. Resistors →
+  `["resistance", "tolerance", "power_rating", "package"]`, Capacitors →
+  `["capacitance", "voltage_rating", "dielectric", "tolerance", "package"]`.
+  Existing `string[]` consumers are untouched.
+- **`categories.value_param`** (new; a **nullable** parameter slug) — names the
+  single **primary parameter** that the bare value field encodes (`resistance`
+  for R, `capacitance` for C). `value_param IS NULL` means the category has no
+  parametric magnitude, so the value is treated as an identity/text reference and
+  not parsed — this doubles as the per-class **parametric-vs-identity signal**
+  (§5.4). A row like an IC or connector leaves it null.
 
-- Periodic updates:
+Combined with the **`parameter_definitions`** registry (which supplies each
+slug's unit and `value_type`), this gives the parser everything it needs:
 
-  ```jsonc
-  {
-    "status": "progress",
-    "resolved": 17,
-    "total": 42,
-    "job_id": "…"
-  }
-  ```
+- the **primary magnitude** — `value_param` plus its unit/value_type;
+- the **recognised secondary parameters** — `primary_params`, used to gate the
+  global token recognizers (§5.3) by plausibility;
+- the **unit and value_type** for each — from `parameter_definitions`.
 
-- Final event (includes per-tier breakdown):
+So the class-profile primitive needs **no new table** — one nullable column
+(`value_param`) plus the existing registry and `primary_params`.
 
-  ```jsonc
-  {
-    "status": "complete",
-    "resolved_sku": 10,
-    "resolved_mpn": 27,
-    "ambiguous": 2,
-    "unresolved": 3,
-    "total": 42,
-    "job_id": "…"
-  }
-  ```
+### 8.3 Parameter registry alignment
 
-The final event breakdown maps directly onto the §5.1 tier table:
-`resolved_sku` (Tier 0) + `resolved_mpn` (Tier 1) are auto-resolved;
-`ambiguous` (Tier 2) and `unresolved` (Tier 3) need review.
+Extracted parameter slugs must exist in `parameter_definitions`. The seed
+(ids 1–20) already covers `resistance`, `capacitance`, `inductance`,
+`voltage_rating`, `power_rating`, `tolerance`, `frequency`, `dielectric`,
+`mounting_type`, `package`, etc. Gaps the parser implies (e.g. LED `color`) must
+be added to the registry so the parser's output slugs and the registry do not
+drift.
 
----
+### 8.4 Controlling the mapping
 
-## 8. Edge Cases & Open Questions
+Whether and how the class→parameter mapping is editable is an open question
+(§15), but the precedent and surfaces exist:
 
-This section captures intentionally unresolved details for future iterations.
-
-1. **DNP / DNI semantics**
-   - Many BOMs contain a “DNP” column. Do we want a dedicated column/flag on
-     `bom_line_items` to model this, or treat it as a specific flavour of
-     “ignored” set during review?
-2. **Heuristics for virtual components**
-   - We may later add heuristics to pre-mark common virtual components as
-     “probably ignored”, but the final decision should remain in the user’s
-     control.
-3. **Multiple SKUs per line item**
-   - Some BOMs contain multiple supplier columns (SKU1, SKU2, …). The current
-     UI supports a single `sku` + `distributor`; future work might extend the
-     mapping stage to allow multiple potential SKUs per line item.
+- `distributor_parameter_mappings` is already **admin-curated** (the
+  `/admin/parameters` UI lets admins map distributor params → canonical params).
+- `categories.primary_params` is global category data; making it
+  admin-editable (a category/parameter admin screen) mirrors that precedent.
+- The open question is the **scope of control**: global-only (admin), or
+  team-overridable, and whether per-category parsing hints (RKM on/off, which
+  secondaries to recognise) belong here too.
 
 ---
 
-## 9. Summary
+## 9. Persistence — Remembering How Things Were Parsed
 
-- BOM import is split into a **frontend parsing/mapping stage**, a **backend
-  auto‑resolution job**, and a **manual review stage**.
-- Clear-cut cases (valid distributor SKU, unambiguous MPN) are resolved
-  automatically, optionally importing new Parts and Distributor Listings via
-  distributor APIs.
-- All ambiguous or unresolved cases are surfaced in a revision review UI where
-  the user can ignore components, link to existing Parts, or import new Parts.
-- A revision is ready for stock checking only when every line item is either
-  resolved or ignored, ensuring downstream stock and procurement workflows
-  operate on solid, user-validated data.
+Two layers, mirroring how column mappings are already remembered in
+`bom_import_config`.
 
+### 9.1 Per-line interpretation (on `bom_line_items`)
+
+`bom_line_items` gains:
+
+- `value TEXT`, `footprint TEXT` — the raw mapped inputs (traceability,
+  re-resolution).
+- `interpretation JSONB` — the structured interpretation of §5.6 (route,
+  category_id, package, mounting, params, flags).
+- `interpretation_source TEXT` (`auto` | `user`) — whether a human edited it.
+
+Rules:
+
+- The interpretation is written by the import job and updated by the review gate.
+- Re-running interpretation or satisfaction **must not clobber** a row whose
+  `interpretation_source = 'user'`.
+- Existing resolution columns (`resolved_part_id`, `resolution_state`,
+  `ignored`, `resolve_item_id`) continue to record the *satisfaction* outcome.
+
+### 9.2 Interpretation reuse across revisions (required, not fast-follow)
+
+The prototyping workflow iterates BOMs constantly (Rev A → B → C); re-reviewing
+the same 40 passives every revision would be adoption-killing friction. So
+interpretation reuse is **MVP**, in two layers:
+
+- **Prior-revision carryover** — on import, seed each new line's interpretation
+  from a matching line in the project's previous revision (matched on raw
+  `value` + `footprint` + designators/class), preserving `interpretation_source`
+  so user edits survive.
+- **Team-level interpretation memory** — a team-scoped cache keyed by raw
+  `value` + `footprint` (+ class) → confirmed interpretation, consulted across
+  projects. Once a user corrects the metric trap on `R_0201_0603Metric` to
+  package `0201`, that correction is reused on every future BOM and the system
+  gets *less* wrong over time. This is to per-line interpretation what
+  `bom_import_config` is to a one-off column map.
+
+---
+
+## 10. Resolution State Model
+
+Each `bom_line_items` row carries `resolution_state` and `ignored` (migration
+`000004`). The state records the *satisfaction* outcome; the interpretation is
+recorded separately (§9.1).
+
+| `resolution_state` | `resolved_part_id` | Meaning |
+|---|---|---|
+| `auto_sku` | set | Satisfied via exact `(distributor, sku)` listing lookup. |
+| `auto_mpn` | set | Satisfied via a single `parts` MPN match. |
+| `auto_generic` | set | **(new)** Parametric route auto-resolved to a single **existing** catalog match. Satisfaction never *creates* — unmatched parametric rows stay unresolved (`null`) with a *Create generic* action; a user-created generic resolves as `manual`. |
+| `ambiguous` | null | Multiple candidates (MPN or parametric); awaiting user pick. |
+| `manual` | set | User explicitly linked/picked the Part in review. |
+| `null` | null | Unresolved; needs attention (ignore / link / import / create). |
+| `ignored` (flag) | null | Excluded from stock checks and shortfall/cart flows. |
+
+A line is **ready** when `resolved_part_id IS NOT NULL OR ignored = TRUE`.
+
+---
+
+## 11. Completion Criteria
+
+A BOM revision is **ready for stock checking** when, for every `bom_line_items`
+row, either `resolved_part_id` is non-null or `ignored = TRUE`. The UI surfaces
+this as a status badge and should warn before stock-checking a revision that is
+not ready.
+
+Note the two gates: a revision cannot reach "ready" until (a) all interpretations
+are accepted and (b) satisfaction has resolved or the user has ignored each line.
+
+---
+
+## 12. Downstream Integration
+
+- **Stock checks / builds / checkout** — operate on resolved line items
+  identically regardless of whether the Part is generic or specific. Generic
+  parts have inventory entries and stock ledgers like any other Part. Line items
+  resolving to the same Part are merged for required-vs-on-hand computation.
+- **Shortfall → Cart / Orders** — a generic Part has **no Distributor Listing**,
+  so it cannot ride the normal cart→order flow directly. When a generic part is
+  short, the cart needs a **binding moment**: the user picks a concrete listing
+  to fulfil it (order the real SKU), and on receipt may choose to receive it into
+  the generic part's inventory entry (treating it as a fill of the generic bin).
+  This keeps purchasing exact while keeping stock fungible. *(Detailed cart
+  behaviour is out of scope for this doc; flagged here as a known interface.)*
+
+---
+
+## 13. Implementation & Data Flow
+
+The genspec parser lives **backend-side** (a new package above `paramparse`), not
+in the frontend like CSV parsing, for four reasons: it is reused by import, bulk
+scanning, and manual entry; its rules depend on backend data (the `categories`
+class profiles and the `parameter_definitions` registry); it extends Go
+`paramparse` (RKM, compound splitting); and it is table-tested against
+[work/genspec-parser-examples.yaml](work/genspec-parser-examples.yaml).
+
+Division of labour:
+
+| Step | Where | Sync? |
+|---|---|---|
+| CSV → rows | frontend (PapaParse) | sync |
+| rows → interpretation **preview** | backend, stateless `POST …/bom/interpret-preview` (not persisted) | sync (regex-cheap) |
+| rows → persisted interpretation | backend, inline in `ImportRevision` (or job phase 1) | sync |
+| interpretation → satisfaction | backend `JobBOMImport` (catalog search, distributor calls) | async |
+
+The **preview endpoint** keeps the live-feedback nicety of frontend parsing
+without duplicating logic: while still on the mapping screen, the frontend posts
+the mapped rows and renders how each was interpreted, so the user can fix the
+column mapping *before* committing. The same parser code then runs the persisted
+pass. Interpretation is cheap and stays synchronous; only satisfaction (which may
+hit distributor APIs) is async, as today.
+
+---
+
+## 14. Risks, Failure Modes & Required Work
+
+Stress-testing surfaced several issues. The first four are **required work** (the
+plan is otherwise wrong or insufficient); the rest are guards.
+
+### 14.1 Package canonicalization (required)
+Verified hole: `parts.package` is free text, exact-matched, and enrichment stores
+`"0603 (1608 Metric)"`, so a generic `"0603"` never matches. Needs a
+`canonical_package` normaliser applied on enrichment **and** generic creation and
+in the satisfaction search (§5.2.1), handling variable-length imperial codes
+(`01005`, `008004`) and non-chip families.
+
+### 14.2 Batch dedup — dissolved by no-auto-create
+A BOM's many identical passives would have raced to create duplicate generics.
+Because satisfaction is now **match-only** and creation is an explicit,
+low-concurrency user action with create-or-get (§7.2–7.3), the race is gone. The
+only residual — a user creating a duplicate of an existing generic — is prevented
+by showing existing matches before creating.
+
+### 14.3 Value/tolerance epsilon (required)
+Exact SI equality is fragile; satisfaction must use the §7.5 policy (±1% default
+epsilon; range + proximity + tolerance-similarity for tolerance-bearing lines).
+
+### 14.4 Interpretation reuse (required)
+Without cross-revision reuse, every revision re-reviews the same passives.
+Promoted to MVP (§9.2).
+
+### 14.5 Silent wrong value — limited defence
+A confident misparse that looks plausible can pass a skimmed review, and there is
+**no** real defence against an in-range typo (`100` meant as `100k`). The cheap
+guard is **per-class plausibility ranges**: flag values outside a sane band
+(capacitance ≳ 10 mF, or a signal resistor in the µΩ range, are implausible) as
+low-confidence so they sort to the top (§6). Render parsed values in **human
+units** (`10 kΩ`, not `10000`) so a wrong unit is visually obvious. Beyond that,
+the dense problems-first review is the backstop; we accept some typos will pass.
+
+### 14.6 Two review surfaces
+The interpretation gate and the satisfaction-ambiguity review should be **one
+continuous review screen** (rows flow needs-confirm → needs-pick → done), not two
+separate passes.
+
+---
+
+## 15. Open Design Questions
+
+1. **Class profile population.** *Decided:* the primary magnitude is named by a
+   new nullable `categories.value_param`; `primary_params` stays the (display +
+   secondary-recognition) slug list, untouched. *Open:* who populates
+   `value_param` / `primary_params` for the parametric classes initially (a seed
+   migration covering ~6–10 categories), and whether per-category parsing hints
+   (RKM toggle, recognised-secondary overrides) are needed beyond the global
+   recognizers.
+2. **Scope of mapping control.** *Decided:* global, admin-editable to start
+   (mirroring the admin-curated distributor parameter mappings); team override
+   deferred until a concrete need. *Open:* whether per-category parsing hints
+   (recognised secondaries, RKM toggle) live in the same admin surface.
+3. **Refdes → category table.** Static built-in vs admin-editable; how to handle
+   ambiguous prefixes (`D` = diode or LED; `X` = crystal/oscillator/connector).
+4. **Registry gaps.** Add `color` and any other slugs the parser emits to
+   `parameter_definitions`.
+5. **Parsing profiles (KiCad/Altium).** Recommended: *not* a gate; an optional
+   hint persisted in `bom_import_config`, used only when a real ambiguity needs
+   it. The fuzzy baseline is tool-independent by design.
+6. **Generic identity / dedup.** *Resolved:* satisfaction is match-only (§7.2)
+   and creation is an explicit user action with create-or-get (§7.3); closed-world
+   matching deliberately treats a 10k 0603 *with* a tolerance as a different part
+   from one *without* (confirmed desired). No DB uniqueness constraint needed.
+7. **Cart binding for generics** (§12) — the concrete UX for ordering against a
+   generic part.
+
+---
+
+## 16. SSE & Progress
+
+`JobBOMImport` continues to publish `bom_import_progress` SSE events. The final
+event's breakdown gains a parametric bucket, e.g.:
+
+```jsonc
+{
+  "status": "complete",
+  "interpreted": 42,
+  "route_identity": 8,
+  "route_parametric": 30,
+  "route_ignore": 2,
+  "route_unknown": 2,
+  "job_id": "…"
+}
+```
+
+Satisfaction outcomes (auto_sku / auto_mpn / auto_generic / ambiguous /
+unresolved) are reported after the interpretation gate is cleared.
+
+---
+
+## 17. Summary
+
+- BOM import is split into **Parse & Map → Interpret (+review gate) → Satisfy
+  (+narrow review)**.
+- Line items live in two worlds — **identity** (MPN/SKU) and **parametric**
+  (footprint + value) — both mapped onto the same Part catalog. A generic part is
+  a plain team-scoped `parts` row with no MPN.
+- The new **interpretation** phase parses the fuzzy parametric inputs into a
+  structured, user-confirmed constraint set *before* any catalog changes happen,
+  so misparses are caught cheaply.
+- **Satisfaction** is constraint-satisfaction and **match-only**: identity rows
+  match/import a specific Part; parametric rows match an existing Part (generic or
+  specific) or stay unresolved — generic Parts are created only by an explicit
+  user action, never automatically. Matching is the existing closed-world
+  parametric search (with a value/tolerance epsilon and canonical-package
+  comparison) — no new matching code.
+- Classes are **categories**; the per-class parameter profile lives in the
+  existing-but-empty **`categories.primary_params`** plus a new nullable
+  **`categories.value_param`** and the `parameter_definitions` registry — no new
+  table, with control mirroring the admin-curated distributor parameter mappings.
+- Interpretations are **persisted** per line (and, as a fast-follow, learned at
+  team level), mirroring how `bom_import_config` already remembers the column map.
