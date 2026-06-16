@@ -558,3 +558,24 @@ ORDER BY ie.part_id,
 -- removed (that would erase the stock ledger and creation record). Catalog and
 -- match queries filter on deleted_at IS NULL.
 UPDATE parts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: FindGenericPartMatch :many
+-- Parametric (match-only) satisfaction: active parts in the team's catalog
+-- (global + team-scoped) matching a category subtree, canonical package, and a
+-- primary value within [min_val, max_val]. The BOM import job auto-resolves only
+-- when this returns exactly one row; otherwise the line is left for review. No
+-- part is ever created here.
+WITH RECURSIVE cat_tree AS (
+    SELECT categories.id FROM categories WHERE categories.id = sqlc.arg('category_id')
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
+)
+SELECT DISTINCT p.id
+FROM parts p
+JOIN part_parameters pp ON pp.part_id = p.id
+WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
+  AND p.lifecycle_status = 'active'
+  AND p.canonical_package = sqlc.arg('canonical_package')
+  AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+  AND pp.parameter_id = sqlc.arg('parameter_id')
+  AND pp.numeric_value BETWEEN sqlc.arg('min_val') AND sqlc.arg('max_val');

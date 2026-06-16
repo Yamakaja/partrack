@@ -209,3 +209,6 @@ WHERE ie.team_id = $2
     JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
     WHERE bli.bom_revision_id = $1
   );
+
+-- name: GetBOMLineItemInterpretation :one
+SELECT interpretation FROM bom_line_items WHERE id = $1;

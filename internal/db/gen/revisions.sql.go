@@ -163,6 +163,17 @@ func (q *Queries) GetBOMLineItemContext(ctx context.Context, id pgtype.UUID) (Ge
 	return i, err
 }
 
+const getBOMLineItemInterpretation = `-- name: GetBOMLineItemInterpretation :one
+SELECT interpretation FROM bom_line_items WHERE id = $1
+`
+
+func (q *Queries) GetBOMLineItemInterpretation(ctx context.Context, id pgtype.UUID) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getBOMLineItemInterpretation, id)
+	var interpretation []byte
+	err := row.Scan(&interpretation)
+	return interpretation, err
+}
+
 const getImmediatelyPriorRevision = `-- name: GetImmediatelyPriorRevision :one
 SELECT id FROM bom_revisions
 WHERE project_id = $1

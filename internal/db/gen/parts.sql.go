@@ -255,6 +255,64 @@ func (q *Queries) DeletePart(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const findGenericPartMatch = `-- name: FindGenericPartMatch :many
+WITH RECURSIVE cat_tree AS (
+    SELECT categories.id FROM categories WHERE categories.id = $6
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
+)
+SELECT DISTINCT p.id
+FROM parts p
+JOIN part_parameters pp ON pp.part_id = p.id
+WHERE (p.scope = 'global' OR p.team_id = $1)
+  AND p.lifecycle_status = 'active'
+  AND p.canonical_package = $2
+  AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+  AND pp.parameter_id = $3
+  AND pp.numeric_value BETWEEN $4 AND $5
+`
+
+type FindGenericPartMatchParams struct {
+	TeamID           pgtype.UUID `json:"team_id"`
+	CanonicalPackage *string     `json:"canonical_package"`
+	ParameterID      *int32      `json:"parameter_id"`
+	MinVal           *float64    `json:"min_val"`
+	MaxVal           *float64    `json:"max_val"`
+	CategoryID       int32       `json:"category_id"`
+}
+
+// Parametric (match-only) satisfaction: active parts in the team's catalog
+// (global + team-scoped) matching a category subtree, canonical package, and a
+// primary value within [min_val, max_val]. The BOM import job auto-resolves only
+// when this returns exactly one row; otherwise the line is left for review. No
+// part is ever created here.
+func (q *Queries) FindGenericPartMatch(ctx context.Context, arg FindGenericPartMatchParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, findGenericPartMatch,
+		arg.TeamID,
+		arg.CanonicalPackage,
+		arg.ParameterID,
+		arg.MinVal,
+		arg.MaxVal,
+		arg.CategoryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getListing = `-- name: GetListing :one
 SELECT id, part_id, distributor_id, sku FROM distributor_listings WHERE id = $1
 `

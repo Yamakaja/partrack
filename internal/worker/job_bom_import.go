@@ -9,6 +9,7 @@ import (
 
 	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -66,7 +67,7 @@ func (q *Queue) handleBOMImport(job Job) {
 	}
 
 	// Count items already resolved before this run.
-	resolvedSKU, resolvedMPN, resolvedPrior, ambiguousCount, substitutesImportedCount, importingCount := 0, 0, 0, 0, 0, 0
+	resolvedSKU, resolvedMPN, resolvedPrior, resolvedGeneric, ambiguousCount, substitutesImportedCount, importingCount := 0, 0, 0, 0, 0, 0, 0
 	for _, it := range items {
 		switch {
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
@@ -75,6 +76,8 @@ func (q *Queue) handleBOMImport(job Job) {
 			resolvedMPN++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_prior_revision":
 			resolvedPrior++
+		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_generic":
+			resolvedGeneric++
 		case it.ResolutionState != nil && *it.ResolutionState == "ambiguous":
 			ambiguousCount++
 		case it.ResolutionState != nil && *it.ResolutionState == "importing":
@@ -85,10 +88,11 @@ func (q *Queue) handleBOMImport(job Job) {
 	publishProgress := func(status string, noMatch int) {
 		q.publishProgress(job, "bom_import_progress", map[string]any{
 			"status":                  status,
-			"resolved":                resolvedSKU + resolvedMPN + resolvedPrior,
+			"resolved":                resolvedSKU + resolvedMPN + resolvedPrior + resolvedGeneric,
 			"resolved_sku":            resolvedSKU,
 			"resolved_mpn":            resolvedMPN,
 			"resolved_prior_revision": resolvedPrior,
+			"resolved_generic":        resolvedGeneric,
 			"ambiguous":               ambiguousCount,
 			"importing":               importingCount,
 			"no_match":                noMatch,
@@ -196,6 +200,18 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
+		// 5. Parametric (generic) match-only tier: for a row the parser read as a
+		// generic spec, try to resolve to an existing catalog part by category +
+		// canonical package + primary value (within epsilon). A unique match
+		// auto-resolves; anything else falls through to remain unresolved. This tier
+		// never creates a part — generic creation is an explicit user action.
+		if resolutionState == nil {
+			if pid, ok := tryParametricMatch(ctx, queries, teamID, item.ID); ok {
+				resolvedPartID = pid
+				resolutionState = strPtr("auto_generic")
+			}
+		}
+
 		if resolutionState == nil {
 			// Not known to partrack. If we have identifiers, hand the new part off to
 			// the unified resolve pipeline (multi-distributor fan-out + cached
@@ -257,6 +273,8 @@ func (q *Queue) handleBOMImport(job Job) {
 				resolvedMPN++
 			case "auto_prior_revision":
 				resolvedPrior++
+			case "auto_generic":
+				resolvedGeneric++
 			case "ambiguous":
 				ambiguousCount++
 			}
@@ -301,7 +319,7 @@ func (q *Queue) handleBOMImport(job Job) {
 		if rev, err := queries.GetRevision(ctx, dbgen.GetRevisionParams{ID: revID, ProjectID: projectID}); err == nil {
 			label = rev.Label
 		}
-		resolved := resolvedSKU + resolvedMPN + resolvedPrior
+		resolved := resolvedSKU + resolvedMPN + resolvedPrior + resolvedGeneric
 		q.activity.Record(activity.Event{
 			TeamID:  teamID,
 			ActorID: createdBy,
@@ -343,4 +361,78 @@ func uuidStr(u pgtype.UUID) string {
 		return ""
 	}
 	return u.String()
+}
+
+// tryParametricMatch attempts to resolve a BOM line to an existing catalog part
+// from its persisted parametric interpretation: category subtree + canonical
+// package + primary value within an epsilon window. It returns a part id only on
+// a single unambiguous match and NEVER creates a part (generic creation is an
+// explicit user action). Any error or non-unique result yields ok=false, leaving
+// the line unresolved for review.
+func tryParametricMatch(ctx context.Context, queries *dbgen.Queries, teamID, itemID pgtype.UUID) (pgtype.UUID, bool) {
+	var none pgtype.UUID
+	raw, err := queries.GetBOMLineItemInterpretation(ctx, itemID)
+	if err != nil || len(raw) == 0 {
+		return none, false
+	}
+	var interp genspec.Interpretation
+	if err := json.Unmarshal(raw, &interp); err != nil {
+		return none, false
+	}
+	if interp.Route != genspec.RouteParametric || interp.Category == "" || interp.Package == "" {
+		return none, false
+	}
+	prof, ok := genspec.ProfileForClass(interp.Class)
+	if !ok || prof.ValueParam == "" {
+		return none, false
+	}
+
+	var nominal, tol *float64
+	for _, p := range interp.Params {
+		switch p.Slug {
+		case prof.ValueParam:
+			nominal = p.ValueSI
+		case "tolerance":
+			tol = p.ValueSI
+		}
+	}
+	if nominal == nil {
+		return none, false
+	}
+
+	cat, err := queries.GetCategoryBySlug(ctx, interp.Category)
+	if err != nil {
+		return none, false
+	}
+	paramDef, err := queries.GetParameterBySlug(ctx, prof.ValueParam)
+	if err != nil {
+		return none, false
+	}
+
+	// Value epsilon: ±1% by default; for a tolerance-bearing line, ±(0.1·T) where T
+	// is the tolerance in percent (a 10% line widens to ±1%, a 1% line to ±0.1%).
+	eps := 0.01
+	if tol != nil && *tol > 0 {
+		eps = 0.001 * (*tol)
+	}
+	lo := *nominal * (1 - eps)
+	hi := *nominal * (1 + eps)
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+
+	pkg := interp.Package
+	pid := paramDef.ID
+	matches, err := queries.FindGenericPartMatch(ctx, dbgen.FindGenericPartMatchParams{
+		TeamID:           teamID,
+		CategoryID:       cat.ID,
+		CanonicalPackage: &pkg,
+		ParameterID:      &pid,
+		MinVal:           &lo,
+		MaxVal:           &hi,
+	})
+	if err != nil || len(matches) != 1 {
+		return none, false
+	}
+	return matches[0], true
 }
