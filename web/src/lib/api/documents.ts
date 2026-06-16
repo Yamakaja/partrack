@@ -1,8 +1,9 @@
 import { request } from './client.js';
 
 // A document is a file attachment (datasheet, office file, image, Touchstone
-// S-params, …) pinned to a part or project — listed separately from note
-// markdown. `viewable` means it can be previewed in-app (PDF or raster image).
+// S-params, interactive HTML BOM, …) pinned to a part or project — listed
+// separately from note markdown. `viewable` means it can be previewed in-app:
+// a PDF, a raster image, or HTML (served + framed in a no-egress sandbox).
 export interface DocumentItem {
   id: string;
   filename: string;
@@ -60,9 +61,9 @@ export function deleteDocument(teamId: string, docId: string): Promise<void> {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/documents/${docId}`);
 }
 
-// documentContentUrl is the access-controlled, filename-aware serve path. PDFs
-// and images render inline (for the viewer); pass { download: true } to force a
-// download with the original filename.
+// documentContentUrl is the access-controlled, filename-aware serve path. PDFs,
+// images, and (sandboxed) HTML render inline for the viewer; pass
+// { download: true } to force a download with the original filename.
 export function documentContentUrl(
   teamId: string,
   docId: string,

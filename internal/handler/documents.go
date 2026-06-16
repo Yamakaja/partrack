@@ -26,10 +26,16 @@ import (
 //
 // Office and Touchstone files have no distinctive magic bytes (zip / plain
 // text), so documents are classified by file extension, not by content sniffing.
-// That is safe because of how they are served: only PDFs are ever served inline
-// (and then verified to actually be PDF); every other type is forced to a
-// download (Content-Disposition: attachment), so no uploaded bytes can execute
-// as script in our origin.
+// That is safe because of how they are served:
+//
+//   - PDFs and raster images are served inline (and verified to actually sniff as
+//     an inline-safe type), so they render in our own origin.
+//   - HTML documents (interactive BOMs) are served inline too, but never in our
+//     origin: a Content-Security-Policy `sandbox` header (see documentSandboxCSP)
+//     forces an opaque origin even on direct top-level navigation, so scripts run
+//     with no access to cookies, our API, or the parent DOM, and no network egress.
+//   - Every other type is forced to a download (Content-Disposition: attachment),
+//     so its bytes can never execute.
 
 const defaultMaxDocumentBytes = 25 << 20 // 25 MiB
 
@@ -69,6 +75,8 @@ var documentContentTypes = map[string]string{
 	".txt":  "text/plain",
 	".md":   "text/markdown",
 	".zip":  "application/zip",
+	".html": "text/html; charset=utf-8",
+	".htm":  "text/html; charset=utf-8",
 }
 
 // inlineContentTypes are the served content types safe to render in our own
@@ -83,6 +91,41 @@ var inlineContentTypes = map[string]bool{
 	"image/jpeg":      true,
 	"image/gif":       true,
 	"image/webp":      true,
+}
+
+// sandboxedInlineContentTypes are served types that may execute script but only
+// inside a CSP-enforced sandbox (opaque origin, no egress — see
+// documentSandboxCSP), never in our own origin. HTML interactive BOMs live here.
+// Kept separate from inlineContentTypes so the disguised-content sniff guard
+// (which only applies to same-origin inline types) never blocks them: HTML has no
+// magic bytes, and the sandbox — not sniffing — is what makes it safe.
+var sandboxedInlineContentTypes = map[string]bool{
+	"text/html; charset=utf-8": true,
+}
+
+// documentSandboxCSP isolates an HTML document served inline. The `sandbox`
+// directive (without allow-same-origin) gives it an opaque origin even on direct
+// top-level navigation (e.g. opened in a new tab), so it cannot read cookies, call
+// our API with the user's credentials, or touch the parent DOM; allow-scripts lets
+// the interactive BOM run. default-src/connect-src 'none' blocks every network
+// request (no phoning home); inline script/style + data:/blob: images cover a
+// self-contained file; frame-ancestors 'self' lets only our own app frame it.
+const documentSandboxCSP = "sandbox allow-scripts; " +
+	"default-src 'none'; " +
+	"script-src 'unsafe-inline' 'unsafe-eval'; " +
+	"style-src 'unsafe-inline'; " +
+	"img-src data: blob:; " +
+	"font-src data:; " +
+	"media-src data: blob:; " +
+	"connect-src 'none'; " +
+	"base-uri 'none'; " +
+	"form-action 'none'; " +
+	"frame-ancestors 'self'"
+
+// documentViewable reports whether a served content type renders in the in-app
+// viewer — either same-origin inline (PDF/image) or sandboxed inline (HTML).
+func documentViewable(contentType string) bool {
+	return inlineContentTypes[contentType] || sandboxedInlineContentTypes[contentType]
 }
 
 func (h *Handler) maxDocumentBytes() int64 {
@@ -236,7 +279,7 @@ func (h *Handler) storeDocument(w http.ResponseWriter, r *http.Request, teamID, 
 		Filename:    filename,
 		ContentType: contentType,
 		ByteSize:    ref.Size,
-		Viewable:    inlineContentTypes[contentType],
+		Viewable:    documentViewable(contentType),
 		UploadedBy:  uuidPtrString(att.UploadedBy),
 		UploadedAt:  timestamptzString(att.UploadedAt),
 	})
@@ -274,7 +317,7 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request, teamID, 
 			Filename:    filename,
 			ContentType: ct,
 			ByteSize:    row.ByteSize,
-			Viewable:    inlineContentTypes[ct],
+			Viewable:    documentViewable(ct),
 			UploadedBy:  row.UploadedByDisplayName,
 			UploadedAt:  timestamptzString(row.UploadedAt),
 		})
@@ -379,10 +422,12 @@ func (h *Handler) ServeDocument(w http.ResponseWriter, r *http.Request) {
 
 	filename := derefStr(doc.OriginalFilename)
 	contentType := documentContentType(filename)
-	// Inline only for PDF/raster images, and only when not explicitly
-	// downloading; every other type is forced to attachment so it can never
-	// render in our origin.
-	inline := inlineContentTypes[contentType] && r.URL.Query().Get("download") != "1"
+	// Inline for PDF/raster images (same origin) and HTML (sandboxed), unless
+	// explicitly downloading; every other type is forced to attachment so it can
+	// never render. Sandboxed types additionally carry the CSP sandbox header
+	// below so direct navigation to this URL is contained too, not just our frame.
+	sandboxed := sandboxedInlineContentTypes[contentType]
+	inline := documentViewable(contentType) && r.URL.Query().Get("download") != "1"
 
 	etag := `"` + doc.BlobSha256 + `"`
 	if r.Header.Get("If-None-Match") == etag {
@@ -410,6 +455,12 @@ func (h *Handler) ServeDocument(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", contentDisposition(disposition, filename))
 	w.Header().Set("ETag", etag)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Sandbox script-capable documents (HTML) at the response level so the
+	// containment travels with the bytes — direct navigation to this URL is just
+	// as isolated as our framed viewer. Harmless on the attachment (download) path.
+	if sandboxed {
+		w.Header().Set("Content-Security-Policy", documentSandboxCSP)
+	}
 	// Immutable bytes (content-addressed), but access-controlled — keep it private.
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	w.WriteHeader(http.StatusOK)

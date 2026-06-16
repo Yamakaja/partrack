@@ -21,6 +21,7 @@
     FileText,
     FileSpreadsheet,
     FileArchive,
+    FileCode,
     Image as ImageIcon,
     Presentation,
     File as FileIcon,
@@ -66,6 +67,7 @@
     if (ct.includes('spreadsheet') || ct === 'text/csv' || ct === 'application/vnd.ms-excel' || ct === 'text/tab-separated-values')
       return FileSpreadsheet;
     if (ct.includes('presentation')) return Presentation;
+    if (ct.startsWith('text/html')) return FileCode;
     if (ct.startsWith('text/')) return FileText;
     return FileIcon;
   }

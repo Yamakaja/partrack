@@ -37,10 +37,13 @@ type StorageConfig struct {
 	MaxDocumentBytes int64 `yaml:"max_document_bytes"`
 	// AllowedDocumentExtensions is the lowercased file-extension allowlist for
 	// document uploads (including the leading dot). Office and Touchstone files
-	// have no distinctive magic bytes, so documents are classified by extension;
-	// non-PDF documents are always served as a download, never inline, so this
-	// list can be liberal without inline-execution (XSS) risk. Defaults applied
-	// when unset.
+	// have no distinctive magic bytes, so documents are classified by extension.
+	// Most types are served as a download (never inline), so the list can be
+	// liberal without inline-execution (XSS) risk. The exception is .html/.htm:
+	// these render inline but only inside a CSP sandbox (opaque origin, no network
+	// egress — see handler.documentSandboxCSP), so adding them permits script-
+	// capable but contained interactive BOMs. Defaults applied when unset (the
+	// built-in defaults omit .html/.htm — opt in explicitly via this list).
 	AllowedDocumentExtensions []string `yaml:"allowed_document_extensions"`
 }
 

@@ -21,6 +21,12 @@
   let downloadUrl = $derived(doc ? documentContentUrl(teamId, doc.id, { download: true }) : '');
   let isPdf = $derived(doc?.content_type === 'application/pdf');
   let isImage = $derived(doc?.content_type.startsWith('image/') ?? false);
+  // Interactive HTML (e.g. BOMs) may run scripts but must stay isolated: the
+  // server serves it with a CSP `sandbox` header (opaque origin, no egress), and
+  // we frame it with sandbox="allow-scripts" — no allow-same-origin, so it can't
+  // reach our cookies, API, or this DOM. The "New tab" link stays safe because
+  // the same CSP header sandboxes direct navigation too.
+  let isHtml = $derived(doc?.content_type.startsWith('text/html') ?? false);
 
   // The shared Button renders a <button>, so the link actions use styled anchors.
   const linkBtn =
@@ -55,6 +61,13 @@
       <div class="flex-1 overflow-auto bg-muted/30">
         {#if doc && isPdf}
           <iframe src={inlineUrl} title={doc.filename} class="h-full w-full border-0"></iframe>
+        {:else if doc && isHtml}
+          <iframe
+            src={inlineUrl}
+            title={doc.filename}
+            sandbox="allow-scripts"
+            class="h-full w-full border-0 bg-white"
+          ></iframe>
         {:else if doc && isImage}
           <div class="flex h-full w-full items-center justify-center p-4">
             <img src={inlineUrl} alt={doc.filename} class="max-h-full max-w-full object-contain" />

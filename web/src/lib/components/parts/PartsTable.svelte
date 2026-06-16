@@ -369,7 +369,14 @@
     if (source.page > 1) params.set('page', String(source.page));
     if (!syncUrl) return;
     const hash = params.toString();
-    history.pushState(null, '', window.location.pathname + (hash ? '#' + hash : ''));
+    const url = window.location.pathname + (hash ? '#' + hash : '');
+    // Only push a history entry when the synced URL actually changes. On mount — and
+    // whenever filters are restored from the URL (popstate, command-palette nav) — the
+    // computed URL equals the current one; pushing it again inserts a duplicate entry
+    // that silently swallows the next Back press.
+    if (url !== window.location.pathname + window.location.hash) {
+      history.pushState(null, '', url);
+    }
   });
 
   function applyParamFilter(slug: string, filterKey: string, unitSymbol?: string) {
