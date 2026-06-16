@@ -29,8 +29,10 @@ func (q *Queries) AddBOMSubstitute(ctx context.Context, arg AddBOMSubstitutePara
 const createBOMLineItem = `-- name: CreateBOMLineItem :one
 INSERT INTO bom_line_items (
     bom_revision_id, reference_designators, quantity, raw_description,
-    manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id,
+    value, footprint, interpretation
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+          $11, $12, $13)
 RETURNING id
 `
 
@@ -45,8 +47,13 @@ type CreateBOMLineItemParams struct {
 	Sku                   *string     `json:"sku"`
 	DistributorName       *string     `json:"distributor_name"`
 	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
+	Value                 *string     `json:"value"`
+	Footprint             *string     `json:"footprint"`
+	Interpretation        []byte      `json:"interpretation"`
 }
 
+// interpretation_source defaults to 'auto'; the import always creates auto
+// interpretations, which the review gate may later flip to 'user'.
 func (q *Queries) CreateBOMLineItem(ctx context.Context, arg CreateBOMLineItemParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, createBOMLineItem,
 		arg.BomRevisionID,
@@ -59,6 +66,9 @@ func (q *Queries) CreateBOMLineItem(ctx context.Context, arg CreateBOMLineItemPa
 		arg.Sku,
 		arg.DistributorName,
 		arg.ResolvedDistributorID,
+		arg.Value,
+		arg.Footprint,
+		arg.Interpretation,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)

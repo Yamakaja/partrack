@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
@@ -140,6 +141,8 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		SKU                   *string `json:"sku"`
 		DistributorName       *string `json:"distributor_name"`
 		ResolvedDistributorID *string `json:"resolved_distributor_id"`
+		Value                 *string `json:"value"`
+		Footprint             *string `json:"footprint"`
 	}
 	var items []itemInput
 	if v, ok := rawBody["items"]; ok {
@@ -184,6 +187,17 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Interpret the row up front so the persisted line carries the parser's
+		// structured reading (the review gate may later flip it to source 'user').
+		interp := genspec.Interpret(genspec.Input{
+			Refdes:    item.ReferenceDesignators,
+			Footprint: derefStr(item.Footprint),
+			Value:     derefStr(item.Value),
+			MPN:       derefStr(item.MPN),
+			SKU:       derefStr(item.SKU),
+		})
+		interpBytes, _ := json.Marshal(interp)
+
 		_, err := qtx.CreateBOMLineItem(r.Context(), dbgen.CreateBOMLineItemParams{
 			BomRevisionID:         rev.ID,
 			ReferenceDesignators:  item.ReferenceDesignators,
@@ -195,6 +209,9 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			Sku:                   item.SKU,
 			DistributorName:       item.DistributorName,
 			ResolvedDistributorID: resolvedDistributorID,
+			Value:                 item.Value,
+			Footprint:             item.Footprint,
+			Interpretation:        interpBytes,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")

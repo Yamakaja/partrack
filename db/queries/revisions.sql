@@ -37,10 +37,14 @@ WHERE id = sqlc.arg('id') AND project_id = sqlc.arg('project_id')
 RETURNING id, label, imported_at, notes, imported_by;
 
 -- name: CreateBOMLineItem :one
+-- interpretation_source defaults to 'auto'; the import always creates auto
+-- interpretations, which the review gate may later flip to 'user'.
 INSERT INTO bom_line_items (
     bom_revision_id, reference_designators, quantity, raw_description,
-    manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id,
+    value, footprint, interpretation
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+          sqlc.narg('value'), sqlc.narg('footprint'), sqlc.narg('interpretation'))
 RETURNING id;
 
 -- name: ListBOMLineItems :many
