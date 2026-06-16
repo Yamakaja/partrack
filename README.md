@@ -2,6 +2,7 @@
 
 **Electronics parts inventory tracker for PCB design teams**
 
+[![CI](https://github.com/Yamakaja/partrack/actions/workflows/ci.yml/badge.svg)](https://github.com/Yamakaja/partrack/actions/workflows/ci.yml)
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](LICENSE.md)
 
 partrack tracks parts inventory for PCB design teams. It covers the full lifecycle from BOM import through stock checking, purchasing, and assembly tracking — with team-based access control and distributor API integration.
