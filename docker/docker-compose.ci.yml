@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: partrack
       POSTGRES_PASSWORD: partrack
     tmpfs:
-      - /var/lib/postgresql/data  # in-memory for speed; data is ephemeral
+      - /var/lib/postgres/data  # in-memory for speed; data is ephemeral
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U partrack"]
       interval: 2s
