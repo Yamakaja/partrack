@@ -984,6 +984,60 @@ func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDist
 	return id, err
 }
 
+const listGenericCandidatesWithParams = `-- name: ListGenericCandidatesWithParams :many
+SELECT p.id AS part_id, pp.parameter_id, pp.numeric_value, pp.value
+FROM parts p
+LEFT JOIN part_parameters pp ON pp.part_id = p.id
+WHERE p.scope = 'team'
+  AND p.team_id = $1
+  AND p.mpn IS NULL
+  AND p.category_id = $2
+  AND p.canonical_package = $3
+  AND p.lifecycle_status = 'active'
+ORDER BY p.id
+`
+
+type ListGenericCandidatesWithParamsParams struct {
+	TeamID           pgtype.UUID `json:"team_id"`
+	CategoryID       *int32      `json:"category_id"`
+	CanonicalPackage *string     `json:"canonical_package"`
+}
+
+type ListGenericCandidatesWithParamsRow struct {
+	PartID       pgtype.UUID `json:"part_id"`
+	ParameterID  *int32      `json:"parameter_id"`
+	NumericValue *float64    `json:"numeric_value"`
+	Value        *string     `json:"value"`
+}
+
+// Team-scoped generic parts (no MPN) matching a category + canonical package,
+// joined with their parameters. Used for create-or-get dedup of generic parts:
+// the caller groups by part_id and compares the parameter signature.
+func (q *Queries) ListGenericCandidatesWithParams(ctx context.Context, arg ListGenericCandidatesWithParamsParams) ([]ListGenericCandidatesWithParamsRow, error) {
+	rows, err := q.db.Query(ctx, listGenericCandidatesWithParams, arg.TeamID, arg.CategoryID, arg.CanonicalPackage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGenericCandidatesWithParamsRow
+	for rows.Next() {
+		var i ListGenericCandidatesWithParamsRow
+		if err := rows.Scan(
+			&i.PartID,
+			&i.ParameterID,
+			&i.NumericValue,
+			&i.Value,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listListings = `-- name: ListListings :many
 SELECT
     dl.id, dl.part_id, dl.distributor_id, d.name AS distributor_name,

@@ -579,3 +579,18 @@ WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
   AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
   AND pp.parameter_id = sqlc.arg('parameter_id')
   AND pp.numeric_value BETWEEN sqlc.arg('min_val') AND sqlc.arg('max_val');
+
+-- name: ListGenericCandidatesWithParams :many
+-- Team-scoped generic parts (no MPN) matching a category + canonical package,
+-- joined with their parameters. Used for create-or-get dedup of generic parts:
+-- the caller groups by part_id and compares the parameter signature.
+SELECT p.id AS part_id, pp.parameter_id, pp.numeric_value, pp.value
+FROM parts p
+LEFT JOIN part_parameters pp ON pp.part_id = p.id
+WHERE p.scope = 'team'
+  AND p.team_id = sqlc.arg('team_id')
+  AND p.mpn IS NULL
+  AND p.category_id = sqlc.arg('category_id')
+  AND p.canonical_package = sqlc.arg('canonical_package')
+  AND p.lifecycle_status = 'active'
+ORDER BY p.id;

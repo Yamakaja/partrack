@@ -1,0 +1,237 @@
+package handler
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+
+	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/genspec"
+	"github.com/Yamakaja/partrack/internal/middleware"
+	"github.com/Yamakaja/partrack/internal/paramparse"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+// resolvedGenericParam is a request parameter resolved against the registry and
+// SI-parsed, ready to persist and to form the dedup signature.
+type resolvedGenericParam struct {
+	slug       string
+	value      string
+	paramID    *int32
+	valueType  string
+	numeric    *float64
+	numericMax *float64
+	enumValues []string
+}
+
+// CreateGenericPart handles POST /api/v1/parts/generic.
+//
+// It is the explicit, user-initiated creation of a generic (parametric) part —
+// a plain team-scoped parts row with no MPN, a category, a canonical package, and
+// a set of value parameters. It is create-or-get: if a generic part with the same
+// category + canonical package + parameter signature already exists, it is
+// returned instead of duplicating. Satisfaction never reaches this path
+// automatically; only this endpoint creates generic parts.
+func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TeamID     string `json:"team_id"`
+		CategoryID int32  `json:"category_id"`
+		Package    string `json:"package"`
+		Params     []struct {
+			Slug  string `json:"slug"`
+			Value string `json:"value"`
+		} `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" || req.CategoryID == 0 {
+		writeError(w, http.StatusBadRequest, "team_id and category_id are required", "BAD_REQUEST")
+		return
+	}
+
+	var teamID pgtype.UUID
+	if err := teamID.Scan(req.TeamID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
+		return
+	}
+
+	user := middleware.UserFromContext(r.Context())
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if _, err := h.Queries.CheckTeamMembership(r.Context(), dbgen.CheckTeamMembershipParams{
+		TeamID: teamID,
+		UserID: userID,
+	}); err != nil {
+		writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
+		return
+	}
+
+	canonical := genspec.NormalizePackage(req.Package)
+	if canonical == "" {
+		canonical = strings.TrimSpace(req.Package)
+	}
+
+	// Resolve + SI-parse each parameter against the registry.
+	resolved := make([]resolvedGenericParam, 0, len(req.Params))
+	for _, p := range req.Params {
+		if p.Slug == "" || p.Value == "" {
+			continue
+		}
+		rp := resolvedGenericParam{slug: p.Slug, value: p.Value}
+		if def, err := h.Queries.GetParameterBySlug(r.Context(), p.Slug); err == nil {
+			id := def.ID
+			rp.paramID = &id
+			rp.valueType = def.ValueType
+			if def.ValueType == "enum_set" {
+				rp.enumValues = paramparse.ParseEnumSet(p.Value)
+			} else {
+				pr := paramparse.Parse(p.Value, def.ValueType)
+				rp.numeric, rp.numericMax = pr.Value, pr.ValueMax
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		resolved = append(resolved, rp)
+	}
+
+	// create-or-get: compare the request signature against existing generics.
+	wantSig := requestSignature(resolved)
+	var pkgPtr *string
+	if canonical != "" {
+		pkgPtr = &canonical
+	}
+	candidates, err := h.Queries.ListGenericCandidatesWithParams(r.Context(), dbgen.ListGenericCandidatesWithParamsParams{
+		TeamID:           teamID,
+		CategoryID:       &req.CategoryID,
+		CanonicalPackage: pkgPtr,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if existing := matchExistingGeneric(candidates, wantSig); existing.Valid {
+		writeJSON(w, http.StatusOK, map[string]any{"part_id": existing.String(), "existing": true})
+		return
+	}
+
+	// Create the generic part, its parameters, and a zero-qty inventory entry.
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	part, err := qtx.CreatePart(r.Context(), dbgen.CreatePartParams{
+		Scope:            dbgen.PartScopeTeam,
+		TeamID:           teamID,
+		CategoryID:       &req.CategoryID,
+		Package:          strPtrOrNil(req.Package),
+		CanonicalPackage: pkgPtr,
+		LifecycleStatus:  dbgen.PartLifecycleStatusActive,
+		CreatedBy:        userID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	for _, rp := range resolved {
+		if _, err := qtx.UpsertUserParameter(r.Context(), dbgen.UpsertUserParameterParams{
+			PartID:          part.ID,
+			Name:            rp.slug,
+			Value:           rp.value,
+			ParameterID:     rp.paramID,
+			NumericValue:    rp.numeric,
+			NumericValueMax: rp.numericMax,
+			EnumValues:      rp.enumValues,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	if _, err := qtx.CreateInventoryEntry(r.Context(), dbgen.CreateInventoryEntryParams{
+		TeamID: teamID,
+		PartID: part.ID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": part.ID.String()})
+	w.Header().Set("Location", "/api/v1/parts/"+part.ID.String())
+	writeJSON(w, http.StatusCreated, map[string]any{"part_id": part.ID.String(), "existing": false})
+}
+
+// requestSignature builds the order-independent parameter signature of a
+// create-generic request. Mapped params key on the parameter id; unmapped ones
+// key on the raw value, so the same comparison works against existing parts.
+func requestSignature(params []resolvedGenericParam) string {
+	keys := make([]string, 0, len(params))
+	for _, p := range params {
+		keys = append(keys, paramSigKey(p.paramID, p.numeric, p.value))
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "|")
+}
+
+// matchExistingGeneric groups candidate rows by part and returns the first whose
+// parameter signature equals want.
+func matchExistingGeneric(rows []dbgen.ListGenericCandidatesWithParamsRow, want string) pgtype.UUID {
+	byPart := map[string][]string{}
+	order := []pgtype.UUID{}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		id := row.PartID.String()
+		if !seen[id] {
+			seen[id] = true
+			order = append(order, row.PartID)
+		}
+		// A part with no parameters yields one all-NULL row from the LEFT JOIN.
+		if row.ParameterID == nil && row.Value == nil {
+			continue
+		}
+		byPart[id] = append(byPart[id], paramSigKey(row.ParameterID, row.NumericValue, derefStr(row.Value)))
+	}
+	for _, partID := range order {
+		keys := byPart[partID.String()]
+		sort.Strings(keys)
+		if strings.Join(keys, "|") == want {
+			return partID
+		}
+	}
+	return pgtype.UUID{}
+}
+
+func paramSigKey(paramID *int32, numeric *float64, value string) string {
+	var prefix string
+	if paramID != nil {
+		prefix = "p" + strconv.Itoa(int(*paramID))
+	} else {
+		prefix = "v"
+	}
+	if numeric != nil {
+		return prefix + ":" + strconv.FormatFloat(*numeric, 'g', -1, 64)
+	}
+	return prefix + ":" + strings.ToLower(strings.TrimSpace(value))
+}
+
+func strPtrOrNil(s string) *string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return &s
+}
