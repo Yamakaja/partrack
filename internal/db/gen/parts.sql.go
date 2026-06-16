@@ -138,7 +138,7 @@ INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, pac
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         CASE WHEN $10::int IS NOT NULL THEN 'user' ELSE 'auto' END,
         $11)
-RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at
+RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at, canonical_package
 `
 
 type CreatePartParams struct {
@@ -192,6 +192,7 @@ func (q *Queries) CreatePart(ctx context.Context, arg CreatePartParams) (Part, e
 		&i.CategorySource,
 		&i.CreatedBy,
 		&i.DeletedAt,
+		&i.CanonicalPackage,
 	)
 	return i, err
 }
@@ -416,7 +417,7 @@ func (q *Queries) GetParametersByPartIDs(ctx context.Context, partIds []pgtype.U
 }
 
 const getPart = `-- name: GetPart :one
-SELECT id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at FROM parts WHERE id = $1
+SELECT id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at, canonical_package FROM parts WHERE id = $1
 `
 
 func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
@@ -444,6 +445,7 @@ func (q *Queries) GetPart(ctx context.Context, id pgtype.UUID) (Part, error) {
 		&i.CategorySource,
 		&i.CreatedBy,
 		&i.DeletedAt,
+		&i.CanonicalPackage,
 	)
 	return i, err
 }
@@ -1646,7 +1648,7 @@ SET description                   = COALESCE($1, description),
     preferred_parameter_source_id = COALESCE($7,
                                              preferred_parameter_source_id)
 WHERE id = $8
-RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at
+RETURNING id, scope, team_id, mpn, manufacturer, description, category, package, datasheet_url, lifecycle_status, enrichment_source_id, enriched_at, preferred_parameter_source_id, created_at, short_description, product_url, image_url, category_id, category_source, created_by, deleted_at, canonical_package
 `
 
 type UpdatePartParams struct {
@@ -1694,6 +1696,7 @@ func (q *Queries) UpdatePart(ctx context.Context, arg UpdatePartParams) (Part, e
 		&i.CategorySource,
 		&i.CreatedBy,
 		&i.DeletedAt,
+		&i.CanonicalPackage,
 	)
 	return i, err
 }

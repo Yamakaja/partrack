@@ -163,7 +163,7 @@ func (q *Queries) FindPartIDsByParameterValues(ctx context.Context, arg FindPart
 }
 
 const findPartsByParameterRange = `-- name: FindPartsByParameterRange :many
-SELECT DISTINCT p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.category, p.package, p.datasheet_url, p.lifecycle_status, p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at, p.short_description, p.product_url, p.image_url, p.category_id, p.category_source, p.created_by, p.deleted_at
+SELECT DISTINCT p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.category, p.package, p.datasheet_url, p.lifecycle_status, p.enrichment_source_id, p.enriched_at, p.preferred_parameter_source_id, p.created_at, p.short_description, p.product_url, p.image_url, p.category_id, p.category_source, p.created_by, p.deleted_at, p.canonical_package
 FROM parts p
 JOIN part_parameters pp ON pp.part_id = p.id
 WHERE pp.parameter_id = $1
@@ -218,6 +218,7 @@ func (q *Queries) FindPartsByParameterRange(ctx context.Context, arg FindPartsBy
 			&i.CategorySource,
 			&i.CreatedBy,
 			&i.DeletedAt,
+			&i.CanonicalPackage,
 		); err != nil {
 			return nil, err
 		}

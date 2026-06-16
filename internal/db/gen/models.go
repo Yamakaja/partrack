@@ -466,6 +466,10 @@ type BomLineItem struct {
 	ResolutionState       *string     `json:"resolution_state"`
 	Ignored               bool        `json:"ignored"`
 	ResolveItemID         pgtype.UUID `json:"resolve_item_id"`
+	Value                 *string     `json:"value"`
+	Footprint             *string     `json:"footprint"`
+	Interpretation        []byte      `json:"interpretation"`
+	InterpretationSource  string      `json:"interpretation_source"`
 }
 
 type BomLineItemSubstitute struct {
@@ -581,12 +585,13 @@ type CartLineItem struct {
 }
 
 type Category struct {
-	ID            int32  `json:"id"`
-	Slug          string `json:"slug"`
-	DisplayName   string `json:"display_name"`
-	ParentID      *int32 `json:"parent_id"`
-	SortOrder     int32  `json:"sort_order"`
-	PrimaryParams []byte `json:"primary_params"`
+	ID            int32   `json:"id"`
+	Slug          string  `json:"slug"`
+	DisplayName   string  `json:"display_name"`
+	ParentID      *int32  `json:"parent_id"`
+	SortOrder     int32   `json:"sort_order"`
+	PrimaryParams []byte  `json:"primary_params"`
+	ValueParam    *string `json:"value_param"`
 }
 
 type Distributor struct {
@@ -752,6 +757,7 @@ type Part struct {
 	CategorySource             string              `json:"category_source"`
 	CreatedBy                  pgtype.UUID         `json:"created_by"`
 	DeletedAt                  pgtype.Timestamptz  `json:"deleted_at"`
+	CanonicalPackage           *string             `json:"canonical_package"`
 }
 
 type PartAlias struct {

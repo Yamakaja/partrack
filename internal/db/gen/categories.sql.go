@@ -16,9 +16,18 @@ SELECT id, slug, display_name, parent_id, sort_order, primary_params
 FROM categories WHERE id = $1
 `
 
-func (q *Queries) GetCategory(ctx context.Context, id int32) (Category, error) {
+type GetCategoryRow struct {
+	ID            int32  `json:"id"`
+	Slug          string `json:"slug"`
+	DisplayName   string `json:"display_name"`
+	ParentID      *int32 `json:"parent_id"`
+	SortOrder     int32  `json:"sort_order"`
+	PrimaryParams []byte `json:"primary_params"`
+}
+
+func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, error) {
 	row := q.db.QueryRow(ctx, getCategory, id)
-	var i Category
+	var i GetCategoryRow
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
@@ -35,9 +44,18 @@ SELECT id, slug, display_name, parent_id, sort_order, primary_params
 FROM categories WHERE slug = $1
 `
 
-func (q *Queries) GetCategoryBySlug(ctx context.Context, slug string) (Category, error) {
+type GetCategoryBySlugRow struct {
+	ID            int32  `json:"id"`
+	Slug          string `json:"slug"`
+	DisplayName   string `json:"display_name"`
+	ParentID      *int32 `json:"parent_id"`
+	SortOrder     int32  `json:"sort_order"`
+	PrimaryParams []byte `json:"primary_params"`
+}
+
+func (q *Queries) GetCategoryBySlug(ctx context.Context, slug string) (GetCategoryBySlugRow, error) {
 	row := q.db.QueryRow(ctx, getCategoryBySlug, slug)
-	var i Category
+	var i GetCategoryBySlugRow
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
@@ -82,16 +100,25 @@ FROM categories
 ORDER BY sort_order, id
 `
 
+type ListCategoriesRow struct {
+	ID            int32  `json:"id"`
+	Slug          string `json:"slug"`
+	DisplayName   string `json:"display_name"`
+	ParentID      *int32 `json:"parent_id"`
+	SortOrder     int32  `json:"sort_order"`
+	PrimaryParams []byte `json:"primary_params"`
+}
+
 // Category registry and distributor mapping queries.
-func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
+func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, error) {
 	rows, err := q.db.Query(ctx, listCategories)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Category
+	var items []ListCategoriesRow
 	for rows.Next() {
-		var i Category
+		var i ListCategoriesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Slug,
