@@ -27,14 +27,14 @@ type Input struct {
 // Interpretation is the structured reading of one BOM line (see doc/bom-import.md
 // §5.6). It is produced by the parser and reviewed by the user before satisfaction.
 type Interpretation struct {
-	Route      Route
-	Class      string  // class key, e.g. "R"
-	Category   string  // partrack category slug, e.g. "resistors"
-	Package    string  // canonical package; "" if none
-	Mounting   string  // "smd" | "tht" | ""
-	Params     []Param // extracted constraints
-	Flags      []string
-	Confidence float64
+	Route      Route    `json:"route"`
+	Class      string   `json:"class"`      // class key, e.g. "R"
+	Category   string   `json:"category"`   // partrack category slug, e.g. "resistors"
+	Package    string   `json:"package"`    // canonical package; "" if none
+	Mounting   string   `json:"mounting"`   // "smd" | "tht" | ""
+	Params     []Param  `json:"params"`     // extracted constraints
+	Flags      []string `json:"flags"`      // anything needing attention
+	Confidence float64  `json:"confidence"` // 0..1
 }
 
 var ignoreValueRe = regexp.MustCompile(`(?i)^(dnp|dni|dnf|nc|nf|do[ _]?not[ _]?(populate|place|fit)|not[ _]?fitted|logo|~)$`)

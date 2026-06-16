@@ -10,9 +10,9 @@ import (
 // Param is one extracted parameter constraint. ValueSI is nil for enum/text
 // params (e.g. dielectric, colour) and for unparseable numerics.
 type Param struct {
-	Slug    string
-	Raw     string
-	ValueSI *float64
+	Slug    string   `json:"slug"`
+	Raw     string   `json:"raw"`
+	ValueSI *float64 `json:"value_si"`
 }
 
 // dielectrics is the recognised set of capacitor dielectric codes (uppercased).

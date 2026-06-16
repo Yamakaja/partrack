@@ -91,6 +91,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Get("/blobs/{sha256}", h.ServeBlob)
 			r.Head("/blobs/{sha256}", h.ServeBlob)
 
+			// BOM interpretation preview: stateless parse of mapped rows into
+			// structured interpretations (no persistence, no team scope).
+			r.Post("/bom/interpret-preview", h.InterpretPreview)
+
 			// Admin (instance-level)
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAdmin)
