@@ -8,6 +8,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/paramparse"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -321,9 +322,10 @@ func ApplyEnrichmentResult(
 			Manufacturer: manufacturer,
 			Description:  strOrNil(result.Description),
 			// category_id resolved during enrichment; not set at part creation time here
-			Package:         strOrNil(result.Package),
-			DatasheetUrl:    strOrNil(result.DatasheetURL),
-			LifecycleStatus: lifecycleStatus,
+			Package:          strOrNil(result.Package),
+			CanonicalPackage: strOrNil(genspec.NormalizePackage(result.Package)),
+			DatasheetUrl:     strOrNil(result.DatasheetURL),
+			LifecycleStatus:  lifecycleStatus,
 		})
 		if err != nil {
 			return pgtype.UUID{}, fmt.Errorf("create part: %w", err)

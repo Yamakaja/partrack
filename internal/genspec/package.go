@@ -65,6 +65,18 @@ var (
 	dimensionTokenRe = regexp.MustCompile(`(?i)^(Pad|HandSolder|L\d|D\d|W\d|P\d|\d+(\.\d+)?x?\d*(\.\d+)?mm).*`)
 )
 
+// NormalizePackage returns the canonical package identifier for a raw
+// package/footprint string, or "" when none can be determined. It is the
+// convenience wrapper used when only the canonical value is needed (e.g. to
+// populate parts.canonical_package on both manual creation and enrichment).
+func NormalizePackage(s string) string {
+	c, _, _, ok := CanonicalPackage(s)
+	if !ok {
+		return ""
+	}
+	return c
+}
+
 // CanonicalPackage normalises an EDA footprint/package string into a canonical
 // package identifier, a mounting type ("smd" | "tht" | ""), and a class hint
 // (a class key, or "" if none). ok is false when no package could be confidently

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -356,6 +357,19 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreatePart handles POST /api/v1/parts
+// canonicalPackagePtr returns the normalised canonical package for a raw package
+// string, or nil when absent or unrecognised. Used so parametric (generic)
+// matching compares packages consistently across manual entry and enrichment.
+func canonicalPackagePtr(pkg *string) *string {
+	if pkg == nil || *pkg == "" {
+		return nil
+	}
+	if c := genspec.NormalizePackage(*pkg); c != "" {
+		return &c
+	}
+	return nil
+}
+
 func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Scope           string  `json:"scope"`
@@ -451,17 +465,18 @@ func (h *Handler) CreatePart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	part, err := h.Queries.CreatePart(r.Context(), dbgen.CreatePartParams{
-		Scope:           dbgen.PartScope(req.Scope),
-		TeamID:          teamID,
-		Mpn:             req.Mpn,
-		Manufacturer:    req.Manufacturer,
-		Description:     req.Description,
-		Category:        req.Category,
-		CategoryID:      req.CategoryID,
-		Package:         req.Package,
-		DatasheetUrl:    req.DatasheetURL,
-		LifecycleStatus: lifecycleStatus,
-		CreatedBy:       createdBy,
+		Scope:            dbgen.PartScope(req.Scope),
+		TeamID:           teamID,
+		Mpn:              req.Mpn,
+		Manufacturer:     req.Manufacturer,
+		Description:      req.Description,
+		Category:         req.Category,
+		CategoryID:       req.CategoryID,
+		Package:          req.Package,
+		CanonicalPackage: canonicalPackagePtr(req.Package),
+		DatasheetUrl:     req.DatasheetURL,
+		LifecycleStatus:  lifecycleStatus,
+		CreatedBy:        createdBy,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -798,6 +813,7 @@ func (h *Handler) UpdatePart(w http.ResponseWriter, r *http.Request) {
 	params.Category = req.Category
 	params.CategoryID = req.CategoryID
 	params.Package = req.Package
+	params.CanonicalPackage = canonicalPackagePtr(req.Package)
 	params.DatasheetUrl = req.DatasheetURL
 	if req.LifecycleStatus != nil {
 		params.LifecycleStatus = dbgen.NullPartLifecycleStatus{

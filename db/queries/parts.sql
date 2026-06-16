@@ -203,10 +203,11 @@ WHERE p.id = sqlc.arg('id');
 
 -- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,
-                   datasheet_url, lifecycle_status, category_id, category_source, created_by)
+                   datasheet_url, lifecycle_status, category_id, category_source,
+                   canonical_package, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, sqlc.narg('category_id'),
         CASE WHEN sqlc.narg('category_id')::int IS NOT NULL THEN 'user' ELSE 'auto' END,
-        sqlc.narg('created_by'))
+        sqlc.narg('canonical_package'), sqlc.narg('created_by'))
 RETURNING *;
 
 -- name: UpdatePart :one
@@ -219,6 +220,7 @@ SET description                   = COALESCE(sqlc.narg('description'), descripti
                                         ELSE category_source
                                     END,
     package                       = COALESCE(sqlc.narg('package'), package),
+    canonical_package             = COALESCE(sqlc.narg('canonical_package'), canonical_package),
     datasheet_url                 = COALESCE(sqlc.narg('datasheet_url'), datasheet_url),
     lifecycle_status              = COALESCE(sqlc.narg('lifecycle_status'), lifecycle_status),
     preferred_parameter_source_id = COALESCE(sqlc.narg('preferred_parameter_source_id'),
