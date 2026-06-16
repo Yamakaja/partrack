@@ -33,6 +33,15 @@ func prefixMultiplier(prefix string) float64 {
 	return 1.0
 }
 
+// rkmMultiplier returns the multiplier for an RKM marker letter (IEC 60062).
+// R/r mark the ohm position (×1); every other marker is an SI prefix.
+func rkmMultiplier(letter string) float64 {
+	if letter == "R" || letter == "r" {
+		return 1
+	}
+	return prefixMultiplier(letter)
+}
+
 // storageMultiplier returns the bit-equivalent multiplier for a storage prefix+unit pair.
 // Byte units (B, byte, bytes) multiply by 8; bit units do not.
 // Binary IEC prefixes (Ki/Mi/Gi/Ti) use powers of 1024; SI prefixes use powers of 10.

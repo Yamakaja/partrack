@@ -161,6 +161,22 @@ func TestParse(t *testing.T) {
 		{"inch mm 0.039", `0.039" (1.00mm)`, "numeric", pf(1.00e-3), nil},
 		{"inch mm 0.047", `0.047" (1.20mm)`, "numeric", pf(1.20e-3), nil},
 		{"inch mm 0.171", `0.171" (4.35mm)`, "numeric", pf(4.35e-3), nil},
+
+		// RKM / comma-less notation (IEC 60062): prefix/R stands in for the decimal point
+		{"rkm 4k7", "4k7", "numeric", pf(4700), nil},
+		{"rkm 2k2", "2k2", "numeric", pf(2200), nil},
+		{"rkm 1k0", "1k0", "numeric", pf(1000), nil},
+		{"rkm 4R7", "4R7", "numeric", pf(4.7), nil},
+		{"rkm 0R22", "0R22", "numeric", pf(0.22), nil},
+		{"rkm R47", "R47", "numeric", pf(0.47), nil},
+		{"rkm 1M5", "1M5", "numeric", pf(1.5e6), nil},
+		{"rkm 4u7", "4u7", "numeric", pf(4.7e-6), nil},
+		{"rkm 4n7", "4n7", "numeric", pf(4.7e-9), nil},
+		{"rkm 4p7", "4p7", "numeric", pf(4.7e-12), nil},
+		{"rkm with unit", "4k7Ω", "numeric", pf(4700), nil},
+		// RKM must NOT swallow part-number-like strings (N is not a marker letter)
+		{"not rkm 1N4148", "1N4148", "numeric", nil, nil},
+		{"not rkm 2N7000", "2N7000", "numeric", nil, nil},
 	}
 
 	for _, tt := range tests {

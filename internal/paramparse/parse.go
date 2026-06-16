@@ -79,6 +79,17 @@ var fractionRe = regexp.MustCompile(
 		`\s*([A-Za-zΩ°%]*)\s*$`,
 )
 
+// rkmRe matches RKM / "comma-less" notation (IEC 60062), where an SI prefix or
+// the ohm marker R stands in for the decimal point — ubiquitous in EDA value
+// fields. Examples: 4k7=4700, 0R22=0.22, 1M5=1.5e6, 4n7=4.7e-9, 4u7=4.7e-6,
+// R47=0.47. Group 1 = integer part (may be empty → 0), group 2 = the
+// prefix/marker letter, group 3 = fractional digits, group 4 = optional trailing
+// unit (ignored). The letter class is restricted to valid RKM markers so part
+// numbers like "1N4148" or "2N7000" (N is not a marker) never match.
+var rkmRe = regexp.MustCompile(
+	`^([0-9]*)([RrkKMGTmuµnp])([0-9]+)\s*([A-Za-zΩ°]*)$`,
+)
+
 // storageSizeRe matches storage size values with SI or IEC binary prefixes.
 // Binary prefixes (Ki/Mi/Gi/Ti) must appear before single-char SI prefixes in the
 // alternation so they are tried first. Groups: 1=number, 2=prefix, 3=unit.
@@ -280,6 +291,20 @@ func parseScalar(s string) *float64 {
 		base, err := strconv.ParseFloat(m[1], 64)
 		if err == nil {
 			v := base * storageMultiplier(m[2], m[3])
+			return &v
+		}
+	}
+
+	// RKM / comma-less notation: "4k7", "0R22", "1M5", "4n7". Checked before
+	// numericRe (which cannot match it — the trailing digits fall outside its
+	// unit group anyway).
+	if m := rkmRe.FindStringSubmatch(s); m != nil {
+		intPart := m[1]
+		if intPart == "" {
+			intPart = "0"
+		}
+		if frac, err := strconv.ParseFloat(intPart+"."+m[3], 64); err == nil {
+			v := frac * rkmMultiplier(m[2])
 			return &v
 		}
 	}
