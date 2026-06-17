@@ -54,16 +54,27 @@ func MustDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// BeforeTruncate, when set, is invoked at the start of every Truncate. Tests
+// that run a shared background worker against the test DB set this to a function
+// that blocks until the worker is idle (e.g. worker.Queue.WaitIdle), so a
+// TRUNCATE never races an in-flight job transaction — which deadlocks on table
+// locks and can bleed a late write into the next test. Nil by default.
+var BeforeTruncate func()
+
 // Truncate deletes all per-test rows from every application table. It does NOT
 // touch `distributors` (seeded by migration 000002) or the golang-migrate
 // tracking table.
 func Truncate(t *testing.T, pool *pgxpool.Pool) {
+	if BeforeTruncate != nil {
+		BeforeTruncate()
+	}
 	const q = `TRUNCATE
 		users, sessions, api_tokens, user_credentials, user_preferences,
 		external_identities, teams, team_memberships, distributor_configs,
 		parts, part_parameters, distributor_listings, distributor_parameter_mappings,
 		storage_locations, inventory_entries, stock_adjustments,
 		projects, bom_revisions, bom_line_items, bom_line_item_substitutes,
+		bom_interpretation_memory,
 		shopping_carts, cart_line_items,
 		orders, order_line_items,
 		builds,

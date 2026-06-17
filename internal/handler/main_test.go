@@ -1,9 +1,11 @@
 package handler_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/blob"
 	"github.com/Yamakaja/partrack/internal/config"
@@ -53,6 +55,15 @@ func TestMain(m *testing.M) {
 	ts := httptest.NewServer(srv.Handler)
 
 	testEnv = &testEnvType{Server: ts, DB: testDB, Queue: q}
+
+	// Quiesce the shared worker before every truncate, so a test's cleanup never
+	// races an in-flight job transaction (deadlock) or lets a late job write into
+	// the next test (state bleed).
+	testutil.BeforeTruncate = func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = q.WaitIdle(ctx)
+	}
 
 	code := m.Run()
 	ts.Close()

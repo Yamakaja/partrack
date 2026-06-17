@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
@@ -71,6 +72,12 @@ type Queue struct {
 	activity       *activity.Recorder
 	quit           chan struct{}  // closed by Shutdown to signal goroutines to stop
 	wg             sync.WaitGroup // tracks worker + cleanup goroutines for drain
+
+	// enqueued/completed track job lifecycle for WaitIdle. enqueued is bumped at
+	// submit time (before the channel send) and completed after the handler
+	// returns, so completed == enqueued means nothing is queued or in-flight.
+	enqueued  atomic.Int64
+	completed atomic.Int64
 }
 
 // SetActivity wires the activity recorder so jobs can emit rollup events
@@ -204,8 +211,28 @@ func newUUID() string {
 // Enqueue submits a job and returns its ID.
 func (q *Queue) Enqueue(jobType JobType, teamID string, payload any) string {
 	id := newUUID()
+	q.enqueued.Add(1)
 	q.jobs <- Job{ID: id, Type: jobType, TeamID: teamID, Payload: payload}
 	return id
+}
+
+// WaitIdle blocks until every enqueued job has finished processing, or ctx is
+// done. It exists so tests can quiesce the shared worker before truncating the
+// database — a TRUNCATE racing an in-flight job transaction deadlocks on table
+// locks, and a job writing after the truncate bleeds state into the next test.
+func (q *Queue) WaitIdle(ctx context.Context) error {
+	ticker := time.NewTicker(2 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if q.completed.Load() >= q.enqueued.Load() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // Subscribe registers a channel to receive SSE events for a team.
@@ -269,11 +296,13 @@ func (q *Queue) run() {
 		select {
 		case job := <-q.jobs:
 			q.process(job)
+			q.completed.Add(1)
 		case <-q.quit:
 			for {
 				select {
 				case job := <-q.jobs:
 					q.process(job)
+					q.completed.Add(1)
 				default:
 					return
 				}
