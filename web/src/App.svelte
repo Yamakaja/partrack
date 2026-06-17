@@ -38,6 +38,7 @@
   import Tokens from './routes/settings/Tokens.svelte';
   import AdminUsers from './routes/admin/Users.svelte';
   import AdminParameters from './routes/admin/Parameters.svelte';
+  import AdminCategoryParameters from './routes/admin/CategoryParameters.svelte';
   import AdminLdap from './routes/admin/Ldap.svelte';
   import ResetPassword from './routes/admin/ResetPassword.svelte';
   import Scan from './routes/Scan.svelte';
@@ -59,6 +60,7 @@
     { pattern: '/reset-password',                                                         component: ResetPassword },
     { pattern: '/scan',                                                                   component: Scan },
     { pattern: '/admin/parameters',                                                       component: AdminParameters },
+    { pattern: '/admin/category-parameters',                                              component: AdminCategoryParameters },
     { pattern: '/admin/ldap',                                                             component: AdminLdap },
     { pattern: '/admin/users',                                                            component: AdminUsers },
     { pattern: '/admin',                                                                  component: AdminUsers },

@@ -152,6 +152,7 @@
       items.push(
         { type: 'page', id: 'admin-users',       primary: 'Admin: Users',       secondary: 'Instance user management',    url: '/admin/users',       icon: Shield },
         { type: 'page', id: 'admin-parameters',  primary: 'Admin: Parameters',  secondary: 'Global parameter definitions', url: '/admin/parameters',  icon: SlidersHorizontal },
+        { type: 'page', id: 'admin-category-parameters', primary: 'Admin: Category Parameters', secondary: 'Per-category value & primary params', url: '/admin/category-parameters', icon: SlidersHorizontal },
       );
     }
     items.push({ type: 'page', id: 'profile', primary: 'Account', secondary: 'Profile and account settings', url: '/settings/profile', icon: UserRound });

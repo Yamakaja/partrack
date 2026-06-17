@@ -86,6 +86,20 @@ export function deleteParameterDefinition(id: number) {
   return request<void>('DELETE', `/api/v1/admin/parameter-definitions/${id}`);
 }
 
+// ── Category class profiles ───────────────────────────────────────────────────
+
+/** Curate a category's value_param (magnitude slug, or null) + ordered primary_params. */
+export function updateCategoryParams(
+  id: number,
+  body: { value_param: string | null; primary_params: string[] },
+) {
+  return request<import('$lib/types/categories.js').Category>(
+    'PATCH',
+    `/api/v1/admin/categories/${id}/params`,
+    body,
+  );
+}
+
 export function listDistributorParamMappings(params: { distributor_id?: string; unmapped?: boolean } = {}) {
   return request<DistributorParamMapping[]>(
     'GET',
