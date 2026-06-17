@@ -62,3 +62,18 @@ storage:
   allowed_document_extensions: [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp",
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
     ".csv", ".tsv", ".txt", ".md", ".zip", ".s1p", ".s2p", ".s3p", ".s4p"]
+
+# Optional LLM fallback for interpreting BOM line items the deterministic parser
+# can't read cleanly (weird value formats like "9k10%" or "5V/10uF"). Speaks the
+# OpenAI-compatible chat-completions API, defaulting to OpenRouter, so small
+# open-weight models (Llama/Gemma) can be used. Only the rare escalated rows are
+# sent, and results are cached — but enabling this does send those BOM rows to the
+# configured provider. Disabled unless enabled AND api_key AND model are set.
+# llm:
+#   enabled: true
+#   base_url: "https://openrouter.ai/api/v1"          # default; any OpenAI-compatible endpoint
+#   api_key: "sk-or-…"                                # or env PARTRACK_LLM_API_KEY
+#   model: "meta-llama/llama-3.1-8b-instruct"         # or env PARTRACK_LLM_MODEL
+#   fallback_model: ""                                # tried once if model errors (optional)
+#   timeout_seconds: 30
+#   max_escalations_per_preview: 50                   # cap rows sent to the LLM per preview
