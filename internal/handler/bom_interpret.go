@@ -8,17 +8,19 @@ import (
 	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/sync/errgroup"
 )
 
 // maxInterpretPreviewItems bounds a single preview request.
 const maxInterpretPreviewItems = 5000
 
-// previewItem is one interpretation plus whether it was supplied from the team's
-// interpretation memory rather than parsed fresh. The Interpretation fields are
-// flattened into the same JSON object.
+// previewItem is one interpretation plus its provenance. source is "auto" (fresh
+// parse), "reused" (team interpretation memory), or "llm" (LLM fallback). The
+// Interpretation fields are flattened into the same JSON object.
 type previewItem struct {
 	genspec.Interpretation
-	Reused bool `json:"reused"`
+	Source string `json:"source"`
+	Reused bool   `json:"reused"` // retained for the existing memory badge; == (source == "reused")
 }
 
 // InterpretPreview handles POST /api/v1/bom/interpret-preview.
@@ -33,11 +35,12 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TeamID string `json:"team_id"`
 		Items  []struct {
-			Refdes    string `json:"refdes"`
-			Footprint string `json:"footprint"`
-			Value     string `json:"value"`
-			Mpn       string `json:"mpn"`
-			Sku       string `json:"sku"`
+			Refdes    string            `json:"refdes"`
+			Footprint string            `json:"footprint"`
+			Value     string            `json:"value"`
+			Mpn       string            `json:"mpn"`
+			Sku       string            `json:"sku"`
+			Row       map[string]string `json:"row"` // original header → cell, for the LLM
 		} `json:"items"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -54,8 +57,8 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 	// *user* edit is also in team memory, and a prior *auto* interpretation is
 	// identical to the fresh parse, so team memory reproduces every visible reuse.
 	var teamMemory map[string][]byte
+	var teamID pgtype.UUID
 	if req.TeamID != "" {
-		var teamID pgtype.UUID
 		if err := teamID.Scan(req.TeamID); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid team_id", "BAD_REQUEST")
 			return
@@ -86,22 +89,58 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Phase 1: memory reuse, else a fresh deterministic parse.
 	out := make([]previewItem, len(req.Items))
 	for i, it := range req.Items {
 		if rb, _, ok := resolveReusedInterpretation(nil, teamMemory, it.Refdes, it.Value, it.Footprint); ok {
 			var remembered genspec.Interpretation
 			if err := json.Unmarshal(rb, &remembered); err == nil {
-				out[i] = previewItem{Interpretation: remembered, Reused: true}
+				out[i] = previewItem{Interpretation: remembered, Source: "reused", Reused: true}
 				continue
 			}
 		}
-		out[i] = previewItem{Interpretation: genspec.Interpret(genspec.Input{
-			Refdes:    it.Refdes,
-			Footprint: it.Footprint,
-			Value:     it.Value,
-			MPN:       it.Mpn,
-			SKU:       it.Sku,
-		})}
+		out[i] = previewItem{
+			Interpretation: genspec.Interpret(genspec.Input{
+				Refdes: it.Refdes, Footprint: it.Footprint, Value: it.Value, MPN: it.Mpn, SKU: it.Sku,
+			}),
+			Source: "auto",
+		}
 	}
+
+	// Phase 2: LLM fallback for rows the parser couldn't read cleanly. Runs only
+	// when configured + team-scoped; bounded in count and concurrency so one
+	// pathological import can't fan out. Each goroutine writes a distinct index.
+	if h.LLM != nil && teamID.Valid {
+		var escalate []int
+		maxEsc := h.Config.LLM.MaxEscalationsPerPreview
+		for i := range out {
+			if out[i].Source == "auto" && out[i].Escalate {
+				if maxEsc > 0 && len(escalate) >= maxEsc {
+					break
+				}
+				escalate = append(escalate, i)
+			}
+		}
+		if len(escalate) > 0 {
+			g, gctx := errgroup.WithContext(r.Context())
+			g.SetLimit(6)
+			for _, idx := range escalate {
+				idx := idx
+				it := req.Items[idx]
+				row := it.Row
+				if len(row) == 0 {
+					row = map[string]string{"Reference": it.Refdes, "Footprint": it.Footprint, "Value": it.Value, "MPN": it.Mpn, "SKU": it.Sku}
+				}
+				g.Go(func() error {
+					if interp, ok := h.escalateInterpretation(gctx, teamID, row, out[idx].Interpretation); ok {
+						out[idx] = previewItem{Interpretation: interp, Source: "llm"}
+					}
+					return nil
+				})
+			}
+			_ = g.Wait()
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }

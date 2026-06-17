@@ -16,6 +16,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/config"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/llm"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/jackc/pgx/v5"
@@ -75,6 +76,7 @@ type Handler struct {
 	Cache        *middleware.AuthCache
 	Distributors distributor.Registry
 	Blobs        blob.Store
+	LLM          llm.Client // nil unless config.LLM.Active(); the BOM-interpretation fallback
 	CartResolver *CartResolver
 	ScanHub      *ScanHub
 	Tickets      *ticketStore
@@ -142,6 +144,15 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 		CartResolver: NewCartResolver(),
 		ScanHub:      NewScanHub(),
 		Tickets:      newTicketStore(),
+	}
+	if cfg.LLM.Active() {
+		h.LLM = llm.New(llm.Options{
+			BaseURL:       cfg.LLM.BaseURL,
+			APIKey:        cfg.LLM.APIKey,
+			Model:         cfg.LLM.Model,
+			FallbackModel: cfg.LLM.FallbackModel,
+			Timeout:       time.Duration(cfg.LLM.TimeoutSeconds) * time.Second,
+		})
 	}
 	h.Activity = activity.New(db, func(eventType, teamID, targetUserID string, data []byte) {
 		q.Publish(worker.Event{Type: eventType, TeamID: teamID, TargetUserID: targetUserID, Data: data})

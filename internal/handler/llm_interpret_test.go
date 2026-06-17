@@ -1,0 +1,153 @@
+package handler_test
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/Yamakaja/partrack/internal/llm"
+	"github.com/Yamakaja/partrack/internal/testutil"
+)
+
+// fakeLLM returns canned classify/extract JSON, picking which by the system
+// prompt, and counts calls so the test can prove caching avoids re-calling.
+type fakeLLM struct {
+	mu       sync.Mutex
+	calls    int
+	classify string
+	extract  string
+}
+
+func (f *fakeLLM) Chat(_ context.Context, req llm.Request) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if len(req.Messages) > 0 && strings.Contains(req.Messages[0].Content, "Extract parameters") {
+		return f.extract, nil
+	}
+	return f.classify, nil
+}
+
+func (f *fakeLLM) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// TestLLMEscalation exercises the LLM fallback end-to-end: a weird value the
+// deterministic parser can't read ("9k10%") is escalated in the preview, the LLM
+// classifies it generic + extracts params, the import persists it as 'llm' and
+// resolves it auto_generic, and a second preview is served from interpretation
+// memory without calling the LLM again.
+func TestLLMEscalation(t *testing.T) {
+	fake := &fakeLLM{
+		classify: `{"route":"generic","category":"resistors","confidence":0.9}`,
+		extract:  `{"params":[{"slug":"resistance","value":"9k"},{"slug":"tolerance","value":"10%"}]}`,
+	}
+	testEnv.Handler.LLM = fake
+	t.Cleanup(func() {
+		testEnv.Handler.LLM = nil
+		testutil.Truncate(t, testDB)
+	})
+
+	userID := testutil.CreateUser(t, testDB, "llm@example.com", "pw", "LLM")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "LLM Team")
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "PCB-LLM")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	// Seed a matching generic resistor (resistors / 0603 / 9k) so the import resolves.
+	if _, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/parts/generic", map[string]any{
+		"team_id":     teamID,
+		"category_id": resistorsCategoryID,
+		"package":     "0603",
+		"params":      []map[string]any{{"slug": "resistance", "value": "9k"}},
+	}, token); status != http.StatusCreated {
+		t.Fatalf("seed generic: got %d", status)
+	}
+
+	previewItem := map[string]any{
+		"refdes": "R1", "footprint": "R_0603_1608Metric", "value": "9k10%",
+		"row": map[string]string{"Reference": "R1", "Value": "9k10%", "Footprint": "0603"},
+	}
+
+	// 1. Preview escalates the weird row to the LLM.
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/bom/interpret-preview", map[string]any{
+		"team_id": teamID,
+		"items":   []map[string]any{previewItem},
+	}, token)
+	if status != http.StatusOK {
+		t.Fatalf("preview: got %d: %v", status, body)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	interp := items[0].(map[string]any)
+	if interp["source"] != "llm" {
+		t.Fatalf("expected source=llm, got %v", interp["source"])
+	}
+	if interp["route"] != "parametric" || interp["category"] != "resistors" {
+		t.Errorf("expected parametric/resistors, got route=%v category=%v", interp["route"], interp["category"])
+	}
+	if !hasParam(interp, "resistance") {
+		t.Errorf("expected a resistance param, got %v", interp["params"])
+	}
+	if fake.callCount() != 2 {
+		t.Errorf("expected 2 LLM calls (classify+extract), got %d", fake.callCount())
+	}
+
+	// 2. Import the line carrying the LLM interpretation as an 'llm' override.
+	ibody, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions", teamID, projectID),
+		map[string]any{
+			"label": "v1.0", "set_active": true,
+			"items": []any{map[string]any{
+				"reference_designators": "R1", "quantity": 1,
+				"value": "9k10%", "footprint": "R_0603_1608Metric",
+				"interpretation": interp, "interpretation_source": "llm",
+			}},
+		}, token)
+	if status != http.StatusAccepted {
+		t.Fatalf("import: got %d: %v", status, ibody)
+	}
+	revID, _ := ibody["bom_revision_id"].(string)
+
+	// The line is persisted as source 'llm' and resolves auto_generic.
+	line := pollResolvedLine(t, teamID, projectID, token, revID)
+	if line["interpretation_source"] != "llm" {
+		t.Errorf("expected interpretation_source=llm, got %v", line["interpretation_source"])
+	}
+	if line["resolution_state"] != "auto_generic" {
+		t.Errorf("expected resolution_state=auto_generic, got %v", line["resolution_state"])
+	}
+
+	// 3. The same weird value is now served from interpretation memory — no new
+	//    LLM call (callCount stays at 2).
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/bom/interpret-preview", map[string]any{
+		"team_id": teamID,
+		"items":   []map[string]any{previewItem},
+	}, token)
+	if status != http.StatusOK {
+		t.Fatalf("preview 2: got %d", status)
+	}
+	items, _ = body["items"].([]any)
+	if items[0].(map[string]any)["source"] != "reused" {
+		t.Errorf("expected source=reused on 2nd preview, got %v", items[0].(map[string]any)["source"])
+	}
+	if fake.callCount() != 2 {
+		t.Errorf("expected no new LLM calls (cached), got %d total", fake.callCount())
+	}
+}
+
+func hasParam(interp map[string]any, slug string) bool {
+	params, _ := interp["params"].([]any)
+	for _, p := range params {
+		if m, ok := p.(map[string]any); ok && m["slug"] == slug {
+			return true
+		}
+	}
+	return false
+}

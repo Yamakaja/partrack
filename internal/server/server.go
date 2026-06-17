@@ -21,8 +21,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// New constructs an http.Server with all routes registered.
-func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.Registry, store blob.Store) *http.Server {
+// Build constructs the Handler and the fully-wired HTTP router. It is exposed
+// (alongside New) so tests can hold the Handler to inject dependencies — e.g. a
+// fake LLM client — that aren't reachable through config.
+func Build(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.Registry, store blob.Store) (*handler.Handler, http.Handler) {
 	cache := middleware.NewAuthCache()
 	cache.StartFlusher(context.Background(), db, 5*time.Minute)
 
@@ -44,7 +46,12 @@ func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.
 
 	// Static file server with SPA fallback
 	r.Mount("/", spaHandler())
+	return h, r
+}
 
+// New constructs an http.Server with all routes registered.
+func New(cfg *config.Config, db *pgxpool.Pool, q *worker.Queue, reg distributor.Registry, store blob.Store) *http.Server {
+	_, r := Build(cfg, db, q, reg, store)
 	return &http.Server{
 		Addr:    cfg.Server.ListenAddr,
 		Handler: r,

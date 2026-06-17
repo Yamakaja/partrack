@@ -214,11 +214,14 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		interpSource := "auto"
 		switch {
 		case len(interpBytes) > 0:
+			// Review-gate override: a user edit or an LLM-derived interpretation.
+			// Both are confirmed readings — persisted as-is and remembered team-wide
+			// so the same value+footprint is reused (and never re-sent to the LLM).
 			interpSource = "user"
-			if item.InterpretationSource != nil && *item.InterpretationSource != "" {
+			if item.InterpretationSource != nil && (*item.InterpretationSource == "user" || *item.InterpretationSource == "llm") {
 				interpSource = *item.InterpretationSource
 			}
-			if interpSource == "user" {
+			if interpSource == "user" || interpSource == "llm" {
 				if err := h.rememberInterpretation(r.Context(), qtx, teamID, userID, item.Value, item.Footprint, interpBytes); err != nil {
 					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 					return

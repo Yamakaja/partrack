@@ -984,6 +984,49 @@ func (q *Queries) InsertDistributorParameter(ctx context.Context, arg InsertDist
 	return id, err
 }
 
+const listCategoryPackages = `-- name: ListCategoryPackages :many
+WITH RECURSIVE cat_tree AS (
+    SELECT categories.id FROM categories WHERE categories.id = $2
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
+)
+SELECT DISTINCT p.canonical_package
+FROM parts p
+WHERE p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+  AND p.canonical_package IS NOT NULL
+  AND (p.scope = 'global' OR p.team_id = $1)
+ORDER BY p.canonical_package
+LIMIT 200
+`
+
+type ListCategoryPackagesParams struct {
+	TeamID     pgtype.UUID `json:"team_id"`
+	CategoryID int32       `json:"category_id"`
+}
+
+// Distinct canonical package codes present on parts in a category (and its
+// descendants), across the team's catalog (global + team). Grounds the LLM
+// extraction prompt with the package vocabulary the catalog actually uses.
+func (q *Queries) ListCategoryPackages(ctx context.Context, arg ListCategoryPackagesParams) ([]*string, error) {
+	rows, err := q.db.Query(ctx, listCategoryPackages, arg.TeamID, arg.CategoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*string
+	for rows.Next() {
+		var canonical_package *string
+		if err := rows.Scan(&canonical_package); err != nil {
+			return nil, err
+		}
+		items = append(items, canonical_package)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGenericCandidatesWithParams = `-- name: ListGenericCandidatesWithParams :many
 SELECT p.id AS part_id, pp.parameter_id, pp.numeric_value, pp.value
 FROM parts p

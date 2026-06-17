@@ -11,17 +11,20 @@ import (
 	"github.com/Yamakaja/partrack/internal/config"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/distributor/testclient"
+	"github.com/Yamakaja/partrack/internal/handler"
 	"github.com/Yamakaja/partrack/internal/server"
 	"github.com/Yamakaja/partrack/internal/testutil"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// testEnv holds the shared test server, database pool, and worker queue.
+// testEnv holds the shared test server, database pool, worker queue, and the
+// Handler (so tests can inject dependencies like a fake LLM client).
 type testEnvType struct {
-	Server *httptest.Server
-	DB     *pgxpool.Pool
-	Queue  *worker.Queue
+	Server  *httptest.Server
+	DB      *pgxpool.Pool
+	Queue   *worker.Queue
+	Handler *handler.Handler
 }
 
 // testDB and testEnv are shared across all handler_test tests in this package.
@@ -51,10 +54,10 @@ func TestMain(m *testing.M) {
 		panic("blob store: " + err.Error())
 	}
 
-	srv := server.New(cfg, testDB, q, reg, store)
-	ts := httptest.NewServer(srv.Handler)
+	h, router := server.Build(cfg, testDB, q, reg, store)
+	ts := httptest.NewServer(router)
 
-	testEnv = &testEnvType{Server: ts, DB: testDB, Queue: q}
+	testEnv = &testEnvType{Server: ts, DB: testDB, Queue: q, Handler: h}
 
 	// Quiesce the shared worker before every truncate, so a test's cleanup never
 	// races an in-flight job transaction (deadlock) or lets a late job write into

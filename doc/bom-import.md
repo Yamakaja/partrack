@@ -302,6 +302,45 @@ For each line item the parser produces:
 class to give it a unit) — the row needs human attention but the parser declines
 to guess.
 
+### 5.7 LLM fallback for weird inputs (implemented)
+
+The deterministic parser is exact but brittle on unusual formats — a missing
+space (`9k10%`), a compound spec (`5V/10uF`), an unmapped designator prefix, or a
+value carried in a description column. Rather than widen the regexes, those rows
+**escalate to an optional LLM**.
+
+- **Trigger = residue, not confidence.** `ParseValue` returns the tokens it could
+  not attribute; `Interpret` sets `Escalate` when a parametric class yields no
+  clean primary magnitude, leaves residue, or has a class/footprint conflict.
+  Clean inputs (`9k`, `10k 10%`, `100nF 16V X7R 10%`) leave no residue and are
+  never sent to the LLM. (`internal/genspec`.)
+- **Two steps, orchestrated in Go** (no model tool-use):
+  (1) *classify* the whole row into a curated category, or specific/ignore/unknown;
+  (2) for a generic, *extract* parameters, grounded with the category's
+  `primary_params` and real catalog value excerpts (numeric ranges, enum values,
+  and the package codes actually in use — `GetCategoryParameters` +
+  `ListCategoryPackages`). The deterministic reading is passed as a non-binding
+  hint. (`handler.escalateInterpretation`.)
+- **Robust to small open models** (OpenRouter / Llama / Gemma): constrained JSON
+  output, lenient extraction (`llm.ExtractJSON`), one repair retry, then **graceful
+  degrade** to the deterministic reading — the LLM never blocks import. Returned
+  values are normalised through `paramparse`/`CanonicalPackage`, and slugs/category
+  are validated against the curated profile, so the output always conforms to the
+  `Interpretation` contract and flows through the existing review gate,
+  satisfaction tiers, and interpretation memory.
+- **Inline & cached.** It runs synchronously in `/bom/interpret-preview` (bounded
+  count + concurrency); the review gate badges the rows "AI-read" and sorts them
+  for a glance. The result is carried to import as an `interpretation_source = 'llm'`
+  override and remembered in `bom_interpretation_memory`, so each weird value is
+  interpreted by the LLM exactly once, ever.
+- **Config** (`config.LLM`, instance-level for now; per-team later): disabled
+  unless `enabled` + an `api_key` + `model` are set. BOM rows leave the instance
+  only when on.
+
+Out of scope (first cut): injecting an LLM-discovered MPN/SKU into a line (the
+specific route only fixes the route; identity resolution still uses the mapped
+columns); LLM escalation inside the async import job (preview-mediated only).
+
 ---
 
 ## 6. The Interpretation Review Gate

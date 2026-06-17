@@ -594,3 +594,20 @@ WHERE p.scope = 'team'
   AND p.canonical_package = sqlc.arg('canonical_package')
   AND p.lifecycle_status = 'active'
 ORDER BY p.id;
+
+-- name: ListCategoryPackages :many
+-- Distinct canonical package codes present on parts in a category (and its
+-- descendants), across the team's catalog (global + team). Grounds the LLM
+-- extraction prompt with the package vocabulary the catalog actually uses.
+WITH RECURSIVE cat_tree AS (
+    SELECT categories.id FROM categories WHERE categories.id = sqlc.arg('category_id')
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
+)
+SELECT DISTINCT p.canonical_package
+FROM parts p
+WHERE p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+  AND p.canonical_package IS NOT NULL
+  AND (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
+ORDER BY p.canonical_package
+LIMIT 200;
