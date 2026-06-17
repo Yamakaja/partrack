@@ -30,6 +30,11 @@ type classifyOut struct {
 	Route      string  `json:"route"` // generic | specific | ignore | unknown
 	Category   string  `json:"category"`
 	Confidence float64 `json:"confidence"`
+	// Specific-part identity (the model returns whichever it can read from the row).
+	Manufacturer string `json:"manufacturer"`
+	Mpn          string `json:"mpn"`
+	Distributor  string `json:"distributor"`
+	Sku          string `json:"sku"`
 }
 
 type extractOut struct {
@@ -46,16 +51,16 @@ type extractOut struct {
 //
 // row is the full raw BOM row (original header → cell value), giving the model
 // everything the deterministic parser discards. base is the deterministic
-// reading, passed as a non-binding hint.
-func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID, row map[string]string, base genspec.Interpretation) (genspec.Interpretation, bool) {
-	curated, err := h.curatedCategories(ctx)
-	if err != nil || len(curated) == 0 {
+// reading, passed as a non-binding hint. curated and dists are loaded once by the
+// caller (the same lists for every row).
+func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID, row map[string]string, base genspec.Interpretation, curated []curatedCategory, dists []dbgen.Distributor) (genspec.Interpretation, bool) {
+	if len(curated) == 0 {
 		return base, false
 	}
 
-	// Step 1 — classify.
+	// Step 1 — classify (and, for a specific part, read its identity).
 	var cls classifyOut
-	if err := h.llmJSON(ctx, classifySystemPrompt(curated), classifyUserPrompt(row, base), &cls); err != nil {
+	if err := h.llmJSON(ctx, classifySystemPrompt(curated, dists), classifyUserPrompt(row, base), &cls); err != nil {
 		slog.Warn("llm classify failed", "err", err)
 		return base, false
 	}
@@ -65,10 +70,7 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 		base.Route, base.Escalate = genspec.RouteIgnore, false
 		return base, true
 	case "specific":
-		// Identity resolution uses the line's mapped MPN/SKU columns; we only fix
-		// the route. (Injecting an LLM-discovered MPN is future work.)
-		base.Route, base.Escalate = genspec.RouteIdentity, false
-		return base, true
+		return specificInterpretation(base, cls, row, dists), true
 	case "generic":
 		// handled below
 	default:
@@ -234,12 +236,69 @@ func (h *Handler) llmJSON(ctx context.Context, system, user string, v any) error
 	return json.Unmarshal([]byte(obj), v)
 }
 
+// specificInterpretation builds an identity Interpretation from the classify
+// output. It keeps only identity values that literally appear in the row (anti-
+// hallucination) and a distributor that maps to a known one. These fields ride on
+// the Interpretation and are overlaid onto the line's columns at import.
+func specificInterpretation(base genspec.Interpretation, cls classifyOut, row map[string]string, dists []dbgen.Distributor) genspec.Interpretation {
+	base.Route = genspec.RouteIdentity
+	base.Escalate = false
+	base.Confidence = clampConfidence(cls.Confidence)
+	base.Flags = []string{"llm"}
+	base.Params = nil
+	base.Residue = nil
+	if mpn := strings.TrimSpace(cls.Mpn); mpn != "" && rowContains(row, mpn) {
+		base.Mpn = mpn
+		if mfr := strings.TrimSpace(cls.Manufacturer); mfr != "" && rowContains(row, mfr) {
+			base.Manufacturer = mfr
+		}
+	}
+	if sku := strings.TrimSpace(cls.Sku); sku != "" && rowContains(row, sku) {
+		if id, ok := distributorIDByName(dists, cls.Distributor); ok {
+			base.Sku = sku
+			base.DistributorID = id
+		}
+	}
+	return base
+}
+
+// rowContains reports whether val appears (case-insensitively) in any cell of the
+// row — the anti-hallucination guard for LLM-returned identity fields.
+func rowContains(row map[string]string, val string) bool {
+	v := strings.ToLower(strings.TrimSpace(val))
+	if v == "" {
+		return false
+	}
+	for _, cell := range row {
+		if strings.Contains(strings.ToLower(cell), v) {
+			return true
+		}
+	}
+	return false
+}
+
+// distributorIDByName maps an LLM-returned distributor name to a known
+// distributor id (case-insensitive exact or substring match).
+func distributorIDByName(dists []dbgen.Distributor, name string) (string, bool) {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return "", false
+	}
+	for _, d := range dists {
+		dn := strings.ToLower(d.Name)
+		if dn == n || strings.Contains(dn, n) || strings.Contains(n, dn) {
+			return d.ID.String(), true
+		}
+	}
+	return "", false
+}
+
 // ── prompt construction ───────────────────────────────────────────────────────
 
-func classifySystemPrompt(curated []curatedCategory) string {
+func classifySystemPrompt(curated []curatedCategory, dists []dbgen.Distributor) string {
 	var b strings.Builder
 	b.WriteString("You classify one electronic-BOM line item. Decide whether it is:\n")
-	b.WriteString("- \"specific\": a particular part identified by manufacturer part number or distributor SKU;\n")
+	b.WriteString("- \"specific\": a particular part identified by a manufacturer part number (MPN) or a distributor SKU;\n")
 	b.WriteString("- \"generic\": a commodity defined by a category + parameters (e.g. a 10kΩ 0603 resistor);\n")
 	b.WriteString("- \"ignore\": do-not-populate / virtual / mechanical;\n")
 	b.WriteString("- \"unknown\": not enough information.\n")
@@ -247,8 +306,15 @@ func classifySystemPrompt(curated []curatedCategory) string {
 	for _, c := range curated {
 		fmt.Fprintf(&b, "- %s — %s (value = %s)\n", c.slug, c.displayName, c.valueParam)
 	}
-	b.WriteString("Respond with ONLY a JSON object: {\"route\":\"generic|specific|ignore|unknown\",\"category\":\"<slug or empty>\",\"confidence\":0.0-1.0}\n")
-	b.WriteString("Example: {\"route\":\"generic\",\"category\":\"resistors\",\"confidence\":0.9}")
+	b.WriteString("If specific, return the manufacturer + mpn AND/OR a distributor + sku — but ONLY values that literally appear in the line below; never invent a part number. Choose the distributor from:\n")
+	if len(dists) == 0 {
+		b.WriteString("- (none configured)\n")
+	}
+	for _, d := range dists {
+		fmt.Fprintf(&b, "- %s\n", d.Name)
+	}
+	b.WriteString("Respond with ONLY a JSON object: {\"route\":\"generic|specific|ignore|unknown\",\"category\":\"<slug or empty>\",\"manufacturer\":\"\",\"mpn\":\"\",\"distributor\":\"\",\"sku\":\"\",\"confidence\":0.0-1.0}\n")
+	b.WriteString("Examples: {\"route\":\"generic\",\"category\":\"resistors\",\"confidence\":0.9} | {\"route\":\"specific\",\"manufacturer\":\"Texas Instruments\",\"mpn\":\"LM358\",\"confidence\":0.95}")
 	return b.String()
 }
 

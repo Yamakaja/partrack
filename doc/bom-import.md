@@ -314,13 +314,23 @@ value carried in a description column. Rather than widen the regexes, those rows
   clean primary magnitude, leaves residue, or has a class/footprint conflict.
   Clean inputs (`9k`, `10k 10%`, `100nF 16V X7R 10%`) leave no residue and are
   never sent to the LLM. (`internal/genspec`.)
+- **Triggers** when a row is escalated (residue/conflict) *or* would otherwise
+  not resolve — `unknown`, or a bare identifier in the value field — and has no
+  mapped MPN/SKU column (`handler.llmEligible`). This catches both weird generic
+  values and a specific part whose MPN we never identified (e.g. it sits in a
+  description column).
 - **Two steps, orchestrated in Go** (no model tool-use):
-  (1) *classify* the whole row into a curated category, or specific/ignore/unknown;
+  (1) *classify* the whole row into a curated category (generic) or specific /
+  ignore / unknown — and, for a specific part, read its **identity**
+  (`manufacturer`+`mpn` and/or a known `distributor`+`sku`), keeping only values
+  that literally appear in the row;
   (2) for a generic, *extract* parameters, grounded with the category's
   `primary_params` and real catalog value excerpts (numeric ranges, enum values,
   and the package codes actually in use — `GetCategoryParameters` +
   `ListCategoryPackages`). The deterministic reading is passed as a non-binding
-  hint. (`handler.escalateInterpretation`.)
+  hint. (`handler.escalateInterpretation`.) Discovered identity rides on the
+  `Interpretation` and is overlaid onto the line's own columns at import (unset
+  ones only), so the existing SKU/MPN satisfaction tiers resolve it.
 - **Robust to small open models** (OpenRouter / Llama / Gemma): constrained JSON
   output, lenient extraction (`llm.ExtractJSON`), one repair retry, then **graceful
   degrade** to the deterministic reading — the LLM never blocks import. Returned
@@ -337,9 +347,10 @@ value carried in a description column. Rather than widen the regexes, those rows
   unless `enabled` + an `api_key` + `model` are set. BOM rows leave the instance
   only when on.
 
-Out of scope (first cut): injecting an LLM-discovered MPN/SKU into a line (the
-specific route only fixes the route; identity resolution still uses the mapped
-columns); LLM escalation inside the async import job (preview-mediated only).
+Discovered identity is cached like any interpretation (memory + the import
+overlay re-applies it on reuse), except for a row with neither a value nor a
+footprint to key on, which re-escalates. Out of scope (first cut): LLM escalation
+inside the async import job (preview-mediated only).
 
 ---
 

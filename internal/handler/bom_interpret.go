@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/genspec"
@@ -107,21 +108,24 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Phase 2: LLM fallback for rows the parser couldn't read cleanly. Runs only
-	// when configured + team-scoped; bounded in count and concurrency so one
-	// pathological import can't fan out. Each goroutine writes a distinct index.
+	// Phase 2: LLM fallback for rows the parser couldn't read cleanly OR couldn't
+	// resolve at all. Runs only when configured + team-scoped; bounded in count and
+	// concurrency. Each goroutine writes a distinct index. curated categories and
+	// distributors are loaded once and shared.
 	if h.LLM != nil && teamID.Valid {
 		var escalate []int
 		maxEsc := h.Config.LLM.MaxEscalationsPerPreview
 		for i := range out {
-			if out[i].Source == "auto" && out[i].Escalate {
+			if llmEligible(out[i], req.Items[i].Mpn, req.Items[i].Sku) {
 				if maxEsc > 0 && len(escalate) >= maxEsc {
 					break
 				}
 				escalate = append(escalate, i)
 			}
 		}
-		if len(escalate) > 0 {
+		curated, _ := h.curatedCategories(r.Context())
+		if len(escalate) > 0 && len(curated) > 0 {
+			dists, _ := h.Queries.ListDistributors(r.Context())
 			g, gctx := errgroup.WithContext(r.Context())
 			g.SetLimit(6)
 			for _, idx := range escalate {
@@ -132,7 +136,7 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 					row = map[string]string{"Reference": it.Refdes, "Footprint": it.Footprint, "Value": it.Value, "MPN": it.Mpn, "SKU": it.Sku}
 				}
 				g.Go(func() error {
-					if interp, ok := h.escalateInterpretation(gctx, teamID, row, out[idx].Interpretation); ok {
+					if interp, ok := h.escalateInterpretation(gctx, teamID, row, out[idx].Interpretation, curated, dists); ok {
 						out[idx] = previewItem{Interpretation: interp, Source: "llm"}
 					}
 					return nil
@@ -143,4 +147,19 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// llmEligible reports whether a previewed row should be sent to the LLM fallback:
+// a fresh ('auto') row with no mapped MPN/SKU column that the parser flagged
+// (escalate), couldn't classify (unknown), or read as a bare identifier in the
+// value field (identity) — i.e. it won't otherwise resolve cleanly. Clean generic
+// rows, and rows already carrying an identity column, are left alone.
+func llmEligible(p previewItem, mappedMPN, mappedSKU string) bool {
+	if p.Source != "auto" {
+		return false
+	}
+	if strings.TrimSpace(mappedMPN) != "" || strings.TrimSpace(mappedSKU) != "" {
+		return false
+	}
+	return p.Escalate || p.Route == genspec.RouteUnknown || p.Route == genspec.RouteIdentity
 }

@@ -242,6 +242,32 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Overlay any LLM-discovered identity (the specific-part fallback) onto unset
+		// line columns, so the existing SKU/MPN satisfaction tiers resolve the line.
+		// Applies whether the interpretation came from a client override or reuse.
+		if len(interpBytes) > 0 {
+			var idn struct {
+				Mpn           string `json:"mpn"`
+				Manufacturer  string `json:"manufacturer"`
+				Sku           string `json:"sku"`
+				DistributorID string `json:"distributor_id"`
+			}
+			if json.Unmarshal(interpBytes, &idn) == nil {
+				if idn.Mpn != "" && derefStr(item.MPN) == "" {
+					item.MPN = &idn.Mpn
+				}
+				if idn.Manufacturer != "" && derefStr(item.Manufacturer) == "" {
+					item.Manufacturer = &idn.Manufacturer
+				}
+				if idn.Sku != "" && derefStr(item.SKU) == "" {
+					item.SKU = &idn.Sku
+				}
+				if idn.DistributorID != "" && !resolvedDistributorID.Valid {
+					resolvedDistributorID.Scan(idn.DistributorID) //nolint:errcheck
+				}
+			}
+		}
+
 		_, err := qtx.CreateBOMLineItem(r.Context(), dbgen.CreateBOMLineItemParams{
 			BomRevisionID:         rev.ID,
 			ReferenceDesignators:  item.ReferenceDesignators,

@@ -38,6 +38,15 @@ type Interpretation struct {
 	Confidence float64  `json:"confidence"`        // 0..1
 	Residue    []string `json:"residue,omitempty"` // value tokens we could not attribute
 	Escalate   bool     `json:"escalate"`          // deterministic parse is uncertain → LLM fallback eligible
+
+	// Identity fields are populated only by the LLM specific-part fallback (the
+	// deterministic parser never sets them). They are overlaid onto the BOM line's
+	// own columns at import — when those are empty — so the existing SKU/MPN
+	// resolution can satisfy the line. See handler.escalateInterpretation.
+	Mpn           string `json:"mpn,omitempty"`
+	Manufacturer  string `json:"manufacturer,omitempty"`
+	Sku           string `json:"sku,omitempty"`
+	DistributorID string `json:"distributor_id,omitempty"`
 }
 
 // flagClassFootprintConflict marks a refdes/footprint class disagreement.

@@ -142,6 +142,75 @@ func TestLLMEscalation(t *testing.T) {
 	}
 }
 
+// TestLLMSpecificFallback exercises the specific-part path: a row with no mapped
+// MPN that the LLM reads as a specific part. The discovered MPN (substring-
+// validated against the row) is overlaid onto the line at import, resolving it
+// auto_mpn.
+func TestLLMSpecificFallback(t *testing.T) {
+	fake := &fakeLLM{
+		classify: `{"route":"specific","manufacturer":"Texas Instruments","mpn":"LM358","confidence":0.95}`,
+	}
+	testEnv.Handler.LLM = fake
+	t.Cleanup(func() {
+		testEnv.Handler.LLM = nil
+		testutil.Truncate(t, testDB)
+	})
+
+	userID := testutil.CreateUser(t, testDB, "llm-spec@example.com", "pw", "LLM")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "LLM Team")
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "PCB-LLM-SPEC")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	// A catalog part with this MPN, so the overlaid MPN resolves auto_mpn.
+	testutil.CreatePart(t, testDB, "team", "LM358", &teamID)
+
+	// The MPN lives in an unmapped "Comment" column — no mapped MPN field.
+	previewItem := map[string]any{
+		"refdes": "U1", "value": "",
+		"row": map[string]string{"Reference": "U1", "Comment": "LM358 dual op-amp"},
+	}
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/bom/interpret-preview", map[string]any{
+		"team_id": teamID,
+		"items":   []map[string]any{previewItem},
+	}, token)
+	if status != http.StatusOK {
+		t.Fatalf("preview: got %d: %v", status, body)
+	}
+	interp := body["items"].([]any)[0].(map[string]any)
+	if interp["source"] != "llm" || interp["route"] != "identity" {
+		t.Fatalf("expected llm/identity, got source=%v route=%v", interp["source"], interp["route"])
+	}
+	if interp["mpn"] != "LM358" {
+		t.Errorf("expected discovered mpn=LM358, got %v", interp["mpn"])
+	}
+
+	// Import: the discovered MPN is overlaid onto the line and resolves auto_mpn.
+	ibody, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions", teamID, projectID),
+		map[string]any{
+			"label": "v1.0", "set_active": true,
+			"items": []any{map[string]any{
+				"reference_designators": "U1", "quantity": 1,
+				"interpretation": interp, "interpretation_source": "llm",
+			}},
+		}, token)
+	if status != http.StatusAccepted {
+		t.Fatalf("import: got %d: %v", status, ibody)
+	}
+	revID, _ := ibody["bom_revision_id"].(string)
+
+	line := pollResolvedLine(t, teamID, projectID, token, revID)
+	if line["resolution_state"] != "auto_mpn" {
+		t.Errorf("expected resolution_state=auto_mpn, got %v", line["resolution_state"])
+	}
+	if line["mpn"] != "LM358" {
+		t.Errorf("expected line mpn=LM358 (overlaid), got %v", line["mpn"])
+	}
+	if line["interpretation_source"] != "llm" {
+		t.Errorf("expected interpretation_source=llm, got %v", line["interpretation_source"])
+	}
+}
+
 func hasParam(interp map[string]any, slug string) bool {
 	params, _ := interp["params"].([]any)
 	for _, p := range params {
