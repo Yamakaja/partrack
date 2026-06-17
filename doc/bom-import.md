@@ -545,22 +545,40 @@ Rules:
 - Existing resolution columns (`resolved_part_id`, `resolution_state`,
   `ignored`, `resolve_item_id`) continue to record the *satisfaction* outcome.
 
-### 9.2 Interpretation reuse across revisions (required, not fast-follow)
+### 9.2 Interpretation reuse across revisions (implemented)
 
 The prototyping workflow iterates BOMs constantly (Rev A → B → C); re-reviewing
 the same 40 passives every revision would be adoption-killing friction. So
-interpretation reuse is **MVP**, in two layers:
+interpretation reuse runs in two layers, both keyed by `(class, normalised
+value, normalised footprint)` (`genspec.NormalizeKey` folds case/whitespace; the
+class comes from the reference designator):
 
 - **Prior-revision carryover** — on import, seed each new line's interpretation
-  from a matching line in the project's previous revision (matched on raw
-  `value` + `footprint` + designators/class), preserving `interpretation_source`
-  so user edits survive.
-- **Team-level interpretation memory** — a team-scoped cache keyed by raw
-  `value` + `footprint` (+ class) → confirmed interpretation, consulted across
-  projects. Once a user corrects the metric trap on `R_0201_0603Metric` to
-  package `0201`, that correction is reused on every future BOM and the system
-  gets *less* wrong over time. This is to per-line interpretation what
-  `bom_import_config` is to a one-off column map.
+  from the matching line in the project's previous revision, preserving
+  `interpretation_source` so a user edit survives and an already-reviewed line
+  does not re-flag.
+- **Team-level interpretation memory** — a team-scoped table
+  (`bom_interpretation_memory`) mapping the key → a confirmed interpretation,
+  consulted across projects. It is written whenever the review gate persists a
+  `user` interpretation. Once a user corrects the metric trap on
+  `R_0201_0603Metric` to package `0201`, that correction is reused on every
+  future BOM and the system gets *less* wrong over time. This is to per-line
+  interpretation what `bom_import_config` is to a one-off column map.
+
+Per-line precedence on import (when the client sends no override):
+prior-revision **user** edit → team memory → prior-revision **auto** reading →
+fresh parse (see `handler.resolveReusedInterpretation`). The shared resolver also
+backs `POST /bom/interpret-preview`: passing `team_id` layers team memory over
+the fresh parse and flags reused rows, so the **review gate shows exactly what
+import will persist** rather than a parse the import would then silently
+override. (Preview consults only team memory: every prior-revision *user* edit is
+also in team memory, and a prior *auto* reading equals the fresh parse, so team
+memory reproduces every *visible* reuse.)
+
+> Note: because the parser is deterministic, prior-revision *auto* carryover
+> equals a fresh parse; the value of reuse is almost entirely in replaying *user*
+> corrections via team memory. Carryover is retained for the carried `user`-edit
+> case and as a structural match to this design.
 
 ---
 
@@ -626,16 +644,18 @@ Division of labour:
 | Step | Where | Sync? |
 |---|---|---|
 | CSV → rows | frontend (PapaParse) | sync |
-| rows → interpretation **preview** | backend, stateless `POST …/bom/interpret-preview` (not persisted) | sync (regex-cheap) |
-| rows → persisted interpretation | backend, inline in `ImportRevision` (or job phase 1) | sync |
+| rows → interpretation **preview** | backend, `POST …/bom/interpret-preview` (not persisted; team memory layered when `team_id` given) | sync (regex-cheap) |
+| rows → persisted interpretation | backend, inline in `ImportRevision` (with §9.2 reuse) | sync |
 | interpretation → satisfaction | backend `JobBOMImport` (catalog search, distributor calls) | async |
 
 The **preview endpoint** keeps the live-feedback nicety of frontend parsing
 without duplicating logic: while still on the mapping screen, the frontend posts
 the mapped rows and renders how each was interpreted, so the user can fix the
 column mapping *before* committing. The same parser code then runs the persisted
-pass. Interpretation is cheap and stays synchronous; only satisfaction (which may
-hit distributor APIs) is async, as today.
+pass, and the same reuse resolver (§9.2) backs both, so the preview reflects the
+team's remembered corrections that import will persist. Interpretation is cheap
+and stays synchronous; only satisfaction (which may hit distributor APIs) is
+async, as today.
 
 ---
 
@@ -662,9 +682,11 @@ by showing existing matches before creating.
 Exact SI equality is fragile; satisfaction must use the §7.5 policy (±1% default
 epsilon; range + proximity + tolerance-similarity for tolerance-bearing lines).
 
-### 14.4 Interpretation reuse (required)
+### 14.4 Interpretation reuse (implemented)
 Without cross-revision reuse, every revision re-reviews the same passives.
-Promoted to MVP (§9.2).
+Implemented per §9.2: prior-revision carryover + a team-scoped
+`bom_interpretation_memory`, shared between the import and the preview so the
+review gate shows what import will persist.
 
 ### 14.5 Silent wrong value — limited defence
 A confident misparse that looks plausible can pass a skimmed review, and there is

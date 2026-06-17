@@ -450,6 +450,18 @@ type Blob struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type BomInterpretationMemory struct {
+	ID             pgtype.UUID        `json:"id"`
+	TeamID         pgtype.UUID        `json:"team_id"`
+	Class          string             `json:"class"`
+	ValueKey       string             `json:"value_key"`
+	FootprintKey   string             `json:"footprint_key"`
+	Interpretation []byte             `json:"interpretation"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type BomLineItem struct {
 	ID                    pgtype.UUID `json:"id"`
 	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`

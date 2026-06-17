@@ -63,3 +63,21 @@ func TestCanonicalPackage(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeKey(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"10k", "10k"},
+		{"10K", "10k"},       // case-folded
+		{"  10 k  ", "10 k"}, // trimmed, internal whitespace collapsed
+		{"10\tk", "10 k"},    // tabs collapse to a single space
+		{"4k7", "4k7"},
+		{"R_0201_0603Metric", "r_0201_0603metric"},
+		{"", ""},
+		{"   ", ""}, // whitespace-only → empty
+	}
+	for _, tt := range tests {
+		if got := NormalizeKey(tt.in); got != tt.want {
+			t.Errorf("NormalizeKey(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

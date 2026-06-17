@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -180,6 +181,17 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Interpretation reuse (doc/bom-import.md §9.2): seed each line's
+	// interpretation from prior knowledge so recurring passives don't demand
+	// re-review every revision. priorInterp carries this project's previous
+	// revision forward; teamMemory replays remembered user corrections across
+	// projects. See resolveReusedInterpretation for the precedence.
+	priorInterp, teamMemory, err := buildInterpretationReuse(r.Context(), qtx, teamID, projectID, rev.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	for _, item := range items {
 		var resolvedDistributorID pgtype.UUID
 		if item.ResolvedDistributorID != nil && *item.ResolvedDistributorID != "" {
@@ -189,25 +201,42 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Persist the parser's interpretation, unless the client supplies an edited
-		// one from the review gate — kept as source 'user' so re-parses never
-		// clobber it.
+		// Determine the line's interpretation. Precedence:
+		//   1. Client override from the review gate (an explicit user correction)
+		//      — persisted as 'user' and remembered team-wide for future imports.
+		//   2. A prior-revision *user* edit for the same key (most specific intent).
+		//   3. A remembered team correction for the same key.
+		//   4. A prior-revision *auto* interpretation (avoids re-flagging a part
+		//      the user already reviewed last revision).
+		//   5. A fresh parse.
+		// A 'user' source is never clobbered by a re-parse.
 		interpBytes := []byte(item.Interpretation)
 		interpSource := "auto"
-		if len(interpBytes) > 0 {
+		switch {
+		case len(interpBytes) > 0:
 			interpSource = "user"
 			if item.InterpretationSource != nil && *item.InterpretationSource != "" {
 				interpSource = *item.InterpretationSource
 			}
-		} else {
-			interp := genspec.Interpret(genspec.Input{
-				Refdes:    item.ReferenceDesignators,
-				Footprint: derefStr(item.Footprint),
-				Value:     derefStr(item.Value),
-				MPN:       derefStr(item.MPN),
-				SKU:       derefStr(item.SKU),
-			})
-			interpBytes, _ = json.Marshal(interp)
+			if interpSource == "user" {
+				if err := h.rememberInterpretation(r.Context(), qtx, teamID, userID, item.Value, item.Footprint, interpBytes); err != nil {
+					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+					return
+				}
+			}
+		default:
+			if rb, rs, ok := resolveReusedInterpretation(priorInterp, teamMemory, item.ReferenceDesignators, derefStr(item.Value), derefStr(item.Footprint)); ok {
+				interpBytes, interpSource = rb, rs
+			} else {
+				interp := genspec.Interpret(genspec.Input{
+					Refdes:    item.ReferenceDesignators,
+					Footprint: derefStr(item.Footprint),
+					Value:     derefStr(item.Value),
+					MPN:       derefStr(item.MPN),
+					SKU:       derefStr(item.SKU),
+				})
+				interpBytes, _ = json.Marshal(interp)
+			}
 		}
 
 		_, err := qtx.CreateBOMLineItem(r.Context(), dbgen.CreateBOMLineItemParams{
@@ -476,5 +505,123 @@ func (h *Handler) UpdateRevision(w http.ResponseWriter, r *http.Request) {
 		"label":       row.Label,
 		"imported_at": row.ImportedAt.Time.UTC().Format(time.RFC3339),
 		"notes":       row.Notes,
+	})
+}
+
+// rememberedInterp is a carried-over interpretation plus its source, used while
+// seeding a new revision's line interpretations from the previous one.
+type rememberedInterp struct {
+	bytes  []byte
+	source string
+}
+
+// interpKeySep separates the components of an interpretation-memory key. ASCII
+// unit separator — cannot appear in a class key, value or footprint.
+const interpKeySep = "\x1f"
+
+// classKey builds the interpretation-memory lookup key from an already-resolved
+// class and normalised value/footprint keys. Returns "" when the line cannot be
+// keyed (no class, or neither a value nor a footprint), signalling "do not
+// reuse" — a bare class is too coarse to carry a remembered interpretation.
+func classKey(class, valueKey, footprintKey string) string {
+	if class == "" || (valueKey == "" && footprintKey == "") {
+		return ""
+	}
+	return class + interpKeySep + valueKey + interpKeySep + footprintKey
+}
+
+// lineInterpKey builds the reuse key for an incoming BOM line from its raw
+// designators, value and footprint, deriving the class from the designator.
+func lineInterpKey(refdes, value, footprint string) string {
+	class, _ := genspec.ClassifyRefdes(refdes)
+	return classKey(class, genspec.NormalizeKey(value), genspec.NormalizeKey(footprint))
+}
+
+// buildInterpretationReuse loads the two reuse sources for a team: priorInterp
+// (the previous revision of projectID, when projectID is valid) and teamMemory
+// (the team's remembered corrections, always loaded). Both are keyed for lookup
+// with classKey/lineInterpKey. excludeRevID is the in-progress revision to skip
+// when finding the prior one (pass the freshly-created revision id at import).
+func buildInterpretationReuse(ctx context.Context, q *dbgen.Queries, teamID, projectID, excludeRevID pgtype.UUID) (map[string]rememberedInterp, map[string][]byte, error) {
+	prior := map[string]rememberedInterp{}
+	if projectID.Valid {
+		if priorRevID, err := q.GetImmediatelyPriorRevision(ctx, dbgen.GetImmediatelyPriorRevisionParams{
+			ProjectID:         projectID,
+			CurrentRevisionID: excludeRevID,
+		}); err == nil {
+			items, err := q.ListBOMLineItemInterpretations(ctx, priorRevID)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, pi := range items {
+				if len(pi.Interpretation) == 0 {
+					continue
+				}
+				if key := lineInterpKey(pi.ReferenceDesignators, derefStr(pi.Value), derefStr(pi.Footprint)); key != "" {
+					prior[key] = rememberedInterp{bytes: pi.Interpretation, source: pi.InterpretationSource}
+				}
+			}
+		}
+	}
+
+	mem := map[string][]byte{}
+	rows, err := q.ListInterpretationMemory(ctx, teamID)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, m := range rows {
+		if key := classKey(m.Class, m.ValueKey, m.FootprintKey); key != "" {
+			mem[key] = m.Interpretation
+		}
+	}
+	return prior, mem, nil
+}
+
+// resolveReusedInterpretation picks a remembered interpretation for a line, or
+// reports ok=false to fall back to a fresh parse. Precedence:
+//  1. a prior-revision *user* edit (most specific deliberate decision),
+//  2. a remembered team correction,
+//  3. a prior-revision *auto* interpretation (so a reviewed line does not
+//     re-flag). A 'user' result must not be clobbered by a re-parse.
+//
+// Both maps may be nil (e.g. preview supplies only teamMemory).
+func resolveReusedInterpretation(prior map[string]rememberedInterp, teamMemory map[string][]byte, refdes, value, footprint string) (bytes []byte, source string, ok bool) {
+	key := lineInterpKey(refdes, value, footprint)
+	if key == "" {
+		return nil, "", false
+	}
+	if ri := prior[key]; ri.source == "user" {
+		return ri.bytes, "user", true
+	}
+	if b := teamMemory[key]; b != nil {
+		return b, "user", true
+	}
+	if ri := prior[key]; ri.bytes != nil {
+		return ri.bytes, ri.source, true
+	}
+	return nil, "", false
+}
+
+// rememberInterpretation records a user-confirmed interpretation in the team's
+// interpretation memory so the same correction is reused on future imports. It
+// is a no-op for interpretations that cannot be keyed (no class, or neither a
+// value nor a footprint). Runs inside the import transaction.
+func (h *Handler) rememberInterpretation(ctx context.Context, qtx *dbgen.Queries, teamID, userID pgtype.UUID, value, footprint *string, interpBytes []byte) error {
+	var it genspec.Interpretation
+	if err := json.Unmarshal(interpBytes, &it); err != nil || it.Class == "" {
+		return nil //nolint:nilerr // unkeyable interpretation: nothing to remember
+	}
+	valueKey := genspec.NormalizeKey(derefStr(value))
+	footprintKey := genspec.NormalizeKey(derefStr(footprint))
+	if valueKey == "" && footprintKey == "" {
+		return nil
+	}
+	return qtx.UpsertInterpretationMemory(ctx, dbgen.UpsertInterpretationMemoryParams{
+		TeamID:         teamID,
+		Class:          it.Class,
+		ValueKey:       valueKey,
+		FootprintKey:   footprintKey,
+		Interpretation: interpBytes,
+		CreatedBy:      userID,
 	})
 }

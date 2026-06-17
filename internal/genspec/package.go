@@ -77,6 +77,15 @@ func NormalizePackage(s string) string {
 	return c
 }
 
+// NormalizeKey reduces a raw value or footprint string to a stable lookup key
+// for the interpretation memory: trimmed, internal whitespace collapsed, and
+// lowercased. This lets "10k", "10K" and "10 k" all hit the same remembered
+// interpretation. It is intentionally lossy — the key only needs to be stable,
+// the stored interpretation carries the real meaning.
+func NormalizeKey(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
 // CanonicalPackage normalises an EDA footprint/package string into a canonical
 // package identifier, a mounting type ("smd" | "tht" | ""), and a class hint
 // (a class key, or "" if none). ok is false when no package could be confidently
