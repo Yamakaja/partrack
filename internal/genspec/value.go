@@ -38,13 +38,15 @@ var (
 )
 
 // ParseValue parses a value field given a class profile. It returns the extracted
-// parameters, an optional package code found leaking in the value field, and
+// parameters, an optional package code found leaking in the value field,
 // mpnLike=true when the value reads as an identifier rather than a parametric
-// magnitude (→ route to identity resolution).
-func ParseValue(p Profile, value string) (params []Param, pkg string, mpnLike bool) {
+// magnitude (→ route to identity resolution), and the residue: the tokens it
+// could not attribute to a parameter or package. Residue is the escalation
+// signal — a clean parametric value leaves none (see Interpret).
+func ParseValue(p Profile, value string) (params []Param, pkg string, mpnLike bool, residue []string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return nil, "", false
+		return nil, "", false, nil
 	}
 
 	tokens := mergeNumberUnit(tokenize(value))
@@ -52,7 +54,6 @@ func ParseValue(p Profile, value string) (params []Param, pkg string, mpnLike bo
 	var (
 		foundPrimary bool
 		foundEnum    bool
-		unparseable  bool
 	)
 
 	for _, tok := range tokens {
@@ -83,22 +84,24 @@ func ParseValue(p Profile, value string) (params []Param, pkg string, mpnLike bo
 				continue
 			}
 		}
-		// 4. Anything left that does not parse is identifier-like content.
-		if paramparse.Parse(tok, "numeric").Value == nil {
-			unparseable = true
+		// 4. Unattributed. For a parametric class this is residue (something we
+		//    could not place → escalate). For an identity class the value IS an
+		//    identifier, so leftover tokens are expected, not residue.
+		if p.ValueParam != "" {
+			residue = append(residue, tok)
 		}
 	}
 
 	switch {
 	case p.ValueParam != "":
 		// Parametric class: identifier-like content with no magnitude → MPN.
-		mpnLike = !foundPrimary && unparseable
+		mpnLike = !foundPrimary && len(residue) > 0
 	default:
 		// Identity-ish class (no magnitude): parametric only if an enum secondary
 		// (e.g. an LED colour) accounted for the value; otherwise it is an MPN.
 		mpnLike = !foundEnum
 	}
-	return params, pkg, mpnLike
+	return params, pkg, mpnLike, residue
 }
 
 // recognizeSecondary tries the global secondary recognizers, returning a Param

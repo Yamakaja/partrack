@@ -63,7 +63,7 @@ func TestParseValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			params, pkg, mpnLike := ParseValue(prof(tt.class), tt.value)
+			params, pkg, mpnLike, _ := ParseValue(prof(tt.class), tt.value)
 			if mpnLike != tt.mpnLike {
 				t.Fatalf("mpnLike = %v, want %v (params=%+v)", mpnLike, tt.mpnLike, params)
 			}
@@ -89,7 +89,7 @@ func TestParseValue(t *testing.T) {
 }
 
 func TestParseValuePackageLeak(t *testing.T) {
-	_, pkg, _ := ParseValue(prof("R"), "10k 0402 1/16W")
+	_, pkg, _, _ := ParseValue(prof("R"), "10k 0402 1/16W")
 	if pkg != "0402" {
 		t.Errorf("pkg = %q, want 0402", pkg)
 	}

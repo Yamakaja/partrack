@@ -87,3 +87,37 @@ func TestInterpret(t *testing.T) {
 		})
 	}
 }
+
+// TestInterpretEscalate pins the residue/escalation signal that gates the LLM
+// fallback: clean parametric parses do not escalate; weird/partial ones do.
+func TestInterpretEscalate(t *testing.T) {
+	tests := []struct {
+		name         string
+		in           Input
+		wantEscalate bool
+	}{
+		// Clean — must NOT escalate (we don't want to pay the LLM for these).
+		{"clean rkm", Input{Refdes: "R1", Footprint: "R_0402_1005Metric", Value: "9k"}, false},
+		{"clean with tolerance", Input{Refdes: "R1", Value: "10k 10%"}, false},
+		{"fully specified cap", Input{Refdes: "C1", Footprint: "C_0603_1608Metric", Value: "100nF 16V X7R 10%"}, false},
+		{"led colour", Input{Refdes: "D1", Footprint: "LED_0805_2012Metric", Value: "Red"}, false},
+		{"mpn in value, identity class", Input{Refdes: "U1", Value: "LM358"}, false},
+		{"explicit mpn column", Input{Refdes: "R1", Value: "10k", MPN: "RC0402FR-0710KL"}, false},
+		{"dnp", Input{Refdes: "R5", Value: "DNP"}, false},
+		{"resistor no value", Input{Refdes: "R1"}, false},
+
+		// Weird — MUST escalate.
+		{"missing space", Input{Refdes: "R1", Value: "9k10%"}, true},
+		{"slash compound", Input{Refdes: "C1", Value: "5V/10uF"}, true},
+		{"leftover token", Input{Refdes: "R1", Value: "10k bogus"}, true},
+		{"value but no class", Input{Value: "10k"}, true},
+		{"class/footprint conflict", Input{Refdes: "R1", Footprint: "C_0603_1608Metric", Value: "10k"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Interpret(tt.in).Escalate; got != tt.wantEscalate {
+				t.Errorf("Escalate = %v, want %v", got, tt.wantEscalate)
+			}
+		})
+	}
+}
