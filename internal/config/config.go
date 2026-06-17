@@ -18,6 +18,31 @@ type Config struct {
 	Log      LogConfig      `yaml:"log"`
 	App      AppConfig      `yaml:"app"`
 	Storage  StorageConfig  `yaml:"storage"`
+	LLM      LLMConfig      `yaml:"llm"`
+}
+
+// LLMConfig configures the optional LLM fallback that interprets BOM line items
+// the deterministic parser can't read cleanly (weird value formats). It speaks
+// the OpenAI-compatible chat-completions API, defaulting to OpenRouter, so small
+// open-weight models (Llama/Gemma) can be used. Disabled unless Enabled is true
+// AND an APIKey and Model are set — BOM rows leave the instance only when on.
+// Instance-level for now; a per-team override (like distributor configs) can
+// layer on later.
+type LLMConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	BaseURL        string `yaml:"base_url"`       // default https://openrouter.ai/api/v1
+	APIKey         string `yaml:"api_key"`        // override via PARTRACK_LLM_API_KEY
+	Model          string `yaml:"model"`          // e.g. meta-llama/llama-3.1-8b-instruct
+	FallbackModel  string `yaml:"fallback_model"` // tried once if Model errors; optional
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	// MaxEscalationsPerPreview caps how many rows a single preview may send to the
+	// LLM, so one pathological import can't fan out unboundedly.
+	MaxEscalationsPerPreview int `yaml:"max_escalations_per_preview"`
+}
+
+// Active reports whether the LLM fallback is usable (enabled and configured).
+func (c LLMConfig) Active() bool {
+	return c.Enabled && c.APIKey != "" && c.Model != ""
 }
 
 // StorageConfig configures the content-addressed blob store used for uploaded
@@ -206,6 +231,12 @@ func defaults() *Config {
 		Auth: AuthConfig{
 			RateLimitPerMinute: 10,
 		},
+		LLM: LLMConfig{
+			BaseURL:                  "https://openrouter.ai/api/v1",
+			Model:                    "meta-llama/llama-3.1-8b-instruct",
+			TimeoutSeconds:           30,
+			MaxEscalationsPerPreview: 50,
+		},
 		Storage: StorageConfig{
 			Backend:          "file",
 			DataDir:          "./data",
@@ -276,6 +307,15 @@ func Load() *Config {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			cfg.Storage.MaxDocumentBytes = n
 		}
+	}
+	if v := os.Getenv("PARTRACK_LLM_API_KEY"); v != "" {
+		cfg.LLM.APIKey = v
+	}
+	if v := os.Getenv("PARTRACK_LLM_MODEL"); v != "" {
+		cfg.LLM.Model = v
+	}
+	if v := os.Getenv("PARTRACK_LLM_ENABLED"); v != "" {
+		cfg.LLM.Enabled = v != "false" && v != "0"
 	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET
