@@ -1,9 +1,20 @@
 -- Category registry and distributor mapping queries.
 
 -- name: ListCategories :many
-SELECT id, slug, display_name, parent_id, sort_order, primary_params
+SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params
 FROM categories
 ORDER BY sort_order, id;
+
+-- name: UpdateCategoryParams :one
+-- Admin curation of a category's class profile: value_param is the slug whose
+-- magnitude the bare value field encodes (NULL => not parametric), and
+-- primary_params is the ordered list of parameter slugs that matter for the
+-- category. Both feed generic-part interpretation and the LLM parsing prompt.
+UPDATE categories
+SET value_param    = sqlc.narg('value_param'),
+    primary_params = sqlc.arg('primary_params')
+WHERE id = sqlc.arg('id')
+RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params;
 
 -- name: GetCategory :one
 SELECT id, slug, display_name, parent_id, sort_order, primary_params

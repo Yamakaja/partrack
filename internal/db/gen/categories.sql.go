@@ -95,18 +95,19 @@ func (q *Queries) GetMappedCategory(ctx context.Context, arg GetMappedCategoryPa
 
 const listCategories = `-- name: ListCategories :many
 
-SELECT id, slug, display_name, parent_id, sort_order, primary_params
+SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params
 FROM categories
 ORDER BY sort_order, id
 `
 
 type ListCategoriesRow struct {
-	ID            int32  `json:"id"`
-	Slug          string `json:"slug"`
-	DisplayName   string `json:"display_name"`
-	ParentID      *int32 `json:"parent_id"`
-	SortOrder     int32  `json:"sort_order"`
-	PrimaryParams []byte `json:"primary_params"`
+	ID            int32   `json:"id"`
+	Slug          string  `json:"slug"`
+	DisplayName   string  `json:"display_name"`
+	ParentID      *int32  `json:"parent_id"`
+	SortOrder     int32   `json:"sort_order"`
+	ValueParam    *string `json:"value_param"`
+	PrimaryParams []byte  `json:"primary_params"`
 }
 
 // Category registry and distributor mapping queries.
@@ -125,6 +126,7 @@ func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, erro
 			&i.DisplayName,
 			&i.ParentID,
 			&i.SortOrder,
+			&i.ValueParam,
 			&i.PrimaryParams,
 		); err != nil {
 			return nil, err
@@ -168,6 +170,49 @@ func (q *Queries) ListDistributorCategoryMappings(ctx context.Context, distribut
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateCategoryParams = `-- name: UpdateCategoryParams :one
+UPDATE categories
+SET value_param    = $1,
+    primary_params = $2
+WHERE id = $3
+RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params
+`
+
+type UpdateCategoryParamsParams struct {
+	ValueParam    *string `json:"value_param"`
+	PrimaryParams []byte  `json:"primary_params"`
+	ID            int32   `json:"id"`
+}
+
+type UpdateCategoryParamsRow struct {
+	ID            int32   `json:"id"`
+	Slug          string  `json:"slug"`
+	DisplayName   string  `json:"display_name"`
+	ParentID      *int32  `json:"parent_id"`
+	SortOrder     int32   `json:"sort_order"`
+	ValueParam    *string `json:"value_param"`
+	PrimaryParams []byte  `json:"primary_params"`
+}
+
+// Admin curation of a category's class profile: value_param is the slug whose
+// magnitude the bare value field encodes (NULL => not parametric), and
+// primary_params is the ordered list of parameter slugs that matter for the
+// category. Both feed generic-part interpretation and the LLM parsing prompt.
+func (q *Queries) UpdateCategoryParams(ctx context.Context, arg UpdateCategoryParamsParams) (UpdateCategoryParamsRow, error) {
+	row := q.db.QueryRow(ctx, updateCategoryParams, arg.ValueParam, arg.PrimaryParams, arg.ID)
+	var i UpdateCategoryParamsRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.DisplayName,
+		&i.ParentID,
+		&i.SortOrder,
+		&i.ValueParam,
+		&i.PrimaryParams,
+	)
+	return i, err
 }
 
 const upsertDistributorCategoryMapping = `-- name: UpsertDistributorCategoryMapping :one

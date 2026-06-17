@@ -15,7 +15,7 @@ Higher roles inherit all permissions of lower roles.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Liveness check — returns `{"status":"ok"}` with 200 |
-| GET | `/categories` | All categories (flat list; build tree from `parent_id`) |
+| GET | `/categories` | All categories (flat list; build tree from `parent_id`). Each carries `value_param` (the slug whose magnitude a bare value encodes; `null` ⇒ not parametric) and the ordered `primary_params` slug list — the curated class profile (see `/admin/categories/{id}/params`). |
 | GET | `/parameter-definitions` | All canonical parameter definitions |
 
 ---
@@ -92,6 +92,7 @@ Higher roles inherit all permissions of lower roles.
 | POST | `/admin/parameter-definitions` | `{slug, display_name, unit?, unit_symbol?, value_type}`. `value_type` ∈ `numeric`/`range`/`text`/`enum`/`enum_set` (`enum_set` = list value, e.g. `CANbus, Ethernet`). |
 | PATCH | `/admin/parameter-definitions/{id}` | Update definition fields. Changing `value_type` re-parses every part parameter mapped to this definition. Response includes `reparsed_count`. |
 | DELETE | `/admin/parameter-definitions/{id}` | Delete definition; linked part parameters and distributor mappings have their `parameter_id` set to null |
+| PATCH | `/admin/categories/{id}/params` | Curate a category's class profile. Body: `{value_param: string\|null, primary_params: string[]}`. `value_param` is the slug whose magnitude a bare value field encodes (`null`/`""` ⇒ not parametric); `primary_params` is the ordered list of relevant parameter slugs. Every referenced slug must exist in the parameter registry (else `400`). Feeds generic-part interpretation and the LLM parsing prompt. Returns the updated category. |
 | GET | `/admin/distributor-parameter-mappings` | Query: `distributor_id?`, `unmapped=true?` |
 | GET | `/admin/distributor-parameter-mappings/{id}/parse-preview` | Query: `value_type?` (default `numeric`), `limit?` (default 12, max 100). Parses the mapping's distinct real sample values under `value_type`; returns `{value_type, results:[{value, parsed, numeric_value, numeric_value_max}]}` for an admin to preview parsing before linking. |
 | PATCH | `/admin/distributor-parameter-mappings/{id}` | `{parameter_id?, ignored?}`. Linking back-fills matching distributor-sourced part parameters with the canonical `parameter_id` and re-parses their numeric values (no re-enrichment needed). Response `{reparsed_count}`. |
