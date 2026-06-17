@@ -81,6 +81,11 @@ export interface Interpretation {
   source?: 'auto' | 'reused' | 'llm';
   /** True when this came from the team's remembered corrections, not a fresh parse. */
   reused?: boolean;
+  /** Identity discovered by the LLM specific-part fallback (overlaid onto line columns at import). */
+  mpn?: string;
+  manufacturer?: string;
+  sku?: string;
+  distributor_id?: string;
 }
 
 export interface InterpretInput {

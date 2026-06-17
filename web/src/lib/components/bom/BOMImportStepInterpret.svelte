@@ -211,7 +211,15 @@
               {/if}
             </div>
           {:else if it.route === 'identity'}
-            <div class="text-xs text-muted-foreground">Resolved by MPN/SKU during import.</div>
+            {#if it.mpn || it.sku}
+              <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                {#if it.manufacturer}<span class="text-muted-foreground">{it.manufacturer}</span>{/if}
+                {#if it.mpn}<Badge variant="outline">MPN: {it.mpn}</Badge>{/if}
+                {#if it.sku}<Badge variant="outline">SKU: {it.sku}</Badge>{/if}
+              </div>
+            {:else}
+              <div class="text-xs text-muted-foreground">Resolved by MPN/SKU during import.</div>
+            {/if}
           {:else if it.route === 'ignore'}
             <div class="text-xs text-muted-foreground">Excluded from stock checks.</div>
           {:else}
