@@ -15,6 +15,11 @@ export interface ImportRevisionItem {
   sku?: string;
   distributor_name?: string;
   resolved_distributor_id?: string | null;
+  value?: string;
+  footprint?: string;
+  /** Reviewer-confirmed interpretation override (persisted as source 'user'). */
+  interpretation?: Interpretation;
+  interpretation_source?: string;
 }
 
 export interface BOMImportConfig {
@@ -32,6 +37,8 @@ export interface BOMImportConfig {
   name_col?: string;
   sku_col?: string;
   distributor_col?: string;
+  value_col?: string;
+  footprint_col?: string;
   /** distributor name → distributor UUID mapping chosen at import time */
   mapping?: Record<string, string | undefined>;
   /** distributor UUID applied to all SKUs when the BOM has no distributor column */
@@ -50,6 +57,39 @@ export function importRevision(teamId: string, projectId: string, body: ImportRe
   return request<{ job_id: string; bom_revision_id: string }>(
     'POST', `/api/v1/teams/${teamId}/projects/${projectId}/revisions`, body,
   );
+}
+
+export type InterpretRoute = 'identity' | 'parametric' | 'ignore' | 'unknown';
+
+export interface InterpretParam {
+  slug: string;
+  raw: string;
+  value_si: number | null;
+}
+
+/** Structured reading of one BOM row produced by the genspec parser. */
+export interface Interpretation {
+  route: InterpretRoute;
+  class: string;
+  category: string;
+  package: string;
+  mounting: string;
+  params: InterpretParam[];
+  flags: string[];
+  confidence: number;
+}
+
+export interface InterpretInput {
+  refdes?: string;
+  footprint?: string;
+  value?: string;
+  mpn?: string;
+  sku?: string;
+}
+
+/** Stateless parse of mapped BOM rows into interpretations (no persistence). */
+export function interpretPreview(items: InterpretInput[]) {
+  return request<{ items: Interpretation[] }>('POST', '/api/v1/bom/interpret-preview', { items });
 }
 
 export function getRevision(teamId: string, projectId: string, revId: string) {

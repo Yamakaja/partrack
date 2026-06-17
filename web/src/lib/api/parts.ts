@@ -73,6 +73,21 @@ export function createPart(body: Partial<Part>) {
   return request<Part>('POST', '/api/v1/parts', body);
 }
 
+export interface CreateGenericPartBody {
+  team_id: string;
+  category_id: number;
+  package?: string;
+  params: { slug: string; value: string }[];
+}
+
+/**
+ * Create-or-get a generic (parametric) part. Returns the created part
+ * (`existing: false`) or the matching pre-existing generic (`existing: true`).
+ */
+export function createGenericPart(body: CreateGenericPartBody) {
+  return request<{ part_id: string; existing: boolean }>('POST', '/api/v1/parts/generic', body);
+}
+
 export function updatePart(partId: string, body: Partial<Part>) {
   return request<Part>('PATCH', `/api/v1/parts/${partId}`, body);
 }

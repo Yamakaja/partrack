@@ -1,15 +1,16 @@
 <script lang="ts">
   import Papa from 'papaparse';
   import { Dialog } from 'bits-ui';
-  import { importRevision, type BOMImportConfig } from '$lib/api/revisions.js';
+  import { importRevision, interpretPreview, type BOMImportConfig, type Interpretation } from '$lib/api/revisions.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { Distributor } from '$lib/types/parts.js';
   import { listDistributors } from '$lib/api/distributors.js';
   import { navigate } from '$lib/router/index.svelte.js';
-  import { AUTO_MAP, buildItems, type ColumnRole, type DistMapping } from './bom-import-utils.js';
+  import { AUTO_MAP, buildItems, type BOMImportItem, type ColumnRole, type DistMapping } from './bom-import-utils.js';
   import BOMImportStepParse from './BOMImportStepParse.svelte';
   import BOMImportStepMapColumns from './BOMImportStepMapColumns.svelte';
   import BOMImportStepMapDistributors from './BOMImportStepMapDistributors.svelte';
+  import BOMImportStepInterpret from './BOMImportStepInterpret.svelte';
   import BOMImportStepDetails from './BOMImportStepDetails.svelte';
 
   let {
@@ -29,7 +30,7 @@
   } = $props();
 
   let open = $state(false);
-  let step = $state<'parse' | 'map' | 'distributor-map' | 'details'>('parse');
+  let step = $state<'parse' | 'map' | 'distributor-map' | 'interpret' | 'details'>('parse');
   let rawText = $state('');
   let parsedRows = $state<string[][]>([]);
 
@@ -51,6 +52,12 @@
   // 'none' = skip step, 'multi' = per-name mapping, 'single' = one distributor for all SKUs.
   let distributorStepMode = $state<'none' | 'multi' | 'single'>('none');
   let singleDistributorId = $state('');
+
+  // Interpretation review step
+  let interpItems = $state<BOMImportItem[]>([]);
+  let interpResults = $state<Interpretation[]>([]);
+  let interpEdited = $state<Record<number, boolean>>({});
+  let interpLoading = $state(false);
 
   // Revision details
   let label = $state('');
@@ -179,6 +186,8 @@
       tryAssignRoleFromConfig('name_col', 'name');
       tryAssignRoleFromConfig('sku_col', 'sku');
       tryAssignRoleFromConfig('distributor_col', 'distributor');
+      tryAssignRoleFromConfig('value_col', 'value');
+      tryAssignRoleFromConfig('footprint_col', 'footprint');
     }
 
     step = 'map';
@@ -232,9 +241,9 @@
       distributorStepMode = 'single';
       uniqueDistributorNames = [];
     } else {
-      // Nothing to map — skip straight to details.
+      // Nothing to map — go straight to interpretation review.
       distributorStepMode = 'none';
-      step = 'details';
+      await enterInterpretStep();
       return;
     }
 
@@ -250,19 +259,52 @@
     }
   }
 
-  function handleDistributorNext() {
-    step = 'details';
+  async function handleDistributorNext() {
+    await enterInterpretStep();
+  }
+
+  // Build the final items (with the chosen distributor mapping) and fetch the
+  // parser's interpretation for the review gate.
+  async function enterInterpretStep() {
+    const single =
+      distributorStepMode === 'single' && singleDistributorId
+        ? { id: singleDistributorId, name: availableDistributors.find((d) => d.id === singleDistributorId)?.name ?? '' }
+        : undefined;
+    const mapping = distributorStepMode === 'multi' ? distributorMappings : undefined;
+    interpItems = buildItems(dataRows, columnRoles, mapping, single);
+    interpResults = [];
+    interpEdited = {};
+    step = 'interpret';
+    interpLoading = true;
+    try {
+      const resp = await interpretPreview(
+        interpItems.map((it) => ({
+          refdes: it.reference_designators,
+          footprint: it.footprint,
+          value: it.value,
+          mpn: it.mpn,
+          sku: it.sku,
+        })),
+      );
+      interpResults = resp.items;
+    } catch (err: any) {
+      pushToast('error', 'Failed to interpret rows', err.message ?? String(err));
+    } finally {
+      interpLoading = false;
+    }
   }
 
   async function performImport(mapping?: DistMapping) {
     if (!canImport) return;
     importing = true;
     try {
-      const single =
-        distributorStepMode === 'single' && singleDistributorId
-          ? { id: singleDistributorId, name: availableDistributors.find((d) => d.id === singleDistributorId)?.name ?? '' }
-          : undefined;
-      const items = buildItems(dataRows, columnRoles, mapping, single);
+      // Items were built (and reviewed) when entering the interpret step; attach the
+      // reviewer-confirmed interpretation for the rows that were edited.
+      const items = interpItems.map((it, i) =>
+        interpEdited[i] && interpResults[i]
+          ? { ...it, interpretation: interpResults[i], interpretation_source: 'user' }
+          : it,
+      );
 
       const desigIdx = columnRoles.indexOf('designators');
       const qtyIdx   = columnRoles.indexOf('quantity');
@@ -272,6 +314,8 @@
       const nameIdx  = columnRoles.indexOf('name');
       const skuIdx   = columnRoles.indexOf('sku');
       const distIdx  = columnRoles.indexOf('distributor');
+      const valueIdx = columnRoles.indexOf('value');
+      const fpIdx    = columnRoles.indexOf('footprint');
 
       const result = await importRevision(teamId, projectId, {
         label: label.trim(),
@@ -292,6 +336,8 @@
           name_col:         nameIdx  >= 0 ? (headerRow[nameIdx]  ?? '') : '',
           sku_col:          skuIdx   >= 0 ? (headerRow[skuIdx]   ?? '') : '',
           distributor_col:  distIdx  >= 0 ? (headerRow[distIdx]  ?? '') : '',
+          value_col:        valueIdx >= 0 ? (headerRow[valueIdx] ?? '') : '',
+          footprint_col:    fpIdx    >= 0 ? (headerRow[fpIdx]    ?? '') : '',
           mapping: mapping,
           single_distributor_id: distributorStepMode === 'single' ? singleDistributorId : undefined,
         },
@@ -346,7 +392,9 @@
             {:else if step === 'map'}
               Assign each column a role, then continue to distributor mapping or import.
             {:else if step === 'distributor-map'}
-              Map each distributor name from the CSV to a known distributor, then proceed to details.
+              Map each distributor name from the CSV to a known distributor, then continue.
+            {:else if step === 'interpret'}
+              Review how each row was interpreted. Fix anything wrong, then continue — most rows need no changes.
             {:else}
               Review the revision label and confirm the import.
             {/if}
@@ -361,7 +409,9 @@
           <span>›</span>
           <span class={step === 'distributor-map' ? 'font-semibold text-foreground' : ''}>3. Map Distributors</span>
           <span>›</span>
-          <span class={step === 'details' ? 'font-semibold text-foreground' : ''}>4. Details</span>
+          <span class={step === 'interpret' ? 'font-semibold text-foreground' : ''}>4. Interpret</span>
+          <span>›</span>
+          <span class={step === 'details' ? 'font-semibold text-foreground' : ''}>5. Details</span>
         </div>
       </div>
 
@@ -404,6 +454,16 @@
           onnext={handleDistributorNext}
           oncancel={handleClose}
         />
+      {:else if step === 'interpret'}
+        <BOMImportStepInterpret
+          bind:items={interpItems}
+          bind:interpretations={interpResults}
+          bind:edited={interpEdited}
+          loading={interpLoading}
+          onback={() => (step = distributorStepMode !== 'none' ? 'distributor-map' : 'map')}
+          onnext={() => (step = 'details')}
+          oncancel={handleClose}
+        />
       {:else}
         <BOMImportStepDetails
           bind:label
@@ -411,7 +471,7 @@
           {canImport}
           {importing}
           hasDistributorStep={distributorStepMode !== 'none'}
-          onback={() => (step = distributorStepMode !== 'none' ? 'distributor-map' : 'map')}
+          onback={() => (step = 'interpret')}
           onimport={handleFinalImport}
           oncancel={handleClose}
         />

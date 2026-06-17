@@ -14,7 +14,9 @@ export type ColumnRole =
   | 'manufacturer'
   | 'name'
   | 'sku'
-  | 'distributor';
+  | 'distributor'
+  | 'value'
+  | 'footprint';
 
 /** Map of lowercased CSV header names to their auto-detected ColumnRole. */
 export const AUTO_MAP: Record<string, ColumnRole> = {
@@ -35,7 +37,14 @@ export const AUTO_MAP: Record<string, ColumnRole> = {
   part_number: 'mpn',
   description: 'description',
   desc: 'description',
-  value: 'description',
+  // The EDA "Value" field is the parametric value (10k, 100nF X7R), distinct
+  // from a free-text description.
+  value: 'value',
+  val: 'value',
+  footprint: 'footprint',
+  'footprint name': 'footprint',
+  package: 'footprint',
+  'package / case': 'footprint',
   manufacturer: 'manufacturer',
   'manufacturer 1': 'manufacturer',
   mfr: 'manufacturer',
@@ -64,6 +73,8 @@ export const ROLE_LABELS: Record<ColumnRole, string> = {
   name: 'Name',
   sku: 'SKU',
   distributor: 'Distributor',
+  value: 'Value',
+  footprint: 'Footprint',
 };
 
 /** Maximum display width (characters) before a cell value is truncated. */
@@ -103,6 +114,8 @@ export interface BOMImportItem {
   sku?: string;
   distributor_name?: string;
   resolved_distributor_id?: string | null;
+  value?: string;
+  footprint?: string;
 }
 
 /**
@@ -135,6 +148,8 @@ export function buildItems(
   const nameIdx  = columnRoles.indexOf('name');
   const skuIdx   = columnRoles.indexOf('sku');
   const distIdx  = columnRoles.indexOf('distributor');
+  const valueIdx = columnRoles.indexOf('value');
+  const fpIdx    = columnRoles.indexOf('footprint');
 
   return dataRows
     .map((row) => {
@@ -166,6 +181,10 @@ export function buildItems(
         sku,
         distributor_name: distributorName,
         resolved_distributor_id: resolvedDistributorId,
+        value:
+          valueIdx >= 0 && row[valueIdx]?.trim() ? row[valueIdx].trim() : undefined,
+        footprint:
+          fpIdx >= 0 && row[fpIdx]?.trim() ? row[fpIdx].trim() : undefined,
       };
     })
     .filter((it) => it.reference_designators && it.quantity > 0);
