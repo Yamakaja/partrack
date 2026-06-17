@@ -36,6 +36,7 @@
     }
     if (item.resolution_state === 'auto_sku') return { label: 'Auto (SKU)', variant: 'success' };
     if (item.resolution_state === 'auto_mpn') return { label: 'Auto (MPN)', variant: 'success' };
+    if (item.resolution_state === 'auto_generic') return { label: 'Auto (Generic)', variant: 'success' };
     if (item.resolution_state === 'auto_prior_revision') return { label: 'Auto (Prior)', variant: 'success' };
     if (item.resolution_state === 'manual') return { label: 'Manual', variant: 'success' };
     return { label: 'Resolved', variant: 'success' };

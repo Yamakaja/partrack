@@ -153,6 +153,7 @@
         : { label: 'Unresolved',   variant: 'outline'   as BadgeVariant }
     : currentItem.resolution_state === 'auto_sku'           ? { label: 'Auto (SKU)',   variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_mpn'           ? { label: 'Auto (MPN)',   variant: 'success' as BadgeVariant }
+    : currentItem.resolution_state === 'auto_generic'       ? { label: 'Auto (Generic)', variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_prior_revision'? { label: 'Auto (Prior)', variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_import'        ? { label: 'Imported',     variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'manual'             ? { label: 'Manual',       variant: 'success' as BadgeVariant }

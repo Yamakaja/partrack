@@ -15,7 +15,7 @@
   function bucketOf(i: BOMLineItem): string {
     if (i.ignored) return 'ignored';
     const s = i.resolution_state;
-    if (s === 'auto_sku' || s === 'auto_mpn' || s === 'auto_prior_revision') return 'existing';
+    if (s === 'auto_sku' || s === 'auto_mpn' || s === 'auto_generic' || s === 'auto_prior_revision') return 'existing';
     if (s === 'manual') return 'manual';
     if (s === 'auto_import') return 'newAuto';
     if (s === 'import_ambiguous' || s === 'ambiguous') return 'ambiguous';

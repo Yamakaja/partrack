@@ -79,8 +79,24 @@ export interface BOMLineItem {
   resolved_part_flag?: import('$lib/api/notes.js').PartFlag;
   resolution_state: string | null;
   ignored: boolean;
+  value?: string | null;
+  footprint?: string | null;
+  interpretation?: BOMInterpretation | null;
+  interpretation_source?: string;
   substitutes: BOMSubstitute[];
   resolve_item?: BOMResolveItem | null;
+}
+
+/** The genspec parser's structured reading of a BOM line (persisted per line). */
+export interface BOMInterpretation {
+  route: 'identity' | 'parametric' | 'ignore' | 'unknown';
+  class: string;
+  category: string;
+  package: string;
+  mounting: string;
+  params: { slug: string; raw: string; value_si: number | null }[];
+  flags: string[];
+  confidence: number;
 }
 
 export interface BOMResolveItem {

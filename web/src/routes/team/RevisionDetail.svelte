@@ -3,6 +3,8 @@
   import { getProject } from '$lib/api/projects.js';
   import type { BOMLineItem } from '$lib/types/projects.js';
   import { getRevision, updateBOMLineItem, updateRevision } from '$lib/api/revisions.js';
+  import { createGenericPart } from '$lib/api/parts.js';
+  import { listCategories } from '$lib/api/categories.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import EmptyState from '$lib/components/common/EmptyState.svelte';
@@ -68,6 +70,16 @@
     queryFn: () => getRevision(teamId, projectId, revId),
   }));
 
+  let categoriesQuery = createQuery(() => ({
+    queryKey: ['categories'],
+    queryFn: () => listCategories(),
+  }));
+  let categoryIdBySlug = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const c of categoriesQuery.data ?? []) m.set(c.slug, c.id);
+    return m;
+  });
+
   let allItems = $derived(revisionQuery.data?.items ?? []);
 
   let isReady = $derived(
@@ -121,6 +133,66 @@
 
   function handleReviewClose() {
     reviewOpen = false;
+  }
+
+  // Unresolved rows the parser read as generic specs — eligible for one-click
+  // generic-part creation (create-or-get).
+  let genericCandidates = $derived(
+    allItems.filter((i) => isReviewable(i) && i.interpretation?.route === 'parametric'),
+  );
+
+  let creatingGeneric = $state(false);
+
+  async function createGenericForItem(item: BOMLineItem): Promise<boolean> {
+    const interp = item.interpretation;
+    if (!interp || interp.route !== 'parametric') return false;
+    const categoryId = categoryIdBySlug.get(interp.category);
+    if (!categoryId) {
+      pushToast('error', 'Unknown category', interp.category || '(none)');
+      return false;
+    }
+    const res = await createGenericPart({
+      team_id: teamId,
+      category_id: categoryId,
+      package: interp.package || undefined,
+      params: interp.params.map((p) => ({ slug: p.slug, value: p.raw })),
+    });
+    await updateBOMLineItem(teamId, projectId, revId, item.id, { resolved_part_id: res.part_id });
+    return true;
+  }
+
+  async function createOneGeneric(item: BOMLineItem) {
+    if (creatingGeneric) return;
+    creatingGeneric = true;
+    try {
+      if (await createGenericForItem(item)) {
+        qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+        pushToast('success', 'Generic part created');
+      }
+    } catch (err: any) {
+      pushToast('error', 'Failed to create generic part', err.message);
+    } finally {
+      creatingGeneric = false;
+    }
+  }
+
+  async function createAllGenerics() {
+    if (creatingGeneric || genericCandidates.length === 0) return;
+    creatingGeneric = true;
+    let n = 0;
+    try {
+      for (const item of genericCandidates) {
+        try {
+          if (await createGenericForItem(item)) n++;
+        } catch {
+          /* keep going; failures are reported in aggregate */
+        }
+      }
+      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+      pushToast('success', `Linked ${n} generic part${n === 1 ? '' : 's'}`);
+    } finally {
+      creatingGeneric = false;
+    }
   }
 
   // Substitutes dialog state
@@ -180,6 +252,7 @@
     }
     if (item.resolution_state === 'auto_sku') return 'Auto (SKU)';
     if (item.resolution_state === 'auto_mpn') return 'Auto (MPN)';
+    if (item.resolution_state === 'auto_generic') return 'Auto (Generic)';
     if (item.resolution_state === 'auto_prior_revision') return 'Auto (Prior)';
     if (item.resolution_state === 'auto_import') return 'Imported';
     if (item.resolution_state === 'manual') return 'Manual';
@@ -202,7 +275,7 @@
       header: 'Status',
       type: 'enum',
       filterable: true,
-      filterValues: ['Unresolved', 'Importing', 'Needs Review', 'No Result', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Prior)', 'Imported', 'Manual', 'Resolved', 'Ignored'],
+      filterValues: ['Unresolved', 'Importing', 'Needs Review', 'No Result', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Generic)', 'Auto (Prior)', 'Imported', 'Manual', 'Resolved', 'Ignored'],
     },
     { key: 'substitutes', header: 'Substitutes', type: 'text' },
   ];
@@ -233,6 +306,11 @@
             class="bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700"
           >
             {needsAttentionCount} {needsAttentionCount === 1 ? 'item' : 'items'} ready for review
+          </Button>
+        {/if}
+        {#if genericCandidates.length > 0}
+          <Button size="sm" variant="outline" onclick={createAllGenerics} disabled={creatingGeneric}>
+            {creatingGeneric ? 'Creating…' : `Create ${genericCandidates.length} generic part${genericCandidates.length === 1 ? '' : 's'}`}
           </Button>
         {/if}
       {/if}
@@ -359,6 +437,15 @@
         onclick={(e) => e.stopPropagation()}
         class="font-mono text-xs text-muted-foreground hover:underline"
       >{row.resolved_part_mpn}</a>
+    {/if}
+    {#if isReviewable(row) && row.interpretation?.route === 'parametric'}
+      <Button
+        size="sm"
+        variant="outline"
+        class="h-6 px-2 text-xs"
+        disabled={creatingGeneric}
+        onclick={(e: MouseEvent) => { e.stopPropagation(); createOneGeneric(row); }}
+      >Create generic</Button>
     {/if}
   </div>
 {/snippet}
