@@ -42,9 +42,10 @@ RETURNING id, label, imported_at, notes, imported_by;
 INSERT INTO bom_line_items (
     bom_revision_id, reference_designators, quantity, raw_description,
     manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id,
-    value, footprint, interpretation
+    value, footprint, interpretation, interpretation_source
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-          sqlc.narg('value'), sqlc.narg('footprint'), sqlc.narg('interpretation'))
+          sqlc.narg('value'), sqlc.narg('footprint'), sqlc.narg('interpretation'),
+          COALESCE(sqlc.narg('interpretation_source'), 'auto'))
 RETURNING id;
 
 -- name: ListBOMLineItems :many
@@ -73,6 +74,7 @@ SELECT
     COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
+    bli.value, bli.footprint, bli.interpretation, bli.interpretation_source,
     p.mpn AS resolved_part_mpn,
     pn.flag AS resolved_part_flag,
     bli.resolve_item_id,

@@ -132,17 +132,19 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type itemInput struct {
-		ReferenceDesignators  string  `json:"reference_designators"`
-		Quantity              int32   `json:"quantity"`
-		RawDescription        *string `json:"raw_description"`
-		Manufacturer          *string `json:"manufacturer"`
-		MPN                   *string `json:"mpn"`
-		Name                  *string `json:"name"`
-		SKU                   *string `json:"sku"`
-		DistributorName       *string `json:"distributor_name"`
-		ResolvedDistributorID *string `json:"resolved_distributor_id"`
-		Value                 *string `json:"value"`
-		Footprint             *string `json:"footprint"`
+		ReferenceDesignators  string          `json:"reference_designators"`
+		Quantity              int32           `json:"quantity"`
+		RawDescription        *string         `json:"raw_description"`
+		Manufacturer          *string         `json:"manufacturer"`
+		MPN                   *string         `json:"mpn"`
+		Name                  *string         `json:"name"`
+		SKU                   *string         `json:"sku"`
+		DistributorName       *string         `json:"distributor_name"`
+		ResolvedDistributorID *string         `json:"resolved_distributor_id"`
+		Value                 *string         `json:"value"`
+		Footprint             *string         `json:"footprint"`
+		Interpretation        json.RawMessage `json:"interpretation"`
+		InterpretationSource  *string         `json:"interpretation_source"`
 	}
 	var items []itemInput
 	if v, ok := rawBody["items"]; ok {
@@ -187,16 +189,26 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Interpret the row up front so the persisted line carries the parser's
-		// structured reading (the review gate may later flip it to source 'user').
-		interp := genspec.Interpret(genspec.Input{
-			Refdes:    item.ReferenceDesignators,
-			Footprint: derefStr(item.Footprint),
-			Value:     derefStr(item.Value),
-			MPN:       derefStr(item.MPN),
-			SKU:       derefStr(item.SKU),
-		})
-		interpBytes, _ := json.Marshal(interp)
+		// Persist the parser's interpretation, unless the client supplies an edited
+		// one from the review gate — kept as source 'user' so re-parses never
+		// clobber it.
+		interpBytes := []byte(item.Interpretation)
+		interpSource := "auto"
+		if len(interpBytes) > 0 {
+			interpSource = "user"
+			if item.InterpretationSource != nil && *item.InterpretationSource != "" {
+				interpSource = *item.InterpretationSource
+			}
+		} else {
+			interp := genspec.Interpret(genspec.Input{
+				Refdes:    item.ReferenceDesignators,
+				Footprint: derefStr(item.Footprint),
+				Value:     derefStr(item.Value),
+				MPN:       derefStr(item.MPN),
+				SKU:       derefStr(item.SKU),
+			})
+			interpBytes, _ = json.Marshal(interp)
+		}
 
 		_, err := qtx.CreateBOMLineItem(r.Context(), dbgen.CreateBOMLineItemParams{
 			BomRevisionID:         rev.ID,
@@ -212,6 +224,7 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 			Value:                 item.Value,
 			Footprint:             item.Footprint,
 			Interpretation:        interpBytes,
+			InterpretationSource:  interpSource,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -347,6 +360,10 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		ResolvedPartFlag     *string          `json:"resolved_part_flag,omitempty"`
 		ResolutionState      *string          `json:"resolution_state"`
 		Ignored              bool             `json:"ignored"`
+		Value                *string          `json:"value,omitempty"`
+		Footprint            *string          `json:"footprint,omitempty"`
+		Interpretation       json.RawMessage  `json:"interpretation,omitempty"`
+		InterpretationSource string           `json:"interpretation_source,omitempty"`
 		Substitutes          []subEntry       `json:"substitutes"`
 		ResolveItem          *resolveItemResp `json:"resolve_item,omitempty"`
 	}
@@ -369,6 +386,10 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			ResolvedPartMpn:      li.ResolvedPartMpn,
 			ResolutionState:      li.ResolutionState,
 			Ignored:              li.Ignored,
+			Value:                li.Value,
+			Footprint:            li.Footprint,
+			Interpretation:       li.Interpretation,
+			InterpretationSource: li.InterpretationSource,
 			Substitutes:          subsByItem[id],
 		}
 		if li.ResolvedPartFlag.Valid && li.ResolvedPartFlag.PartFlag != dbgen.PartFlagNone {

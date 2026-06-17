@@ -30,9 +30,10 @@ const createBOMLineItem = `-- name: CreateBOMLineItem :one
 INSERT INTO bom_line_items (
     bom_revision_id, reference_designators, quantity, raw_description,
     manufacturer, mpn, part_name, sku, distributor_name, resolved_distributor_id,
-    value, footprint, interpretation
+    value, footprint, interpretation, interpretation_source
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-          $11, $12, $13)
+          $11, $12, $13,
+          COALESCE($14, 'auto'))
 RETURNING id
 `
 
@@ -50,6 +51,7 @@ type CreateBOMLineItemParams struct {
 	Value                 *string     `json:"value"`
 	Footprint             *string     `json:"footprint"`
 	Interpretation        []byte      `json:"interpretation"`
+	InterpretationSource  interface{} `json:"interpretation_source"`
 }
 
 // interpretation_source defaults to 'auto'; the import always creates auto
@@ -69,6 +71,7 @@ func (q *Queries) CreateBOMLineItem(ctx context.Context, arg CreateBOMLineItemPa
 		arg.Value,
 		arg.Footprint,
 		arg.Interpretation,
+		arg.InterpretationSource,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -551,6 +554,7 @@ SELECT
     COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
+    bli.value, bli.footprint, bli.interpretation, bli.interpretation_source,
     p.mpn AS resolved_part_mpn,
     pn.flag AS resolved_part_flag,
     bli.resolve_item_id,
@@ -586,6 +590,10 @@ type ListBOMLineItemsWithResolveDataRow struct {
 	ResolvedDistributorID pgtype.UUID  `json:"resolved_distributor_id"`
 	ResolutionState       *string      `json:"resolution_state"`
 	Ignored               bool         `json:"ignored"`
+	Value                 *string      `json:"value"`
+	Footprint             *string      `json:"footprint"`
+	Interpretation        []byte       `json:"interpretation"`
+	InterpretationSource  string       `json:"interpretation_source"`
 	ResolvedPartMpn       *string      `json:"resolved_part_mpn"`
 	ResolvedPartFlag      NullPartFlag `json:"resolved_part_flag"`
 	ResolveItemID         pgtype.UUID  `json:"resolve_item_id"`
@@ -621,6 +629,10 @@ func (q *Queries) ListBOMLineItemsWithResolveData(ctx context.Context, arg ListB
 			&i.ResolvedDistributorID,
 			&i.ResolutionState,
 			&i.Ignored,
+			&i.Value,
+			&i.Footprint,
+			&i.Interpretation,
+			&i.InterpretationSource,
 			&i.ResolvedPartMpn,
 			&i.ResolvedPartFlag,
 			&i.ResolveItemID,
