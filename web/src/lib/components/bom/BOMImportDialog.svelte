@@ -271,7 +271,7 @@
         ? { id: singleDistributorId, name: availableDistributors.find((d) => d.id === singleDistributorId)?.name ?? '' }
         : undefined;
     const mapping = distributorStepMode === 'multi' ? distributorMappings : undefined;
-    interpItems = buildItems(dataRows, columnRoles, mapping, single);
+    interpItems = buildItems(dataRows, columnRoles, mapping, single, headerRow);
     interpResults = [];
     interpEdited = {};
     step = 'interpret';
@@ -284,6 +284,7 @@
           value: it.value,
           mpn: it.mpn,
           sku: it.sku,
+          row: it.row,
         })),
         teamId,
       );
@@ -299,13 +300,17 @@
     if (!canImport) return;
     importing = true;
     try {
-      // Items were built (and reviewed) when entering the interpret step; attach the
-      // reviewer-confirmed interpretation for the rows that were edited.
-      const items = interpItems.map((it, i) =>
-        interpEdited[i] && interpResults[i]
-          ? { ...it, interpretation: interpResults[i], interpretation_source: 'user' }
-          : it,
-      );
+      // Items were built (and reviewed) when entering the interpret step. Attach a
+      // reviewer-confirmed interpretation for rows the user edited ('user') or the
+      // LLM read ('llm'); both are persisted as overrides. Drop the raw `row` — only
+      // the preview needs it, and it would bloat the import payload.
+      const items = interpItems.map((it, i) => {
+        const { row: _row, ...rest } = it;
+        const r = interpResults[i];
+        if (interpEdited[i] && r) return { ...rest, interpretation: r, interpretation_source: 'user' };
+        if (r?.source === 'llm') return { ...rest, interpretation: r, interpretation_source: 'llm' };
+        return rest;
+      });
 
       const desigIdx = columnRoles.indexOf('designators');
       const qtyIdx   = columnRoles.indexOf('quantity');

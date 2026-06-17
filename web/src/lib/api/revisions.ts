@@ -77,6 +77,8 @@ export interface Interpretation {
   params: InterpretParam[];
   flags: string[];
   confidence: number;
+  /** Provenance: 'auto' (fresh parse), 'reused' (team memory), or 'llm' (LLM fallback). */
+  source?: 'auto' | 'reused' | 'llm';
   /** True when this came from the team's remembered corrections, not a fresh parse. */
   reused?: boolean;
 }
@@ -87,6 +89,8 @@ export interface InterpretInput {
   value?: string;
   mpn?: string;
   sku?: string;
+  /** Original BOM header → cell value, given to the LLM fallback for context. */
+  row?: Record<string, string>;
 }
 
 /**

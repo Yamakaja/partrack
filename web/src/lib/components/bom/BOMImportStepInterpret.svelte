@@ -40,14 +40,16 @@
   };
 
   function needsAttention(it: Interpretation): boolean {
+    if (it.source === 'llm') return true; // AI read a weird row — worth a glance
     if (it.reused) return false; // a remembered correction was already confirmed
     return it.route === 'unknown' || (it.flags?.length ?? 0) > 0 || (it.confidence ?? 1) < 0.7;
   }
 
-  // Attention score: higher sorts to the top. Problematic/low-confidence rows
-  // first; confident rows below for a quick scroll-through (they can still be wrong).
-  // Remembered corrections sink to the bottom — they need the least attention.
+  // Attention score: higher sorts to the top. AI-read and problematic/low-confidence
+  // rows first; confident rows below for a quick scroll-through (they can still be
+  // wrong). Remembered corrections sink to the bottom — they need the least attention.
   function score(it: Interpretation): number {
+    if (it.source === 'llm') return 60;
     if (it.reused) return -1;
     let s = 0;
     if (it.route === 'unknown') s += 100;
@@ -71,6 +73,7 @@
 
   let attentionCount = $derived(interpretations.filter(needsAttention).length);
   let reusedCount = $derived(interpretations.filter((it) => it.reused).length);
+  let llmCount = $derived(interpretations.filter((it) => it.source === 'llm').length);
 
   function setRoute(i: number, route: InterpretRoute) {
     interpretations[i] = { ...interpretations[i], route };
@@ -126,6 +129,7 @@
       <Badge variant="success">{summary.identity} specific</Badge>
       <Badge variant="secondary">{summary.ignore} ignored</Badge>
       {#if summary.unknown > 0}<Badge variant="warning">{summary.unknown} needs review</Badge>{/if}
+      {#if llmCount > 0}<span title="Read by AI because the format was unusual — please verify"><Badge variant="warning">{llmCount} AI-read</Badge></span>{/if}
       {#if reusedCount > 0}<span title="Reused from your team's earlier corrections"><Badge variant="outline">{reusedCount} remembered</Badge></span>{/if}
       <span class="ml-auto text-muted-foreground">
         {#if attentionCount > 0}
@@ -144,6 +148,7 @@
           <div class="flex items-center gap-2">
             <span class="font-medium">{items[i].reference_designators}</span>
             <Badge variant={ROUTE_BADGE[it.route].variant}>{ROUTE_BADGE[it.route].label}</Badge>
+            {#if it.source === 'llm'}<span title="Read by AI because the format was unusual — please verify"><Badge variant="warning">AI</Badge></span>{/if}
             {#if it.reused}<span title="Reused from your team's earlier corrections"><Badge variant="outline">remembered</Badge></span>{/if}
             {#if edited[i]}<span class="text-[10px] uppercase tracking-wide text-primary">edited</span>{/if}
             {#each it.flags ?? [] as flag}

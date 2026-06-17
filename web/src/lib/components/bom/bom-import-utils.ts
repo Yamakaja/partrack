@@ -116,6 +116,8 @@ export interface BOMImportItem {
   resolved_distributor_id?: string | null;
   value?: string;
   footprint?: string;
+  /** Original BOM header → cell value (only when headers are passed to buildItems). */
+  row?: Record<string, string>;
 }
 
 /**
@@ -139,7 +141,19 @@ export function buildItems(
   columnRoles: ColumnRole[],
   mapping?: DistMapping,
   single?: SingleDistributor,
+  headers?: string[],
 ): BOMImportItem[] {
+  // Original header → non-empty cell, kept so the LLM fallback sees the whole row
+  // (including columns the user didn't map to a role).
+  const buildRow = (cells: string[]): Record<string, string> | undefined => {
+    if (!headers || headers.length === 0) return undefined;
+    const r: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      const v = cells[i]?.trim();
+      if (h && v) r[h] = v;
+    });
+    return Object.keys(r).length ? r : undefined;
+  };
   const desigIdx = columnRoles.indexOf('designators');
   const qtyIdx   = columnRoles.indexOf('quantity');
   const descIdx  = columnRoles.indexOf('description');
@@ -185,6 +199,7 @@ export function buildItems(
           valueIdx >= 0 && row[valueIdx]?.trim() ? row[valueIdx].trim() : undefined,
         footprint:
           fpIdx >= 0 && row[fpIdx]?.trim() ? row[fpIdx].trim() : undefined,
+        row: buildRow(row),
       };
     })
     .filter((it) => it.reference_designators && it.quantity > 0);
