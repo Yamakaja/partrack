@@ -77,6 +77,8 @@ export interface Interpretation {
   params: InterpretParam[];
   flags: string[];
   confidence: number;
+  /** True when this came from the team's remembered corrections, not a fresh parse. */
+  reused?: boolean;
 }
 
 export interface InterpretInput {
@@ -87,9 +89,16 @@ export interface InterpretInput {
   sku?: string;
 }
 
-/** Stateless parse of mapped BOM rows into interpretations (no persistence). */
-export function interpretPreview(items: InterpretInput[]) {
-  return request<{ items: Interpretation[] }>('POST', '/api/v1/bom/interpret-preview', { items });
+/**
+ * Parse mapped BOM rows into interpretations (no persistence). When teamId is
+ * given, the team's remembered corrections are layered over the fresh parse and
+ * the affected rows are flagged `reused` — matching what the import will persist.
+ */
+export function interpretPreview(items: InterpretInput[], teamId?: string) {
+  return request<{ items: Interpretation[] }>('POST', '/api/v1/bom/interpret-preview', {
+    items,
+    ...(teamId ? { team_id: teamId } : {}),
+  });
 }
 
 export function getRevision(teamId: string, projectId: string, revId: string) {

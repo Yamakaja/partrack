@@ -9,6 +9,7 @@
     items = $bindable(),
     interpretations = $bindable(),
     edited = $bindable(),
+    teamId,
     loading,
     onback,
     onnext,
@@ -17,6 +18,7 @@
     items: BOMImportItem[];
     interpretations: Interpretation[];
     edited: Record<number, boolean>;
+    teamId: string;
     loading: boolean;
     onback: () => void;
     onnext: () => void;
@@ -38,12 +40,15 @@
   };
 
   function needsAttention(it: Interpretation): boolean {
+    if (it.reused) return false; // a remembered correction was already confirmed
     return it.route === 'unknown' || (it.flags?.length ?? 0) > 0 || (it.confidence ?? 1) < 0.7;
   }
 
   // Attention score: higher sorts to the top. Problematic/low-confidence rows
   // first; confident rows below for a quick scroll-through (they can still be wrong).
+  // Remembered corrections sink to the bottom — they need the least attention.
   function score(it: Interpretation): number {
+    if (it.reused) return -1;
     let s = 0;
     if (it.route === 'unknown') s += 100;
     s += (it.flags?.length ?? 0) * 50;
@@ -65,6 +70,7 @@
   });
 
   let attentionCount = $derived(interpretations.filter(needsAttention).length);
+  let reusedCount = $derived(interpretations.filter((it) => it.reused).length);
 
   function setRoute(i: number, route: InterpretRoute) {
     interpretations[i] = { ...interpretations[i], route };
@@ -83,15 +89,18 @@
   async function reparse(i: number) {
     reparsing[i] = true;
     try {
-      const res = await interpretPreview([
-        {
-          refdes: items[i].reference_designators,
-          footprint: items[i].footprint,
-          value: items[i].value,
-          mpn: items[i].mpn,
-          sku: items[i].sku,
-        },
-      ]);
+      const res = await interpretPreview(
+        [
+          {
+            refdes: items[i].reference_designators,
+            footprint: items[i].footprint,
+            value: items[i].value,
+            mpn: items[i].mpn,
+            sku: items[i].sku,
+          },
+        ],
+        teamId,
+      );
       if (res.items[0]) {
         interpretations[i] = res.items[0];
         edited[i] = true;
@@ -117,6 +126,7 @@
       <Badge variant="success">{summary.identity} specific</Badge>
       <Badge variant="secondary">{summary.ignore} ignored</Badge>
       {#if summary.unknown > 0}<Badge variant="warning">{summary.unknown} needs review</Badge>{/if}
+      {#if reusedCount > 0}<span title="Reused from your team's earlier corrections"><Badge variant="outline">{reusedCount} remembered</Badge></span>{/if}
       <span class="ml-auto text-muted-foreground">
         {#if attentionCount > 0}
           {attentionCount} row{attentionCount === 1 ? '' : 's'} need attention (sorted to top)
@@ -134,6 +144,7 @@
           <div class="flex items-center gap-2">
             <span class="font-medium">{items[i].reference_designators}</span>
             <Badge variant={ROUTE_BADGE[it.route].variant}>{ROUTE_BADGE[it.route].label}</Badge>
+            {#if it.reused}<span title="Reused from your team's earlier corrections"><Badge variant="outline">remembered</Badge></span>{/if}
             {#if edited[i]}<span class="text-[10px] uppercase tracking-wide text-primary">edited</span>{/if}
             {#each it.flags ?? [] as flag}
               <span class="text-[10px] rounded bg-warning/20 px-1.5 py-0.5 text-warning-foreground">{flag}</span>

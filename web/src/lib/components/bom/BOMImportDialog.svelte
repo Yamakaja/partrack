@@ -285,6 +285,7 @@
           mpn: it.mpn,
           sku: it.sku,
         })),
+        teamId,
       );
       interpResults = resp.items;
     } catch (err: any) {
@@ -459,6 +460,7 @@
           bind:items={interpItems}
           bind:interpretations={interpResults}
           bind:edited={interpEdited}
+          {teamId}
           loading={interpLoading}
           onback={() => (step = distributorStepMode !== 'none' ? 'distributor-map' : 'map')}
           onnext={() => (step = 'details')}
