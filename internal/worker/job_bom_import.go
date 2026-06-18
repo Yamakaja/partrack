@@ -10,6 +10,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/genspec"
+	"github.com/Yamakaja/partrack/internal/partmatch"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -72,7 +73,7 @@ func (q *Queue) handleBOMImport(job Job) {
 		switch {
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_sku":
 			resolvedSKU++
-		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_mpn":
+		case it.ResolvedPartID.Valid && it.ResolutionState != nil && (*it.ResolutionState == "auto_mpn" || *it.ResolutionState == "auto_mpn_fuzzy"):
 			resolvedMPN++
 		case it.ResolvedPartID.Valid && it.ResolutionState != nil && *it.ResolutionState == "auto_prior_revision":
 			resolvedPrior++
@@ -212,6 +213,29 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		}
 
+		// 5b. Fuzzy local MPN match: the exact tiers want an exact MPN, but the catalog
+		// often holds a packaged variant of the BOM's base part (BOM "AZ431A" → catalog
+		// "AZ431AN-ATRG1"). Before querying distributors, check the local library the
+		// same way the review pane does (MPN/alias substring). A single hit auto-resolves;
+		// multiple leave the line for review; none falls through to the distributor tier.
+		if resolutionState == nil && item.Mpn != nil && *item.Mpn != "" {
+			if fuzzy, err := queries.FindPartsByMPNFuzzy(ctx, dbgen.FindPartsByMPNFuzzyParams{
+				Search: item.Mpn,
+				TeamID: teamID,
+			}); err == nil {
+				switch {
+				case len(fuzzy) == 1:
+					// Resolve to the local part, but flag it: a substring match is less
+					// certain than an exact one, so it surfaces in the review queue for a
+					// one-click confirm (see auto_mpn_fuzzy handling in the web UI).
+					resolvedPartID = fuzzy[0].ID
+					resolutionState = strPtr("auto_mpn_fuzzy")
+				case len(fuzzy) > 1:
+					resolutionState = strPtr("ambiguous")
+				}
+			}
+		}
+
 		if resolutionState == nil {
 			// Not known to partrack. If we have identifiers, hand the new part off to
 			// the unified resolve pipeline (multi-distributor fan-out + cached
@@ -269,7 +293,7 @@ func (q *Queue) handleBOMImport(job Job) {
 			switch *resolutionState {
 			case "auto_sku":
 				resolvedSKU++
-			case "auto_mpn":
+			case "auto_mpn", "auto_mpn_fuzzy":
 				resolvedMPN++
 			case "auto_prior_revision":
 				resolvedPrior++
@@ -379,60 +403,11 @@ func tryParametricMatch(ctx context.Context, queries *dbgen.Queries, teamID, ite
 	if err := json.Unmarshal(raw, &interp); err != nil {
 		return none, false
 	}
-	if interp.Route != genspec.RouteParametric || interp.Category == "" || interp.Package == "" {
-		return none, false
-	}
-	prof, ok := genspec.ProfileForClass(interp.Class)
-	if !ok || prof.ValueParam == "" {
-		return none, false
-	}
-
-	var nominal, tol *float64
-	for _, p := range interp.Params {
-		switch p.Slug {
-		case prof.ValueParam:
-			nominal = p.ValueSI
-		case "tolerance":
-			tol = p.ValueSI
-		}
-	}
-	if nominal == nil {
-		return none, false
-	}
-
-	cat, err := queries.GetCategoryBySlug(ctx, interp.Category)
-	if err != nil {
-		return none, false
-	}
-	paramDef, err := queries.GetParameterBySlug(ctx, prof.ValueParam)
-	if err != nil {
-		return none, false
-	}
-
-	// Value epsilon: ±1% by default; for a tolerance-bearing line, ±(0.1·T) where T
-	// is the tolerance in percent (a 10% line widens to ±1%, a 1% line to ±0.1%).
-	eps := 0.01
-	if tol != nil && *tol > 0 {
-		eps = 0.001 * (*tol)
-	}
-	lo := *nominal * (1 - eps)
-	hi := *nominal * (1 + eps)
-	if lo > hi {
-		lo, hi = hi, lo
-	}
-
-	pkg := interp.Package
-	pid := paramDef.ID
-	matches, err := queries.FindGenericPartMatch(ctx, dbgen.FindGenericPartMatchParams{
-		TeamID:           teamID,
-		CategoryID:       cat.ID,
-		CanonicalPackage: &pkg,
-		ParameterID:      &pid,
-		MinVal:           &lo,
-		MaxVal:           &hi,
-	})
+	// Auto-resolve only on a single unambiguous candidate; the candidate set is the
+	// same one the review-gate picker shows (see internal/partmatch).
+	matches, err := partmatch.Find(ctx, queries, teamID, interp)
 	if err != nil || len(matches) != 1 {
 		return none, false
 	}
-	return matches[0], true
+	return matches[0].ID, true
 }

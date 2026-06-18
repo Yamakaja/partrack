@@ -429,6 +429,11 @@ type ApiToken struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
+type AppBackfill struct {
+	Name      string             `json:"name"`
+	AppliedAt pgtype.Timestamptz `json:"applied_at"`
+}
+
 type Attachment struct {
 	ID               pgtype.UUID        `json:"id"`
 	TeamID           pgtype.UUID        `json:"team_id"`

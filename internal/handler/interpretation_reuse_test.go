@@ -16,12 +16,15 @@ import (
 // satisfaction resolves the line to auto_generic — exercising the whole chain.
 func overrideInterpretation() map[string]any {
 	return map[string]any{
-		"route":      "parametric",
-		"class":      "R",
-		"category":   "resistors",
-		"package":    "0603",
-		"mounting":   "smd",
-		"params":     []any{map[string]any{"slug": "resistance", "raw": "10k", "value_si": 10000}},
+		"route":    "parametric",
+		"class":    "R",
+		"category": "resistors",
+		"mounting": "smd",
+		// Package is modelled as a parameter (slug "package"), not a top-level field.
+		"params": []any{
+			map[string]any{"slug": "resistance", "raw": "10k", "value_si": 10000},
+			map[string]any{"slug": "package", "raw": "0603", "value_si": nil},
+		},
 		"flags":      []any{},
 		"confidence": 0.42,
 	}
@@ -153,4 +156,75 @@ func TestInterpretationReuse_TeamMemoryCrossProject(t *testing.T) {
 	item := pollResolvedLine(t, teamID, projectB, token, revB)
 
 	assertReusedInterpretation(t, item)
+}
+
+// TestGenericPartCandidates verifies the review-gate candidate endpoint returns the
+// catalog parts that satisfy a generic line's parametric spec.
+func TestGenericPartCandidates(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "cand@example.com", "pw", "Cand")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Cand Team")
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "PCB-CAND")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	partID := seedGenericResistor(t, teamID, token) // 10k / 0603
+
+	rev := importResistorLine(t, teamID, projectID, token, "v1.0", nil)
+	item := pollResolvedLine(t, teamID, projectID, token, rev)
+	itemID, _ := item["id"].(string)
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/items/%s/generic-candidates",
+			teamID, projectID, rev, itemID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("candidates: expected 200, got %d: %v", status, body)
+	}
+	items, _ := body["items"].([]any)
+	found := false
+	for _, c := range items {
+		if cm, ok := c.(map[string]any); ok && cm["part_id"] == partID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected seeded generic %s among candidates, got %v", partID, items)
+	}
+}
+
+// TestBOMImport_FuzzyMPNLocalMatch verifies that a BOM line whose MPN has no exact
+// catalog match but a single fuzzy (substring) match resolves to that local part
+// (flagged auto_mpn_fuzzy for review) instead of launching a distributor search.
+func TestBOMImport_FuzzyMPNLocalMatch(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "fuzzy@example.com", "pw", "Fuzzy")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Fuzzy Team")
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "PCB-FUZZY")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	// Catalog holds a packaged variant of the BOM's base MPN (no exact match).
+	partID := testutil.CreatePart(t, testDB, "global", "AZ431AN-ATRG1", nil)
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions", teamID, projectID),
+		map[string]any{"label": "v1.0", "set_active": true, "items": []any{
+			map[string]any{"reference_designators": "U2", "quantity": 1, "mpn": "AZ431A"},
+		}}, token)
+	if status != http.StatusAccepted {
+		t.Fatalf("import: expected 202, got %d: %v", status, body)
+	}
+	revID, _ := body["bom_revision_id"].(string)
+
+	item := pollResolvedLine(t, teamID, projectID, token, revID)
+	// Resolved to the local part, but flagged (fuzzy) so it surfaces for a confirm.
+	if item["resolution_state"] != "auto_mpn_fuzzy" {
+		t.Errorf("resolution_state = %v, want auto_mpn_fuzzy", item["resolution_state"])
+	}
+	if item["resolved_part_id"] != partID {
+		t.Errorf("resolved_part_id = %v, want %s", item["resolved_part_id"], partID)
+	}
+	if item["resolve_item"] != nil {
+		t.Errorf("expected no distributor resolve job, got %v", item["resolve_item"])
+	}
 }

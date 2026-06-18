@@ -1,6 +1,7 @@
 package genspec
 
 import (
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -31,9 +32,8 @@ type Interpretation struct {
 	Route      Route    `json:"route"`
 	Class      string   `json:"class"`             // class key, e.g. "R"
 	Category   string   `json:"category"`          // partrack category slug, e.g. "resistors"
-	Package    string   `json:"package"`           // canonical package; "" if none
 	Mounting   string   `json:"mounting"`          // "smd" | "tht" | ""
-	Params     []Param  `json:"params"`            // extracted constraints
+	Params     []Param  `json:"params"`            // extracted constraints, incl. the "package" param
 	Flags      []string `json:"flags"`             // anything needing attention
 	Confidence float64  `json:"confidence"`        // 0..1
 	Residue    []string `json:"residue,omitempty"` // value tokens we could not attribute
@@ -49,18 +49,83 @@ type Interpretation struct {
 	DistributorID string `json:"distributor_id,omitempty"`
 }
 
+// PackageSlug is the parameter slug under which a part's package/case is stored.
+// Package is modelled as an ordinary parameter (it is a parameter_definition and
+// appears in categories' primary_params); canonicalisation happens at the write
+// boundary (genspec.NormalizePackage), never in the interpretation itself.
+const PackageSlug = "package"
+
+// UnmarshalJSON decodes an Interpretation, folding a legacy top-level "package"
+// field (emitted before package became a parameter) into the params. This keeps
+// older persisted interpretations and remembered corrections matchable without a
+// data migration — every reader sees package the new way, via PackageValue().
+func (it *Interpretation) UnmarshalJSON(data []byte) error {
+	type alias Interpretation // no methods → no recursion
+	aux := struct {
+		*alias
+		LegacyPackage string `json:"package"`
+	}{alias: (*alias)(it)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.LegacyPackage != "" && it.PackageValue() == "" {
+		it.SetPackage(aux.LegacyPackage)
+	}
+	return nil
+}
+
+// PackageValue returns the raw package/case value from the params, or "".
+func (it Interpretation) PackageValue() string {
+	for _, p := range it.Params {
+		if p.Slug == PackageSlug {
+			return p.Raw
+		}
+	}
+	return ""
+}
+
+// SetPackage sets, replaces, or (when v is empty) removes the package parameter.
+// The package param is kept last to match the conventional primary_params order.
+func (it *Interpretation) SetPackage(v string) {
+	v = strings.TrimSpace(v)
+	out := make([]Param, 0, len(it.Params)+1)
+	for _, p := range it.Params {
+		if p.Slug != PackageSlug {
+			out = append(out, p)
+		}
+	}
+	if v != "" {
+		out = append(out, Param{Slug: PackageSlug, Raw: v})
+	}
+	if len(out) == 0 {
+		out = nil
+	}
+	it.Params = out
+}
+
 // flagClassFootprintConflict marks a refdes/footprint class disagreement.
 const flagClassFootprintConflict = "class_footprint_conflict"
 
 var ignoreValueRe = regexp.MustCompile(`(?i)^(dnp|dni|dnf|nc|nf|do[ _]?not[ _]?(populate|place|fit)|not[ _]?fitted|logo|~)$`)
 
 // Interpret parses a BOM line into a structured Interpretation.
-func Interpret(in Input) Interpretation {
-	it := Interpretation{Confidence: 1.0}
+func Interpret(in Input) (it Interpretation) {
+	it = Interpretation{Confidence: 1.0}
 
 	refClass, hasRefClass := ClassifyRefdes(in.Refdes)
 	pkg, mounting, fpClass, _ := CanonicalPackage(in.Footprint)
-	it.Package, it.Mounting = pkg, mounting
+	it.Mounting = mounting
+
+	// The footprint package (or one leaking from the value field) is stored as the
+	// "package" param at every exit, so it rides along regardless of route.
+	var valuePkg string
+	defer func() {
+		p := pkg
+		if p == "" {
+			p = valuePkg
+		}
+		it.SetPackage(p)
+	}()
 
 	// Reconcile class from the reference designator and the footprint token.
 	class := reconcileClass(refClass, hasRefClass, fpClass, &it)
@@ -104,13 +169,22 @@ func Interpret(in Input) Interpretation {
 		return it
 	}
 
-	params, valuePkg, mpnLike, residue := ParseValue(prof, value)
+	// A generic device-type / symbol name in the value (e.g. "LED",
+	// "FerriteBead_Small", "Conn_01x04_Pin") is a commodity placeholder, not an MPN.
+	// We know the class and (usually) package but no specific part, so route to
+	// review and let the LLM look — never report a confident "specific" match.
+	if looksLikeGenericPlaceholder(value) {
+		it.Route = RouteUnknown
+		it.Confidence = 0.3
+		it.Escalate = true
+		return it
+	}
+
+	params, vp, mpnLike, residue := ParseValue(prof, value)
+	valuePkg = vp
 	it.Params = params
-	if it.Package == "" && valuePkg != "" {
-		it.Package = valuePkg
-		if it.Mounting == "" {
-			it.Mounting = "smd"
-		}
+	if pkg == "" && valuePkg != "" && it.Mounting == "" {
+		it.Mounting = "smd"
 	}
 
 	switch {

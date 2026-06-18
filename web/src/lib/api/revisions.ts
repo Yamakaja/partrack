@@ -67,13 +67,24 @@ export interface InterpretParam {
   value_si: number | null;
 }
 
+/** Slug under which a part's package/case is stored as a parameter. */
+export const PACKAGE_SLUG = 'package';
+
+/** Raw value of a param by slug (e.g. the package), or undefined. */
+export function paramRaw(
+  params: InterpretParam[] | null | undefined,
+  slug: string,
+): string | undefined {
+  return (params ?? []).find((p) => p.slug === slug)?.raw || undefined;
+}
+
 /** Structured reading of one BOM row produced by the genspec parser. */
 export interface Interpretation {
   route: InterpretRoute;
   class: string;
   category: string;
-  package: string;
   mounting: string;
+  /** Extracted constraints, including the "package" param. */
   params: InterpretParam[];
   flags: string[];
   confidence: number;
@@ -133,6 +144,27 @@ export function enrichBOMLineItem(
     'POST',
     `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/enrich`,
     body,
+  );
+}
+
+/** A catalog part matching a generic line's parametric spec (review candidate picker). */
+export interface GenericCandidate {
+  part_id: string;
+  mpn: string | null;
+  manufacturer: string | null;
+  package: string | null;
+  description: string | null;
+  value_si: number | null;
+  scope: 'global' | 'team';
+}
+
+/** Existing catalog parts that satisfy a generic line's interpretation (category +
+    package + value within tolerance) — the same set the importer's match-only tier
+    considered. Empty for non-parametric lines or when nothing matches. */
+export function listGenericCandidates(teamId: string, projectId: string, revId: string, itemId: string) {
+  return request<{ items: GenericCandidate[] }>(
+    'GET',
+    `/api/v1/teams/${teamId}/projects/${projectId}/revisions/${revId}/items/${itemId}/generic-candidates`,
   );
 }
 

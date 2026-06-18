@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/genspec"
+	"github.com/Yamakaja/partrack/internal/partmatch"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -423,4 +425,68 @@ func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 		"part_mpn":          resolvedMPN,
 		"part_manufacturer": resolvedManufacturer,
 	})
+}
+
+// GenericPartCandidates handles
+// GET /api/v1/teams/{teamId}/projects/{projectId}/revisions/{revId}/items/{itemId}/generic-candidates
+//
+// For a line the parser read as a generic (parametric) spec, returns the existing
+// catalog parts that satisfy it — category subtree + canonical package + primary
+// value within the tolerance band. This is the same candidate set the import-time
+// match-only tier used (which auto-resolves only on a unique match), so the user
+// can resolve an ambiguous line by picking one. Empty for non-parametric lines or
+// when nothing matches (then the user creates a generic part or searches).
+func (h *Handler) GenericPartCandidates(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	var itemID pgtype.UUID
+	if err := itemID.Scan(chi.URLParam(r, "itemId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid item id", "BAD_REQUEST")
+		return
+	}
+	if !h.requireLineItemInTeam(w, r, itemID, teamID) {
+		return
+	}
+
+	raw, err := h.Queries.GetBOMLineItemInterpretation(r.Context(), itemID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	var interp genspec.Interpretation
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &interp) // UnmarshalJSON folds any legacy top-level package
+	}
+
+	rows, err := partmatch.Find(r.Context(), h.Queries, teamID, interp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	type candidate struct {
+		PartID       string   `json:"part_id"`
+		Mpn          *string  `json:"mpn"`
+		Manufacturer *string  `json:"manufacturer"`
+		Package      *string  `json:"package"`
+		Description  *string  `json:"description"`
+		ValueSI      *float64 `json:"value_si"`
+		Scope        string   `json:"scope"`
+	}
+	out := make([]candidate, len(rows))
+	for i, c := range rows {
+		out[i] = candidate{
+			PartID:       c.ID.String(),
+			Mpn:          c.Mpn,
+			Manufacturer: c.Manufacturer,
+			Package:      c.CanonicalPackage,
+			Description:  c.Description,
+			ValueSI:      c.ValueSi,
+			Scope:        string(c.Scope),
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }

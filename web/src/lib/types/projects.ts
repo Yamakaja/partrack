@@ -92,8 +92,8 @@ export interface BOMInterpretation {
   route: 'identity' | 'parametric' | 'ignore' | 'unknown';
   class: string;
   category: string;
-  package: string;
   mounting: string;
+  /** Extracted constraints, including the "package" param. */
   params: { slug: string; raw: string; value_si: number | null }[];
   flags: string[];
   confidence: number;

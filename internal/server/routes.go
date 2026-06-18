@@ -180,6 +180,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/", h.GetTeam)
 					r.Get("/dashboard", h.GetDashboard)
 					r.Get("/parts/categories", h.ListPartCategories)
+					// Per-category parameter schema (labels, value types, enum vocab)
+					// for the BOM interpretation review UI.
+					r.Get("/categories/{categoryId}/parameter-schema", h.CategoryParameterSchema)
 
 					// 8. Inventory
 					r.Get("/inventory", h.ListInventory)
@@ -202,6 +205,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/projects/{projectId}/revisions/{revId}", h.GetRevision)
 					r.Get("/projects/{projectId}/revisions/{revId}/substitutes", h.ListSubstitutes)
 					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes", h.ListLineItemSubstitutes)
+					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/generic-candidates", h.GenericPartCandidates)
 					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/previous-revisions", h.ListPreviousRevisionsWithSubstitutes)
 					r.Get("/projects/{projectId}/revisions/{revId}/stock-check", h.StockCheck)
 

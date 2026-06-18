@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { interpretPreview, type Interpretation, type InterpretRoute } from '$lib/api/revisions.js';
   import type { BOMImportItem } from './bom-import-utils.js';
+  import InterpretationEditor from './InterpretationEditor.svelte';
 
   let {
     items = $bindable(),
@@ -24,13 +24,6 @@
     onnext: () => void;
     oncancel: () => void;
   } = $props();
-
-  const ROUTES: { value: InterpretRoute; label: string }[] = [
-    { value: 'parametric', label: 'Generic (parametric)' },
-    { value: 'identity', label: 'Specific part' },
-    { value: 'ignore', label: 'Ignore' },
-    { value: 'unknown', label: 'Needs review' },
-  ];
 
   const ROUTE_BADGE: Record<InterpretRoute, { label: string; variant: 'success' | 'default' | 'warning' | 'secondary' }> = {
     parametric: { label: 'Generic', variant: 'default' },
@@ -75,46 +68,19 @@
   let reusedCount = $derived(interpretations.filter((it) => it.reused).length);
   let llmCount = $derived(interpretations.filter((it) => it.source === 'llm').length);
 
-  function setRoute(i: number, route: InterpretRoute) {
-    interpretations[i] = { ...interpretations[i], route };
-    edited[i] = true;
-  }
-
-  function setPackage(i: number, pkg: string) {
-    interpretations[i] = { ...interpretations[i], package: pkg.trim() };
-    edited[i] = true;
-  }
-
-  let reparsing = $state<Record<number, boolean>>({});
-
-  // Re-run the parser for one row after its value/footprint is edited, so the
+  // Re-run the parser for one row after its source Value/Footprint is edited, so the
   // re-extracted parameters (and SI values) stay correct rather than going stale.
-  async function reparse(i: number) {
-    reparsing[i] = true;
-    try {
-      const res = await interpretPreview(
-        [
-          {
-            refdes: items[i].reference_designators,
-            footprint: items[i].footprint,
-            value: items[i].value,
-            mpn: items[i].mpn,
-            sku: items[i].sku,
-          },
-        ],
-        teamId,
-      );
-      if (res.items[0]) {
-        interpretations[i] = res.items[0];
-        edited[i] = true;
-      }
-    } finally {
-      reparsing[i] = false;
+  async function reparse(i: number, value: string, footprint: string) {
+    items[i].value = value;
+    items[i].footprint = footprint;
+    const res = await interpretPreview(
+      [{ refdes: items[i].reference_designators, footprint, value, mpn: items[i].mpn, sku: items[i].sku }],
+      teamId,
+    );
+    if (res.items[0]) {
+      interpretations[i] = res.items[0];
+      edited[i] = true;
     }
-  }
-
-  function fmtParam(p: { slug: string; raw: string }): string {
-    return `${p.slug}: ${p.raw}`;
   }
 </script>
 
@@ -154,79 +120,21 @@
             {#each it.flags ?? [] as flag}
               <span class="text-[10px] rounded bg-warning/20 px-1.5 py-0.5 text-warning-foreground">{flag}</span>
             {/each}
-            <select
-              class="ml-auto h-7 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={it.route}
-              onchange={(e: Event) => setRoute(i, (e.currentTarget as HTMLSelectElement).value as InterpretRoute)}
-            >
-              {#each ROUTES as r}
-                <option value={r.value}>{r.label}</option>
-              {/each}
-            </select>
           </div>
 
-          <!-- Editable raw inputs: editing re-parses the row -->
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="flex items-center gap-1 text-xs text-muted-foreground">
-              Value
-              <Input
-                value={items[i].value ?? ''}
-                oninput={(e: Event) => (items[i].value = (e.currentTarget as HTMLInputElement).value)}
-                onchange={() => reparse(i)}
-                class="h-7 w-32 text-xs"
-                placeholder="—"
-              />
-            </label>
-            <label class="flex items-center gap-1 text-xs text-muted-foreground">
-              Footprint
-              <Input
-                value={items[i].footprint ?? ''}
-                oninput={(e: Event) => (items[i].footprint = (e.currentTarget as HTMLInputElement).value)}
-                onchange={() => reparse(i)}
-                class="h-7 w-44 text-xs"
-                placeholder="—"
-              />
-            </label>
-            {#if reparsing[i]}<span class="text-xs text-muted-foreground">re-parsing…</span>{/if}
-          </div>
-
-          <!-- Interpretation summary -->
-          {#if it.route === 'parametric'}
-            <div class="flex flex-wrap items-center gap-1.5 text-xs">
-              {#if it.category}<span class="text-muted-foreground">{it.category}</span>{/if}
-              <label class="flex items-center gap-1">
-                <span class="text-muted-foreground">pkg</span>
-                <Input
-                  value={it.package}
-                  onchange={(e: Event) => setPackage(i, (e.currentTarget as HTMLInputElement).value)}
-                  class="h-6 w-20 text-xs"
-                  placeholder="—"
-                />
-              </label>
-              {#each it.params as p}
-                <Badge variant="outline">{fmtParam(p)}</Badge>
-              {/each}
-              {#if it.params.length === 0}
-                <span class="text-muted-foreground italic">no parameters extracted</span>
-              {/if}
-            </div>
-          {:else if it.route === 'identity'}
-            {#if it.mpn || it.sku}
-              <div class="flex flex-wrap items-center gap-1.5 text-xs">
-                {#if it.manufacturer}<span class="text-muted-foreground">{it.manufacturer}</span>{/if}
-                {#if it.mpn}<Badge variant="outline">MPN: {it.mpn}</Badge>{/if}
-                {#if it.sku}<Badge variant="outline">SKU: {it.sku}</Badge>{/if}
-              </div>
-            {:else}
-              <div class="text-xs text-muted-foreground">Resolved by MPN/SKU during import.</div>
-            {/if}
-          {:else if it.route === 'ignore'}
-            <div class="text-xs text-muted-foreground">Excluded from stock checks.</div>
-          {:else}
-            <div class="text-xs text-warning-foreground">
-              Couldn't interpret — fix the value/footprint above, pick a route, or resolve it after import.
-            </div>
-          {/if}
+          <InterpretationEditor
+            bind:interpretation={interpretations[i]}
+            source={{
+              reference_designators: items[i].reference_designators,
+              value: items[i].value,
+              footprint: items[i].footprint,
+              mpn: items[i].mpn,
+              sku: items[i].sku,
+            }}
+            {teamId}
+            onchange={() => (edited[i] = true)}
+            onReparse={(v, f) => reparse(i, v, f)}
+          />
         </div>
       {/each}
     </div>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"sort"
 	"strings"
@@ -15,14 +16,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// curatedCategory is a category an admin has marked parametric (value_param set),
-// i.e. a target the LLM may classify a generic part into.
+// curatedCategory is a category the LLM may classify a generic part into: one with
+// a primary value magnitude (value_param) and/or a set of primary parameters
+// (primary_params). valueParam is "" for categories that have parameters but no
+// single magnitude (e.g. headers: positions/rows/pitch).
 type curatedCategory struct {
 	id          int32
 	slug        string
 	displayName string
 	valueParam  string
-	primary     []string // primary_params, value_param first
+	primary     []string // primary_params, value_param first when present
 }
 
 // classifyOut / extractOut are the JSON shapes the LLM is asked to return.
@@ -58,28 +61,48 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 		return base, false
 	}
 
+	debug := h.Config.LLM.Debug
+
 	// Step 1 — classify (and, for a specific part, read its identity).
 	var cls classifyOut
 	if err := h.llmJSON(ctx, classifySystemPrompt(curated, dists), classifyUserPrompt(row, base), &cls); err != nil {
 		slog.Warn("llm classify failed", "err", err)
 		return base, false
 	}
+	if debug {
+		log.Printf("llm [interpret] classify parsed → route=%q category=%q mpn=%q manufacturer=%q distributor=%q sku=%q confidence=%.2f",
+			cls.Route, cls.Category, cls.Mpn, cls.Manufacturer, cls.Distributor, cls.Sku, cls.Confidence)
+	}
 
 	switch strings.ToLower(strings.TrimSpace(cls.Route)) {
 	case "ignore":
 		base.Route, base.Escalate = genspec.RouteIgnore, false
+		if debug {
+			log.Printf("llm [interpret] result → ignore")
+		}
 		return base, true
 	case "specific":
-		return specificInterpretation(base, cls, row, dists), true
+		it := specificInterpretation(base, cls, row, dists)
+		if debug {
+			log.Printf("llm [interpret] result → specific (after anti-hallucination): mpn=%q manufacturer=%q sku=%q distributor_id=%q%s",
+				it.Mpn, it.Manufacturer, it.Sku, it.DistributorID, droppedIdentityNote(cls, it))
+		}
+		return it, true
 	case "generic":
 		// handled below
 	default:
 		base.Route, base.Escalate = genspec.RouteUnknown, false
+		if debug {
+			log.Printf("llm [interpret] result → unknown (unrecognized route %q)", cls.Route)
+		}
 		return base, true
 	}
 
 	cat, ok := findCurated(curated, cls.Category)
 	if !ok {
+		if debug {
+			log.Printf("llm [interpret] generic but category %q is not curated → keeping base reading (route=%s)", cls.Category, base.Route)
+		}
 		return base, false
 	}
 
@@ -92,31 +115,37 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 		return base, false
 	}
 
+	// Params is initialised non-nil so a package-only (or fully-dropped) extraction
+	// serialises as [] rather than null — the frontend reads .params.length.
 	it := genspec.Interpretation{
 		Route:      genspec.RouteParametric,
 		Class:      base.Class,
 		Category:   cat.slug,
-		Package:    base.Package,
 		Mounting:   base.Mounting,
 		Confidence: clampConfidence(cls.Confidence),
 		Flags:      []string{"llm"},
+		Params:     []genspec.Param{},
 	}
+	// Carry the footprint-derived package over; the LLM may override it below.
+	it.SetPackage(base.PackageValue())
 	allowed := sliceSet(cat.primary)
+	var dropped []string
 	for _, p := range ext.Params {
 		slug := strings.TrimSpace(p.Slug)
 		val := strings.TrimSpace(p.Value)
 		if slug == "" || val == "" {
 			continue
 		}
-		if slug == "package" {
+		if slug == genspec.PackageSlug {
 			if c := genspec.NormalizePackage(val); c != "" {
-				it.Package = c
-			} else if it.Package == "" {
-				it.Package = val
+				it.SetPackage(c)
+			} else if it.PackageValue() == "" {
+				it.SetPackage(val)
 			}
 			continue
 		}
 		if !allowed[slug] {
+			dropped = append(dropped, slug)
 			continue // hallucinated / out-of-profile slug
 		}
 		prm := genspec.Param{Slug: slug, Raw: val}
@@ -128,7 +157,41 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 		}
 		it.Params = append(it.Params, prm)
 	}
+	if debug {
+		note := ""
+		if len(dropped) > 0 {
+			note = fmt.Sprintf(" (dropped out-of-profile slugs: %s)", strings.Join(dropped, ", "))
+		}
+		log.Printf("llm [interpret] result → generic category=%s params=[%s]%s",
+			it.Category, formatParams(it.Params), note)
+	}
 	return it, true
+}
+
+// formatParams renders an interpretation's params as "slug=raw" pairs for debug logs.
+func formatParams(params []genspec.Param) string {
+	parts := make([]string, 0, len(params))
+	for _, p := range params {
+		parts = append(parts, p.Slug+"="+p.Raw)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// droppedIdentityNote reports, for debug logs, which identity fields the LLM
+// returned but the anti-hallucination guard rejected (because they did not appear
+// verbatim in the row, or named an unknown distributor).
+func droppedIdentityNote(cls classifyOut, it genspec.Interpretation) string {
+	var dropped []string
+	if strings.TrimSpace(cls.Mpn) != "" && it.Mpn == "" {
+		dropped = append(dropped, "mpn")
+	}
+	if strings.TrimSpace(cls.Sku) != "" && it.Sku == "" {
+		dropped = append(dropped, "sku")
+	}
+	if len(dropped) == 0 {
+		return ""
+	}
+	return " (rejected as not-in-row/unknown: " + strings.Join(dropped, ", ") + ")"
 }
 
 // curatedCategories returns the parametric categories (value_param set).
@@ -139,14 +202,22 @@ func (h *Handler) curatedCategories(ctx context.Context) ([]curatedCategory, err
 	}
 	var out []curatedCategory
 	for _, c := range rows {
-		if c.ValueParam == nil || *c.ValueParam == "" {
-			continue
-		}
 		var primary []string
 		_ = json.Unmarshal(c.PrimaryParams, &primary)
+		valueParam := ""
+		if c.ValueParam != nil {
+			valueParam = *c.ValueParam
+		}
+		// A category is a generic target if it has a primary value magnitude OR a set
+		// of primary parameters the LLM can extract. The latter covers categories with
+		// no single "value" — e.g. headers (positions/rows/pitch, read from the
+		// footprint) — which would otherwise be invisible to the LLM and unclassifiable.
+		if valueParam == "" && len(primary) == 0 {
+			continue
+		}
 		out = append(out, curatedCategory{
 			id: c.ID, slug: c.Slug, displayName: c.DisplayName,
-			valueParam: *c.ValueParam, primary: primary,
+			valueParam: valueParam, primary: primary,
 		})
 	}
 	return out, nil
@@ -298,13 +369,13 @@ func distributorIDByName(dists []dbgen.Distributor, name string) (string, bool) 
 func classifySystemPrompt(curated []curatedCategory, dists []dbgen.Distributor) string {
 	var b strings.Builder
 	b.WriteString("You classify one electronic-BOM line item. Decide whether it is:\n")
-	b.WriteString("- \"specific\": a particular part identified by a manufacturer part number (MPN) or a distributor SKU;\n")
-	b.WriteString("- \"generic\": a commodity defined by a category + parameters (e.g. a 10kΩ 0603 resistor);\n")
+	b.WriteString("- \"specific\": a particular part identified by a manufacturer part number (MPN and ideally manufacturer) or a distributor SKU (and ideally Distributor name);\n")
+	b.WriteString("- \"generic\": a commodity defined by a category + parameters (e.g. a 10kΩ 0603 resistor, a 0.1in 2x4 pin header);\n")
 	b.WriteString("- \"ignore\": do-not-populate / virtual / mechanical;\n")
 	b.WriteString("- \"unknown\": not enough information.\n")
-	b.WriteString("If generic, pick exactly one category slug from this list:\n")
+	b.WriteString("If generic, choose exactly one category from this list and return its slug — the quoted identifier; the name in parentheses is only a human-readable label, not what you return:\n")
 	for _, c := range curated {
-		fmt.Fprintf(&b, "- %s — %s (value = %s)\n", c.slug, c.displayName, c.valueParam)
+		fmt.Fprintf(&b, "- '%s' (%s)\n", c.slug, c.displayName)
 	}
 	b.WriteString("If specific, return the manufacturer + mpn AND/OR a distributor + sku — but ONLY values that literally appear in the line below; never invent a part number. Choose the distributor from:\n")
 	if len(dists) == 0 {
@@ -322,9 +393,6 @@ func classifyUserPrompt(row map[string]string, base genspec.Interpretation) stri
 	var b strings.Builder
 	b.WriteString("BOM line fields:\n")
 	b.WriteString(renderRow(row))
-	if base.Category != "" {
-		fmt.Fprintf(&b, "Our tentative reading: category=%s.\n", base.Category)
-	}
 	if len(base.Residue) > 0 {
 		fmt.Fprintf(&b, "Tokens we could not parse: %s\n", strings.Join(base.Residue, " "))
 	}
@@ -333,20 +401,26 @@ func classifyUserPrompt(row map[string]string, base genspec.Interpretation) stri
 
 func extractSystemPrompt(cat curatedCategory, defs map[string]dbgen.ParameterDefinition, excerpts map[string]string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Extract parameters for a generic %s. The value field may use unusual or compact formatting (e.g. \"9k10%%\" = 9kΩ 10%%, \"5V/10uF\"); read it carefully.\n", cat.displayName)
-	b.WriteString("Use ONLY these parameter slugs (omit any not present in the line):\n")
+	fmt.Fprintf(&b, "Extract parameters for a generic part from category '%s'. Read them from the WHOLE line — the value field may be compact (e.g. \"9k10%%\" = 9kΩ 10%%, \"5V/10uF\"), and the footprint often encodes parameters too (e.g. a pin-header footprint gives positions, rows, and pitch).\n", cat.displayName)
+	b.WriteString("Use ONLY these parameters, and return each by its slug — the leading identifier; the parenthesised text (name, unit) is just a label. Omit any not present in the line:\n")
 	for _, slug := range cat.primary {
 		line := "- " + slug
-		if def, ok := defs[slug]; ok && def.UnitSymbol != nil && *def.UnitSymbol != "" {
-			line += " (unit " + *def.UnitSymbol + ")"
+		if def, ok := defs[slug]; ok {
+			meta := def.DisplayName
+			if def.UnitSymbol != nil && *def.UnitSymbol != "" {
+				meta += ", unit " + *def.UnitSymbol
+			}
+			if meta != "" {
+				line += " (" + meta + ")"
+			}
 		}
 		if ex, ok := excerpts[slug]; ok {
 			line += " — " + ex
 		}
 		b.WriteString(line + "\n")
 	}
-	b.WriteString("Respond with ONLY a JSON object: {\"params\":[{\"slug\":\"<slug>\",\"value\":\"<value as written>\"}]}\n")
-	b.WriteString("Give each value with its unit (e.g. \"9k\", \"10%\", \"16V\", \"0603\"). Do not invent parameters.")
+	b.WriteString("Respond with ONLY a JSON object: {\"params\":[{\"slug\":\"<slug>\",\"value\":\"<number-or-code>\"}]}\n")
+	b.WriteString("Rules: if a parameter's value is not clearly available, DO NOT GUESS — omit it. Respect each parameter's type: an enum (e.g. a colour) must be one of its example values ('Green' is a colour; 'LED' is not). Give every value as a plain number in that parameter's stated unit, WITHOUT the unit and WITHOUT any SI prefix — e.g. resistance 9 kΩ → '9000', capacitance 10 µF → '1e-5', a 10% tolerance → '10' (a percentage is the number of percent), a package → its bare code like '0603'. Use the example ranges above as a guide for the expected scale. Do not invent parameters.")
 	return b.String()
 }
 

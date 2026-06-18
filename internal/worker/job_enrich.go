@@ -568,6 +568,8 @@ func persistEnrichmentResult(
 			ShortDescription:   strOrNil(result.ShortDescription),
 			ProductUrl:         strOrNil(result.ProductURL),
 			ImageUrl:           strOrNil(result.ImageURL),
+			Package:            strOrNil(result.Package),
+			CanonicalPackage:   strOrNil(genspec.NormalizePackage(result.Package)),
 			NewCategoryID:      resolvedCategoryID,
 		}); err != nil {
 			return fmt.Errorf("set enriched: %w", err)

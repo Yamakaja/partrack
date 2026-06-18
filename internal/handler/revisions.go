@@ -211,6 +211,17 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		//   5. A fresh parse.
 		// A 'user' source is never clobbered by a re-parse.
 		interpBytes := []byte(item.Interpretation)
+		// Normalise a client-supplied interpretation through the canonical struct so a
+		// legacy top-level "package" (from an older client) is folded into params
+		// before it is persisted, remembered, and matched. Lossless for new-format data.
+		if len(interpBytes) > 0 {
+			var norm genspec.Interpretation
+			if json.Unmarshal(interpBytes, &norm) == nil {
+				if b, err := json.Marshal(norm); err == nil {
+					interpBytes = b
+				}
+			}
+		}
 		interpSource := "auto"
 		switch {
 		case len(interpBytes) > 0:

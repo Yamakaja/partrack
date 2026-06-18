@@ -35,6 +35,7 @@ func main() {
 	defer pool.Close()
 
 	db.Migrate(pool)
+	db.RunStartupBackfills(context.Background(), pool)
 	maybeBootstrap(pool)
 
 	reg := distributor.NewRegistry()

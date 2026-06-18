@@ -8,11 +8,12 @@
   import { Dialog } from '$lib/components/ui/dialog/index.js';
   import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
   import { listParts } from '$lib/api/parts.js';
-  import { enrichBOMLineItem } from '$lib/api/revisions.js';
+  import { enrichBOMLineItem, listGenericCandidates, type GenericCandidate } from '$lib/api/revisions.js';
   import { commitResolveItem } from '$lib/api/partResolve.js';
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import ListingSelector from '$lib/components/part-import/ListingSelector.svelte';
+  import InterpretationEditor from '$lib/components/bom/InterpretationEditor.svelte';
 
   let {
     items,
@@ -24,6 +25,7 @@
     onresolve,
     onignore,
     oncommitted,
+    oncreategeneric,
   }: {
     items: BOMLineItem[];
     teamId: string;
@@ -34,6 +36,9 @@
     onresolve?: (itemId: string, partId: string | null) => void;
     onignore?: (itemId: string, ignored: boolean) => void;
     oncommitted?: (itemId: string) => void;
+    /** Create-or-get a generic part from the line's parametric interpretation.
+        Resolves true on success so the dialog can advance. */
+    oncreategeneric?: (item: BOMLineItem) => Promise<boolean>;
   } = $props();
 
   // New-part import (resolve pipeline) selection state.
@@ -54,6 +59,10 @@
   let localSearching = $state(false);
   let localError = $state('');
   let localSearchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Library candidate picker (matches the line's generic spec) state.
+  let candidates = $state<GenericCandidate[]>([]);
+  let candidatesLoading = $state(false);
 
   // Distributor search state
   let configs = $state<DistributorConfig[]>([]);
@@ -89,7 +98,38 @@
     primaryListingKey = '';
     includedListings = new Set();
     commitError = '';
+    // Spec-based candidates for an unresolved generic line.
+    candidates = [];
+    if (currentItem && !currentItem.resolved_part_id && currentItem.interpretation?.route === 'parametric') {
+      loadCandidates(currentItem.id);
+    }
   });
+
+  async function loadCandidates(itemId: string) {
+    candidatesLoading = true;
+    try {
+      const r = await listGenericCandidates(teamId, projectId, revisionId, itemId);
+      // Guard against a stale response after the user has navigated on.
+      if (currentItem?.id === itemId) candidates = r.items;
+    } catch {
+      if (currentItem?.id === itemId) candidates = [];
+    } finally {
+      candidatesLoading = false;
+    }
+  }
+
+  function formatSi(v: number | null): string {
+    if (v == null) return '';
+    const abs = Math.abs(v);
+    const units: [number, string][] = [[1e9, 'G'], [1e6, 'M'], [1e3, 'k'], [1, ''], [1e-3, 'm'], [1e-6, 'µ'], [1e-9, 'n'], [1e-12, 'p']];
+    for (const [scale, prefix] of units) {
+      if (abs >= scale) {
+        const n = v / scale;
+        return `${Number.isInteger(n) ? n : parseFloat(n.toFixed(3))}${prefix}`;
+      }
+    }
+    return String(v);
+  }
 
   $effect(() => {
     if (open && !configsLoaded) {
@@ -114,6 +154,34 @@
       ? (currentItem.resolve_item.enrichment_data ?? null)
       : null,
   );
+
+  // The parser's structured reading of the line — the identity for generic
+  // (no MPN/manufacturer) parts. Drives the create-generic action below.
+  let interpretation = $derived(currentItem?.interpretation ?? null);
+  let isParametric = $derived(interpretation?.route === 'parametric');
+
+  // Resolved by a fuzzy (substring) MPN match — resolved but flagged for a confirm.
+  let isFuzzyResolved = $derived(
+    !!currentItem?.resolved_part_id && currentItem.resolution_state === 'auto_mpn_fuzzy',
+  );
+
+  let creatingGeneric = $state(false);
+  let genericError = $state('');
+
+  async function handleCreateGeneric() {
+    if (!currentItem || !oncreategeneric) return;
+    creatingGeneric = true;
+    genericError = '';
+    try {
+      if (await oncreategeneric(currentItem)) {
+        advance();
+      }
+    } catch (err: any) {
+      genericError = err?.message ?? 'Failed to create generic part.';
+    } finally {
+      creatingGeneric = false;
+    }
+  }
 
   async function handleCommitNewPart() {
     const ri = currentItem?.resolve_item;
@@ -151,6 +219,7 @@
         : currentItem.resolution_state === 'import_no_result'
         ? { label: 'No result',    variant: 'destructive' as BadgeVariant }
         : { label: 'Unresolved',   variant: 'outline'   as BadgeVariant }
+    : currentItem.resolution_state === 'auto_mpn_fuzzy'     ? { label: 'Auto (MPN ?)', variant: 'warning' as BadgeVariant }
     : currentItem.resolution_state === 'auto_sku'           ? { label: 'Auto (SKU)',   variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_mpn'           ? { label: 'Auto (MPN)',   variant: 'success' as BadgeVariant }
     : currentItem.resolution_state === 'auto_generic'       ? { label: 'Auto (Generic)', variant: 'success' as BadgeVariant }
@@ -191,6 +260,13 @@
     advance();
   }
 
+  function handleUseCandidate(c: GenericCandidate) {
+    if (!currentItem) return;
+    if (currentItem.ignored) onignore?.(currentItem.id, false);
+    onresolve?.(currentItem.id, c.part_id);
+    advance();
+  }
+
   function handleIgnore() {
     onignore?.(currentItem!.id, true);
     advance();
@@ -202,6 +278,14 @@
 
   function handleClear() {
     onresolve?.(currentItem!.id, null);
+  }
+
+  // Accept a fuzzy auto-match: re-resolve to the same part so it persists as a
+  // confirmed ('manual') resolution and drops out of the review queue.
+  function handleConfirmMatch() {
+    if (!currentItem?.resolved_part_id) return;
+    onresolve?.(currentItem.id, currentItem.resolved_part_id);
+    advance();
   }
 
   async function handleDistributorSearch() {
@@ -273,6 +357,15 @@
           {/if}
         </div>
 
+        {#if isFuzzyResolved}
+          <div class="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+            <span class="flex-1 text-muted-foreground">
+              Matched to a similar MPN in your library (not an exact match) — confirm it's correct, or pick another below.
+            </span>
+            <Button size="sm" onclick={handleConfirmMatch}>Confirm match</Button>
+          </div>
+        {/if}
+
         <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
           {#if currentItem.part_name}
             <div><span class="text-muted-foreground">Name</span> <span class="ml-1">{currentItem.part_name}</span></div>
@@ -302,10 +395,86 @@
             <div><span class="text-muted-foreground">SKU</span> <span class="font-mono ml-1">{currentItem.sku}</span></div>
           {/if}
         </div>
+
+        <!-- How the parser read this line — the identity for generic parts -->
+        {#if interpretation}
+          <div class="rounded-md border border-border bg-muted/20 p-3">
+            <InterpretationEditor
+              interpretation={interpretation}
+              source={{
+                reference_designators: currentItem.reference_designators,
+                value: currentItem.value,
+                footprint: currentItem.footprint,
+                mpn: currentItem.mpn,
+                sku: currentItem.sku,
+                manufacturer: currentItem.manufacturer,
+              }}
+              {teamId}
+              readonly
+            />
+          </div>
+        {/if}
       </div>
 
       <!-- Actions -->
       <div class="space-y-2 flex-1">
+        <!-- Matching library parts (same spec the importer matched on) -->
+        {#if isParametric && !currentItem.resolved_part_id && (candidatesLoading || candidates.length > 0)}
+          <div class="border border-primary/40 rounded-md">
+            <div class="px-3 py-2 text-sm font-medium">Matching parts in your library</div>
+            <div class="px-3 pb-3 pt-1 space-y-2">
+              {#if candidatesLoading}
+                <p class="text-xs text-muted-foreground">Searching the catalog…</p>
+              {:else}
+                <p class="text-xs text-muted-foreground">
+                  {candidates.length} part{candidates.length === 1 ? '' : 's'} match this line's spec. Pick one to resolve it.
+                </p>
+                <div class="max-h-48 overflow-y-auto border border-border rounded-md divide-y divide-border">
+                  {#each candidates as c (c.part_id)}
+                    <button
+                      type="button"
+                      class="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors"
+                      onclick={() => handleUseCandidate(c)}
+                    >
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium font-mono">{c.mpn ?? '—'}</span>
+                        {#if c.manufacturer}<span class="text-muted-foreground">{c.manufacturer}</span>{/if}
+                        {#if c.value_si != null}<Badge variant="outline">{formatSi(c.value_si)}</Badge>{/if}
+                        {#if c.package}<span class="text-xs text-muted-foreground">{c.package}</span>{/if}
+                        {#if c.scope === 'global'}<span class="text-[10px] text-muted-foreground ml-auto">global</span>{/if}
+                      </div>
+                      {#if c.description}
+                        <div class="text-xs text-muted-foreground truncate mt-0.5">{c.description}</div>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Create generic part (parser read this line as a value/footprint spec) -->
+        {#if isParametric && oncreategeneric && !currentItem.resolved_part_id}
+          <div class="border border-primary/40 rounded-md">
+            <div class="px-3 py-2 text-sm font-medium">Create generic part</div>
+            <div class="px-3 pb-3 pt-1 space-y-2">
+              <p class="text-xs text-muted-foreground">
+                This line has no specific manufacturer part. Create (or reuse) a generic
+                part from the interpreted spec above and resolve this line to it.
+              </p>
+              {#if genericError}
+                <p class="text-xs text-destructive">{genericError}</p>
+              {/if}
+              <div class="flex justify-end">
+                <Button size="sm" onclick={handleCreateGeneric} disabled={creatingGeneric}>
+                  {creatingGeneric ? 'Creating…' : 'Create & resolve'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        {/if}
+
         <!-- Import new part (enriched by the resolve pipeline, needs a listing pick) -->
         {#if newPartEnrichment}
           <div class="border border-primary/40 rounded-md">

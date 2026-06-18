@@ -7,6 +7,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // ListCategories handles GET /api/v1/categories
@@ -126,5 +127,102 @@ func (h *Handler) AdminUpdateCategoryParams(w http.ResponseWriter, r *http.Reque
 		"sort_order":     row.SortOrder,
 		"value_param":    row.ValueParam,
 		"primary_params": params,
+	})
+}
+
+// CategoryParameterSchema handles
+// GET /api/v1/teams/{teamId}/categories/{categoryId}/parameter-schema
+//
+// Returns the category's primary parameters (the curated, interpretation-relevant
+// set) with display metadata and catalog-derived enum options, so the BOM
+// interpretation review UI can render labelled, value-type-aware inputs and an
+// add-parameter picker without ever exposing raw slugs. team_id scopes the enum
+// vocabulary to the team's catalog (global + team parts).
+func (h *Handler) CategoryParameterSchema(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+	catID, err := strconv.Atoi(chi.URLParam(r, "categoryId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid category id", "BAD_REQUEST")
+		return
+	}
+
+	cat, err := h.Queries.GetCategory(r.Context(), int32(catID))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "category not found", "NOT_FOUND")
+		return
+	}
+	var primary []string
+	_ = json.Unmarshal(cat.PrimaryParams, &primary)
+
+	defs, err := h.Queries.ListParameterDefinitions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defBySlug := make(map[string]dbgen.ParameterDefinition, len(defs))
+	for _, d := range defs {
+		defBySlug[d.Slug] = d
+	}
+
+	// Catalog-derived value vocabulary (enum/text distinct values + packages in use).
+	optsBySlug := map[string][]string{}
+	if rows, err := h.Queries.GetCategoryParameters(r.Context(), dbgen.GetCategoryParametersParams{ID: int32(catID), TeamID: teamID}); err == nil {
+		for _, row := range rows {
+			if vals := toStringSlice(row.EnumValues); len(vals) > 0 {
+				optsBySlug[row.Slug] = vals
+			}
+		}
+	}
+	if pkgs, err := h.Queries.ListCategoryPackages(r.Context(), dbgen.ListCategoryPackagesParams{CategoryID: int32(catID), TeamID: teamID}); err == nil {
+		var list []string
+		for _, p := range pkgs {
+			if p != nil {
+				list = append(list, *p)
+			}
+		}
+		if len(list) > 0 {
+			optsBySlug["package"] = list
+		}
+	}
+
+	type paramSchema struct {
+		Slug        string   `json:"slug"`
+		DisplayName string   `json:"display_name"`
+		UnitSymbol  string   `json:"unit_symbol"`
+		ValueType   string   `json:"value_type"`
+		Options     []string `json:"options"`
+	}
+	out := make([]paramSchema, 0, len(primary))
+	for _, slug := range primary {
+		ps := paramSchema{Slug: slug, Options: optsBySlug[slug]}
+		if ps.Options == nil {
+			ps.Options = []string{}
+		}
+		if def, ok := defBySlug[slug]; ok {
+			ps.DisplayName = def.DisplayName
+			ps.ValueType = def.ValueType
+			if def.UnitSymbol != nil {
+				ps.UnitSymbol = *def.UnitSymbol
+			}
+		} else {
+			ps.DisplayName = slug
+			ps.ValueType = "text"
+		}
+		out = append(out, ps)
+	}
+
+	valueParam := ""
+	if cat.ValueParam != nil {
+		valueParam = *cat.ValueParam
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"category_id": cat.ID,
+		"slug":        cat.Slug,
+		"value_param": valueParam,
+		"params":      out,
 	})
 }

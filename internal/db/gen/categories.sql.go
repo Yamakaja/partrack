@@ -12,17 +12,18 @@ import (
 )
 
 const getCategory = `-- name: GetCategory :one
-SELECT id, slug, display_name, parent_id, sort_order, primary_params
+SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params
 FROM categories WHERE id = $1
 `
 
 type GetCategoryRow struct {
-	ID            int32  `json:"id"`
-	Slug          string `json:"slug"`
-	DisplayName   string `json:"display_name"`
-	ParentID      *int32 `json:"parent_id"`
-	SortOrder     int32  `json:"sort_order"`
-	PrimaryParams []byte `json:"primary_params"`
+	ID            int32   `json:"id"`
+	Slug          string  `json:"slug"`
+	DisplayName   string  `json:"display_name"`
+	ParentID      *int32  `json:"parent_id"`
+	SortOrder     int32   `json:"sort_order"`
+	ValueParam    *string `json:"value_param"`
+	PrimaryParams []byte  `json:"primary_params"`
 }
 
 func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, error) {
@@ -34,6 +35,7 @@ func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, er
 		&i.DisplayName,
 		&i.ParentID,
 		&i.SortOrder,
+		&i.ValueParam,
 		&i.PrimaryParams,
 	)
 	return i, err

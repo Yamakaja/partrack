@@ -91,7 +91,14 @@
     return !i.ignored && !i.resolved_part_id && i.resolution_state !== 'importing';
   }
 
-  let needsAttentionCount = $derived(allItems.filter(isReviewable).length);
+  // A fuzzy-MPN auto-resolution is resolved but uncertain — surface it for a
+  // confirm even though it has a part. These are the only resolved lines that
+  // still warrant review.
+  function needsReview(i: BOMLineItem): boolean {
+    return isReviewable(i) || (!i.ignored && !!i.resolved_part_id && i.resolution_state === 'auto_mpn_fuzzy');
+  }
+
+  let needsAttentionCount = $derived(allItems.filter(needsReview).length);
 
   function handleImportComplete() {
     jobDismissed = true;
@@ -121,7 +128,7 @@
   }
 
   function startFullReview() {
-    reviewItems = allItems.filter(isReviewable);
+    reviewItems = allItems.filter(needsReview);
     reviewOpen = true;
   }
 
@@ -151,14 +158,30 @@
       pushToast('error', 'Unknown category', interp.category || '(none)');
       return false;
     }
+    // Package is a parameter (slug "package"); pass it via the dedicated field and
+    // exclude it from the generic params list so it isn't duplicated.
     const res = await createGenericPart({
       team_id: teamId,
       category_id: categoryId,
-      package: interp.package || undefined,
-      params: interp.params.map((p) => ({ slug: p.slug, value: p.raw })),
+      package: (interp.params ?? []).find((p) => p.slug === 'package')?.raw || undefined,
+      params: (interp.params ?? [])
+        .filter((p) => p.slug !== 'package')
+        .map((p) => ({ slug: p.slug, value: p.raw })),
     });
     await updateBOMLineItem(teamId, projectId, revId, item.id, { resolved_part_id: res.part_id });
     return true;
+  }
+
+  // Used by the review dialog: create-or-get a generic part and resolve the line,
+  // returning success so the dialog can advance. Network errors propagate so the
+  // dialog can show them inline.
+  async function handleReviewCreateGeneric(item: BOMLineItem): Promise<boolean> {
+    const ok = await createGenericForItem(item);
+    if (ok) {
+      qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
+      pushToast('success', 'Generic part created');
+    }
+    return ok;
   }
 
   async function createOneGeneric(item: BOMLineItem) {
@@ -250,6 +273,7 @@
       if (item.resolution_state === 'import_no_result') return 'No Result';
       return 'Unresolved';
     }
+    if (item.resolution_state === 'auto_mpn_fuzzy') return 'Auto (MPN ?)';
     if (item.resolution_state === 'auto_sku') return 'Auto (SKU)';
     if (item.resolution_state === 'auto_mpn') return 'Auto (MPN)';
     if (item.resolution_state === 'auto_generic') return 'Auto (Generic)';
@@ -275,7 +299,7 @@
       header: 'Status',
       type: 'enum',
       filterable: true,
-      filterValues: ['Unresolved', 'Importing', 'Needs Review', 'No Result', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Generic)', 'Auto (Prior)', 'Imported', 'Manual', 'Resolved', 'Ignored'],
+      filterValues: ['Unresolved', 'Importing', 'Needs Review', 'Auto (MPN ?)', 'No Result', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Generic)', 'Auto (Prior)', 'Imported', 'Manual', 'Resolved', 'Ignored'],
     },
     { key: 'substitutes', header: 'Substitutes', type: 'text' },
   ];
@@ -423,7 +447,9 @@
   {@const statusVariant = (() => {
     switch (value as string) {
       case 'Ignored':      return 'secondary' as const;
-      case 'Ambiguous':    return 'warning' as const;
+      case 'Ambiguous':
+      case 'Needs Review':
+      case 'Auto (MPN ?)':  return 'warning' as const;
       case 'Unresolved':   return 'outline' as const;
       default:             return 'success' as const;
     }
@@ -513,6 +539,7 @@
   onclose={handleReviewClose}
   onresolve={handleResolve}
   onignore={handleIgnore}
+  oncreategeneric={handleReviewCreateGeneric}
   oncommitted={() => qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] })}
 />
 

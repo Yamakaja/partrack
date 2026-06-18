@@ -30,12 +30,21 @@ func TestInterpretPreview(t *testing.T) {
 	}
 
 	row0 := items[0].(map[string]any)
-	if row0["route"] != "parametric" || row0["category"] != "resistors" || row0["package"] != "0402" {
-		t.Errorf("row0: expected parametric/resistors/0402, got %v", row0)
+	if row0["route"] != "parametric" || row0["category"] != "resistors" {
+		t.Errorf("row0: expected parametric/resistors, got %v", row0)
 	}
+	// Package is modelled as a parameter (slug "package"), not a top-level field.
 	params0, _ := row0["params"].([]any)
-	if len(params0) != 1 || params0[0].(map[string]any)["slug"] != "resistance" {
-		t.Errorf("row0: expected a single resistance param, got %v", params0)
+	got := map[string]string{}
+	for _, p := range params0 {
+		pm := p.(map[string]any)
+		got[pm["slug"].(string)], _ = pm["raw"].(string)
+	}
+	if got["resistance"] != "10k" {
+		t.Errorf("row0: expected resistance=10k param, got %v", params0)
+	}
+	if got["package"] != "0402" {
+		t.Errorf("row0: expected package=0402 param, got %v", params0)
 	}
 
 	if items[1].(map[string]any)["route"] != "identity" {

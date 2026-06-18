@@ -104,6 +104,63 @@ func ParseValue(p Profile, value string) (params []Param, pkg string, mpnLike bo
 	return params, pkg, mpnLike, residue
 }
 
+// genericValueTokens are device-type and descriptor words that EDA tools emit as a
+// symbol's default "value" when no real part is assigned (e.g. KiCad's "LED",
+// "FerriteBead_Small", "Conn_01x04_Pin"). A value built only from these (plus
+// pin-count/pitch descriptors) names a commodity, not a manufacturer part — so it
+// must not be read as an MPN. Lowercased.
+var genericValueTokens = map[string]bool{
+	// device types
+	"led": true, "ferrite": true, "ferritebead": true, "bead": true,
+	"resistor": true, "res": true, "capacitor": true, "cap": true,
+	"inductor": true, "ind": true, "coil": true, "choke": true,
+	"crystal": true, "xtal": true, "oscillator": true, "osc": true, "resonator": true,
+	"diode": true, "transistor": true, "mosfet": true, "fet": true, "bjt": true,
+	"fuse": true, "varistor": true, "mov": true, "transformer": true, "relay": true,
+	"conn": true, "connector": true, "header": true, "pinheader": true, "pin": true,
+	"socket": true, "jack": true, "plug": true, "terminal": true, "screw": true,
+	"jumper": true, "solderjumper": true, "switch": true, "button": true,
+	"testpoint": true, "test": true, "point": true, "mountinghole": true,
+	"mounting": true, "hole": true, "antenna": true, "battery": true, "speaker": true,
+	"buzzer": true, "potentiometer": true, "pot": true, "trimmer": true,
+	// descriptors
+	"small": true, "medium": true, "large": true, "tiny": true, "std": true,
+	"generic": true, "value": true, "device": true, "part": true,
+	"vertical": true, "horizontal": true, "male": true, "female": true,
+	"top": true, "bottom": true, "left": true, "right": true, "angled": true,
+	"smd": true, "tht": true, "smt": true, "thru": true, "throughhole": true,
+}
+
+var (
+	placeholderSplitRe = regexp.MustCompile(`[\s_\-/]+`)
+	pinCountPitchRe    = regexp.MustCompile(`(?i)^(p?\d+(\.\d+)?mm|\d+x\d+|\d+p(in)?|\d+pos|x\d+)$`)
+)
+
+// looksLikeGenericPlaceholder reports whether a value field is a generic device-type
+// / schematic-symbol name (e.g. "LED", "FerriteBead_Small", "Conn_01x04_Pin")
+// rather than a real identifier. True only when EVERY token is a known generic word
+// or a pin-count/pitch descriptor and at least one is a device word — so real MPNs
+// (e.g. "LM358", "STM32F407VGT6") are never misread.
+func looksLikeGenericPlaceholder(value string) bool {
+	toks := placeholderSplitRe.Split(strings.TrimSpace(value), -1)
+	sawDevice := false
+	for _, t := range toks {
+		if t == "" {
+			continue
+		}
+		low := strings.ToLower(t)
+		switch {
+		case genericValueTokens[low]:
+			sawDevice = true
+		case pinCountPitchRe.MatchString(low) || pureNumberRe.MatchString(low):
+			// allowed descriptor, but not itself a device word
+		default:
+			return false // a token we can't account for → treat as a real identifier
+		}
+	}
+	return sawDevice
+}
+
 // recognizeSecondary tries the global secondary recognizers, returning a Param
 // only when the matched slug is plausible for the class.
 func recognizeSecondary(p Profile, tok string) (slug string, prm Param, ok bool) {

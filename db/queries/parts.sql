@@ -339,6 +339,8 @@ RETURNING id;
 -- name: SetPartEnriched :exec
 -- Records which distributor last enriched this part, when, and updates all enrichable
 -- fields. NULL keeps existing values (COALESCE pattern).
+-- canonical_package is derived from the raw package by the caller (genspec.NormalizePackage);
+-- both follow the same COALESCE rule so re-enrichment keeps parametric matching working.
 -- category_id is only updated when the part's category_source is 'auto' and a non-NULL
 -- new_category_id is provided; user-assigned categories are never overwritten by enrichment.
 UPDATE parts
@@ -351,6 +353,8 @@ SET enrichment_source_id = $2,
     short_description    = COALESCE(sqlc.narg('short_description'), short_description),
     product_url          = COALESCE(sqlc.narg('product_url'), product_url),
     image_url            = COALESCE(sqlc.narg('image_url'), image_url),
+    package              = COALESCE(sqlc.narg('package'), package),
+    canonical_package    = COALESCE(sqlc.narg('canonical_package'), canonical_package),
     category_id          = CASE
                                WHEN category_source = 'auto' AND sqlc.narg('new_category_id')::int IS NOT NULL
                                THEN sqlc.narg('new_category_id')::int
@@ -525,6 +529,22 @@ WHERE mpn = $1
 ORDER BY scope DESC
 LIMIT 10;
 
+-- name: FindPartsByMPNFuzzy :many
+-- Case-insensitive substring match on MPN or alias — the BOM import "library check"
+-- that mirrors the review pane's keyword search before resorting to a distributor
+-- lookup. Catches packaged variants the exact-MPN tiers miss (BOM "AZ431A" → catalog
+-- "AZ431AN-ATRG1"). A single hit auto-resolves; multiple leave the line for review;
+-- none falls through to the distributor pipeline.
+SELECT id, mpn, manufacturer
+FROM parts p
+WHERE (p.mpn ILIKE '%' || sqlc.arg('search') || '%'
+       OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || sqlc.arg('search') || '%'))
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
+  AND p.lifecycle_status = 'active'
+  AND p.deleted_at IS NULL
+ORDER BY p.scope DESC
+LIMIT 25;
+
 -- name: ListPartsByMPNAndManufacturer :many
 -- Returns parts matching both MPN and manufacturer (case-insensitive ILIKE).
 -- Used as the first step in BOM import resolution before falling back to MPN-only.
@@ -559,26 +579,37 @@ ORDER BY ie.part_id,
 -- match queries filter on deleted_at IS NULL.
 UPDATE parts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;
 
--- name: FindGenericPartMatch :many
--- Parametric (match-only) satisfaction: active parts in the team's catalog
--- (global + team-scoped) matching a category subtree, canonical package, and a
--- primary value within [min_val, max_val]. The BOM import job auto-resolves only
--- when this returns exactly one row; otherwise the line is left for review. No
--- part is ever created here.
+-- name: FindGenericPartCandidates :many
+-- Like FindGenericPartMatch, but returns ALL matching catalog parts with display
+-- details, ordered by closeness to the nominal value. Powers the BOM review
+-- candidate picker, so the user can resolve a generic line that the import-time
+-- match-only tier left for review (ambiguous: multiple matches). Same predicate as
+-- the auto tier, so candidates == what the importer considered. One row per part
+-- (a part with the value param from several sources is collapsed to its closest).
 WITH RECURSIVE cat_tree AS (
     SELECT categories.id FROM categories WHERE categories.id = sqlc.arg('category_id')
     UNION ALL
     SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
 )
-SELECT DISTINCT p.id
-FROM parts p
-JOIN part_parameters pp ON pp.part_id = p.id
-WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
-  AND p.lifecycle_status = 'active'
-  AND p.canonical_package = sqlc.arg('canonical_package')
-  AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
-  AND pp.parameter_id = sqlc.arg('parameter_id')
-  AND pp.numeric_value BETWEEN sqlc.arg('min_val') AND sqlc.arg('max_val');
+SELECT s.id, s.mpn, s.manufacturer, s.canonical_package, s.description, s.scope, s.value_si
+FROM (
+    SELECT DISTINCT ON (p.id)
+        p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope,
+        pp.numeric_value AS value_si,
+        abs(pp.numeric_value - sqlc.arg('nominal')::double precision) AS dist
+    FROM parts p
+    JOIN part_parameters pp ON pp.part_id = p.id
+    WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
+      AND p.lifecycle_status = 'active'
+      AND p.deleted_at IS NULL
+      AND p.canonical_package = sqlc.arg('canonical_package')
+      AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+      AND pp.parameter_id = sqlc.arg('parameter_id')
+      AND pp.numeric_value BETWEEN sqlc.arg('min_val') AND sqlc.arg('max_val')
+    ORDER BY p.id, dist
+) s
+ORDER BY s.dist, s.mpn
+LIMIT 50;
 
 -- name: ListGenericCandidatesWithParams :many
 -- Team-scoped generic parts (no MPN) matching a category + canonical package,

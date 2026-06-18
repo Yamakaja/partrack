@@ -3,6 +3,7 @@ package handler_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -45,7 +46,9 @@ func (f *fakeLLM) callCount() int {
 func TestLLMEscalation(t *testing.T) {
 	fake := &fakeLLM{
 		classify: `{"route":"generic","category":"resistors","confidence":0.9}`,
-		extract:  `{"params":[{"slug":"resistance","value":"9k"},{"slug":"tolerance","value":"10%"}]}`,
+		// SI-normalised values (as the extract prompt now asks): resistance in Ω,
+		// tolerance as the percent number, scientific notation allowed.
+		extract: `{"params":[{"slug":"resistance","value":"9000"},{"slug":"tolerance","value":"10"}]}`,
 	}
 	testEnv.Handler.LLM = fake
 	t.Cleanup(func() {
@@ -94,6 +97,13 @@ func TestLLMEscalation(t *testing.T) {
 	}
 	if !hasParam(interp, "resistance") {
 		t.Errorf("expected a resistance param, got %v", interp["params"])
+	}
+	// The SI value from the LLM is carried through to value_si unchanged.
+	if got := paramValueSI(interp, "resistance"); got != 9000 {
+		t.Errorf("resistance value_si = %v, want 9000", got)
+	}
+	if got := paramValueSI(interp, "tolerance"); got != 10 {
+		t.Errorf("tolerance value_si = %v, want 10", got)
 	}
 	if fake.callCount() != 2 {
 		t.Errorf("expected 2 LLM calls (classify+extract), got %d", fake.callCount())
@@ -219,4 +229,20 @@ func hasParam(interp map[string]any, slug string) bool {
 		}
 	}
 	return false
+}
+
+// paramValueSI returns the value_si of the named param, or NaN if absent/null.
+func paramValueSI(interp map[string]any, slug string) float64 {
+	params, _ := interp["params"].([]any)
+	for _, p := range params {
+		m, ok := p.(map[string]any)
+		if !ok || m["slug"] != slug {
+			continue
+		}
+		if v, ok := m["value_si"].(float64); ok {
+			return v
+		}
+		return math.NaN()
+	}
+	return math.NaN()
 }

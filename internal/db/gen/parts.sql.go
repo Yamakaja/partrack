@@ -255,24 +255,35 @@ func (q *Queries) DeletePart(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
-const findGenericPartMatch = `-- name: FindGenericPartMatch :many
+const findGenericPartCandidates = `-- name: FindGenericPartCandidates :many
 WITH RECURSIVE cat_tree AS (
-    SELECT categories.id FROM categories WHERE categories.id = $6
+    SELECT categories.id FROM categories WHERE categories.id = $7
     UNION ALL
     SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
 )
-SELECT DISTINCT p.id
-FROM parts p
-JOIN part_parameters pp ON pp.part_id = p.id
-WHERE (p.scope = 'global' OR p.team_id = $1)
-  AND p.lifecycle_status = 'active'
-  AND p.canonical_package = $2
-  AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
-  AND pp.parameter_id = $3
-  AND pp.numeric_value BETWEEN $4 AND $5
+SELECT s.id, s.mpn, s.manufacturer, s.canonical_package, s.description, s.scope, s.value_si
+FROM (
+    SELECT DISTINCT ON (p.id)
+        p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope,
+        pp.numeric_value AS value_si,
+        abs(pp.numeric_value - $1::double precision) AS dist
+    FROM parts p
+    JOIN part_parameters pp ON pp.part_id = p.id
+    WHERE (p.scope = 'global' OR p.team_id = $2)
+      AND p.lifecycle_status = 'active'
+      AND p.deleted_at IS NULL
+      AND p.canonical_package = $3
+      AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+      AND pp.parameter_id = $4
+      AND pp.numeric_value BETWEEN $5 AND $6
+    ORDER BY p.id, dist
+) s
+ORDER BY s.dist, s.mpn
+LIMIT 50
 `
 
-type FindGenericPartMatchParams struct {
+type FindGenericPartCandidatesParams struct {
+	Nominal          float64     `json:"nominal"`
 	TeamID           pgtype.UUID `json:"team_id"`
 	CanonicalPackage *string     `json:"canonical_package"`
 	ParameterID      *int32      `json:"parameter_id"`
@@ -281,13 +292,25 @@ type FindGenericPartMatchParams struct {
 	CategoryID       int32       `json:"category_id"`
 }
 
-// Parametric (match-only) satisfaction: active parts in the team's catalog
-// (global + team-scoped) matching a category subtree, canonical package, and a
-// primary value within [min_val, max_val]. The BOM import job auto-resolves only
-// when this returns exactly one row; otherwise the line is left for review. No
-// part is ever created here.
-func (q *Queries) FindGenericPartMatch(ctx context.Context, arg FindGenericPartMatchParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, findGenericPartMatch,
+type FindGenericPartCandidatesRow struct {
+	ID               pgtype.UUID `json:"id"`
+	Mpn              *string     `json:"mpn"`
+	Manufacturer     *string     `json:"manufacturer"`
+	CanonicalPackage *string     `json:"canonical_package"`
+	Description      *string     `json:"description"`
+	Scope            PartScope   `json:"scope"`
+	ValueSi          *float64    `json:"value_si"`
+}
+
+// Like FindGenericPartMatch, but returns ALL matching catalog parts with display
+// details, ordered by closeness to the nominal value. Powers the BOM review
+// candidate picker, so the user can resolve a generic line that the import-time
+// match-only tier left for review (ambiguous: multiple matches). Same predicate as
+// the auto tier, so candidates == what the importer considered. One row per part
+// (a part with the value param from several sources is collapsed to its closest).
+func (q *Queries) FindGenericPartCandidates(ctx context.Context, arg FindGenericPartCandidatesParams) ([]FindGenericPartCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, findGenericPartCandidates,
+		arg.Nominal,
 		arg.TeamID,
 		arg.CanonicalPackage,
 		arg.ParameterID,
@@ -299,13 +322,69 @@ func (q *Queries) FindGenericPartMatch(ctx context.Context, arg FindGenericPartM
 		return nil, err
 	}
 	defer rows.Close()
-	var items []pgtype.UUID
+	var items []FindGenericPartCandidatesRow
 	for rows.Next() {
-		var id pgtype.UUID
-		if err := rows.Scan(&id); err != nil {
+		var i FindGenericPartCandidatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.CanonicalPackage,
+			&i.Description,
+			&i.Scope,
+			&i.ValueSi,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findPartsByMPNFuzzy = `-- name: FindPartsByMPNFuzzy :many
+SELECT id, mpn, manufacturer
+FROM parts p
+WHERE (p.mpn ILIKE '%' || $1 || '%'
+       OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || $1 || '%'))
+  AND (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $2))
+  AND p.lifecycle_status = 'active'
+  AND p.deleted_at IS NULL
+ORDER BY p.scope DESC
+LIMIT 25
+`
+
+type FindPartsByMPNFuzzyParams struct {
+	Search *string     `json:"search"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+type FindPartsByMPNFuzzyRow struct {
+	ID           pgtype.UUID `json:"id"`
+	Mpn          *string     `json:"mpn"`
+	Manufacturer *string     `json:"manufacturer"`
+}
+
+// Case-insensitive substring match on MPN or alias — the BOM import "library check"
+// that mirrors the review pane's keyword search before resorting to a distributor
+// lookup. Catches packaged variants the exact-MPN tiers miss (BOM "AZ431A" → catalog
+// "AZ431AN-ATRG1"). A single hit auto-resolves; multiple leave the line for review;
+// none falls through to the distributor pipeline.
+func (q *Queries) FindPartsByMPNFuzzy(ctx context.Context, arg FindPartsByMPNFuzzyParams) ([]FindPartsByMPNFuzzyRow, error) {
+	rows, err := q.db.Query(ctx, findPartsByMPNFuzzy, arg.Search, arg.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindPartsByMPNFuzzyRow
+	for rows.Next() {
+		var i FindPartsByMPNFuzzyRow
+		if err := rows.Scan(&i.ID, &i.Mpn, &i.Manufacturer); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1700,9 +1779,11 @@ SET enrichment_source_id = $2,
     short_description    = COALESCE($7, short_description),
     product_url          = COALESCE($8, product_url),
     image_url            = COALESCE($9, image_url),
+    package              = COALESCE($10, package),
+    canonical_package    = COALESCE($11, canonical_package),
     category_id          = CASE
-                               WHEN category_source = 'auto' AND $10::int IS NOT NULL
-                               THEN $10::int
+                               WHEN category_source = 'auto' AND $12::int IS NOT NULL
+                               THEN $12::int
                                ELSE category_id
                            END
 WHERE id = $1
@@ -1718,11 +1799,15 @@ type SetPartEnrichedParams struct {
 	ShortDescription   *string                 `json:"short_description"`
 	ProductUrl         *string                 `json:"product_url"`
 	ImageUrl           *string                 `json:"image_url"`
+	Package            *string                 `json:"package"`
+	CanonicalPackage   *string                 `json:"canonical_package"`
 	NewCategoryID      *int32                  `json:"new_category_id"`
 }
 
 // Records which distributor last enriched this part, when, and updates all enrichable
 // fields. NULL keeps existing values (COALESCE pattern).
+// canonical_package is derived from the raw package by the caller (genspec.NormalizePackage);
+// both follow the same COALESCE rule so re-enrichment keeps parametric matching working.
 // category_id is only updated when the part's category_source is 'auto' and a non-NULL
 // new_category_id is provided; user-assigned categories are never overwritten by enrichment.
 func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams) error {
@@ -1736,6 +1821,8 @@ func (q *Queries) SetPartEnriched(ctx context.Context, arg SetPartEnrichedParams
 		arg.ShortDescription,
 		arg.ProductUrl,
 		arg.ImageUrl,
+		arg.Package,
+		arg.CanonicalPackage,
 		arg.NewCategoryID,
 	)
 	return err
