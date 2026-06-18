@@ -83,6 +83,86 @@ func TestChatErrorBody(t *testing.T) {
 	}
 }
 
+// captureRawBody starts a server that records the raw request body and returns a
+// canned response, plus the client pointed at it.
+func captureRawBody(t *testing.T, opts Options) (*string, Client, func()) {
+	t.Helper()
+	var raw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		raw = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`) //nolint:errcheck
+	}))
+	opts.BaseURL = srv.URL
+	opts.HTTPClient = srv.Client()
+	if opts.APIKey == "" {
+		opts.APIKey = "k"
+	}
+	if opts.Model == "" {
+		opts.Model = "m"
+	}
+	return &raw, New(opts), srv.Close
+}
+
+func TestReasoningSerialization(t *testing.T) {
+	tests := []struct {
+		name            string
+		effort, style   string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name: "openai style explicit", effort: "high", style: ReasoningStyleOpenAI,
+			wantContains:    []string{`"reasoning_effort":"high"`},
+			wantNotContains: []string{`"reasoning":`},
+		},
+		{
+			name: "openrouter style explicit", effort: "high", style: ReasoningStyleOpenRouter,
+			wantContains:    []string{`"reasoning":{"effort":"high"}`},
+			wantNotContains: []string{`"reasoning_effort"`},
+		},
+		{
+			name: "disabled when effort empty", effort: "", style: ReasoningStyleOpenAI,
+			wantNotContains: []string{`"reasoning_effort"`, `"reasoning":`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, c, closeFn := captureRawBody(t, Options{ReasoningEffort: tt.effort, ReasoningStyle: tt.style})
+			defer closeFn()
+			if _, err := c.Chat(context.Background(), Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}}); err != nil {
+				t.Fatalf("Chat: %v", err)
+			}
+			for _, want := range tt.wantContains {
+				if !strings.Contains(*raw, want) {
+					t.Errorf("body %s missing %q", *raw, want)
+				}
+			}
+			for _, no := range tt.wantNotContains {
+				if strings.Contains(*raw, no) {
+					t.Errorf("body %s should not contain %q", *raw, no)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveReasoningStyle(t *testing.T) {
+	tests := []struct{ style, baseURL, want string }{
+		{"", "https://openrouter.ai/api/v1", ReasoningStyleOpenRouter},
+		{"", "https://ki-toolbox.scc.kit.edu/api", ReasoningStyleOpenAI},
+		{"openrouter", "https://ki-toolbox.scc.kit.edu/api", ReasoningStyleOpenRouter}, // explicit overrides
+		{"OpenAI", "https://openrouter.ai/api/v1", ReasoningStyleOpenAI},               // explicit, case-insensitive
+		{"bogus", "https://example.com", ReasoningStyleOpenAI},                         // unknown → default
+	}
+	for _, tt := range tests {
+		if got := resolveReasoningStyle(tt.style, tt.baseURL); got != tt.want {
+			t.Errorf("resolveReasoningStyle(%q, %q) = %q, want %q", tt.style, tt.baseURL, got, tt.want)
+		}
+	}
+}
+
 func TestExtractJSON(t *testing.T) {
 	tests := []struct {
 		in, want string

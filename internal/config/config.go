@@ -38,6 +38,16 @@ type LLMConfig struct {
 	// MaxEscalationsPerPreview caps how many rows a single preview may send to the
 	// LLM, so one pathological import can't fan out unboundedly.
 	MaxEscalationsPerPreview int `yaml:"max_escalations_per_preview"`
+	// ReasoningEffort requests reasoning from a reasoning-capable model. Empty
+	// disables it; otherwise one of "minimal"/"low"/"medium"/"high" (OpenRouter
+	// also accepts "none"/"xhigh"). Override via PARTRACK_LLM_REASONING_EFFORT.
+	ReasoningEffort string `yaml:"reasoning_effort"`
+	// ReasoningStyle selects how the effort is sent, because providers disagree:
+	// "openai" sends a top-level `reasoning_effort` (Azure/LiteLLM gateways),
+	// "openrouter" sends a `reasoning: {effort}` object. Empty auto-detects from
+	// BaseURL (openrouter.ai → "openrouter", else "openai"). Override via
+	// PARTRACK_LLM_REASONING_STYLE.
+	ReasoningStyle string `yaml:"reasoning_style"`
 	// Debug logs every LLM request (model + full prompt) and response to stderr.
 	// For diagnosing interpretation behaviour; override via PARTRACK_LLM_DEBUG.
 	Debug bool `yaml:"debug"`
@@ -322,6 +332,12 @@ func Load() *Config {
 	}
 	if v := os.Getenv("PARTRACK_LLM_DEBUG"); v != "" {
 		cfg.LLM.Debug = v != "false" && v != "0"
+	}
+	if v := os.Getenv("PARTRACK_LLM_REASONING_EFFORT"); v != "" {
+		cfg.LLM.ReasoningEffort = v
+	}
+	if v := os.Getenv("PARTRACK_LLM_REASONING_STYLE"); v != "" {
+		cfg.LLM.ReasoningStyle = v
 	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET

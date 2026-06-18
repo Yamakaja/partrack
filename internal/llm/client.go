@@ -46,6 +46,13 @@ type Client interface {
 	Chat(ctx context.Context, req Request) (string, error)
 }
 
+// Reasoning styles select how a reasoning-effort request is serialized, because
+// providers disagree on the wire format (see Options.ReasoningStyle).
+const (
+	ReasoningStyleOpenAI     = "openai"     // top-level "reasoning_effort"
+	ReasoningStyleOpenRouter = "openrouter" // "reasoning": {"effort": ...} object
+)
+
 // Options configures an OpenRouter (OpenAI-compatible) client.
 type Options struct {
 	BaseURL       string
@@ -55,15 +62,38 @@ type Options struct {
 	Timeout       time.Duration
 	HTTPClient    *http.Client // optional; injected by tests
 	Debug         bool         // log every request/response to stderr
+	// ReasoningEffort, when non-empty, asks a reasoning-capable model to think
+	// before answering ("minimal"/"low"/"medium"/"high"; OpenRouter also accepts
+	// "none"/"xhigh"). Empty disables reasoning.
+	ReasoningEffort string
+	// ReasoningStyle is "openai" or "openrouter"; empty auto-detects from BaseURL
+	// (openrouter.ai → openrouter, else openai). Ignored when ReasoningEffort is "".
+	ReasoningStyle string
 }
 
 type openRouter struct {
-	http          *http.Client
-	baseURL       string
-	apiKey        string
-	model         string
-	fallbackModel string
-	debug         bool
+	http            *http.Client
+	baseURL         string
+	apiKey          string
+	model           string
+	fallbackModel   string
+	debug           bool
+	reasoningEffort string
+	reasoningStyle  string
+}
+
+// resolveReasoningStyle normalizes an explicit style or auto-detects from baseURL.
+func resolveReasoningStyle(style, baseURL string) string {
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case ReasoningStyleOpenAI:
+		return ReasoningStyleOpenAI
+	case ReasoningStyleOpenRouter:
+		return ReasoningStyleOpenRouter
+	}
+	if strings.Contains(strings.ToLower(baseURL), "openrouter.ai") {
+		return ReasoningStyleOpenRouter
+	}
+	return ReasoningStyleOpenAI
 }
 
 // New builds an OpenRouter client. BaseURL and Timeout fall back to defaults.
@@ -81,12 +111,14 @@ func New(opts Options) Client {
 		hc = &http.Client{Timeout: to}
 	}
 	return &openRouter{
-		http:          hc,
-		baseURL:       base,
-		apiKey:        opts.APIKey,
-		model:         opts.Model,
-		fallbackModel: opts.FallbackModel,
-		debug:         opts.Debug,
+		http:            hc,
+		baseURL:         base,
+		apiKey:          opts.APIKey,
+		model:           opts.Model,
+		fallbackModel:   opts.FallbackModel,
+		debug:           opts.Debug,
+		reasoningEffort: strings.TrimSpace(opts.ReasoningEffort),
+		reasoningStyle:  resolveReasoningStyle(opts.ReasoningStyle, base),
 	}
 }
 
@@ -105,6 +137,13 @@ type chatBody struct {
 	Messages       []Message    `json:"messages"`
 	Temperature    float64      `json:"temperature"`
 	ResponseFormat *responseFmt `json:"response_format,omitempty"`
+	// Reasoning: exactly one shape is set, per the configured style.
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"` // openai style
+	Reasoning       *reasoningSpec `json:"reasoning,omitempty"`        // openrouter style
+}
+
+type reasoningSpec struct {
+	Effort string `json:"effort"`
 }
 
 type responseFmt struct {
@@ -113,8 +152,17 @@ type responseFmt struct {
 
 type chatResp struct {
 	Choices []struct {
-		Message Message `json:"message"`
+		Message struct {
+			Content          string          `json:"content"`
+			Reasoning        string          `json:"reasoning"`
+			ReasoningDetails json.RawMessage `json:"reasoning_details"`
+		} `json:"message"`
 	} `json:"choices"`
+	Usage *struct {
+		CompletionTokensDetails *struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
+	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
@@ -125,12 +173,24 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 	if req.JSONObject {
 		body.ResponseFormat = &responseFmt{Type: "json_object"}
 	}
+	if c.reasoningEffort != "" {
+		switch c.reasoningStyle {
+		case ReasoningStyleOpenRouter:
+			body.Reasoning = &reasoningSpec{Effort: c.reasoningEffort}
+		default: // ReasoningStyleOpenAI
+			body.ReasoningEffort = c.reasoningEffort
+		}
+	}
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return "", err
 	}
 	if c.debug {
-		log.Printf("llm [request] model=%s json_object=%t", model, req.JSONObject)
+		reasoning := "off"
+		if c.reasoningEffort != "" {
+			reasoning = fmt.Sprintf("%s/%s", c.reasoningStyle, c.reasoningEffort)
+		}
+		log.Printf("llm [request] model=%s json_object=%t reasoning=%s", model, req.JSONObject, reasoning)
 		for _, m := range req.Messages {
 			log.Printf("llm [request] %s:\n%s", m.Role, m.Content)
 		}
@@ -164,6 +224,13 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 	}
 	if len(cr.Choices) == 0 {
 		return "", fmt.Errorf("llm: empty response")
+	}
+	if c.debug && c.reasoningEffort != "" {
+		tokens := 0
+		if cr.Usage != nil && cr.Usage.CompletionTokensDetails != nil {
+			tokens = cr.Usage.CompletionTokensDetails.ReasoningTokens
+		}
+		log.Printf("llm [reasoning] tokens=%d trace:\n%s", tokens, strings.TrimSpace(cr.Choices[0].Message.Reasoning))
 	}
 	return cr.Choices[0].Message.Content, nil
 }

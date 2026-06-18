@@ -147,12 +147,14 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 	}
 	if cfg.LLM.Active() {
 		h.LLM = llm.New(llm.Options{
-			BaseURL:       cfg.LLM.BaseURL,
-			APIKey:        cfg.LLM.APIKey,
-			Model:         cfg.LLM.Model,
-			FallbackModel: cfg.LLM.FallbackModel,
-			Timeout:       time.Duration(cfg.LLM.TimeoutSeconds) * time.Second,
-			Debug:         cfg.LLM.Debug,
+			BaseURL:         cfg.LLM.BaseURL,
+			APIKey:          cfg.LLM.APIKey,
+			Model:           cfg.LLM.Model,
+			FallbackModel:   cfg.LLM.FallbackModel,
+			Timeout:         time.Duration(cfg.LLM.TimeoutSeconds) * time.Second,
+			Debug:           cfg.LLM.Debug,
+			ReasoningEffort: cfg.LLM.ReasoningEffort,
+			ReasoningStyle:  cfg.LLM.ReasoningStyle,
 		})
 	}
 	h.Activity = activity.New(db, func(eventType, teamID, targetUserID string, data []byte) {

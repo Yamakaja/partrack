@@ -77,4 +77,6 @@ storage:
 #   fallback_model: ""                                # tried once if model errors (optional)
 #   timeout_seconds: 30
 #   max_escalations_per_preview: 50                   # cap rows sent to the LLM per preview
-#   debug: false                                      # log every request+response to stderr; or env PARTRACK_LLM_DEBUG
+#   reasoning_effort: ""                              # "" disables; "minimal"/"low"/"medium"/"high" (OpenRouter also "none"/"xhigh"); or env PARTRACK_LLM_REASONING_EFFORT
+#   reasoning_style: ""                               # "" auto-detects from base_url; "openai" (top-level reasoning_effort, e.g. Azure/LiteLLM) or "openrouter" (reasoning:{effort} object); or env PARTRACK_LLM_REASONING_STYLE
+#   debug: false                                      # log every request+response to stderr (also logs reasoning tokens/trace); or env PARTRACK_LLM_DEBUG
