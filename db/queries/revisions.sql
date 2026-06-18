@@ -53,6 +53,7 @@ SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
     bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
+    bli.value, bli.footprint,
     COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
@@ -178,6 +179,20 @@ WHERE br.project_id        = @project_id
 ORDER BY br.imported_at DESC
 LIMIT 1;
 
+-- name: GetPriorRevisionPartByMPN :one
+-- MPN-only prior-revision reuse: used when the line has no manufacturer to
+-- disambiguate with (or the MPN+manufacturer lookup found nothing). Reuses the most
+-- recent prior resolution for the same MPN in this project.
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id        = @project_id
+  AND br.id               != @current_revision_id
+  AND bli.mpn              = @mpn
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1;
+
 -- name: GetPriorRevisionPartBySKU :one
 SELECT bli.resolved_part_id
 FROM bom_line_items bli
@@ -186,6 +201,24 @@ WHERE br.project_id              = @project_id
   AND br.id                     != @current_revision_id
   AND bli.sku                    = @sku
   AND bli.resolved_distributor_id = @distributor_id
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1;
+
+-- name: GetPriorRevisionPartByLineSignature :one
+-- Prior-revision reuse keyed on the line's identity rather than a catalog MPN/SKU:
+-- a line with the same reference designators AND the same raw value + footprint as a
+-- previously-resolved line is the "same" line in a re-imported (identical) BOM. This
+-- carries forward manual resolutions of generic/parametric parts that have no MPN or
+-- SKU to match on. NULL value/footprint match NULL (IS NOT DISTINCT FROM).
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id             = @project_id
+  AND br.id                    != @current_revision_id
+  AND bli.reference_designators = @reference_designators
+  AND bli.value     IS NOT DISTINCT FROM sqlc.narg('value')
+  AND bli.footprint IS NOT DISTINCT FROM sqlc.narg('footprint')
   AND bli.resolved_part_id IS NOT NULL
 ORDER BY br.imported_at DESC
 LIMIT 1;

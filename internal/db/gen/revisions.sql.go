@@ -250,6 +250,74 @@ func (q *Queries) GetInventoryQuantitiesForRevision(ctx context.Context, arg Get
 	return items, nil
 }
 
+const getPriorRevisionPartByLineSignature = `-- name: GetPriorRevisionPartByLineSignature :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id             = $1
+  AND br.id                    != $2
+  AND bli.reference_designators = $3
+  AND bli.value     IS NOT DISTINCT FROM $4
+  AND bli.footprint IS NOT DISTINCT FROM $5
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1
+`
+
+type GetPriorRevisionPartByLineSignatureParams struct {
+	ProjectID            pgtype.UUID `json:"project_id"`
+	CurrentRevisionID    pgtype.UUID `json:"current_revision_id"`
+	ReferenceDesignators string      `json:"reference_designators"`
+	Value                *string     `json:"value"`
+	Footprint            *string     `json:"footprint"`
+}
+
+// Prior-revision reuse keyed on the line's identity rather than a catalog MPN/SKU:
+// a line with the same reference designators AND the same raw value + footprint as a
+// previously-resolved line is the "same" line in a re-imported (identical) BOM. This
+// carries forward manual resolutions of generic/parametric parts that have no MPN or
+// SKU to match on. NULL value/footprint match NULL (IS NOT DISTINCT FROM).
+func (q *Queries) GetPriorRevisionPartByLineSignature(ctx context.Context, arg GetPriorRevisionPartByLineSignatureParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPriorRevisionPartByLineSignature,
+		arg.ProjectID,
+		arg.CurrentRevisionID,
+		arg.ReferenceDesignators,
+		arg.Value,
+		arg.Footprint,
+	)
+	var resolved_part_id pgtype.UUID
+	err := row.Scan(&resolved_part_id)
+	return resolved_part_id, err
+}
+
+const getPriorRevisionPartByMPN = `-- name: GetPriorRevisionPartByMPN :one
+SELECT bli.resolved_part_id
+FROM bom_line_items bli
+JOIN bom_revisions br ON br.id = bli.bom_revision_id
+WHERE br.project_id        = $1
+  AND br.id               != $2
+  AND bli.mpn              = $3
+  AND bli.resolved_part_id IS NOT NULL
+ORDER BY br.imported_at DESC
+LIMIT 1
+`
+
+type GetPriorRevisionPartByMPNParams struct {
+	ProjectID         pgtype.UUID `json:"project_id"`
+	CurrentRevisionID pgtype.UUID `json:"current_revision_id"`
+	Mpn               *string     `json:"mpn"`
+}
+
+// MPN-only prior-revision reuse: used when the line has no manufacturer to
+// disambiguate with (or the MPN+manufacturer lookup found nothing). Reuses the most
+// recent prior resolution for the same MPN in this project.
+func (q *Queries) GetPriorRevisionPartByMPN(ctx context.Context, arg GetPriorRevisionPartByMPNParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPriorRevisionPartByMPN, arg.ProjectID, arg.CurrentRevisionID, arg.Mpn)
+	var resolved_part_id pgtype.UUID
+	err := row.Scan(&resolved_part_id)
+	return resolved_part_id, err
+}
+
 const getPriorRevisionPartByMPNAndManufacturer = `-- name: GetPriorRevisionPartByMPNAndManufacturer :one
 SELECT bli.resolved_part_id
 FROM bom_line_items bli
@@ -483,6 +551,7 @@ SELECT
     bli.id, bli.reference_designators, bli.quantity, bli.raw_description,
     bli.resolved_part_id,
     bli.part_name, bli.manufacturer, bli.mpn, bli.sku,
+    bli.value, bli.footprint,
     COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
@@ -504,6 +573,8 @@ type ListBOMLineItemsRow struct {
 	Manufacturer          *string     `json:"manufacturer"`
 	Mpn                   *string     `json:"mpn"`
 	Sku                   *string     `json:"sku"`
+	Value                 *string     `json:"value"`
+	Footprint             *string     `json:"footprint"`
 	DistributorName       string      `json:"distributor_name"`
 	ResolvedDistributorID pgtype.UUID `json:"resolved_distributor_id"`
 	ResolutionState       *string     `json:"resolution_state"`
@@ -530,6 +601,8 @@ func (q *Queries) ListBOMLineItems(ctx context.Context, bomRevisionID pgtype.UUI
 			&i.Manufacturer,
 			&i.Mpn,
 			&i.Sku,
+			&i.Value,
+			&i.Footprint,
 			&i.DistributorName,
 			&i.ResolvedDistributorID,
 			&i.ResolutionState,

@@ -127,8 +127,12 @@ func TestInterpretationReuse_PriorRevisionCarryover(t *testing.T) {
 	item := pollResolvedLine(t, teamID, projectID, token, revB)
 
 	assertReusedInterpretation(t, item)
-	if item["resolution_state"] != "auto_generic" {
-		t.Errorf("expected resolution_state=auto_generic, got %v", item["resolution_state"])
+	// The identical re-imported line reuses Rev A's resolution directly (the
+	// line-signature prior-revision tier runs before the generic match tier), so it
+	// resolves to the same part labelled auto_prior_revision rather than re-deriving
+	// it as auto_generic.
+	if item["resolution_state"] != "auto_prior_revision" {
+		t.Errorf("expected resolution_state=auto_prior_revision, got %v", item["resolution_state"])
 	}
 }
 

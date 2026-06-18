@@ -65,9 +65,16 @@ func seedCatalogPart(t *testing.T, scope string, teamID *string, mpn string, cat
 // returns the new revision id.
 func importLine(t *testing.T, teamID, projectID, token string, item map[string]any) string {
 	t.Helper()
+	return importLineLabeled(t, teamID, projectID, token, "v1.0", item)
+}
+
+// importLineLabeled is importLine with an explicit revision label, for tests that
+// import more than one revision into the same project.
+func importLineLabeled(t *testing.T, teamID, projectID, token, label string, item map[string]any) string {
+	t.Helper()
 	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
 		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions", teamID, projectID),
-		map[string]any{"label": "v1.0", "set_active": true, "items": []any{item}}, token)
+		map[string]any{"label": label, "set_active": true, "items": []any{item}}, token)
 	if status != http.StatusAccepted {
 		t.Fatalf("import: expected 202, got %d: %v", status, body)
 	}
@@ -203,5 +210,55 @@ func TestBOMImport_SignatureGeneric(t *testing.T) {
 	}
 	if line["resolved_part_id"] != want {
 		t.Errorf("resolved_part_id = %v, want %s (HDR-1x04)", line["resolved_part_id"], want)
+	}
+}
+
+// TestBOMImport_PriorRevisionLineSignatureReuse verifies that a manual resolution of
+// a generic (no MPN/SKU) line is carried into the next revision of the same project
+// when the re-imported line is identical (same reference designators + value +
+// footprint). The MPN/SKU prior-revision tiers can't key on such lines, so this
+// exercises the line-signature fallback — the case a re-imported identical BOM hits.
+func TestBOMImport_PriorRevisionLineSignatureReuse(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "prior-sig@example.com", "pw", "Prior")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Prior Team")
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "PCB-PRIOR")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	chipR := categoryIDBySlug(t, "chip-resistor-surface-mount")
+	res := paramDefID(t, "resistance", "numeric")
+	pkg := "0402"
+	// Two distinct 5.1k/0402 parts → the generic line is ambiguous and never
+	// auto-resolves, so a part only sticks via a manual pick or prior-revision reuse.
+	_ = seedCatalogPart(t, "global", nil, "RES-5K1-A", chipR, &pkg, map[int32]float64{res: 5100})
+	p2 := seedCatalogPart(t, "global", nil, "RES-5K1-B", chipR, &pkg, map[int32]float64{res: 5100})
+
+	line := map[string]any{
+		"reference_designators": "R1,R2,R21", "quantity": 3,
+		"value": "5.1k", "footprint": "Resistor_SMD:R_0402_1005Metric",
+	}
+
+	// Rev A: import → ambiguous; the user manually resolves it to p2.
+	revA := importLineLabeled(t, teamID, projectID, token, "v1.0", line)
+	itemA := pollResolvedLine(t, teamID, projectID, token, revA)
+	if itemA["resolution_state"] != "ambiguous" {
+		t.Fatalf("rev A: resolution_state = %v, want ambiguous", itemA["resolution_state"])
+	}
+	itemAID, _ := itemA["id"].(string)
+	if _, st := testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("/api/v1/teams/%s/projects/%s/revisions/%s/items/%s", teamID, projectID, revA, itemAID),
+		map[string]any{"resolved_part_id": p2}, token); st != http.StatusOK {
+		t.Fatalf("rev A manual resolve: got %d", st)
+	}
+
+	// Rev B: the identical line must reuse rev A's manual pick via the line signature.
+	revB := importLineLabeled(t, teamID, projectID, token, "v1.1", line)
+	itemB := pollResolvedLine(t, teamID, projectID, token, revB)
+	if itemB["resolution_state"] != "auto_prior_revision" {
+		t.Errorf("rev B: resolution_state = %v, want auto_prior_revision", itemB["resolution_state"])
+	}
+	if itemB["resolved_part_id"] != p2 {
+		t.Errorf("rev B: resolved_part_id = %v, want %s", itemB["resolved_part_id"], p2)
 	}
 }

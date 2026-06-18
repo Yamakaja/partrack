@@ -181,6 +181,15 @@ func (q *Queue) handleBOMImport(job Job) {
 						priorPartID = id
 					}
 				}
+				if !priorPartID.Valid {
+					if id, err := queries.GetPriorRevisionPartByMPN(ctx, dbgen.GetPriorRevisionPartByMPNParams{
+						ProjectID:         projectID,
+						CurrentRevisionID: revID,
+						Mpn:               item.Mpn,
+					}); err == nil {
+						priorPartID = id
+					}
+				}
 			}
 
 			// 4b. SKU+distributor fallback: covers items with no MPN.
@@ -190,6 +199,22 @@ func (q *Queue) handleBOMImport(job Job) {
 					CurrentRevisionID: revID,
 					Sku:               item.Sku,
 					DistributorID:     item.ResolvedDistributorID,
+				}); err == nil {
+					priorPartID = id
+				}
+			}
+
+			// 4c. Line-signature fallback: for a re-imported (identical) BOM, a line with
+			// the same reference designators + raw value + footprint is the same line. This
+			// carries forward manual resolutions of generic/parametric parts that have no
+			// MPN or SKU to key on (the common case the MPN/SKU tiers above can't cover).
+			if !priorPartID.Valid {
+				if id, err := queries.GetPriorRevisionPartByLineSignature(ctx, dbgen.GetPriorRevisionPartByLineSignatureParams{
+					ProjectID:            projectID,
+					CurrentRevisionID:    revID,
+					ReferenceDesignators: item.ReferenceDesignators,
+					Value:                item.Value,
+					Footprint:            item.Footprint,
 				}); err == nil {
 					priorPartID = id
 				}
