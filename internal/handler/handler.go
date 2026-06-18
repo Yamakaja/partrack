@@ -152,6 +152,7 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 			Model:         cfg.LLM.Model,
 			FallbackModel: cfg.LLM.FallbackModel,
 			Timeout:       time.Duration(cfg.LLM.TimeoutSeconds) * time.Second,
+			Debug:         cfg.LLM.Debug,
 		})
 	}
 	h.Activity = activity.New(db, func(eventType, teamID, targetUserID string, data []byte) {

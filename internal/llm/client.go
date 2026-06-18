@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -53,6 +54,7 @@ type Options struct {
 	FallbackModel string // tried once if Model errors; optional
 	Timeout       time.Duration
 	HTTPClient    *http.Client // optional; injected by tests
+	Debug         bool         // log every request/response to stderr
 }
 
 type openRouter struct {
@@ -61,6 +63,7 @@ type openRouter struct {
 	apiKey        string
 	model         string
 	fallbackModel string
+	debug         bool
 }
 
 // New builds an OpenRouter client. BaseURL and Timeout fall back to defaults.
@@ -83,6 +86,7 @@ func New(opts Options) Client {
 		apiKey:        opts.APIKey,
 		model:         opts.Model,
 		fallbackModel: opts.FallbackModel,
+		debug:         opts.Debug,
 	}
 }
 
@@ -125,6 +129,12 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 	if err != nil {
 		return "", err
 	}
+	if c.debug {
+		log.Printf("llm [request] model=%s json_object=%t", model, req.JSONObject)
+		for _, m := range req.Messages {
+			log.Printf("llm [request] %s:\n%s", m.Role, m.Content)
+		}
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(buf))
 	if err != nil {
 		return "", err
@@ -139,6 +149,9 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if c.debug {
+		log.Printf("llm [response] model=%s status=%d body:\n%s", model, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("llm: %s: %s", resp.Status, strings.TrimSpace(string(data)))
 	}

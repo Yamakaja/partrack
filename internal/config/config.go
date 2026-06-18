@@ -38,6 +38,9 @@ type LLMConfig struct {
 	// MaxEscalationsPerPreview caps how many rows a single preview may send to the
 	// LLM, so one pathological import can't fan out unboundedly.
 	MaxEscalationsPerPreview int `yaml:"max_escalations_per_preview"`
+	// Debug logs every LLM request (model + full prompt) and response to stderr.
+	// For diagnosing interpretation behaviour; override via PARTRACK_LLM_DEBUG.
+	Debug bool `yaml:"debug"`
 }
 
 // Active reports whether the LLM fallback is usable (enabled and configured).
@@ -316,6 +319,9 @@ func Load() *Config {
 	}
 	if v := os.Getenv("PARTRACK_LLM_ENABLED"); v != "" {
 		cfg.LLM.Enabled = v != "false" && v != "0"
+	}
+	if v := os.Getenv("PARTRACK_LLM_DEBUG"); v != "" {
+		cfg.LLM.Debug = v != "false" && v != "0"
 	}
 
 	// Per-provider OIDC secret override: PARTRACK_OIDC_<NAME>_SECRET

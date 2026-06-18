@@ -77,3 +77,4 @@ storage:
 #   fallback_model: ""                                # tried once if model errors (optional)
 #   timeout_seconds: 30
 #   max_escalations_per_preview: 50                   # cap rows sent to the LLM per preview
+#   debug: false                                      # log every request+response to stderr; or env PARTRACK_LLM_DEBUG
