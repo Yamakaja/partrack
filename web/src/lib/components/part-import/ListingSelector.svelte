@@ -136,7 +136,7 @@
           <p class="px-4 py-2.5 text-xs text-destructive/80">{dist.error.split('\n')[0]}</p>
         {:else if hasListings}
           <div class="divide-y divide-border">
-            {#each (dist.results ?? []) as result (result.mpn ?? result)}
+            {#each (dist.results ?? []) as result, ri (ri)}
               {#if (result.listings?.length ?? 0) > 0}
                 <!-- Product header -->
                 <div class="px-4 py-2 bg-muted/20 border-b border-border/60">
