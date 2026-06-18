@@ -35,6 +35,13 @@ func TestCanonicalPackage(t *testing.T) {
 		{"0402", "0402", "smd", "", true},
 		// Standalone metric → mapped to imperial.
 		{"2012Metric", "0805", "smd", "", true},
+		// 1008 inductor size (imperial 1008 / metric 2520).
+		{"L_1008_2520Metric", "1008", "smd", "L", true},
+		{"2520Metric", "1008", "smd", "", true},
+		// Distributor "<imperial> (<metric> Metric)" form reduces to the imperial code.
+		{"1008 (2520 Metric)", "1008", "smd", "", true},
+		{"1206 (3216 Metric)", "1206", "smd", "", true},
+		{"0402 (1005 Metric)", "0402", "smd", "", true},
 		// IPC-7351 names carry a metric code.
 		{"RESC1608X55N", "0603", "smd", "", true},
 		{"CAPC2012X127N", "0805", "smd", "", true},

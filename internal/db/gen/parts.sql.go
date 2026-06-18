@@ -266,16 +266,18 @@ FROM (
     SELECT DISTINCT ON (p.id)
         p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope,
         pp.numeric_value AS value_si,
-        abs(pp.numeric_value - $1::double precision) AS dist
+        CASE WHEN $1::int IS NULL THEN 0::double precision
+             ELSE abs(pp.numeric_value - $2::double precision) END AS dist
     FROM parts p
-    JOIN part_parameters pp ON pp.part_id = p.id
-    WHERE (p.scope = 'global' OR p.team_id = $2)
+    LEFT JOIN part_parameters pp ON pp.part_id = p.id
+      AND pp.parameter_id = $1::int
+      AND pp.numeric_value BETWEEN $3::double precision AND $4::double precision
+    WHERE (p.scope = 'global' OR p.team_id = $5)
       AND p.lifecycle_status = 'active'
       AND p.deleted_at IS NULL
-      AND p.canonical_package = $3
+      AND p.canonical_package = $6
       AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
-      AND pp.parameter_id = $4
-      AND pp.numeric_value BETWEEN $5 AND $6
+      AND ($1::int IS NULL OR pp.id IS NOT NULL)
     ORDER BY p.id, dist
 ) s
 ORDER BY s.dist, s.mpn
@@ -283,12 +285,12 @@ LIMIT 50
 `
 
 type FindGenericPartCandidatesParams struct {
-	Nominal          float64     `json:"nominal"`
-	TeamID           pgtype.UUID `json:"team_id"`
-	CanonicalPackage *string     `json:"canonical_package"`
 	ParameterID      *int32      `json:"parameter_id"`
+	Nominal          *float64    `json:"nominal"`
 	MinVal           *float64    `json:"min_val"`
 	MaxVal           *float64    `json:"max_val"`
+	TeamID           pgtype.UUID `json:"team_id"`
+	CanonicalPackage *string     `json:"canonical_package"`
 	CategoryID       int32       `json:"category_id"`
 }
 
@@ -308,14 +310,19 @@ type FindGenericPartCandidatesRow struct {
 // match-only tier left for review (ambiguous: multiple matches). Same predicate as
 // the auto tier, so candidates == what the importer considered. One row per part
 // (a part with the value param from several sources is collapsed to its closest).
+//
+// The value filter is optional: when parameter_id is NULL the line carries no
+// primary magnitude (a package-only commodity like an LED or ferrite bead, or an
+// LLM reading that gave only a package), so candidates are matched on category
+// subtree + canonical package alone, ordered by MPN.
 func (q *Queries) FindGenericPartCandidates(ctx context.Context, arg FindGenericPartCandidatesParams) ([]FindGenericPartCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, findGenericPartCandidates,
-		arg.Nominal,
-		arg.TeamID,
-		arg.CanonicalPackage,
 		arg.ParameterID,
+		arg.Nominal,
 		arg.MinVal,
 		arg.MaxVal,
+		arg.TeamID,
+		arg.CanonicalPackage,
 		arg.CategoryID,
 	)
 	if err != nil {
@@ -333,6 +340,92 @@ func (q *Queries) FindGenericPartCandidates(ctx context.Context, arg FindGeneric
 			&i.Description,
 			&i.Scope,
 			&i.ValueSi,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findGenericPartCandidatesBySignature = `-- name: FindGenericPartCandidatesBySignature :many
+WITH RECURSIVE cat_tree AS (
+    SELECT categories.id FROM categories WHERE categories.id = $2
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
+),
+sig AS (
+    SELECT ($3::int[])[g.i] AS parameter_id,
+           ($4::double precision[])[g.i] AS value
+    FROM generate_subscripts($3::int[], 1) AS g(i)
+)
+SELECT p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope
+FROM parts p
+WHERE (p.scope = 'global' OR p.team_id = $1)
+  AND p.lifecycle_status = 'active'
+  AND p.deleted_at IS NULL
+  AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+  AND NOT EXISTS (
+      SELECT 1 FROM sig
+      WHERE NOT EXISTS (
+          SELECT 1 FROM part_parameters pp
+          WHERE pp.part_id = p.id
+            AND pp.parameter_id = sig.parameter_id
+            AND abs(pp.numeric_value - sig.value) <= GREATEST(abs(sig.value) * 0.01, 1e-9)
+      )
+  )
+ORDER BY p.mpn
+LIMIT 50
+`
+
+type FindGenericPartCandidatesBySignatureParams struct {
+	TeamID       pgtype.UUID `json:"team_id"`
+	CategoryID   int32       `json:"category_id"`
+	ParameterIds []int32     `json:"parameter_ids"`
+	Values       []float64   `json:"values"`
+}
+
+type FindGenericPartCandidatesBySignatureRow struct {
+	ID               pgtype.UUID `json:"id"`
+	Mpn              *string     `json:"mpn"`
+	Manufacturer     *string     `json:"manufacturer"`
+	CanonicalPackage *string     `json:"canonical_package"`
+	Description      *string     `json:"description"`
+	Scope            PartScope   `json:"scope"`
+}
+
+// Matches generic lines that have no single primary magnitude but a set of
+// discriminating numeric parameters — pin headers (positions / rows / pitch),
+// and similar multi-parameter commodities. A catalog part in the category subtree
+// matches when it carries EVERY (parameter, value) pair the interpretation provides,
+// each within a relative epsilon (1%, floored at 1e-9 so integer counts match
+// exactly and zero values match exactly). The (parameter_ids, values) arrays are
+// positionally paired. Returns one row per part, ordered by MPN. Mirrors the
+// columns of FindGenericPartCandidates (value_si is not meaningful here).
+func (q *Queries) FindGenericPartCandidatesBySignature(ctx context.Context, arg FindGenericPartCandidatesBySignatureParams) ([]FindGenericPartCandidatesBySignatureRow, error) {
+	rows, err := q.db.Query(ctx, findGenericPartCandidatesBySignature,
+		arg.TeamID,
+		arg.CategoryID,
+		arg.ParameterIds,
+		arg.Values,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindGenericPartCandidatesBySignatureRow
+	for rows.Next() {
+		var i FindGenericPartCandidatesBySignatureRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.CanonicalPackage,
+			&i.Description,
+			&i.Scope,
 		); err != nil {
 			return nil, err
 		}

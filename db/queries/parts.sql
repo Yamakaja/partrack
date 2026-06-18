@@ -586,6 +586,11 @@ UPDATE parts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;
 -- match-only tier left for review (ambiguous: multiple matches). Same predicate as
 -- the auto tier, so candidates == what the importer considered. One row per part
 -- (a part with the value param from several sources is collapsed to its closest).
+--
+-- The value filter is optional: when parameter_id is NULL the line carries no
+-- primary magnitude (a package-only commodity like an LED or ferrite bead, or an
+-- LLM reading that gave only a package), so candidates are matched on category
+-- subtree + canonical package alone, ordered by MPN.
 WITH RECURSIVE cat_tree AS (
     SELECT categories.id FROM categories WHERE categories.id = sqlc.arg('category_id')
     UNION ALL
@@ -596,19 +601,58 @@ FROM (
     SELECT DISTINCT ON (p.id)
         p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope,
         pp.numeric_value AS value_si,
-        abs(pp.numeric_value - sqlc.arg('nominal')::double precision) AS dist
+        CASE WHEN sqlc.narg('parameter_id')::int IS NULL THEN 0::double precision
+             ELSE abs(pp.numeric_value - sqlc.narg('nominal')::double precision) END AS dist
     FROM parts p
-    JOIN part_parameters pp ON pp.part_id = p.id
+    LEFT JOIN part_parameters pp ON pp.part_id = p.id
+      AND pp.parameter_id = sqlc.narg('parameter_id')::int
+      AND pp.numeric_value BETWEEN sqlc.narg('min_val')::double precision AND sqlc.narg('max_val')::double precision
     WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
       AND p.lifecycle_status = 'active'
       AND p.deleted_at IS NULL
       AND p.canonical_package = sqlc.arg('canonical_package')
       AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
-      AND pp.parameter_id = sqlc.arg('parameter_id')
-      AND pp.numeric_value BETWEEN sqlc.arg('min_val') AND sqlc.arg('max_val')
+      AND (sqlc.narg('parameter_id')::int IS NULL OR pp.id IS NOT NULL)
     ORDER BY p.id, dist
 ) s
 ORDER BY s.dist, s.mpn
+LIMIT 50;
+
+-- name: FindGenericPartCandidatesBySignature :many
+-- Matches generic lines that have no single primary magnitude but a set of
+-- discriminating numeric parameters — pin headers (positions / rows / pitch),
+-- and similar multi-parameter commodities. A catalog part in the category subtree
+-- matches when it carries EVERY (parameter, value) pair the interpretation provides,
+-- each within a relative epsilon (1%, floored at 1e-9 so integer counts match
+-- exactly and zero values match exactly). The (parameter_ids, values) arrays are
+-- positionally paired. Returns one row per part, ordered by MPN. Mirrors the
+-- columns of FindGenericPartCandidates (value_si is not meaningful here).
+WITH RECURSIVE cat_tree AS (
+    SELECT categories.id FROM categories WHERE categories.id = sqlc.arg('category_id')
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
+),
+sig AS (
+    SELECT (sqlc.arg('parameter_ids')::int[])[g.i] AS parameter_id,
+           (sqlc.arg('values')::double precision[])[g.i] AS value
+    FROM generate_subscripts(sqlc.arg('parameter_ids')::int[], 1) AS g(i)
+)
+SELECT p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope
+FROM parts p
+WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
+  AND p.lifecycle_status = 'active'
+  AND p.deleted_at IS NULL
+  AND p.category_id IN (SELECT cat_tree.id FROM cat_tree)
+  AND NOT EXISTS (
+      SELECT 1 FROM sig
+      WHERE NOT EXISTS (
+          SELECT 1 FROM part_parameters pp
+          WHERE pp.part_id = p.id
+            AND pp.parameter_id = sig.parameter_id
+            AND abs(pp.numeric_value - sig.value) <= GREATEST(abs(sig.value) * 0.01, 1e-9)
+      )
+  )
+ORDER BY p.mpn
 LIMIT 50;
 
 -- name: ListGenericCandidatesWithParams :many

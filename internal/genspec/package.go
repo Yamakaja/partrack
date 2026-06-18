@@ -24,6 +24,7 @@ var metricToImperial = map[string]string{
 	"1005": "0402",
 	"1608": "0603",
 	"2012": "0805",
+	"2520": "1008",
 	"3216": "1206",
 	"3225": "1210",
 	"3246": "1218",
@@ -37,8 +38,8 @@ var metricToImperial = map[string]string{
 // variable length: down to 008004 (6 digits) and 01005 (5 digits).
 var imperialSizes = map[string]bool{
 	"008004": true, "01005": true, "0201": true, "0402": true, "0603": true,
-	"0805": true, "1206": true, "1210": true, "1218": true, "1812": true,
-	"2010": true, "2512": true, "2816": true, "2920": true,
+	"0805": true, "1008": true, "1206": true, "1210": true, "1218": true,
+	"1812": true, "2010": true, "2512": true, "2816": true, "2920": true,
 }
 
 // footprintClassToken maps the leading token of a KiCad-style footprint to a
@@ -53,6 +54,9 @@ var (
 	// imperial code is the token immediately before _<NNNN>Metric. Both groups are
 	// digit runs so "WSK2512_6332Metric" captures imperial 2512.
 	structMetricRe = regexp.MustCompile(`(\d{3,6})_(\d{3,4})Metric`)
+	// parenMetricRe matches the distributor "<imperial> (<metric> Metric)" form,
+	// e.g. "1008 (2520 Metric)" — the imperial code is the leading group.
+	parenMetricRe = regexp.MustCompile(`(\d{3,6})\s*\(\s*(\d{3,4})\s*Metric\s*\)`)
 	// metricOnlyRe matches a standalone <NNNN>Metric (no preceding imperial token).
 	metricOnlyRe = regexp.MustCompile(`(\d{3,4})Metric`)
 	// ipcRe matches IPC-7351 names like RESC1608X55N / CAPC2012X127N — a family
@@ -151,6 +155,17 @@ func chipSize(s string) (string, bool) {
 			return imp, true
 		}
 		// Fall back to mapping the metric code if the imperial token is unfamiliar.
+		if mapped, found := metricToImperial[m[2]]; found {
+			return mapped, true
+		}
+		return imp, true
+	}
+	// 1b. Distributor "<imperial> (<metric> Metric)" form — same imperial-wins rule.
+	if m := parenMetricRe.FindStringSubmatch(s); m != nil {
+		imp := m[1]
+		if imperialSizes[imp] {
+			return imp, true
+		}
 		if mapped, found := metricToImperial[m[2]]; found {
 			return mapped, true
 		}

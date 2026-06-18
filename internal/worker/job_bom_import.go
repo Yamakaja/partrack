@@ -207,9 +207,15 @@ func (q *Queue) handleBOMImport(job Job) {
 		// auto-resolves; anything else falls through to remain unresolved. This tier
 		// never creates a part — generic creation is an explicit user action.
 		if resolutionState == nil {
-			if pid, ok := tryParametricMatch(ctx, queries, teamID, item.ID); ok {
+			pid, n := tryParametricMatch(ctx, queries, teamID, item.ID)
+			switch {
+			case n == 1:
 				resolvedPartID = pid
 				resolutionState = strPtr("auto_generic")
+			case n > 1:
+				// Several catalog parts satisfy the spec — not safe to auto-resolve.
+				// Surface for review; the candidate picker offers the same set.
+				resolutionState = strPtr("ambiguous")
 			}
 		}
 
@@ -387,27 +393,30 @@ func uuidStr(u pgtype.UUID) string {
 	return u.String()
 }
 
-// tryParametricMatch attempts to resolve a BOM line to an existing catalog part
-// from its persisted parametric interpretation: category subtree + canonical
-// package + primary value within an epsilon window. It returns a part id only on
-// a single unambiguous match and NEVER creates a part (generic creation is an
-// explicit user action). Any error or non-unique result yields ok=false, leaving
-// the line unresolved for review.
-func tryParametricMatch(ctx context.Context, queries *dbgen.Queries, teamID, itemID pgtype.UUID) (pgtype.UUID, bool) {
+// tryParametricMatch finds existing catalog parts that satisfy a BOM line's
+// persisted parametric interpretation: category subtree + canonical package +
+// (when the line carries one) primary value within an epsilon window. It returns
+// the matched part id and the number of candidates; the id is meaningful only when
+// the count is 1. It NEVER creates a part (generic creation is an explicit user
+// action). The caller auto-resolves on a unique match and surfaces a non-unique
+// result for review (the candidate set is the same one the review-gate picker shows
+// — see internal/partmatch).
+func tryParametricMatch(ctx context.Context, queries *dbgen.Queries, teamID, itemID pgtype.UUID) (pgtype.UUID, int) {
 	var none pgtype.UUID
 	raw, err := queries.GetBOMLineItemInterpretation(ctx, itemID)
 	if err != nil || len(raw) == 0 {
-		return none, false
+		return none, 0
 	}
 	var interp genspec.Interpretation
 	if err := json.Unmarshal(raw, &interp); err != nil {
-		return none, false
+		return none, 0
 	}
-	// Auto-resolve only on a single unambiguous candidate; the candidate set is the
-	// same one the review-gate picker shows (see internal/partmatch).
 	matches, err := partmatch.Find(ctx, queries, teamID, interp)
-	if err != nil || len(matches) != 1 {
-		return none, false
+	if err != nil {
+		return none, 0
 	}
-	return matches[0].ID, true
+	if len(matches) == 1 {
+		return matches[0].ID, 1
+	}
+	return none, len(matches)
 }
