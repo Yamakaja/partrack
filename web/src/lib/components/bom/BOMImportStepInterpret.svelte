@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Sparkles } from 'lucide-svelte';
   import { interpretPreview, type Interpretation, type InterpretRoute } from '$lib/api/revisions.js';
   import { subscribeSSE } from '$lib/api/sse.js';
   import type { BOMImportItem } from './bom-import-utils.js';
@@ -166,37 +167,51 @@
     <div class="divide-y divide-border rounded-md border border-border">
       {#each order as i (i)}
         {@const it = interpretations[i]}
-        <div class="flex flex-col gap-2 px-3 py-2 text-sm {needsAttention(it) || pendingSet.has(i) ? 'bg-warning/5' : ''}">
-          <div class="flex items-center gap-2">
-            <span class="font-medium">{items[i].reference_designators}</span>
-            <Badge variant={ROUTE_BADGE[it.route].variant}>{ROUTE_BADGE[it.route].label}</Badge>
-            {#if pendingSet.has(i)}
-              <AiIndicator loading />
-            {:else if it.source === 'llm'}
-              <AiIndicator ai={it.ai} />
-            {:else if failedSet.has(i)}
-              <AiIndicator failed />
-            {/if}
-            {#if it.reused}<span title="Reused from your team's earlier corrections"><Badge variant="outline">remembered</Badge></span>{/if}
-            {#if edited[i]}<span class="text-[10px] uppercase tracking-wide text-primary">edited</span>{/if}
-            {#each it.flags ?? [] as flag}
-              <span class="text-[10px] rounded bg-warning/20 px-1.5 py-0.5 text-warning-foreground">{flag}</span>
-            {/each}
+        {@const isPending = pendingSet.has(i)}
+        <div class="relative flex flex-col gap-2 px-3 py-2 text-sm {isPending ? 'bg-muted/30' : needsAttention(it) ? 'bg-warning/5' : ''}">
+          <!-- While the AI is still reading the row, dim + lock the controls and
+               overlay a spinner so it's clearly in progress (not failed). -->
+          <div class="flex flex-col gap-2 {isPending ? 'pointer-events-none select-none opacity-40' : ''}">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{items[i].reference_designators}</span>
+              <Badge variant={ROUTE_BADGE[it.route].variant}>{ROUTE_BADGE[it.route].label}</Badge>
+              {#if !isPending}
+                {#if it.source === 'llm'}
+                  <AiIndicator ai={it.ai} />
+                {:else if failedSet.has(i)}
+                  <AiIndicator failed />
+                {/if}
+              {/if}
+              {#if it.reused}<span title="Reused from your team's earlier corrections"><Badge variant="outline">remembered</Badge></span>{/if}
+              {#if edited[i]}<span class="text-[10px] uppercase tracking-wide text-primary">edited</span>{/if}
+              {#each it.flags ?? [] as flag}
+                <span class="text-[10px] rounded bg-warning/20 px-1.5 py-0.5 text-warning-foreground">{flag}</span>
+              {/each}
+            </div>
+
+            <InterpretationEditor
+              bind:interpretation={interpretations[i]}
+              source={{
+                reference_designators: items[i].reference_designators,
+                value: items[i].value,
+                footprint: items[i].footprint,
+                mpn: items[i].mpn,
+                sku: items[i].sku,
+              }}
+              {teamId}
+              onchange={() => (edited[i] = true)}
+              onReparse={(v, f) => reparse(i, v, f)}
+            />
           </div>
 
-          <InterpretationEditor
-            bind:interpretation={interpretations[i]}
-            source={{
-              reference_designators: items[i].reference_designators,
-              value: items[i].value,
-              footprint: items[i].footprint,
-              mpn: items[i].mpn,
-              sku: items[i].sku,
-            }}
-            {teamId}
-            onchange={() => (edited[i] = true)}
-            onReparse={(v, f) => reparse(i, v, f)}
-          />
+          {#if isPending}
+            <div class="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/40">
+              <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+              <span class="inline-flex items-center gap-1 text-xs font-medium text-primary">
+                <Sparkles class="h-3.5 w-3.5" /> Reading with AI…
+              </span>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
