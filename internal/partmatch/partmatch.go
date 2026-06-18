@@ -146,6 +146,7 @@ func findBySignature(ctx context.Context, q *dbgen.Queries, teamID pgtype.UUID, 
 			CanonicalPackage: r.CanonicalPackage,
 			Description:      r.Description,
 			Scope:            r.Scope,
+			QuantityOnHand:   r.QuantityOnHand,
 		}
 	}
 	return out, nil

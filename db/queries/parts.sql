@@ -596,17 +596,19 @@ WITH RECURSIVE cat_tree AS (
     UNION ALL
     SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
 )
-SELECT s.id, s.mpn, s.manufacturer, s.canonical_package, s.description, s.scope, s.value_si
+SELECT s.id, s.mpn, s.manufacturer, s.canonical_package, s.description, s.scope, s.value_si, s.quantity_on_hand
 FROM (
     SELECT DISTINCT ON (p.id)
         p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope,
         pp.numeric_value AS value_si,
+        ie.quantity_on_hand AS quantity_on_hand,
         CASE WHEN sqlc.narg('parameter_id')::int IS NULL THEN 0::double precision
              ELSE abs(pp.numeric_value - sqlc.narg('nominal')::double precision) END AS dist
     FROM parts p
     LEFT JOIN part_parameters pp ON pp.part_id = p.id
       AND pp.parameter_id = sqlc.narg('parameter_id')::int
       AND pp.numeric_value BETWEEN sqlc.narg('min_val')::double precision AND sqlc.narg('max_val')::double precision
+    LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.arg('team_id')
     WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
       AND p.lifecycle_status = 'active'
       AND p.deleted_at IS NULL
@@ -637,8 +639,9 @@ sig AS (
            (sqlc.arg('values')::double precision[])[g.i] AS value
     FROM generate_subscripts(sqlc.arg('parameter_ids')::int[], 1) AS g(i)
 )
-SELECT p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope
+SELECT p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope, ie.quantity_on_hand
 FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.arg('team_id')
 WHERE (p.scope = 'global' OR p.team_id = sqlc.arg('team_id'))
   AND p.lifecycle_status = 'active'
   AND p.deleted_at IS NULL

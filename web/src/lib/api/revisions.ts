@@ -181,6 +181,8 @@ export interface GenericCandidate {
   description: string | null;
   value_si: number | null;
   scope: 'global' | 'team';
+  /** On-hand stock for the active team; null when there's no inventory entry. */
+  quantity_on_hand: number | null;
 }
 
 /** Existing catalog parts that satisfy a generic line's interpretation (category +

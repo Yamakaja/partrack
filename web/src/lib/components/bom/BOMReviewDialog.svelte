@@ -2,16 +2,14 @@
   import type { BOMLineItem } from '$lib/types/projects.js';
   import type { PartSummary } from '$lib/types/parts.js';
   import type { DistributorConfig } from '$lib/types/parts.js';
-  import type { DistributorSearchProduct } from '$lib/api/distributors.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Dialog } from '$lib/components/ui/dialog/index.js';
-  import { listDistributorConfigs, searchDistributor } from '$lib/api/distributors.js';
+  import { listDistributorConfigs } from '$lib/api/distributors.js';
   import { listParts } from '$lib/api/parts.js';
-  import { enrichBOMLineItem, listGenericCandidates, type GenericCandidate } from '$lib/api/revisions.js';
-  import { commitResolveItem } from '$lib/api/partResolve.js';
+  import { listGenericCandidates, type GenericCandidate } from '$lib/api/revisions.js';
+  import { createPartResolveItem, getPartResolveItem, commitResolveItem, type PartResolveItemFull } from '$lib/api/partResolve.js';
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
-  import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import ListingSelector from '$lib/components/part-import/ListingSelector.svelte';
   import InterpretationEditor from '$lib/components/bom/InterpretationEditor.svelte';
 
@@ -63,16 +61,44 @@
   // Library candidate picker (matches the line's generic spec) state.
   let candidates = $state<GenericCandidate[]>([]);
   let candidatesLoading = $state(false);
+  let candidatesInStock = $derived(candidates.filter((c) => (c.quantity_on_hand ?? 0) > 0).length);
 
-  // Distributor search state
   let configs = $state<DistributorConfig[]>([]);
-  let selectedDistributorId = $state('');
-  let distributorKeywords = $state('');
-  let distributorResults = $state<DistributorSearchProduct[]>([]);
-  let distributorSearching = $state(false);
-  let distributorError = $state('');
-  let distributorImporting = $state(false);
   let configsLoaded = $state(false);
+
+  // Distributor import via the resolve pipeline: one lookup fans out across all
+  // enabled distributors (same background job as Add Part and the BOM importer),
+  // then the user picks the listing(s) and commits — instead of the old
+  // pick-one-distributor + keyword-search + single-SKU enrich flow.
+  type DistStep = 'entry' | 'resolving' | 'review';
+  let distStep = $state<DistStep>('entry');
+  let distSku = $state('');
+  let distDistId = $state('');
+  let distMpn = $state('');
+  let distMfr = $state('');
+  let distResolveItemId = $state<string | null>(null);
+  let distResolve = $state<PartResolveItemFull | null>(null);
+  let distError = $state('');
+  let distCommitting = $state(false);
+  let distPrimaryListingKey = $state('');
+  let distIncludedListings = $state<Set<string>>(new Set());
+  let distPollTimer: ReturnType<typeof setTimeout> | undefined;
+
+  let distEnrichment = $derived(distResolve?.enrichment_data ?? null);
+  let distHasSku = $derived(distSku.trim() !== '' && distDistId !== '');
+  let distHasMpn = $derived(distMpn.trim() !== '');
+  let distCanResolve = $derived(distHasSku || distHasMpn);
+
+  function resetDistImport() {
+    clearTimeout(distPollTimer);
+    distStep = 'entry';
+    distResolveItemId = null;
+    distResolve = null;
+    distError = '';
+    distCommitting = false;
+    distPrimaryListingKey = '';
+    distIncludedListings = new Set();
+  }
 
   // Reset state when dialog opens
   $effect(() => {
@@ -89,15 +115,18 @@
     localKeywords = keywords;
     localResults = [];
     localError = '';
-    distributorResults = [];
-    distributorError = '';
-    distributorKeywords = currentItem?.raw_description ? (keywords || currentItem.raw_description) : keywords;
     clearTimeout(localSearchTimer);
     runLocalSearch(keywords);
     // Reset new-part import selection so ListingSelector re-initialises.
     primaryListingKey = '';
     includedListings = new Set();
     commitError = '';
+    // Reset the distributor-import sub-flow and prefill from the line's identifiers.
+    resetDistImport();
+    distMpn = currentItem?.mpn ?? '';
+    distSku = currentItem?.sku ?? '';
+    distMfr = currentItem?.manufacturer ?? '';
+    distDistId = '';
     // Spec-based candidates for an unresolved generic line.
     candidates = [];
     if (currentItem && !currentItem.resolved_part_id && currentItem.interpretation?.route === 'parametric') {
@@ -288,38 +317,84 @@
     advance();
   }
 
-  async function handleDistributorSearch() {
-    if (!selectedDistributorId || !distributorKeywords.trim()) return;
-    distributorSearching = true;
-    distributorError = '';
-    distributorResults = [];
+  // Kick off a resolve job that fans out across all enabled distributors.
+  async function doDistResolve() {
+    if (!distCanResolve || distStep === 'resolving') return;
+    distError = '';
+    distResolve = null;
+    distPrimaryListingKey = '';
+    distIncludedListings = new Set();
     try {
-      const r = await searchDistributor(teamId, selectedDistributorId, distributorKeywords.trim());
-      distributorResults = r.items;
-      if (r.items.length === 0) distributorError = 'No results found.';
+      const { resolve_item_id } = await createPartResolveItem(teamId, {
+        sku: distHasSku ? distSku.trim() : undefined,
+        distributor_id: distHasSku ? distDistId : undefined,
+        mpn: distHasMpn ? distMpn.trim() : undefined,
+        manufacturer: distMfr.trim() || undefined,
+      });
+      distResolveItemId = resolve_item_id;
+      distStep = 'resolving';
+      pollDistResolve();
     } catch (err: any) {
-      distributorError = err?.message ?? 'Search failed.';
-    } finally {
-      distributorSearching = false;
+      distError = err?.message ?? 'Lookup failed.';
     }
   }
 
-  async function handleImportSelected(result: DistributorSearchProduct) {
-    if (!currentItem) return;
-    distributorImporting = true;
-    distributorError = '';
+  // Poll the resolve item until it leaves 'pending'. The guard against a changed
+  // resolveItemId drops stale polls after the user navigates to another line.
+  function pollDistResolve() {
+    clearTimeout(distPollTimer);
+    const id = distResolveItemId;
+    if (!id) return;
+    distPollTimer = setTimeout(async () => {
+      try {
+        const r = await getPartResolveItem(teamId, id);
+        if (distResolveItemId !== id) return;
+        distResolve = r;
+        if (r.status === 'pending') {
+          pollDistResolve();
+        } else if (r.resolved_part_id) {
+          // The lookup matched a part already in the catalog — resolve straight to it.
+          if (currentItem?.ignored) onignore?.(currentItem.id, false);
+          onresolve?.(currentItem!.id, r.resolved_part_id);
+          resetDistImport();
+          advance();
+        } else if (r.task_type === 'unknown_part_import' && r.enrichment_data) {
+          distStep = 'review';
+        } else {
+          distError = r.error_message ?? 'No distributor match was found.';
+          distStep = 'entry';
+        }
+      } catch (err: any) {
+        if (distResolveItemId !== id) return;
+        distError = err?.message ?? 'Lookup failed.';
+        distStep = 'entry';
+      }
+    }, 1000);
+  }
+
+  // Commit the picked listing(s); the new part resolves this line (source 'manual').
+  async function handleCommitDistImport() {
+    if (!distResolveItemId || !distPrimaryListingKey || !currentItem) return;
+    distCommitting = true;
+    distError = '';
     try {
-      const r = await enrichBOMLineItem(teamId, projectId, revisionId, currentItem.id, {
-        sku: result.primary_sku,
-        distributor_id: selectedDistributorId,
+      const { distId, sku } = parseListingKey(distPrimaryListingKey);
+      const { part_id } = await commitResolveItem(teamId, distResolveItemId, {
+        primary_distributor_id: distId,
+        primary_sku: sku,
+        additional_listings: [...distIncludedListings].map((key) => {
+          const p = parseListingKey(key);
+          return { distributor_id: p.distId, sku: p.sku };
+        }),
       });
       if (currentItem.ignored) onignore?.(currentItem.id, false);
-      onresolve?.(currentItem.id, r.part_id);
+      onresolve?.(currentItem.id, part_id);
+      resetDistImport();
       advance();
     } catch (err: any) {
-      distributorError = err?.message ?? 'Import failed.';
+      distError = err?.message ?? 'Import failed.';
     } finally {
-      distributorImporting = false;
+      distCommitting = false;
     }
   }
 </script>
@@ -427,7 +502,9 @@
                 <p class="text-xs text-muted-foreground">Searching the catalog…</p>
               {:else}
                 <p class="text-xs text-muted-foreground">
-                  {candidates.length} part{candidates.length === 1 ? '' : 's'} match this line's spec. Pick one to resolve it.
+                  {candidates.length} part{candidates.length === 1 ? '' : 's'} match this line's spec
+                  {#if candidatesInStock > 0}<span class="text-foreground">· {candidatesInStock} in stock</span>{/if}.
+                  Pick one to resolve it.
                 </p>
                 <div class="max-h-48 overflow-y-auto border border-border rounded-md divide-y divide-border">
                   {#each candidates as c (c.part_id)}
@@ -441,7 +518,16 @@
                         {#if c.manufacturer}<span class="text-muted-foreground">{c.manufacturer}</span>{/if}
                         {#if c.value_si != null}<Badge variant="outline">{formatSi(c.value_si)}</Badge>{/if}
                         {#if c.package}<span class="text-xs text-muted-foreground">{c.package}</span>{/if}
-                        {#if c.scope === 'global'}<span class="text-[10px] text-muted-foreground ml-auto">global</span>{/if}
+                        <span class="ml-auto flex items-center gap-2">
+                          {#if c.quantity_on_hand == null}
+                            <span class="text-[10px] text-muted-foreground">no stock entry</span>
+                          {:else if c.quantity_on_hand > 0}
+                            <Badge variant="success">{c.quantity_on_hand.toLocaleString()} in stock</Badge>
+                          {:else}
+                            <Badge variant="secondary">0 in stock</Badge>
+                          {/if}
+                          {#if c.scope === 'global'}<span class="text-[10px] text-muted-foreground">global</span>{/if}
+                        </span>
                       </div>
                       {#if c.description}
                         <div class="text-xs text-muted-foreground truncate mt-0.5">{c.description}</div>
@@ -544,99 +630,107 @@
           </div>
         </div>
 
-        <!-- Import from distributor -->
+        <!-- Import from distributor (one lookup fans out across all enabled distributors) -->
         <div class="border border-border rounded-md">
           <div class="px-3 py-2 text-sm font-medium">Import from distributor</div>
           <div class="px-3 pb-3 pt-1 space-y-2">
             {#if configs.length === 0}
               <p class="text-xs text-muted-foreground">No distributor integrations configured for this team.</p>
-            {:else}
-              {#if selectedDistributorId}
-                <!-- Selected distributor header -->
-                <div class="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    class="text-muted-foreground hover:text-foreground transition-colors"
-                    onclick={() => { selectedDistributorId = ''; distributorResults = []; distributorError = ''; }}
+            {:else if distStep === 'entry'}
+              <p class="text-xs text-muted-foreground">
+                Look up this part by MPN or distributor SKU. We'll search all enabled distributors and let you pick the listing.
+              </p>
+              <div class="grid grid-cols-[1fr_1.4fr] gap-2">
+                <div class="space-y-1">
+                  <label class="text-xs text-muted-foreground" for="dist-imp-dist">Distributor</label>
+                  <select
+                    id="dist-imp-dist"
+                    bind:value={distDistId}
+                    class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <ChevronLeft class="h-4 w-4" />
-                  </button>
-                  <span class="text-sm font-medium">
-                    {configs.find(c => c.distributor_id === selectedDistributorId)?.distributor_name}
-                  </span>
+                    <option value="">— Select —</option>
+                    {#each configs as cfg (cfg.distributor_id)}
+                      <option value={cfg.distributor_id}>{cfg.distributor_name}{cfg.preferred ? ' (preferred)' : ''}</option>
+                    {/each}
+                  </select>
                 </div>
-                <div class="flex gap-2">
+                <div class="space-y-1">
+                  <label class="text-xs text-muted-foreground" for="dist-imp-sku">SKU</label>
                   <input
+                    id="dist-imp-sku"
                     type="text"
-                    bind:value={distributorKeywords}
-                    placeholder="Search keywords…"
-                    class="h-9 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onkeydown={(e) => { if (e.key === 'Enter') handleDistributorSearch(); }}
+                    bind:value={distSku}
+                    placeholder="distributor SKU"
+                    class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onclick={handleDistributorSearch}
-                    disabled={distributorSearching || !distributorKeywords.trim()}
-                  >
-                    {distributorSearching ? 'Searching…' : 'Search'}
-                  </Button>
                 </div>
-              {:else}
-                <!-- Distributor picker -->
-                <div class="grid gap-2">
-                  {#each configs as cfg (cfg.distributor_id)}
-                    <button
-                      type="button"
-                      class="w-full py-2.5 text-sm font-medium rounded-md border border-border hover:bg-accent transition-colors text-center"
-                      onclick={() => { selectedDistributorId = cfg.distributor_id; }}
-                    >
-                      {cfg.distributor_name}
-                    </button>
-                  {/each}
+              </div>
+              <div class="relative flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <span class="h-px flex-1 bg-border"></span>and / or<span class="h-px flex-1 bg-border"></span>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="space-y-1">
+                  <label class="text-xs text-muted-foreground" for="dist-imp-mpn">MPN</label>
+                  <input
+                    id="dist-imp-mpn"
+                    type="text"
+                    bind:value={distMpn}
+                    placeholder="manufacturer part #"
+                    class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onkeydown={(e) => { if (e.key === 'Enter' && distCanResolve) doDistResolve(); }}
+                  />
                 </div>
-              {/if}
-
-              {#if distributorError}
-                <p class="text-xs text-destructive">{distributorError}</p>
-              {/if}
-
-              {#if distributorResults.length > 0}
-                <div class="max-h-48 overflow-y-auto border border-border rounded-md divide-y divide-border">
-                  {#each distributorResults as result (result.primary_sku)}
-                    <button
-                      type="button"
-                      class="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors disabled:opacity-50"
-                      disabled={distributorImporting}
-                      onclick={() => handleImportSelected(result)}
-                    >
-                      <div class="flex items-center justify-between gap-2">
-                        <div>
-                          <span class="font-medium font-mono">{result.mpn}</span>
-                          {#if result.manufacturer}
-                            <span class="text-muted-foreground ml-1">{result.manufacturer}</span>
-                          {/if}
-                          {#if result.package}
-                            <span class="text-xs text-muted-foreground ml-1">{result.package}</span>
-                          {/if}
-                        </div>
-                        <div class="text-xs text-muted-foreground text-right shrink-0">
-                          {#if result.stock_available != null}
-                            <span>{result.stock_available.toLocaleString()} in stock</span>
-                          {/if}
-                          {#if result.unit_price}
-                            <span class="ml-1"><PriceDisplay value={result.unit_price} /></span>
-                          {/if}
-                        </div>
-                      </div>
-                      {#if result.description}
-                        <div class="text-xs text-muted-foreground truncate mt-0.5">{result.description}</div>
-                      {/if}
-                      <div class="text-xs text-muted-foreground mt-0.5">SKU: {result.primary_sku}</div>
-                    </button>
-                  {/each}
+                <div class="space-y-1">
+                  <label class="text-xs text-muted-foreground" for="dist-imp-mfr">Manufacturer</label>
+                  <input
+                    id="dist-imp-mfr"
+                    type="text"
+                    bind:value={distMfr}
+                    placeholder="optional"
+                    class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
                 </div>
+              </div>
+              {#if distHasSku === false && distSku.trim() !== ''}
+                <p class="text-xs text-amber-600 dark:text-amber-400">Choose a distributor for the SKU, or use the MPN field instead.</p>
               {/if}
+              {#if distError}
+                <p class="text-xs text-destructive">{distError}</p>
+              {/if}
+              <div class="flex justify-end">
+                <Button size="sm" onclick={doDistResolve} disabled={!distCanResolve}>Look up</Button>
+              </div>
+            {:else if distStep === 'resolving'}
+              <div class="flex items-center gap-3 py-6 text-muted-foreground">
+                <div class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+                <p class="text-sm">Looking up distributors…</p>
+              </div>
+            {:else if distStep === 'review'}
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  class="text-muted-foreground hover:text-foreground transition-colors"
+                  onclick={resetDistImport}
+                  title="Back to lookup"
+                >
+                  <ChevronLeft class="h-4 w-4" />
+                </button>
+                <span class="text-sm font-medium">Pick a listing to import</span>
+              </div>
+              <ListingSelector
+                enrichment={distEnrichment}
+                {preferredDistId}
+                bind:primaryListingKey={distPrimaryListingKey}
+                bind:includedListings={distIncludedListings}
+              />
+              {#if distError}
+                <p class="text-xs text-destructive">{distError}</p>
+              {/if}
+              <div class="flex justify-end">
+                <Button size="sm" onclick={handleCommitDistImport} disabled={distCommitting || !distPrimaryListingKey}>
+                  {distCommitting ? 'Importing…' : 'Import & resolve'}
+                </Button>
+              </div>
             {/if}
           </div>
         </div>

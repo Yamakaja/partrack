@@ -261,17 +261,19 @@ WITH RECURSIVE cat_tree AS (
     UNION ALL
     SELECT c.id FROM categories c JOIN cat_tree ON c.parent_id = cat_tree.id
 )
-SELECT s.id, s.mpn, s.manufacturer, s.canonical_package, s.description, s.scope, s.value_si
+SELECT s.id, s.mpn, s.manufacturer, s.canonical_package, s.description, s.scope, s.value_si, s.quantity_on_hand
 FROM (
     SELECT DISTINCT ON (p.id)
         p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope,
         pp.numeric_value AS value_si,
+        ie.quantity_on_hand AS quantity_on_hand,
         CASE WHEN $1::int IS NULL THEN 0::double precision
              ELSE abs(pp.numeric_value - $2::double precision) END AS dist
     FROM parts p
     LEFT JOIN part_parameters pp ON pp.part_id = p.id
       AND pp.parameter_id = $1::int
       AND pp.numeric_value BETWEEN $3::double precision AND $4::double precision
+    LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $5
     WHERE (p.scope = 'global' OR p.team_id = $5)
       AND p.lifecycle_status = 'active'
       AND p.deleted_at IS NULL
@@ -302,6 +304,7 @@ type FindGenericPartCandidatesRow struct {
 	Description      *string     `json:"description"`
 	Scope            PartScope   `json:"scope"`
 	ValueSi          *float64    `json:"value_si"`
+	QuantityOnHand   *int32      `json:"quantity_on_hand"`
 }
 
 // Like FindGenericPartMatch, but returns ALL matching catalog parts with display
@@ -340,6 +343,7 @@ func (q *Queries) FindGenericPartCandidates(ctx context.Context, arg FindGeneric
 			&i.Description,
 			&i.Scope,
 			&i.ValueSi,
+			&i.QuantityOnHand,
 		); err != nil {
 			return nil, err
 		}
@@ -362,8 +366,9 @@ sig AS (
            ($4::double precision[])[g.i] AS value
     FROM generate_subscripts($3::int[], 1) AS g(i)
 )
-SELECT p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope
+SELECT p.id, p.mpn, p.manufacturer, p.canonical_package, p.description, p.scope, ie.quantity_on_hand
 FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
 WHERE (p.scope = 'global' OR p.team_id = $1)
   AND p.lifecycle_status = 'active'
   AND p.deleted_at IS NULL
@@ -395,6 +400,7 @@ type FindGenericPartCandidatesBySignatureRow struct {
 	CanonicalPackage *string     `json:"canonical_package"`
 	Description      *string     `json:"description"`
 	Scope            PartScope   `json:"scope"`
+	QuantityOnHand   *int32      `json:"quantity_on_hand"`
 }
 
 // Matches generic lines that have no single primary magnitude but a set of
@@ -426,6 +432,7 @@ func (q *Queries) FindGenericPartCandidatesBySignature(ctx context.Context, arg 
 			&i.CanonicalPackage,
 			&i.Description,
 			&i.Scope,
+			&i.QuantityOnHand,
 		); err != nil {
 			return nil, err
 		}

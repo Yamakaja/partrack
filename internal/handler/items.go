@@ -468,24 +468,26 @@ func (h *Handler) GenericPartCandidates(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type candidate struct {
-		PartID       string   `json:"part_id"`
-		Mpn          *string  `json:"mpn"`
-		Manufacturer *string  `json:"manufacturer"`
-		Package      *string  `json:"package"`
-		Description  *string  `json:"description"`
-		ValueSI      *float64 `json:"value_si"`
-		Scope        string   `json:"scope"`
+		PartID         string   `json:"part_id"`
+		Mpn            *string  `json:"mpn"`
+		Manufacturer   *string  `json:"manufacturer"`
+		Package        *string  `json:"package"`
+		Description    *string  `json:"description"`
+		ValueSI        *float64 `json:"value_si"`
+		Scope          string   `json:"scope"`
+		QuantityOnHand *int32   `json:"quantity_on_hand"`
 	}
 	out := make([]candidate, len(rows))
 	for i, c := range rows {
 		out[i] = candidate{
-			PartID:       c.ID.String(),
-			Mpn:          c.Mpn,
-			Manufacturer: c.Manufacturer,
-			Package:      c.CanonicalPackage,
-			Description:  c.Description,
-			ValueSI:      c.ValueSi,
-			Scope:        string(c.Scope),
+			PartID:         c.ID.String(),
+			Mpn:            c.Mpn,
+			Manufacturer:   c.Manufacturer,
+			Package:        c.CanonicalPackage,
+			Description:    c.Description,
+			ValueSI:        c.ValueSi,
+			Scope:          string(c.Scope),
+			QuantityOnHand: c.QuantityOnHand,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
