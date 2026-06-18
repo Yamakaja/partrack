@@ -78,6 +78,18 @@ export function paramRaw(
   return (params ?? []).find((p) => p.slug === slug)?.raw || undefined;
 }
 
+/** How the LLM handled a row — surfaced behind the AI indicator (review-only). */
+export interface AiProvenance {
+  /** Model that produced the reading. */
+  model?: string;
+  /** One-line summary of what the AI decided. */
+  summary?: string;
+  /** Reasoning trace, when the provider returns one. */
+  reasoning?: string;
+  /** Reasoning token count, when the provider reports it. */
+  reasoning_tokens?: number;
+}
+
 /** Structured reading of one BOM row produced by the genspec parser. */
 export interface Interpretation {
   route: InterpretRoute;
@@ -92,6 +104,8 @@ export interface Interpretation {
   source?: 'auto' | 'reused' | 'llm';
   /** True when this came from the team's remembered corrections, not a fresh parse. */
   reused?: boolean;
+  /** Ephemeral record of how the LLM read this row (present only when source === 'llm'). */
+  ai?: AiProvenance;
   /** Identity discovered by the LLM specific-part fallback (overlaid onto line columns at import). */
   mpn?: string;
   manufacturer?: string;
@@ -113,12 +127,23 @@ export interface InterpretInput {
  * Parse mapped BOM rows into interpretations (no persistence). When teamId is
  * given, the team's remembered corrections are layered over the fresh parse and
  * the affected rows are flagged `reused` — matching what the import will persist.
+ *
+ * With `stream: true`, the LLM fallback runs asynchronously: the response returns
+ * the immediate (deterministic/memory) readings plus a `job_id` and the `pending`
+ * row indices being read by the AI; each result then streams over SSE
+ * (`bom_interpret_item`, then `bom_interpret_complete`). Without it, LLM rows are
+ * resolved inline before the response (used for single-row re-parse).
  */
-export function interpretPreview(items: InterpretInput[], teamId?: string) {
-  return request<{ items: Interpretation[] }>('POST', '/api/v1/bom/interpret-preview', {
-    items,
-    ...(teamId ? { team_id: teamId } : {}),
-  });
+export function interpretPreview(items: InterpretInput[], teamId?: string, opts?: { stream?: boolean }) {
+  return request<{ items: Interpretation[]; job_id?: string; pending?: number[] }>(
+    'POST',
+    '/api/v1/bom/interpret-preview',
+    {
+      items,
+      ...(teamId ? { team_id: teamId } : {}),
+      ...(opts?.stream ? { stream: true } : {}),
+    },
+  );
 }
 
 export function getRevision(teamId: string, projectId: string, revId: string) {

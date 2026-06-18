@@ -41,9 +41,18 @@ type Request struct {
 	Temperature float64
 }
 
+// Response is a completion result. Content is the assistant message; Reasoning and
+// ReasoningTokens carry the model's thinking when the provider returns it (trace text
+// only from providers that expose it, e.g. OpenRouter; token count from most).
+type Response struct {
+	Content         string
+	Reasoning       string
+	ReasoningTokens int
+}
+
 // Client is a chat-completions client. Implementations are safe for concurrent use.
 type Client interface {
-	Chat(ctx context.Context, req Request) (string, error)
+	Chat(ctx context.Context, req Request) (Response, error)
 }
 
 // Reasoning styles select how a reasoning-effort request is serialized, because
@@ -124,12 +133,12 @@ func New(opts Options) Client {
 
 // Chat sends a completion request, retrying once with the fallback model if the
 // primary errors.
-func (c *openRouter) Chat(ctx context.Context, req Request) (string, error) {
-	content, err := c.chatModel(ctx, c.model, req)
+func (c *openRouter) Chat(ctx context.Context, req Request) (Response, error) {
+	resp, err := c.chatModel(ctx, c.model, req)
 	if err != nil && c.fallbackModel != "" && c.fallbackModel != c.model {
 		return c.chatModel(ctx, c.fallbackModel, req)
 	}
-	return content, err
+	return resp, err
 }
 
 type chatBody struct {
@@ -168,7 +177,7 @@ type chatResp struct {
 	} `json:"error"`
 }
 
-func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (string, error) {
+func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (Response, error) {
 	body := chatBody{Model: model, Messages: req.Messages, Temperature: req.Temperature}
 	if req.JSONObject {
 		body.ResponseFormat = &responseFmt{Type: "json_object"}
@@ -183,7 +192,7 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	if c.debug {
 		reasoning := "off"
@@ -197,7 +206,7 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(buf))
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -205,7 +214,7 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -213,26 +222,26 @@ func (c *openRouter) chatModel(ctx context.Context, model string, req Request) (
 		log.Printf("llm [response] model=%s status=%d body:\n%s", model, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("llm: %s: %s", resp.Status, strings.TrimSpace(string(data)))
+		return Response{}, fmt.Errorf("llm: %s: %s", resp.Status, strings.TrimSpace(string(data)))
 	}
 	var cr chatResp
 	if err := json.Unmarshal(data, &cr); err != nil {
-		return "", fmt.Errorf("llm: decode response: %w", err)
+		return Response{}, fmt.Errorf("llm: decode response: %w", err)
 	}
 	if cr.Error != nil {
-		return "", fmt.Errorf("llm: %s", cr.Error.Message)
+		return Response{}, fmt.Errorf("llm: %s", cr.Error.Message)
 	}
 	if len(cr.Choices) == 0 {
-		return "", fmt.Errorf("llm: empty response")
+		return Response{}, fmt.Errorf("llm: empty response")
+	}
+	out := Response{Content: cr.Choices[0].Message.Content, Reasoning: strings.TrimSpace(cr.Choices[0].Message.Reasoning)}
+	if cr.Usage != nil && cr.Usage.CompletionTokensDetails != nil {
+		out.ReasoningTokens = cr.Usage.CompletionTokensDetails.ReasoningTokens
 	}
 	if c.debug && c.reasoningEffort != "" {
-		tokens := 0
-		if cr.Usage != nil && cr.Usage.CompletionTokensDetails != nil {
-			tokens = cr.Usage.CompletionTokensDetails.ReasoningTokens
-		}
-		log.Printf("llm [reasoning] tokens=%d trace:\n%s", tokens, strings.TrimSpace(cr.Choices[0].Message.Reasoning))
+		log.Printf("llm [reasoning] tokens=%d trace:\n%s", out.ReasoningTokens, out.Reasoning)
 	}
-	return cr.Choices[0].Message.Content, nil
+	return out, nil
 }
 
 // ExtractJSON returns the first balanced JSON object embedded in s, or ok=false.

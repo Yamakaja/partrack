@@ -58,6 +58,9 @@
   let interpResults = $state<Interpretation[]>([]);
   let interpEdited = $state<Record<number, boolean>>({});
   let interpLoading = $state(false);
+  // Async LLM read: correlation id + the row indices the AI is still reading.
+  let interpJobId = $state('');
+  let interpPending = $state<number[]>([]);
 
   // Revision details
   let label = $state('');
@@ -274,9 +277,13 @@
     interpItems = buildItems(dataRows, columnRoles, mapping, single, headerRow);
     interpResults = [];
     interpEdited = {};
+    interpJobId = '';
+    interpPending = [];
     step = 'interpret';
     interpLoading = true;
     try {
+      // stream:true → Phase-1 readings return immediately; LLM rows stream in over SSE
+      // (handled live in BOMImportStepInterpret), so the list shows without a long wait.
       const resp = await interpretPreview(
         interpItems.map((it) => ({
           refdes: it.reference_designators,
@@ -287,8 +294,11 @@
           row: it.row,
         })),
         teamId,
+        { stream: true },
       );
       interpResults = resp.items;
+      interpJobId = resp.job_id ?? '';
+      interpPending = resp.pending ?? [];
     } catch (err: any) {
       pushToast('error', 'Failed to interpret rows', err.message ?? String(err));
     } finally {
@@ -467,6 +477,8 @@
           bind:edited={interpEdited}
           {teamId}
           loading={interpLoading}
+          jobId={interpJobId}
+          pending={interpPending}
           onback={() => (step = distributorStepMode !== 'none' ? 'distributor-map' : 'map')}
           onnext={() => (step = 'details')}
           oncancel={handleClose}

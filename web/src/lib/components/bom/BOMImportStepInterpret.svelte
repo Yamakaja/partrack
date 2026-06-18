@@ -2,8 +2,10 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { interpretPreview, type Interpretation, type InterpretRoute } from '$lib/api/revisions.js';
+  import { subscribeSSE } from '$lib/api/sse.js';
   import type { BOMImportItem } from './bom-import-utils.js';
   import InterpretationEditor from './InterpretationEditor.svelte';
+  import AiIndicator from '$lib/components/ai/AiIndicator.svelte';
 
   let {
     items = $bindable(),
@@ -11,6 +13,8 @@
     edited = $bindable(),
     teamId,
     loading,
+    jobId = '',
+    pending = [],
     onback,
     onnext,
     oncancel,
@@ -20,10 +24,48 @@
     edited: Record<number, boolean>;
     teamId: string;
     loading: boolean;
+    /** Correlation id for the async LLM read; empty when nothing is streaming. */
+    jobId?: string;
+    /** Row indices still being read by the AI when the step opened. */
+    pending?: number[];
     onback: () => void;
     onnext: () => void;
     oncancel: () => void;
   } = $props();
+
+  // Live AI-read state: rows still pending and rows whose AI read failed.
+  let pendingSet = $state(new Set<number>());
+  let failedSet = $state(new Set<number>());
+
+  // Subscribe to the per-row LLM stream once a job id is available. The first event
+  // is gated behind an LLM round-trip, so subscribing here (after the preview
+  // response) never misses one. Cleans up on unmount / step change.
+  $effect(() => {
+    if (!jobId) {
+      pendingSet = new Set();
+      failedSet = new Set();
+      return;
+    }
+    pendingSet = new Set(pending);
+    failedSet = new Set();
+    const unsub = subscribeSSE(teamId, jobId, (ev) => {
+      if (ev.type === 'bom_interpret_item') {
+        const idx = ev.data.index as number;
+        if (ev.data.status === 'ok' && ev.data.item) {
+          interpretations[idx] = ev.data.item as Interpretation;
+        } else {
+          failedSet.add(idx);
+          failedSet = new Set(failedSet);
+        }
+        pendingSet.delete(idx);
+        pendingSet = new Set(pendingSet);
+      } else if (ev.type === 'bom_interpret_complete') {
+        // Any leftover pending row (a dropped event) keeps its deterministic reading.
+        pendingSet = new Set();
+      }
+    });
+    return unsub;
+  });
 
   const ROUTE_BADGE: Record<InterpretRoute, { label: string; variant: 'success' | 'default' | 'warning' | 'secondary' }> = {
     parametric: { label: 'Generic', variant: 'default' },
@@ -51,9 +93,11 @@
     return s;
   }
 
+  // Rows still being read by the AI sort near the top so they stay visible while
+  // resolving; once the result streams in, the row's own score takes over.
   let order = $derived(
     interpretations
-      .map((it, i) => ({ i, s: score(it) }))
+      .map((it, i) => ({ i, s: score(it) + (pendingSet.has(i) ? 70 : 0) }))
       .sort((a, b) => b.s - a.s || a.i - b.i)
       .map((o) => o.i),
   );
@@ -67,9 +111,11 @@
   let attentionCount = $derived(interpretations.filter(needsAttention).length);
   let reusedCount = $derived(interpretations.filter((it) => it.reused).length);
   let llmCount = $derived(interpretations.filter((it) => it.source === 'llm').length);
+  let pendingCount = $derived(pendingSet.size);
 
   // Re-run the parser for one row after its source Value/Footprint is edited, so the
   // re-extracted parameters (and SI values) stay correct rather than going stale.
+  // Single-row, so resolved synchronously (no streaming).
   async function reparse(i: number, value: string, footprint: string) {
     items[i].value = value;
     items[i].footprint = footprint;
@@ -80,6 +126,10 @@
     if (res.items[0]) {
       interpretations[i] = res.items[0];
       edited[i] = true;
+      pendingSet.delete(i);
+      pendingSet = new Set(pendingSet);
+      failedSet.delete(i);
+      failedSet = new Set(failedSet);
     }
   }
 </script>
@@ -97,6 +147,12 @@
       {#if summary.unknown > 0}<Badge variant="warning">{summary.unknown} needs review</Badge>{/if}
       {#if llmCount > 0}<span title="Read by AI because the format was unusual — please verify"><Badge variant="warning">{llmCount} AI-read</Badge></span>{/if}
       {#if reusedCount > 0}<span title="Reused from your team's earlier corrections"><Badge variant="outline">{reusedCount} remembered</Badge></span>{/if}
+      {#if pendingCount > 0}
+        <span class="inline-flex items-center gap-1 text-primary">
+          <AiIndicator loading />
+          {pendingCount} row{pendingCount === 1 ? '' : 's'} still reading…
+        </span>
+      {/if}
       <span class="ml-auto text-muted-foreground">
         {#if attentionCount > 0}
           {attentionCount} row{attentionCount === 1 ? '' : 's'} need attention (sorted to top)
@@ -110,11 +166,17 @@
     <div class="divide-y divide-border rounded-md border border-border">
       {#each order as i (i)}
         {@const it = interpretations[i]}
-        <div class="flex flex-col gap-2 px-3 py-2 text-sm {needsAttention(it) ? 'bg-warning/5' : ''}">
+        <div class="flex flex-col gap-2 px-3 py-2 text-sm {needsAttention(it) || pendingSet.has(i) ? 'bg-warning/5' : ''}">
           <div class="flex items-center gap-2">
             <span class="font-medium">{items[i].reference_designators}</span>
             <Badge variant={ROUTE_BADGE[it.route].variant}>{ROUTE_BADGE[it.route].label}</Badge>
-            {#if it.source === 'llm'}<span title="Read by AI because the format was unusual — please verify"><Badge variant="warning">AI</Badge></span>{/if}
+            {#if pendingSet.has(i)}
+              <AiIndicator loading />
+            {:else if it.source === 'llm'}
+              <AiIndicator ai={it.ai} />
+            {:else if failedSet.has(i)}
+              <AiIndicator failed />
+            {/if}
             {#if it.reused}<span title="Reused from your team's earlier corrections"><Badge variant="outline">remembered</Badge></span>{/if}
             {#if edited[i]}<span class="text-[10px] uppercase tracking-wide text-primary">edited</span>{/if}
             {#each it.flags ?? [] as flag}

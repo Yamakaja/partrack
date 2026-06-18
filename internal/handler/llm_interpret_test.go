@@ -2,12 +2,14 @@ package handler_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/llm"
 	"github.com/Yamakaja/partrack/internal/testutil"
@@ -22,14 +24,14 @@ type fakeLLM struct {
 	extract  string
 }
 
-func (f *fakeLLM) Chat(_ context.Context, req llm.Request) (string, error) {
+func (f *fakeLLM) Chat(_ context.Context, req llm.Request) (llm.Response, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	if len(req.Messages) > 0 && strings.Contains(req.Messages[0].Content, "Extract parameters") {
-		return f.extract, nil
+		return llm.Response{Content: f.extract}, nil
 	}
-	return f.classify, nil
+	return llm.Response{Content: f.classify}, nil
 }
 
 func (f *fakeLLM) callCount() int {
@@ -245,4 +247,86 @@ func paramValueSI(interp map[string]any, slug string) float64 {
 		return math.NaN()
 	}
 	return math.NaN()
+}
+
+// TestInterpretPreviewStream verifies the async path: a stream request returns the
+// Phase-1 items immediately plus a job_id and the pending indices, and the LLM
+// result for each pending row is delivered over SSE (a bom_interpret_item carrying
+// the 'llm' interpretation, then a bom_interpret_complete), scoped to the user.
+func TestInterpretPreviewStream(t *testing.T) {
+	fake := &fakeLLM{
+		classify: `{"route":"generic","category":"resistors","confidence":0.9}`,
+		extract:  `{"params":[{"slug":"resistance","value":"9000"}]}`,
+	}
+	testEnv.Handler.LLM = fake
+	t.Cleanup(func() {
+		testEnv.Handler.LLM = nil
+		testutil.Truncate(t, testDB)
+	})
+
+	userID := testutil.CreateUser(t, testDB, "stream@example.com", "pw", "Stream")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Stream Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	// Subscribe to the user's SSE channel before issuing the request so no event is
+	// missed (the first event is gated behind an LLM round-trip anyway).
+	ch, cancel := testEnv.Queue.Subscribe(teamID, userID)
+	defer cancel()
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/bom/interpret-preview", map[string]any{
+		"team_id": teamID,
+		"stream":  true,
+		"items": []map[string]any{{
+			"refdes": "R1", "footprint": "R_0603_1608Metric", "value": "9k10%",
+			"row": map[string]string{"Reference": "R1", "Value": "9k10%", "Footprint": "0603"},
+		}},
+	}, token)
+	if status != http.StatusOK {
+		t.Fatalf("stream preview: got %d: %v", status, body)
+	}
+	if body["job_id"] == nil || body["job_id"] == "" {
+		t.Fatalf("expected a job_id, got %v", body["job_id"])
+	}
+	jobID, _ := body["job_id"].(string)
+	pending, _ := body["pending"].([]any)
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending index, got %v", body["pending"])
+	}
+	// The Phase-1 item is returned immediately and is NOT yet the llm reading.
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 phase-1 item, got %v", body["items"])
+	}
+
+	// Drain SSE until the item + complete events for this job arrive (or time out).
+	deadline := time.After(10 * time.Second)
+	var gotItem, gotComplete bool
+	for !gotItem || !gotComplete {
+		select {
+		case ev := <-ch:
+			if ev.JobID != jobID {
+				continue
+			}
+			var d map[string]any
+			_ = json.Unmarshal(ev.Data, &d)
+			switch ev.Type {
+			case "bom_interpret_item":
+				gotItem = true
+				if d["status"] != "ok" {
+					t.Errorf("item status = %v, want ok (%v)", d["status"], d)
+				}
+				item, _ := d["item"].(map[string]any)
+				if item["source"] != "llm" {
+					t.Errorf("item source = %v, want llm", item["source"])
+				}
+				if !hasParam(item, "resistance") {
+					t.Errorf("expected resistance param, got %v", item["params"])
+				}
+			case "bom_interpret_complete":
+				gotComplete = true
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for SSE events (item=%v complete=%v)", gotItem, gotComplete)
+		}
+	}
 }

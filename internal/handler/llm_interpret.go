@@ -47,27 +47,61 @@ type extractOut struct {
 	} `json:"params"`
 }
 
+// aiProvenance is the ephemeral record of how the LLM handled one row — surfaced in
+// the import review (the AI indicator) but never persisted. Reasoning is the trace
+// when the provider returns one (token count comes from most providers).
+type aiProvenance struct {
+	Model           string `json:"model,omitempty"`
+	Summary         string `json:"summary,omitempty"`
+	Reasoning       string `json:"reasoning,omitempty"`
+	ReasoningTokens int    `json:"reasoning_tokens,omitempty"`
+}
+
+// maxReasoningChars caps a persisted/serialised reasoning trace so a verbose model
+// can't bloat the preview payload.
+const maxReasoningChars = 4000
+
+// add folds one LLM call's reasoning into the provenance (summing tokens, joining
+// traces, capped).
+func (p *aiProvenance) add(r llm.Response) {
+	p.ReasoningTokens += r.ReasoningTokens
+	if r.Reasoning == "" {
+		return
+	}
+	if p.Reasoning != "" {
+		p.Reasoning += "\n\n"
+	}
+	p.Reasoning += r.Reasoning
+	if len(p.Reasoning) > maxReasoningChars {
+		p.Reasoning = p.Reasoning[:maxReasoningChars] + "…"
+	}
+}
+
 // escalateInterpretation runs the two-step LLM fallback for a BOM row the
 // deterministic parser couldn't read cleanly. It returns the LLM-derived
-// interpretation and ok=true, or (base, false) on any failure — the LLM never
-// blocks interpretation. Caller must ensure h.LLM != nil.
+// interpretation, an ephemeral provenance record (model + reasoning + a one-line
+// decision summary), and ok=true; or (base, prov, false) on any failure — the LLM
+// never blocks interpretation. Caller must ensure h.LLM != nil.
 //
 // row is the full raw BOM row (original header → cell value), giving the model
 // everything the deterministic parser discards. base is the deterministic
 // reading, passed as a non-binding hint. curated and dists are loaded once by the
 // caller (the same lists for every row).
-func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID, row map[string]string, base genspec.Interpretation, curated []curatedCategory, dists []dbgen.Distributor) (genspec.Interpretation, bool) {
+func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID, row map[string]string, base genspec.Interpretation, curated []curatedCategory, dists []dbgen.Distributor) (genspec.Interpretation, aiProvenance, bool) {
+	prov := aiProvenance{Model: h.Config.LLM.Model}
 	if len(curated) == 0 {
-		return base, false
+		return base, prov, false
 	}
 
 	debug := h.Config.LLM.Debug
 
 	// Step 1 — classify (and, for a specific part, read its identity).
 	var cls classifyOut
-	if err := h.llmJSON(ctx, classifySystemPrompt(curated, dists), classifyUserPrompt(row, base), &cls); err != nil {
+	clsResp, err := h.llmJSON(ctx, classifySystemPrompt(curated, dists), classifyUserPrompt(row, base), &cls)
+	prov.add(clsResp)
+	if err != nil {
 		slog.Warn("llm classify failed", "err", err)
-		return base, false
+		return base, prov, false
 	}
 	if debug {
 		log.Printf("llm [interpret] classify parsed → route=%q category=%q mpn=%q manufacturer=%q distributor=%q sku=%q confidence=%.2f",
@@ -77,25 +111,28 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 	switch strings.ToLower(strings.TrimSpace(cls.Route)) {
 	case "ignore":
 		base.Route, base.Escalate = genspec.RouteIgnore, false
+		prov.Summary = "Read as do-not-populate / non-procurable."
 		if debug {
 			log.Printf("llm [interpret] result → ignore")
 		}
-		return base, true
+		return base, prov, true
 	case "specific":
 		it := specificInterpretation(base, cls, row, dists)
+		prov.Summary = specificSummary(it)
 		if debug {
 			log.Printf("llm [interpret] result → specific (after anti-hallucination): mpn=%q manufacturer=%q sku=%q distributor_id=%q%s",
 				it.Mpn, it.Manufacturer, it.Sku, it.DistributorID, droppedIdentityNote(cls, it))
 		}
-		return it, true
+		return it, prov, true
 	case "generic":
 		// handled below
 	default:
 		base.Route, base.Escalate = genspec.RouteUnknown, false
+		prov.Summary = "Could not confidently classify this row — left for review."
 		if debug {
 			log.Printf("llm [interpret] result → unknown (unrecognized route %q)", cls.Route)
 		}
-		return base, true
+		return base, prov, true
 	}
 
 	cat, ok := findCurated(curated, cls.Category)
@@ -103,16 +140,18 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 		if debug {
 			log.Printf("llm [interpret] generic but category %q is not curated → keeping base reading (route=%s)", cls.Category, base.Route)
 		}
-		return base, false
+		return base, prov, false
 	}
 
 	// Step 2 — extract parameters for the chosen category.
 	defs := h.paramDefs(ctx, cat.primary)
 	excerpts := h.categoryExcerpts(ctx, teamID, cat, defs)
 	var ext extractOut
-	if err := h.llmJSON(ctx, extractSystemPrompt(cat, defs, excerpts), extractUserPrompt(row, base), &ext); err != nil {
+	extResp, err := h.llmJSON(ctx, extractSystemPrompt(cat, defs, excerpts), extractUserPrompt(row, base), &ext)
+	prov.add(extResp)
+	if err != nil {
 		slog.Warn("llm extract failed", "err", err, "category", cat.slug)
-		return base, false
+		return base, prov, false
 	}
 
 	// Params is initialised non-nil so a package-only (or fully-dropped) extraction
@@ -157,15 +196,30 @@ func (h *Handler) escalateInterpretation(ctx context.Context, teamID pgtype.UUID
 		}
 		it.Params = append(it.Params, prm)
 	}
-	if debug {
-		note := ""
-		if len(dropped) > 0 {
-			note = fmt.Sprintf(" (dropped out-of-profile slugs: %s)", strings.Join(dropped, ", "))
-		}
-		log.Printf("llm [interpret] result → generic category=%s params=[%s]%s",
-			it.Category, formatParams(it.Params), note)
+	droppedNote := ""
+	if len(dropped) > 0 {
+		droppedNote = fmt.Sprintf(" (dropped out-of-profile: %s)", strings.Join(dropped, ", "))
 	}
-	return it, true
+	prov.Summary = fmt.Sprintf("Read as a generic %s part: %s%s", cat.slug, formatParams(it.Params), droppedNote)
+	if debug {
+		log.Printf("llm [interpret] result → generic category=%s params=[%s]%s",
+			it.Category, formatParams(it.Params), droppedNote)
+	}
+	return it, prov, true
+}
+
+// specificSummary describes an identity reading for the AI indicator.
+func specificSummary(it genspec.Interpretation) string {
+	switch {
+	case it.Mpn != "" && it.Manufacturer != "":
+		return fmt.Sprintf("Identified a specific part: %s (%s).", it.Mpn, it.Manufacturer)
+	case it.Mpn != "":
+		return fmt.Sprintf("Identified a specific part: MPN %s.", it.Mpn)
+	case it.Sku != "":
+		return fmt.Sprintf("Identified a specific part: SKU %s.", it.Sku)
+	default:
+		return "Read as a specific part, but no usable identifier survived validation."
+	}
 }
 
 // formatParams renders an interpretation's params as "slug=raw" pairs for debug logs.
@@ -274,7 +328,10 @@ func (h *Handler) categoryExcerpts(ctx context.Context, teamID pgtype.UUID, cat 
 
 // llmJSON sends a system+user prompt, extracts the JSON object from the reply,
 // and unmarshals it into v. One repair retry is attempted on a parse failure.
-func (h *Handler) llmJSON(ctx context.Context, system, user string, v any) error {
+// llmJSON sends a JSON-constrained prompt, unmarshals the reply into v, and returns
+// the raw llm.Response (so callers can read reasoning provenance). On a non-JSON
+// reply it retries once asking for JSON only.
+func (h *Handler) llmJSON(ctx context.Context, system, user string, v any) (llm.Response, error) {
 	req := llm.Request{
 		JSONObject: true,
 		Messages: []llm.Message{
@@ -284,27 +341,27 @@ func (h *Handler) llmJSON(ctx context.Context, system, user string, v any) error
 	}
 	reply, err := h.LLM.Chat(ctx, req)
 	if err != nil {
-		return err
+		return llm.Response{}, err
 	}
-	if obj, ok := llm.ExtractJSON(reply); ok {
+	if obj, ok := llm.ExtractJSON(reply.Content); ok {
 		if json.Unmarshal([]byte(obj), v) == nil {
-			return nil
+			return reply, nil
 		}
 	}
 	// Repair: ask once more for JSON only.
 	req.Messages = append(req.Messages,
-		llm.Message{Role: llm.RoleAssistant, Content: reply},
+		llm.Message{Role: llm.RoleAssistant, Content: reply.Content},
 		llm.Message{Role: llm.RoleUser, Content: "Return only the JSON object, nothing else."},
 	)
 	reply, err = h.LLM.Chat(ctx, req)
 	if err != nil {
-		return err
+		return llm.Response{}, err
 	}
-	obj, ok := llm.ExtractJSON(reply)
+	obj, ok := llm.ExtractJSON(reply.Content)
 	if !ok {
-		return fmt.Errorf("llm: no JSON object in reply")
+		return reply, fmt.Errorf("llm: no JSON object in reply")
 	}
-	return json.Unmarshal([]byte(obj), v)
+	return reply, json.Unmarshal([]byte(obj), v)
 }
 
 // specificInterpretation builds an identity Interpretation from the classify

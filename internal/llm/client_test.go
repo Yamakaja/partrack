@@ -30,8 +30,8 @@ func TestChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	if out != `{"route":"generic"}` {
-		t.Errorf("content = %q", out)
+	if out.Content != `{"route":"generic"}` {
+		t.Errorf("content = %q", out.Content)
 	}
 	if gotAuth != "Bearer k" {
 		t.Errorf("auth header = %q", gotAuth)
@@ -64,8 +64,8 @@ func TestChatFallbackModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	if out != "ok" {
-		t.Errorf("content = %q", out)
+	if out.Content != "ok" {
+		t.Errorf("content = %q", out.Content)
 	}
 	if len(models) != 2 || models[0] != "primary" || models[1] != "backup" {
 		t.Errorf("expected primary then backup, got %v", models)
