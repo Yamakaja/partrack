@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -93,6 +94,44 @@ func TestCreateGenericPart_Searchable(t *testing.T) {
 	items, _ := body["items"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("search: expected 1 matching generic part, got %d (%v)", len(items), body)
+	}
+}
+
+// TestCreateGenericPart_SynthesizedIdentity verifies the create path populates a
+// human MPN, description, and "Generic" manufacturer from the category's generic
+// config — a 1 Ω 0402 resistor becomes GEN-RES-1R-0402 / "1 Ω 0402 Resistor".
+func TestCreateGenericPart_SynthesizedIdentity(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "gensynth@example.com", "pw", "Gen")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Gen Team")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/parts/generic", map[string]any{
+		"team_id":     teamID,
+		"category_id": resistorsCategoryID,
+		"package":     "0402",
+		"params":      []map[string]any{{"slug": "resistance", "value": "1"}},
+	}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %v", status, body)
+	}
+	partID, _ := body["part_id"].(string)
+
+	var mpn, description, manufacturer *string
+	if err := testDB.QueryRow(context.Background(),
+		"SELECT mpn, description, manufacturer FROM parts WHERE id = $1", partID,
+	).Scan(&mpn, &description, &manufacturer); err != nil {
+		t.Fatalf("load part: %v", err)
+	}
+	if mpn == nil || *mpn != "GEN-RES-1R-0402" {
+		t.Errorf("mpn = %v, want GEN-RES-1R-0402", mpn)
+	}
+	if description == nil || *description != "1 Ω 0402 Resistor" {
+		t.Errorf("description = %v, want \"1 Ω 0402 Resistor\"", description)
+	}
+	if manufacturer == nil || *manufacturer != "Generic" {
+		t.Errorf("manufacturer = %v, want Generic", manufacturer)
 	}
 }
 

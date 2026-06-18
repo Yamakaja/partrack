@@ -609,6 +609,7 @@ type Category struct {
 	SortOrder     int32   `json:"sort_order"`
 	PrimaryParams []byte  `json:"primary_params"`
 	ValueParam    *string `json:"value_param"`
+	GenericCode   *string `json:"generic_code"`
 }
 
 type Distributor struct {

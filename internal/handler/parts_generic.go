@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
+	"github.com/Yamakaja/partrack/internal/genericpart"
 	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/paramparse"
@@ -23,6 +24,7 @@ type resolvedGenericParam struct {
 	value      string
 	paramID    *int32
 	valueType  string
+	unitSymbol string
 	numeric    *float64
 	numericMax *float64
 	enumValues []string
@@ -87,6 +89,7 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 			id := def.ID
 			rp.paramID = &id
 			rp.valueType = def.ValueType
+			rp.unitSymbol = derefStr(def.UnitSymbol)
 			if def.ValueType == "enum_set" {
 				rp.enumValues = paramparse.ParseEnumSet(p.Value)
 			} else {
@@ -120,6 +123,11 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Synthesize a human MPN + description from the category's generic config so the
+	// part is identifiable everywhere (lists, BOM, search). Categories without a
+	// generic_code yield no identity and the part is created bare, as before.
+	mpnPtr, descPtr, mfrPtr := genericIdentity(r, h.Queries, req.CategoryID, canonical, resolved)
+
 	// Create the generic part, its parameters, and a zero-qty inventory entry.
 	tx, err := h.DB.Begin(r.Context())
 	if err != nil {
@@ -132,6 +140,9 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 	part, err := qtx.CreatePart(r.Context(), dbgen.CreatePartParams{
 		Scope:            dbgen.PartScopeTeam,
 		TeamID:           teamID,
+		Mpn:              mpnPtr,
+		Manufacturer:     mfrPtr,
+		Description:      descPtr,
 		CategoryID:       &req.CategoryID,
 		Package:          strPtrOrNil(req.Package),
 		CanonicalPackage: pkgPtr,
@@ -234,4 +245,34 @@ func strPtrOrNil(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// genericIdentity synthesizes the MPN / description / manufacturer for a generic part
+// from its category's generic config (generic_code + value_param + primary_params).
+// Returns all-nil when the category has no generic_code (synthesis disabled) or can't
+// be loaded — the part is then created without a synthesized identity, as before.
+func genericIdentity(r *http.Request, q *dbgen.Queries, categoryID int32, canonicalPkg string, resolved []resolvedGenericParam) (mpn, description, manufacturer *string) {
+	cat, err := q.GetCategory(r.Context(), categoryID)
+	if err != nil {
+		return nil, nil, nil
+	}
+	var order []string
+	if len(cat.PrimaryParams) > 0 {
+		_ = json.Unmarshal(cat.PrimaryParams, &order)
+	}
+	params := make([]genericpart.Param, len(resolved))
+	for i, rp := range resolved {
+		params[i] = genericpart.Param{
+			Slug:       rp.slug,
+			Numeric:    rp.numeric,
+			UnitSymbol: rp.unitSymbol,
+			Value:      rp.value,
+		}
+	}
+	id, ok := genericpart.Synthesize(derefStr(cat.GenericCode), derefStr(cat.ValueParam), order, cat.DisplayName, canonicalPkg, params)
+	if !ok {
+		return nil, nil, nil
+	}
+	mfr := "Generic"
+	return &id.MPN, &id.Description, &mfr
 }

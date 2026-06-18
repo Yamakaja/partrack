@@ -659,15 +659,17 @@ ORDER BY p.mpn
 LIMIT 50;
 
 -- name: ListGenericCandidatesWithParams :many
--- Team-scoped generic parts (no MPN) matching a category + canonical package,
--- joined with their parameters. Used for create-or-get dedup of generic parts:
--- the caller groups by part_id and compares the parameter signature.
+-- Team-scoped generic parts matching a category + canonical package, joined with
+-- their parameters. Used for create-or-get dedup of generic parts: the caller groups
+-- by part_id and compares the parameter signature. Generics are identified by the
+-- synthesized manufacturer ('Generic') or, for legacy rows created before identity
+-- synthesis, by the absence of an MPN.
 SELECT p.id AS part_id, pp.parameter_id, pp.numeric_value, pp.value
 FROM parts p
 LEFT JOIN part_parameters pp ON pp.part_id = p.id
 WHERE p.scope = 'team'
   AND p.team_id = sqlc.arg('team_id')
-  AND p.mpn IS NULL
+  AND (p.mpn IS NULL OR p.manufacturer = 'Generic')
   AND p.category_id = sqlc.arg('category_id')
   AND p.canonical_package = sqlc.arg('canonical_package')
   AND p.lifecycle_status = 'active'

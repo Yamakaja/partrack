@@ -17,7 +17,7 @@ WHERE id = sqlc.arg('id')
 RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params;
 
 -- name: GetCategory :one
-SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params
+SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params, generic_code
 FROM categories WHERE id = $1;
 
 -- name: GetCategoryBySlug :one
