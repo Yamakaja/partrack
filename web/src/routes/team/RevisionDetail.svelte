@@ -184,21 +184,6 @@
     return ok;
   }
 
-  async function createOneGeneric(item: BOMLineItem) {
-    if (creatingGeneric) return;
-    creatingGeneric = true;
-    try {
-      if (await createGenericForItem(item)) {
-        qc.invalidateQueries({ queryKey: ['revision', teamId, projectId, revId] });
-        pushToast('success', 'Generic part created');
-      }
-    } catch (err: any) {
-      pushToast('error', 'Failed to create generic part', err.message);
-    } finally {
-      creatingGeneric = false;
-    }
-  }
-
   async function createAllGenerics() {
     if (creatingGeneric || genericCandidates.length === 0) return;
     creatingGeneric = true;
@@ -463,15 +448,6 @@
         onclick={(e) => e.stopPropagation()}
         class="font-mono text-xs text-muted-foreground hover:underline"
       >{row.resolved_part_mpn}</a>
-    {/if}
-    {#if isReviewable(row) && row.interpretation?.route === 'parametric'}
-      <Button
-        size="sm"
-        variant="outline"
-        class="h-6 px-2 text-xs"
-        disabled={creatingGeneric}
-        onclick={(e: MouseEvent) => { e.stopPropagation(); createOneGeneric(row); }}
-      >Create generic</Button>
     {/if}
   </div>
 {/snippet}
