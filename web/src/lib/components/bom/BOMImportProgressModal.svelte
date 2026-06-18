@@ -22,6 +22,7 @@
   let resolvedSku = $state(0);
   let resolvedMpn = $state(0);
   let resolvedPrior = $state(0);
+  let resolvedGeneric = $state(0);
   let substitutesInherited = $state(0);
   let ambiguous = $state(0);
   let noMatch = $state(0);
@@ -44,6 +45,7 @@
       if (d?.resolved_sku !== undefined) resolvedSku = d.resolved_sku as number;
       if (d?.resolved_mpn !== undefined) resolvedMpn = d.resolved_mpn as number;
       if (d?.resolved_prior_revision !== undefined) resolvedPrior = d.resolved_prior_revision as number;
+      if (d?.resolved_generic !== undefined) resolvedGeneric = d.resolved_generic as number;
       if (d?.substitutes_copied !== undefined) substitutesInherited = d.substitutes_copied as number;
       if (d?.ambiguous !== undefined) ambiguous = d.ambiguous as number;
       if (d?.no_match !== undefined) noMatch = d.no_match as number;
@@ -96,7 +98,7 @@
             ? 'Known parts resolved. New parts are importing in the background — they appear on the revision page as they finish.'
             : 'Import complete.'}
         </p>
-        <div class="rounded-md border border-border divide-y divide-border text-sm mb-6">
+        <div class="rounded-md border border-border divide-y divide-border text-sm mb-3">
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Total items</span>
             <span class="font-medium tabular-nums">{total}</span>
@@ -114,8 +116,8 @@
             <span class="font-medium tabular-nums {resolvedPrior > 0 ? 'text-green-600' : 'text-muted-foreground'}">{resolvedPrior}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
-            <span class="text-muted-foreground">Substitutes inherited</span>
-            <span class="font-medium tabular-nums {substitutesInherited > 0 ? 'text-green-600' : 'text-muted-foreground'}">{substitutesInherited}</span>
+            <span class="text-muted-foreground">Matched by spec (generic)</span>
+            <span class="font-medium tabular-nums {resolvedGeneric > 0 ? 'text-green-600' : 'text-muted-foreground'}">{resolvedGeneric}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">New parts importing</span>
@@ -130,6 +132,13 @@
             <span class="font-medium tabular-nums {noMatch > 0 ? 'text-destructive' : 'text-muted-foreground'}">{noMatch}</span>
           </div>
         </div>
+        {#if substitutesInherited > 0}
+          <p class="text-xs text-muted-foreground mb-6">
+            {substitutesInherited} substitute{substitutesInherited === 1 ? '' : 's'} inherited from the previous revision.
+          </p>
+        {:else}
+          <div class="mb-6"></div>
+        {/if}
         <div class="flex justify-end gap-2">
           <Button variant="outline" onclick={handleClose}>Close</Button>
           {#if noMatch > 0 || ambiguous > 0}
