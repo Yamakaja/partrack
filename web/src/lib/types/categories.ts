@@ -7,4 +7,6 @@ export interface Category {
   /** Slug whose magnitude the bare value field encodes; null => not parametric. */
   value_param: string | null;
   primary_params: string[];
+  /** Short type code for synthesized generic-part MPNs; null => generics unsupported. */
+  generic_code: string | null;
 }

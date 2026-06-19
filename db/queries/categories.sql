@@ -1,7 +1,7 @@
 -- Category registry and distributor mapping queries.
 
 -- name: ListCategories :many
-SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params
+SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params, generic_code
 FROM categories
 ORDER BY sort_order, id;
 

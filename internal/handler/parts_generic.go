@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,6 +17,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// genericParamInput is one {slug, value} parameter from a generic-create request.
+type genericParamInput struct {
+	Slug  string `json:"slug"`
+	Value string `json:"value"`
+}
 
 // resolvedGenericParam is a request parameter resolved against the registry and
 // SI-parsed, ready to persist and to form the dedup signature.
@@ -40,13 +47,10 @@ type resolvedGenericParam struct {
 // automatically; only this endpoint creates generic parts.
 func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TeamID     string `json:"team_id"`
-		CategoryID int32  `json:"category_id"`
-		Package    string `json:"package"`
-		Params     []struct {
-			Slug  string `json:"slug"`
-			Value string `json:"value"`
-		} `json:"params"`
+		TeamID     string              `json:"team_id"`
+		CategoryID int32               `json:"category_id"`
+		Package    string              `json:"package"`
+		Params     []genericParamInput `json:"params"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" || req.CategoryID == 0 {
 		writeError(w, http.StatusBadRequest, "team_id and category_id are required", "BAD_REQUEST")
@@ -79,28 +83,10 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve + SI-parse each parameter against the registry.
-	resolved := make([]resolvedGenericParam, 0, len(req.Params))
-	for _, p := range req.Params {
-		if p.Slug == "" || p.Value == "" {
-			continue
-		}
-		rp := resolvedGenericParam{slug: p.Slug, value: p.Value}
-		if def, err := h.Queries.GetParameterBySlug(r.Context(), p.Slug); err == nil {
-			id := def.ID
-			rp.paramID = &id
-			rp.valueType = def.ValueType
-			rp.unitSymbol = derefStr(def.UnitSymbol)
-			if def.ValueType == "enum_set" {
-				rp.enumValues = paramparse.ParseEnumSet(p.Value)
-			} else {
-				pr := paramparse.Parse(p.Value, def.ValueType)
-				rp.numeric, rp.numericMax = pr.Value, pr.ValueMax
-			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		resolved = append(resolved, rp)
+	resolved, err := h.resolveGenericParams(r.Context(), req.Params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
 	}
 
 	// create-or-get: compare the request signature against existing generics.
@@ -126,7 +112,10 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 	// Synthesize a human MPN + description from the category's generic config so the
 	// part is identifiable everywhere (lists, BOM, search). Categories without a
 	// generic_code yield no identity and the part is created bare, as before.
-	mpnPtr, descPtr, mfrPtr := genericIdentity(r, h.Queries, req.CategoryID, canonical, resolved)
+	var mpnPtr, descPtr, mfrPtr *string
+	if cat, err := h.Queries.GetCategory(r.Context(), req.CategoryID); err == nil {
+		mpnPtr, descPtr, mfrPtr = synthesizeGenericIdentity(cat, canonical, resolved)
+	}
 
 	// Create the generic part, its parameters, and a zero-qty inventory entry.
 	tx, err := h.DB.Begin(r.Context())
@@ -137,42 +126,8 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context()) //nolint:errcheck
 	qtx := h.Queries.WithTx(tx)
 
-	part, err := qtx.CreatePart(r.Context(), dbgen.CreatePartParams{
-		Scope:            dbgen.PartScopeTeam,
-		TeamID:           teamID,
-		Mpn:              mpnPtr,
-		Manufacturer:     mfrPtr,
-		Description:      descPtr,
-		CategoryID:       &req.CategoryID,
-		Package:          strPtrOrNil(req.Package),
-		CanonicalPackage: pkgPtr,
-		LifecycleStatus:  dbgen.PartLifecycleStatusActive,
-		CreatedBy:        userID,
-	})
+	partID, err := h.insertGenericPart(r.Context(), qtx, teamID, userID, req.CategoryID, req.Package, pkgPtr, resolved, mpnPtr, descPtr, mfrPtr)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	for _, rp := range resolved {
-		if _, err := qtx.UpsertUserParameter(r.Context(), dbgen.UpsertUserParameterParams{
-			PartID:          part.ID,
-			Name:            rp.slug,
-			Value:           rp.value,
-			ParameterID:     rp.paramID,
-			NumericValue:    rp.numeric,
-			NumericValueMax: rp.numericMax,
-			EnumValues:      rp.enumValues,
-		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-	}
-
-	if _, err := qtx.CreateInventoryEntry(r.Context(), dbgen.CreateInventoryEntryParams{
-		TeamID: teamID,
-		PartID: part.ID,
-	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
@@ -182,9 +137,9 @@ func (h *Handler) CreateGenericPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": part.ID.String()})
-	w.Header().Set("Location", "/api/v1/parts/"+part.ID.String())
-	writeJSON(w, http.StatusCreated, map[string]any{"part_id": part.ID.String(), "existing": false})
+	h.publishEvent(r, "part_changed", teamID.String(), map[string]string{"part_id": partID.String()})
+	w.Header().Set("Location", "/api/v1/parts/"+partID.String())
+	writeJSON(w, http.StatusCreated, map[string]any{"part_id": partID.String(), "existing": false})
 }
 
 // requestSignature builds the order-independent parameter signature of a
@@ -199,9 +154,16 @@ func requestSignature(params []resolvedGenericParam) string {
 	return strings.Join(keys, "|")
 }
 
-// matchExistingGeneric groups candidate rows by part and returns the first whose
-// parameter signature equals want.
+// matchExistingGeneric returns the part whose parameter signature equals want, or
+// an invalid UUID if none matches.
 func matchExistingGeneric(rows []dbgen.ListGenericCandidatesWithParamsRow, want string) pgtype.UUID {
+	return genericSignatureIndex(rows)[want]
+}
+
+// genericSignatureIndex groups candidate rows by part and indexes them by parameter
+// signature, so a batch can match many requested signatures against one DB read. The
+// first part wins on a signature collision (existing duplicates are already a no-op).
+func genericSignatureIndex(rows []dbgen.ListGenericCandidatesWithParamsRow) map[string]pgtype.UUID {
 	byPart := map[string][]string{}
 	order := []pgtype.UUID{}
 	seen := map[string]bool{}
@@ -217,14 +179,16 @@ func matchExistingGeneric(rows []dbgen.ListGenericCandidatesWithParamsRow, want 
 		}
 		byPart[id] = append(byPart[id], paramSigKey(row.ParameterID, row.NumericValue, derefStr(row.Value)))
 	}
+	idx := make(map[string]pgtype.UUID, len(order))
 	for _, partID := range order {
 		keys := byPart[partID.String()]
 		sort.Strings(keys)
-		if strings.Join(keys, "|") == want {
-			return partID
+		sig := strings.Join(keys, "|")
+		if _, exists := idx[sig]; !exists {
+			idx[sig] = partID
 		}
 	}
-	return pgtype.UUID{}
+	return idx
 }
 
 func paramSigKey(paramID *int32, numeric *float64, value string) string {
@@ -247,15 +211,81 @@ func strPtrOrNil(s string) *string {
 	return &s
 }
 
-// genericIdentity synthesizes the MPN / description / manufacturer for a generic part
-// from its category's generic config (generic_code + value_param + primary_params).
-// Returns all-nil when the category has no generic_code (synthesis disabled) or can't
-// be loaded — the part is then created without a synthesized identity, as before.
-func genericIdentity(r *http.Request, q *dbgen.Queries, categoryID int32, canonicalPkg string, resolved []resolvedGenericParam) (mpn, description, manufacturer *string) {
-	cat, err := q.GetCategory(r.Context(), categoryID)
-	if err != nil {
-		return nil, nil, nil
+// resolveGenericParams resolves each {slug, value} against the parameter registry,
+// SI-parsing numerics (or splitting enum sets) so the result is ready both to persist
+// and to form the dedup signature. Empty entries are skipped; unknown slugs are kept
+// verbatim (matched on raw value). It errors only on an unexpected DB failure.
+func (h *Handler) resolveGenericParams(ctx context.Context, params []genericParamInput) ([]resolvedGenericParam, error) {
+	resolved := make([]resolvedGenericParam, 0, len(params))
+	for _, p := range params {
+		if p.Slug == "" || p.Value == "" {
+			continue
+		}
+		rp := resolvedGenericParam{slug: p.Slug, value: p.Value}
+		if def, err := h.Queries.GetParameterBySlug(ctx, p.Slug); err == nil {
+			id := def.ID
+			rp.paramID = &id
+			rp.valueType = def.ValueType
+			rp.unitSymbol = derefStr(def.UnitSymbol)
+			if def.ValueType == "enum_set" {
+				rp.enumValues = paramparse.ParseEnumSet(p.Value)
+			} else {
+				pr := paramparse.Parse(p.Value, def.ValueType)
+				rp.numeric, rp.numericMax = pr.Value, pr.ValueMax
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		resolved = append(resolved, rp)
 	}
+	return resolved, nil
+}
+
+// insertGenericPart creates a generic parts row, its user parameters, and a zero-qty
+// inventory entry, all on the supplied transaction. It returns the new part's ID.
+func (h *Handler) insertGenericPart(ctx context.Context, qtx *dbgen.Queries, teamID, userID pgtype.UUID, categoryID int32, rawPackage string, pkgPtr *string, resolved []resolvedGenericParam, mpnPtr, descPtr, mfrPtr *string) (pgtype.UUID, error) {
+	part, err := qtx.CreatePart(ctx, dbgen.CreatePartParams{
+		Scope:            dbgen.PartScopeTeam,
+		TeamID:           teamID,
+		Mpn:              mpnPtr,
+		Manufacturer:     mfrPtr,
+		Description:      descPtr,
+		CategoryID:       &categoryID,
+		Package:          strPtrOrNil(rawPackage),
+		CanonicalPackage: pkgPtr,
+		LifecycleStatus:  dbgen.PartLifecycleStatusActive,
+		CreatedBy:        userID,
+	})
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	for _, rp := range resolved {
+		if _, err := qtx.UpsertUserParameter(ctx, dbgen.UpsertUserParameterParams{
+			PartID:          part.ID,
+			Name:            rp.slug,
+			Value:           rp.value,
+			ParameterID:     rp.paramID,
+			NumericValue:    rp.numeric,
+			NumericValueMax: rp.numericMax,
+			EnumValues:      rp.enumValues,
+		}); err != nil {
+			return pgtype.UUID{}, err
+		}
+	}
+	if _, err := qtx.CreateInventoryEntry(ctx, dbgen.CreateInventoryEntryParams{
+		TeamID: teamID,
+		PartID: part.ID,
+	}); err != nil {
+		return pgtype.UUID{}, err
+	}
+	return part.ID, nil
+}
+
+// synthesizeGenericIdentity synthesizes the MPN / description / manufacturer for a
+// generic part from its category's generic config (generic_code + value_param +
+// primary_params). Returns all-nil when the category has no generic_code (synthesis
+// disabled) — the part is then created without a synthesized identity, as before.
+func synthesizeGenericIdentity(cat dbgen.GetCategoryRow, canonicalPkg string, resolved []resolvedGenericParam) (mpn, description, manufacturer *string) {
 	var order []string
 	if len(cat.PrimaryParams) > 0 {
 		_ = json.Unmarshal(cat.PrimaryParams, &order)

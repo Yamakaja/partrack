@@ -28,6 +28,7 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 		SortOrder     int32    `json:"sort_order"`
 		ValueParam    *string  `json:"value_param"`
 		PrimaryParams []string `json:"primary_params"`
+		GenericCode   *string  `json:"generic_code"`
 	}
 
 	items := make([]categoryItem, len(rows))
@@ -44,6 +45,7 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 			SortOrder:     c.SortOrder,
 			ValueParam:    c.ValueParam,
 			PrimaryParams: params,
+			GenericCode:   c.GenericCode,
 		}
 	}
 

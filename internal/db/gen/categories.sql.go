@@ -99,7 +99,7 @@ func (q *Queries) GetMappedCategory(ctx context.Context, arg GetMappedCategoryPa
 
 const listCategories = `-- name: ListCategories :many
 
-SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params
+SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params, generic_code
 FROM categories
 ORDER BY sort_order, id
 `
@@ -112,6 +112,7 @@ type ListCategoriesRow struct {
 	SortOrder     int32   `json:"sort_order"`
 	ValueParam    *string `json:"value_param"`
 	PrimaryParams []byte  `json:"primary_params"`
+	GenericCode   *string `json:"generic_code"`
 }
 
 // Category registry and distributor mapping queries.
@@ -132,6 +133,7 @@ func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, erro
 			&i.SortOrder,
 			&i.ValueParam,
 			&i.PrimaryParams,
+			&i.GenericCode,
 		); err != nil {
 			return nil, err
 		}

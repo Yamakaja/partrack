@@ -88,6 +88,51 @@ export function createGenericPart(body: CreateGenericPartBody) {
   return request<{ part_id: string; existing: boolean }>('POST', '/api/v1/parts/generic', body);
 }
 
+/** Value set for a batch generic create: an E-series across a range, or an explicit list. */
+export type BatchGenericValues =
+  | { mode: 'eseries'; series: string; lower: string; upper: string }
+  | { mode: 'list'; list: string[] };
+
+export interface BatchCreateGenericBody {
+  team_id: string;
+  category_id: number;
+  package?: string;
+  values: BatchGenericValues;
+  /** Fixed secondary parameters applied to every created part. */
+  params?: { slug: string; value: string }[];
+  /** When true, plan only — synthesize identities and flag existing parts, write nothing. */
+  dry_run?: boolean;
+}
+
+export interface BatchGenericItem {
+  mpn: string;
+  description: string;
+  package: string;
+  value: string;
+  existing: boolean;
+  part_id?: string;
+}
+
+export interface BatchGenericResult {
+  dry_run: boolean;
+  total: number;
+  /** Present on a dry run. */
+  to_create?: number;
+  /** Present on a real run. */
+  created?: number;
+  existing: number;
+  items: BatchGenericItem[];
+}
+
+/**
+ * Batch create-or-get generic parts for one category + package across a value set.
+ * Pass `dry_run: true` to preview the plan (counts + synthesized identities) without
+ * writing.
+ */
+export function batchCreateGenericParts(body: BatchCreateGenericBody) {
+  return request<BatchGenericResult>('POST', '/api/v1/parts/generic/batch', body);
+}
+
 export function updatePart(partId: string, body: Partial<Part>) {
   return request<Part>('PATCH', `/api/v1/parts/${partId}`, body);
 }
