@@ -10,11 +10,14 @@ ORDER BY sort_order, id;
 -- magnitude the bare value field encodes (NULL => not parametric), and
 -- primary_params is the ordered list of parameter slugs that matter for the
 -- category. Both feed generic-part interpretation and the LLM parsing prompt.
+-- generic_code is the short type code used to synthesize generic-part MPNs
+-- (NULL => generics unsupported); it is only meaningful when value_param is set.
 UPDATE categories
 SET value_param    = sqlc.narg('value_param'),
-    primary_params = sqlc.arg('primary_params')
+    primary_params = sqlc.arg('primary_params'),
+    generic_code   = sqlc.narg('generic_code')
 WHERE id = sqlc.arg('id')
-RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params;
+RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params, generic_code;
 
 -- name: GetCategory :one
 SELECT id, slug, display_name, parent_id, sort_order, value_param, primary_params, generic_code

@@ -16,7 +16,7 @@ const batteryProductsCategoryID = 1
 func TestAdminUpdateCategoryParams(t *testing.T) {
 	t.Cleanup(func() {
 		testDB.Exec(context.Background(), //nolint:errcheck
-			"UPDATE categories SET value_param = NULL, primary_params = '[]' WHERE id = $1", batteryProductsCategoryID)
+			"UPDATE categories SET value_param = NULL, primary_params = '[]', generic_code = NULL WHERE id = $1", batteryProductsCategoryID)
 		testutil.Truncate(t, testDB)
 	})
 
@@ -45,6 +45,42 @@ func TestAdminUpdateCategoryParams(t *testing.T) {
 		t.Errorf("list: expected [voltage_rating tolerance], got %v", cat["primary_params"])
 	}
 
+	// A generic_code is accepted alongside a value_param, and normalised
+	// (trimmed + uppercased).
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPatch,
+		"/api/v1/admin/categories/1/params",
+		map[string]any{"value_param": "voltage_rating", "primary_params": []string{"voltage_rating"}, "generic_code": " bat "},
+		adminToken)
+	if status != http.StatusOK {
+		t.Fatalf("generic_code: expected 200, got %d: %v", status, body)
+	}
+	if body["generic_code"] != "BAT" {
+		t.Errorf("expected generic_code=BAT (normalised), got %v", body["generic_code"])
+	}
+	cat = getCategory(t, adminToken, batteryProductsCategoryID)
+	if cat["generic_code"] != "BAT" {
+		t.Errorf("list: expected generic_code=BAT, got %v", cat["generic_code"])
+	}
+
+	// A generic_code without a value_param is rejected — generic synthesis needs
+	// the magnitude slug.
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPatch,
+		"/api/v1/admin/categories/1/params",
+		map[string]any{"value_param": "", "primary_params": []string{}, "generic_code": "BAT"},
+		adminToken)
+	if status != http.StatusBadRequest {
+		t.Fatalf("generic_code without value_param: expected 400, got %d: %v", status, body)
+	}
+
+	// An over-long generic_code is rejected.
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPatch,
+		"/api/v1/admin/categories/1/params",
+		map[string]any{"value_param": "voltage_rating", "primary_params": []string{"voltage_rating"}, "generic_code": "WAYTOOLONG"},
+		adminToken)
+	if status != http.StatusBadRequest {
+		t.Fatalf("over-long generic_code: expected 400, got %d", status)
+	}
+
 	// An unknown slug is rejected.
 	body, status = testutil.Do(t, testEnv.Server, http.MethodPatch,
 		"/api/v1/admin/categories/1/params",
@@ -64,6 +100,9 @@ func TestAdminUpdateCategoryParams(t *testing.T) {
 	}
 	if body["value_param"] != nil {
 		t.Errorf("clear: expected value_param=null, got %v", body["value_param"])
+	}
+	if body["generic_code"] != nil {
+		t.Errorf("clear: expected generic_code=null, got %v", body["generic_code"])
 	}
 
 	// Non-admins cannot reach the endpoint.

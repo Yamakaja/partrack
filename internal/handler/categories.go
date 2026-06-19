@@ -4,11 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// maxGenericCodeLen bounds the short type code used to synthesize generic-part
+// MPNs (e.g. RES, CAP, IND).
+const maxGenericCodeLen = 8
 
 // ListCategories handles GET /api/v1/categories
 // Returns the full category registry as a flat list. No auth required.
@@ -66,6 +71,7 @@ func (h *Handler) AdminUpdateCategoryParams(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		ValueParam    *string  `json:"value_param"`
 		PrimaryParams []string `json:"primary_params"`
+		GenericCode   *string  `json:"generic_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -101,6 +107,26 @@ func (h *Handler) AdminUpdateCategoryParams(w http.ResponseWriter, r *http.Reque
 		valueParam = req.ValueParam
 	}
 
+	// Normalise generic_code: trimmed + uppercased, capped length. Empty means
+	// "generics unsupported" (NULL). Generic-part synthesis needs the magnitude
+	// slug, so a generic_code is only meaningful when value_param is set — clear
+	// it otherwise rather than persist an unusable configuration.
+	var genericCode *string
+	if req.GenericCode != nil {
+		code := strings.ToUpper(strings.TrimSpace(*req.GenericCode))
+		if len(code) > maxGenericCodeLen {
+			writeError(w, http.StatusBadRequest, "generic_code too long (max "+strconv.Itoa(maxGenericCodeLen)+" chars)", "BAD_REQUEST")
+			return
+		}
+		if code != "" && valueParam == nil {
+			writeError(w, http.StatusBadRequest, "generic_code requires a value_param", "BAD_REQUEST")
+			return
+		}
+		if code != "" {
+			genericCode = &code
+		}
+	}
+
 	primaryParamsJSON, err := json.Marshal(req.PrimaryParams)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -111,6 +137,7 @@ func (h *Handler) AdminUpdateCategoryParams(w http.ResponseWriter, r *http.Reque
 		ID:            int32(n),
 		ValueParam:    valueParam,
 		PrimaryParams: primaryParamsJSON,
+		GenericCode:   genericCode,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -129,6 +156,7 @@ func (h *Handler) AdminUpdateCategoryParams(w http.ResponseWriter, r *http.Reque
 		"sort_order":     row.SortOrder,
 		"value_param":    row.ValueParam,
 		"primary_params": params,
+		"generic_code":   row.GenericCode,
 	})
 }
 

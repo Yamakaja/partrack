@@ -181,14 +181,16 @@ func (q *Queries) ListDistributorCategoryMappings(ctx context.Context, distribut
 const updateCategoryParams = `-- name: UpdateCategoryParams :one
 UPDATE categories
 SET value_param    = $1,
-    primary_params = $2
-WHERE id = $3
-RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params
+    primary_params = $2,
+    generic_code   = $3
+WHERE id = $4
+RETURNING id, slug, display_name, parent_id, sort_order, value_param, primary_params, generic_code
 `
 
 type UpdateCategoryParamsParams struct {
 	ValueParam    *string `json:"value_param"`
 	PrimaryParams []byte  `json:"primary_params"`
+	GenericCode   *string `json:"generic_code"`
 	ID            int32   `json:"id"`
 }
 
@@ -200,14 +202,22 @@ type UpdateCategoryParamsRow struct {
 	SortOrder     int32   `json:"sort_order"`
 	ValueParam    *string `json:"value_param"`
 	PrimaryParams []byte  `json:"primary_params"`
+	GenericCode   *string `json:"generic_code"`
 }
 
 // Admin curation of a category's class profile: value_param is the slug whose
 // magnitude the bare value field encodes (NULL => not parametric), and
 // primary_params is the ordered list of parameter slugs that matter for the
 // category. Both feed generic-part interpretation and the LLM parsing prompt.
+// generic_code is the short type code used to synthesize generic-part MPNs
+// (NULL => generics unsupported); it is only meaningful when value_param is set.
 func (q *Queries) UpdateCategoryParams(ctx context.Context, arg UpdateCategoryParamsParams) (UpdateCategoryParamsRow, error) {
-	row := q.db.QueryRow(ctx, updateCategoryParams, arg.ValueParam, arg.PrimaryParams, arg.ID)
+	row := q.db.QueryRow(ctx, updateCategoryParams,
+		arg.ValueParam,
+		arg.PrimaryParams,
+		arg.GenericCode,
+		arg.ID,
+	)
 	var i UpdateCategoryParamsRow
 	err := row.Scan(
 		&i.ID,
@@ -217,6 +227,7 @@ func (q *Queries) UpdateCategoryParams(ctx context.Context, arg UpdateCategoryPa
 		&i.SortOrder,
 		&i.ValueParam,
 		&i.PrimaryParams,
+		&i.GenericCode,
 	)
 	return i, err
 }

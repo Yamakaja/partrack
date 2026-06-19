@@ -88,10 +88,14 @@ export function deleteParameterDefinition(id: number) {
 
 // ── Category class profiles ───────────────────────────────────────────────────
 
-/** Curate a category's value_param (magnitude slug, or null) + ordered primary_params. */
+/**
+ * Curate a category's value_param (magnitude slug, or null) + ordered primary_params,
+ * plus the optional generic_code (short type code for synthesized generic-part MPNs;
+ * null disables generics). The server clears generic_code when value_param is null.
+ */
 export function updateCategoryParams(
   id: number,
-  body: { value_param: string | null; primary_params: string[] },
+  body: { value_param: string | null; primary_params: string[]; generic_code: string | null },
 ) {
   return request<import('$lib/types/categories.js').Category>(
     'PATCH',

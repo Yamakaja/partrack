@@ -61,6 +61,7 @@
   let editCat = $state<Category | null>(null);
   let editValueParam = $state('');
   let editParams = $state<string[]>([]);
+  let editGenericCode = $state('');
   let saving = $state(false);
 
   // Definitions not already in the primary list, for the "add" picker.
@@ -70,6 +71,7 @@
     editCat = c;
     editValueParam = c.value_param ?? '';
     editParams = [...c.primary_params];
+    editGenericCode = c.generic_code ?? '';
     editOpen = true;
   }
 
@@ -97,9 +99,13 @@
     if (!editCat) return;
     saving = true;
     try {
+      // Generic code is only meaningful with a value parameter; clear it otherwise
+      // (the server enforces the same dependency).
+      const code = editValueParam ? editGenericCode.trim().toUpperCase() : '';
       await updateCategoryParams(editCat.id, {
         value_param: editValueParam || null,
         primary_params: editParams,
+        generic_code: code || null,
       });
       editOpen = false;
       qc.invalidateQueries({ queryKey: ['categories'] });
@@ -118,8 +124,9 @@
   <div class="flex-1 overflow-auto p-6 space-y-4">
     <p class="text-sm text-muted-foreground max-w-3xl">
       Curate, per category, the <strong>value parameter</strong> (the magnitude a bare value field encodes —
-      e.g. resistance for resistors; leave blank for non-parametric categories) and the ordered list of
-      <strong>primary parameters</strong> that matter. These drive generic-part interpretation during BOM import,
+      e.g. resistance for resistors; leave blank for non-parametric categories), the ordered list of
+      <strong>primary parameters</strong> that matter, and an optional <strong>generic code</strong> that enables
+      batch / generic-part creation for the category. These drive generic-part interpretation during BOM import,
       and will be supplied to the LLM parser as the per-category extraction target.
     </p>
 
@@ -147,6 +154,7 @@
             <TableRow>
               <TableHead>Category</TableHead>
               <TableHead>Value parameter</TableHead>
+              <TableHead>Generic</TableHead>
               <TableHead>Primary parameters</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -162,6 +170,15 @@
                   {#if c.value_param}
                     <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary">
                       {paramLabel(c.value_param)}
+                    </span>
+                  {:else}
+                    <span class="text-muted-foreground text-xs">—</span>
+                  {/if}
+                </TableCell>
+                <TableCell>
+                  {#if c.generic_code}
+                    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-mono font-medium bg-primary/10 text-primary">
+                      {c.generic_code}
                     </span>
                   {:else}
                     <span class="text-muted-foreground text-xs">—</span>
@@ -219,6 +236,28 @@
               {/each}
             </select>
             <p class="text-xs text-muted-foreground">The magnitude a bare value (e.g. "10k") maps to. Added to primary parameters automatically.</p>
+          </div>
+
+          <!-- Generic part code -->
+          <div class="space-y-1">
+            <Label for="generic-code">Generic part code</Label>
+            <Input
+              id="generic-code"
+              value={editGenericCode}
+              oninput={(e: Event) => (editGenericCode = (e.currentTarget as HTMLInputElement).value.toUpperCase())}
+              placeholder="e.g. RES"
+              maxlength={8}
+              disabled={!editValueParam}
+              class="font-mono uppercase max-w-[10rem]"
+            />
+            <p class="text-xs text-muted-foreground">
+              {#if editValueParam}
+                Enables batch / generic-part creation. Used to synthesize MPNs like
+                <span class="font-mono">GEN-{editGenericCode || 'RES'}-4K7-0402-1%</span>. Leave blank to disable.
+              {:else}
+                Set a value parameter first — generic parts need a magnitude to synthesize.
+              {/if}
+            </p>
           </div>
 
           <!-- Primary parameters (ordered) -->
