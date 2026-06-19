@@ -24,6 +24,7 @@
   import Projects from './routes/team/Projects.svelte';
   import ProjectDetail from './routes/team/ProjectDetail.svelte';
   import RevisionDetail from './routes/team/RevisionDetail.svelte';
+  import InterpretationMemory from './routes/team/InterpretationMemory.svelte';
   import Cart from './routes/team/Cart.svelte';
   import Orders from './routes/team/Orders.svelte';
   import OrderDetail from './routes/team/OrderDetail.svelte';
@@ -72,6 +73,7 @@
     { pattern: '/teams/:teamId/storage/:locationId',                                       component: Storage },
     { pattern: '/teams/:teamId/storage',                                                  component: Storage },
     { pattern: '/teams/:teamId/projects/:projectId/revisions/:revId',                    component: RevisionDetail },
+    { pattern: '/teams/:teamId/projects/:projectId/interpretation-memory',               component: InterpretationMemory },
     { pattern: '/teams/:teamId/projects/:projectId',                                      component: ProjectDetail },
     { pattern: '/teams/:teamId/projects',                                                 component: Projects },
     { pattern: '/teams/:teamId/cart',                                                     component: Cart },

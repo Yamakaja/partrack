@@ -607,28 +607,40 @@ class comes from the reference designator):
   from the matching line in the project's previous revision, preserving
   `interpretation_source` so a user edit survives and an already-reviewed line
   does not re-flag.
-- **Team-level interpretation memory** — a team-scoped table
-  (`bom_interpretation_memory`) mapping the key → a confirmed interpretation,
-  consulted across projects. It is written whenever the review gate persists a
-  `user` interpretation. Once a user corrects the metric trap on
-  `R_0201_0603Metric` to package `0201`, that correction is reused on every
-  future BOM and the system gets *less* wrong over time. This is to per-line
-  interpretation what `bom_import_config` is to a one-off column map.
+- **Project-level interpretation memory** — a project-scoped table
+  (`bom_interpretation_memory`, keyed `(project_id, class, value_key,
+  footprint_key)`) mapping the key → a confirmed interpretation, consulted on
+  every later import **of the same project**. It is written whenever the review
+  gate persists a `user`/`llm` interpretation. Once a user corrects the metric
+  trap on `R_0201_0603Metric` to package `0201`, that correction is reused on
+  every future revision of that project and the system gets *less* wrong over
+  time. This is to per-line interpretation what `bom_import_config` is to a
+  one-off column map.
+
+  > **Scope (Option A).** Memory is **project-scoped, not team-wide**: a
+  > correction made in one project never changes how a *different* project's BOM
+  > is read. This deliberately avoids leaking project-specific decisions —
+  > especially LLM-derived identity fields (`mpn`/`sku`) that pin a generic line
+  > to a concrete part — across unrelated designs. Memory is a rebuildable cache
+  > (a missing entry just falls back to a fresh parse), so it carries no
+  > migration/backfill obligation. Users inspect and prune it per project via
+  > `GET`/`DELETE …/projects/{projectId}/interpretation-memory` (a project page,
+  > "Interpretations").
 
 Per-line precedence on import (when the client sends no override):
-prior-revision **user** edit → team memory → prior-revision **auto** reading →
+prior-revision **user** edit → project memory → prior-revision **auto** reading →
 fresh parse (see `handler.resolveReusedInterpretation`). The shared resolver also
-backs `POST /bom/interpret-preview`: passing `team_id` layers team memory over
-the fresh parse and flags reused rows, so the **review gate shows exactly what
-import will persist** rather than a parse the import would then silently
-override. (Preview consults only team memory: every prior-revision *user* edit is
-also in team memory, and a prior *auto* reading equals the fresh parse, so team
-memory reproduces every *visible* reuse.)
+backs `POST /bom/interpret-preview`: passing `team_id` + `project_id` layers the
+project's memory over the fresh parse and flags reused rows, so the **review gate
+shows exactly what import will persist** rather than a parse the import would then
+silently override. (Preview consults only project memory: every prior-revision
+*user* edit is also in project memory, and a prior *auto* reading equals the fresh
+parse, so project memory reproduces every *visible* reuse.)
 
 > Note: because the parser is deterministic, prior-revision *auto* carryover
 > equals a fresh parse; the value of reuse is almost entirely in replaying *user*
-> corrections via team memory. Carryover is retained for the carried `user`-edit
-> case and as a structural match to this design.
+> corrections via project memory. Carryover is retained for the carried
+> `user`-edit case and as a structural match to this design.
 
 ---
 
@@ -734,9 +746,9 @@ epsilon; range + proximity + tolerance-similarity for tolerance-bearing lines).
 
 ### 14.4 Interpretation reuse (implemented)
 Without cross-revision reuse, every revision re-reviews the same passives.
-Implemented per §9.2: prior-revision carryover + a team-scoped
-`bom_interpretation_memory`, shared between the import and the preview so the
-review gate shows what import will persist.
+Implemented per §9.2: prior-revision carryover + a project-scoped
+`bom_interpretation_memory` (user-inspectable/prunable), shared between the
+import and the preview so the review gate shows what import will persist.
 
 ### 14.5 Silent wrong value — limited defence
 A confident misparse that looks plausible can pass a skimmed review, and there is

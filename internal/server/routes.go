@@ -208,6 +208,9 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/generic-candidates", h.GenericPartCandidates)
 					r.Get("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/previous-revisions", h.ListPreviousRevisionsWithSubstitutes)
 					r.Get("/projects/{projectId}/revisions/{revId}/stock-check", h.StockCheck)
+					// Project-scoped interpretation memory (doc/bom-import.md §9.2): inspect
+					// the remembered BOM-line corrections that future imports will reuse.
+					r.Get("/projects/{projectId}/interpretation-memory", h.ListInterpretationMemory)
 
 					// 13. Orders
 					r.Get("/orders", h.ListOrders)
@@ -292,6 +295,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Delete("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/{partId}", h.RemoveSubstitute)
 					r.Put("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/order", h.ReorderSubstitutes)
 					r.Post("/projects/{projectId}/revisions/{revId}/items/{itemId}/substitutes/import", h.ImportSubstitutes)
+					r.Delete("/projects/{projectId}/interpretation-memory/{memoryId}", h.DeleteInterpretationMemoryEntry)
 					r.Patch("/builds/{buildId}/substitute-selections", h.PatchBuildSubstituteSelections)
 					r.Post("/builds/{buildId}/substitute-selections/refresh", h.RefreshBuildSubstituteSelections)
 

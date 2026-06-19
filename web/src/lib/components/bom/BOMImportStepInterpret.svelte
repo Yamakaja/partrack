@@ -13,6 +13,7 @@
     interpretations = $bindable(),
     edited = $bindable(),
     teamId,
+    projectId,
     loading,
     jobId = '',
     pending = [],
@@ -24,6 +25,7 @@
     interpretations: Interpretation[];
     edited: Record<number, boolean>;
     teamId: string;
+    projectId: string;
     loading: boolean;
     /** Correlation id for the async LLM read; empty when nothing is streaming. */
     jobId?: string;
@@ -123,6 +125,7 @@
     const res = await interpretPreview(
       [{ refdes: items[i].reference_designators, footprint, value, mpn: items[i].mpn, sku: items[i].sku }],
       teamId,
+      projectId,
     );
     if (res.items[0]) {
       interpretations[i] = res.items[0];

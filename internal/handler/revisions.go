@@ -184,9 +184,10 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 	// Interpretation reuse (doc/bom-import.md §9.2): seed each line's
 	// interpretation from prior knowledge so recurring passives don't demand
 	// re-review every revision. priorInterp carries this project's previous
-	// revision forward; teamMemory replays remembered user corrections across
-	// projects. See resolveReusedInterpretation for the precedence.
-	priorInterp, teamMemory, err := buildInterpretationReuse(r.Context(), qtx, teamID, projectID, rev.ID)
+	// revision forward; projectMemory replays this project's remembered user
+	// corrections. Both are project-scoped. See resolveReusedInterpretation for
+	// the precedence.
+	priorInterp, projectMemory, err := buildInterpretationReuse(r.Context(), qtx, projectID, rev.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -203,9 +204,9 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 
 		// Determine the line's interpretation. Precedence:
 		//   1. Client override from the review gate (an explicit user correction)
-		//      — persisted as 'user' and remembered team-wide for future imports.
+		//      — persisted as 'user' and remembered for this project's future imports.
 		//   2. A prior-revision *user* edit for the same key (most specific intent).
-		//   3. A remembered team correction for the same key.
+		//   3. A remembered project correction for the same key.
 		//   4. A prior-revision *auto* interpretation (avoids re-flagging a part
 		//      the user already reviewed last revision).
 		//   5. A fresh parse.
@@ -226,20 +227,20 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(interpBytes) > 0:
 			// Review-gate override: a user edit or an LLM-derived interpretation.
-			// Both are confirmed readings — persisted as-is and remembered team-wide
-			// so the same value+footprint is reused (and never re-sent to the LLM).
+			// Both are confirmed readings — persisted as-is and remembered for this
+			// project so the same value+footprint is reused (and never re-sent to the LLM).
 			interpSource = "user"
 			if item.InterpretationSource != nil && (*item.InterpretationSource == "user" || *item.InterpretationSource == "llm") {
 				interpSource = *item.InterpretationSource
 			}
 			if interpSource == "user" || interpSource == "llm" {
-				if err := h.rememberInterpretation(r.Context(), qtx, teamID, userID, item.Value, item.Footprint, interpBytes); err != nil {
+				if err := h.rememberInterpretation(r.Context(), qtx, projectID, userID, item.Value, item.Footprint, interpBytes); err != nil {
 					writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 					return
 				}
 			}
 		default:
-			if rb, rs, ok := resolveReusedInterpretation(priorInterp, teamMemory, item.ReferenceDesignators, derefStr(item.Value), derefStr(item.Footprint)); ok {
+			if rb, rs, ok := resolveReusedInterpretation(priorInterp, projectMemory, item.ReferenceDesignators, derefStr(item.Value), derefStr(item.Footprint)); ok {
 				interpBytes, interpSource = rb, rs
 			} else {
 				interp := genspec.Interpret(genspec.Input{
@@ -577,35 +578,39 @@ func lineInterpKey(refdes, value, footprint string) string {
 	return classKey(class, genspec.NormalizeKey(value), genspec.NormalizeKey(footprint))
 }
 
-// buildInterpretationReuse loads the two reuse sources for a team: priorInterp
-// (the previous revision of projectID, when projectID is valid) and teamMemory
-// (the team's remembered corrections, always loaded). Both are keyed for lookup
-// with classKey/lineInterpKey. excludeRevID is the in-progress revision to skip
-// when finding the prior one (pass the freshly-created revision id at import).
-func buildInterpretationReuse(ctx context.Context, q *dbgen.Queries, teamID, projectID, excludeRevID pgtype.UUID) (map[string]rememberedInterp, map[string][]byte, error) {
+// buildInterpretationReuse loads the two reuse sources for a project: priorInterp
+// (the project's previous revision) and projectMemory (the project's remembered
+// corrections). Both are keyed for lookup with classKey/lineInterpKey and are
+// scoped to projectID — a correction in one project does not bleed into another.
+// excludeRevID is the in-progress revision to skip when finding the prior one
+// (pass the freshly-created revision id at import). Returns empty maps (no query)
+// when projectID is invalid.
+func buildInterpretationReuse(ctx context.Context, q *dbgen.Queries, projectID, excludeRevID pgtype.UUID) (map[string]rememberedInterp, map[string][]byte, error) {
 	prior := map[string]rememberedInterp{}
-	if projectID.Valid {
-		if priorRevID, err := q.GetImmediatelyPriorRevision(ctx, dbgen.GetImmediatelyPriorRevisionParams{
-			ProjectID:         projectID,
-			CurrentRevisionID: excludeRevID,
-		}); err == nil {
-			items, err := q.ListBOMLineItemInterpretations(ctx, priorRevID)
-			if err != nil {
-				return nil, nil, err
+	mem := map[string][]byte{}
+	if !projectID.Valid {
+		return prior, mem, nil
+	}
+
+	if priorRevID, err := q.GetImmediatelyPriorRevision(ctx, dbgen.GetImmediatelyPriorRevisionParams{
+		ProjectID:         projectID,
+		CurrentRevisionID: excludeRevID,
+	}); err == nil {
+		items, err := q.ListBOMLineItemInterpretations(ctx, priorRevID)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, pi := range items {
+			if len(pi.Interpretation) == 0 {
+				continue
 			}
-			for _, pi := range items {
-				if len(pi.Interpretation) == 0 {
-					continue
-				}
-				if key := lineInterpKey(pi.ReferenceDesignators, derefStr(pi.Value), derefStr(pi.Footprint)); key != "" {
-					prior[key] = rememberedInterp{bytes: pi.Interpretation, source: pi.InterpretationSource}
-				}
+			if key := lineInterpKey(pi.ReferenceDesignators, derefStr(pi.Value), derefStr(pi.Footprint)); key != "" {
+				prior[key] = rememberedInterp{bytes: pi.Interpretation, source: pi.InterpretationSource}
 			}
 		}
 	}
 
-	mem := map[string][]byte{}
-	rows, err := q.ListInterpretationMemory(ctx, teamID)
+	rows, err := q.ListInterpretationMemory(ctx, projectID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -620,12 +625,12 @@ func buildInterpretationReuse(ctx context.Context, q *dbgen.Queries, teamID, pro
 // resolveReusedInterpretation picks a remembered interpretation for a line, or
 // reports ok=false to fall back to a fresh parse. Precedence:
 //  1. a prior-revision *user* edit (most specific deliberate decision),
-//  2. a remembered team correction,
+//  2. a remembered project correction,
 //  3. a prior-revision *auto* interpretation (so a reviewed line does not
 //     re-flag). A 'user' result must not be clobbered by a re-parse.
 //
-// Both maps may be nil (e.g. preview supplies only teamMemory).
-func resolveReusedInterpretation(prior map[string]rememberedInterp, teamMemory map[string][]byte, refdes, value, footprint string) (bytes []byte, source string, ok bool) {
+// Both maps may be nil (e.g. preview supplies only projectMemory).
+func resolveReusedInterpretation(prior map[string]rememberedInterp, projectMemory map[string][]byte, refdes, value, footprint string) (bytes []byte, source string, ok bool) {
 	key := lineInterpKey(refdes, value, footprint)
 	if key == "" {
 		return nil, "", false
@@ -633,7 +638,7 @@ func resolveReusedInterpretation(prior map[string]rememberedInterp, teamMemory m
 	if ri := prior[key]; ri.source == "user" {
 		return ri.bytes, "user", true
 	}
-	if b := teamMemory[key]; b != nil {
+	if b := projectMemory[key]; b != nil {
 		return b, "user", true
 	}
 	if ri := prior[key]; ri.bytes != nil {
@@ -642,11 +647,11 @@ func resolveReusedInterpretation(prior map[string]rememberedInterp, teamMemory m
 	return nil, "", false
 }
 
-// rememberInterpretation records a user-confirmed interpretation in the team's
-// interpretation memory so the same correction is reused on future imports. It
-// is a no-op for interpretations that cannot be keyed (no class, or neither a
-// value nor a footprint). Runs inside the import transaction.
-func (h *Handler) rememberInterpretation(ctx context.Context, qtx *dbgen.Queries, teamID, userID pgtype.UUID, value, footprint *string, interpBytes []byte) error {
+// rememberInterpretation records a user-confirmed interpretation in the project's
+// interpretation memory so the same correction is reused on future imports of the
+// same project. It is a no-op for interpretations that cannot be keyed (no class,
+// or neither a value nor a footprint). Runs inside the import transaction.
+func (h *Handler) rememberInterpretation(ctx context.Context, qtx *dbgen.Queries, projectID, userID pgtype.UUID, value, footprint *string, interpBytes []byte) error {
 	var it genspec.Interpretation
 	if err := json.Unmarshal(interpBytes, &it); err != nil || it.Class == "" {
 		return nil //nolint:nilerr // unkeyable interpretation: nothing to remember
@@ -657,7 +662,7 @@ func (h *Handler) rememberInterpretation(ctx context.Context, qtx *dbgen.Queries
 		return nil
 	}
 	return qtx.UpsertInterpretationMemory(ctx, dbgen.UpsertInterpretationMemoryParams{
-		TeamID:         teamID,
+		ProjectID:      projectID,
 		Class:          it.Class,
 		ValueKey:       valueKey,
 		FootprintKey:   footprintKey,

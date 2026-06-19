@@ -294,6 +294,7 @@
           row: it.row,
         })),
         teamId,
+        projectId,
         { stream: true },
       );
       interpResults = resp.items;
@@ -476,6 +477,7 @@
           bind:interpretations={interpResults}
           bind:edited={interpEdited}
           {teamId}
+          {projectId}
           loading={interpLoading}
           jobId={interpJobId}
           pending={interpPending}

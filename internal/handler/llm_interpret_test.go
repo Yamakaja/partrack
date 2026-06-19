@@ -136,11 +136,12 @@ func TestLLMEscalation(t *testing.T) {
 		t.Errorf("expected resolution_state=auto_generic, got %v", line["resolution_state"])
 	}
 
-	// 3. The same weird value is now served from interpretation memory — no new
-	//    LLM call (callCount stays at 2).
+	// 3. The same weird value is now served from this project's interpretation
+	//    memory — no new LLM call (callCount stays at 2).
 	body, status = testutil.Do(t, testEnv.Server, http.MethodPost, "/api/v1/bom/interpret-preview", map[string]any{
-		"team_id": teamID,
-		"items":   []map[string]any{previewItem},
+		"team_id":    teamID,
+		"project_id": projectID,
+		"items":      []map[string]any{previewItem},
 	}, token)
 	if status != http.StatusOK {
 		t.Fatalf("preview 2: got %d", status)

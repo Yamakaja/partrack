@@ -23,7 +23,7 @@
   import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { Upload, Pencil, ClipboardCheck } from 'lucide-svelte';
+  import { Upload, Pencil, ClipboardCheck, Brain } from 'lucide-svelte';
   import { formatDate } from '$lib/utils/date.js';
   import {  projectStatusVariant } from '$lib/types/projects';
 
@@ -149,6 +149,14 @@
       {/if}
     {/snippet}
     {#snippet actions()}
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => navigate(`/teams/${teamId}/projects/${projectId}/interpretation-memory`)}
+        title="Inspect and manage remembered BOM-line interpretations for this project"
+      >
+        <Brain class="h-4 w-4 mr-1" /> Interpretations
+      </Button>
       <BOMImportDialog
         {teamId}
         {projectId}

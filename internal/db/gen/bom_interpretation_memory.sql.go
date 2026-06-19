@@ -11,6 +11,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteInterpretationMemoryEntry = `-- name: DeleteInterpretationMemoryEntry :execrows
+DELETE FROM bom_interpretation_memory
+WHERE id = $1 AND project_id = $2
+`
+
+type DeleteInterpretationMemoryEntryParams struct {
+	ID        pgtype.UUID `json:"id"`
+	ProjectID pgtype.UUID `json:"project_id"`
+}
+
+// Project-scoped delete (the project_id filter closes cross-tenant IDOR at the
+// data layer). Returns rows affected so the handler can 404 a stale/foreign id.
+func (q *Queries) DeleteInterpretationMemoryEntry(ctx context.Context, arg DeleteInterpretationMemoryEntryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteInterpretationMemoryEntry, arg.ID, arg.ProjectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listBOMLineItemInterpretations = `-- name: ListBOMLineItemInterpretations :many
 SELECT reference_designators, value, footprint, interpretation, interpretation_source
 FROM bom_line_items
@@ -56,7 +76,7 @@ func (q *Queries) ListBOMLineItemInterpretations(ctx context.Context, bomRevisio
 const listInterpretationMemory = `-- name: ListInterpretationMemory :many
 SELECT class, value_key, footprint_key, interpretation
 FROM bom_interpretation_memory
-WHERE team_id = $1
+WHERE project_id = $1
 ORDER BY updated_at DESC
 LIMIT 5000
 `
@@ -68,11 +88,11 @@ type ListInterpretationMemoryRow struct {
 	Interpretation []byte `json:"interpretation"`
 }
 
-// All remembered interpretations for a team, most-recently-confirmed first. The
+// All remembered interpretations for a project, most-recently-confirmed first. The
 // import path loads these once and builds an in-memory lookup. Bounded so a
-// pathological team cannot make import scan unboundedly.
-func (q *Queries) ListInterpretationMemory(ctx context.Context, teamID pgtype.UUID) ([]ListInterpretationMemoryRow, error) {
-	rows, err := q.db.Query(ctx, listInterpretationMemory, teamID)
+// pathological project cannot make import scan unboundedly.
+func (q *Queries) ListInterpretationMemory(ctx context.Context, projectID pgtype.UUID) ([]ListInterpretationMemoryRow, error) {
+	rows, err := q.db.Query(ctx, listInterpretationMemory, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -96,18 +116,73 @@ func (q *Queries) ListInterpretationMemory(ctx context.Context, teamID pgtype.UU
 	return items, nil
 }
 
+const listInterpretationMemoryEntries = `-- name: ListInterpretationMemoryEntries :many
+SELECT m.id, m.class, m.value_key, m.footprint_key, m.interpretation,
+       m.created_by, u.display_name AS created_by_name,
+       m.created_at, m.updated_at
+FROM bom_interpretation_memory m
+LEFT JOIN users u ON u.id = m.created_by
+WHERE m.project_id = $1
+ORDER BY m.updated_at DESC
+`
+
+type ListInterpretationMemoryEntriesRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Class          string             `json:"class"`
+	ValueKey       string             `json:"value_key"`
+	FootprintKey   string             `json:"footprint_key"`
+	Interpretation []byte             `json:"interpretation"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedByName  *string            `json:"created_by_name"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Full detail for the project management UI (vs the capped, 4-column import-path
+// ListInterpretationMemory): every remembered interpretation with provenance, so
+// a user can inspect and prune what the import will reuse.
+func (q *Queries) ListInterpretationMemoryEntries(ctx context.Context, projectID pgtype.UUID) ([]ListInterpretationMemoryEntriesRow, error) {
+	rows, err := q.db.Query(ctx, listInterpretationMemoryEntries, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInterpretationMemoryEntriesRow
+	for rows.Next() {
+		var i ListInterpretationMemoryEntriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Class,
+			&i.ValueKey,
+			&i.FootprintKey,
+			&i.Interpretation,
+			&i.CreatedBy,
+			&i.CreatedByName,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertInterpretationMemory = `-- name: UpsertInterpretationMemory :exec
 INSERT INTO bom_interpretation_memory (
-    team_id, class, value_key, footprint_key, interpretation, created_by
+    project_id, class, value_key, footprint_key, interpretation, created_by
 ) VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (team_id, class, value_key, footprint_key)
+ON CONFLICT (project_id, class, value_key, footprint_key)
 DO UPDATE SET interpretation = EXCLUDED.interpretation,
               created_by     = EXCLUDED.created_by,
               updated_at     = now()
 `
 
 type UpsertInterpretationMemoryParams struct {
-	TeamID         pgtype.UUID `json:"team_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 	Class          string      `json:"class"`
 	ValueKey       string      `json:"value_key"`
 	FootprintKey   string      `json:"footprint_key"`
@@ -115,12 +190,12 @@ type UpsertInterpretationMemoryParams struct {
 	CreatedBy      pgtype.UUID `json:"created_by"`
 }
 
-// Records a user-confirmed interpretation for a team, keyed by the normalised
+// Records a user-confirmed interpretation for a project, keyed by the normalised
 // (class, value, footprint). Last write wins. Written from the import review
-// gate; consulted on every later import (see doc/bom-import.md §9.2).
+// gate; consulted on every later import of the SAME project (see doc/bom-import.md §9.2).
 func (q *Queries) UpsertInterpretationMemory(ctx context.Context, arg UpsertInterpretationMemoryParams) error {
 	_, err := q.db.Exec(ctx, upsertInterpretationMemory,
-		arg.TeamID,
+		arg.ProjectID,
 		arg.Class,
 		arg.ValueKey,
 		arg.FootprintKey,

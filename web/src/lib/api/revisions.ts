@@ -124,9 +124,11 @@ export interface InterpretInput {
 }
 
 /**
- * Parse mapped BOM rows into interpretations (no persistence). When teamId is
- * given, the team's remembered corrections are layered over the fresh parse and
- * the affected rows are flagged `reused` — matching what the import will persist.
+ * Parse mapped BOM rows into interpretations (no persistence). When teamId and
+ * projectId are given, the project's remembered corrections are layered over the
+ * fresh parse and the affected rows are flagged `reused` — matching what the
+ * import will persist. Interpretation memory is project-scoped, so projectId is
+ * required to see reuse.
  *
  * With `stream: true`, the LLM fallback runs asynchronously: the response returns
  * the immediate (deterministic/memory) readings plus a `job_id` and the `pending`
@@ -134,13 +136,14 @@ export interface InterpretInput {
  * (`bom_interpret_item`, then `bom_interpret_complete`). Without it, LLM rows are
  * resolved inline before the response (used for single-row re-parse).
  */
-export function interpretPreview(items: InterpretInput[], teamId?: string, opts?: { stream?: boolean }) {
+export function interpretPreview(items: InterpretInput[], teamId?: string, projectId?: string, opts?: { stream?: boolean }) {
   return request<{ items: Interpretation[]; job_id?: string; pending?: number[] }>(
     'POST',
     '/api/v1/bom/interpret-preview',
     {
       items,
       ...(teamId ? { team_id: teamId } : {}),
+      ...(projectId ? { project_id: projectId } : {}),
       ...(opts?.stream ? { stream: true } : {}),
     },
   );

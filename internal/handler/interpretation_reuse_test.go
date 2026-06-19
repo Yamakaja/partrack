@@ -136,13 +136,15 @@ func TestInterpretationReuse_PriorRevisionCarryover(t *testing.T) {
 	}
 }
 
-// TestInterpretationReuse_TeamMemoryCrossProject verifies that a correction made in
-// one project is remembered team-wide and reused in a DIFFERENT project that has no
-// prior revision of its own.
-func TestInterpretationReuse_TeamMemoryCrossProject(t *testing.T) {
+// TestInterpretationReuse_ProjectIsolation verifies that interpretation memory is
+// project-scoped (Option A): a correction made in one project is NOT reused in a
+// DIFFERENT project. Project B re-parses the line fresh — it still resolves via the
+// catalog (auto_generic), but project A's carried-over confidence sentinel and
+// 'user' source must be absent, proving the correction did not leak across projects.
+func TestInterpretationReuse_ProjectIsolation(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
-	userID := testutil.CreateUser(t, testDB, "reuse-team@example.com", "pw", "Reuse")
+	userID := testutil.CreateUser(t, testDB, "reuse-iso@example.com", "pw", "Reuse")
 	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Reuse Team")
 	projectA := testutil.CreateProject(t, testDB, teamID, userID, "PCB-A")
 	projectB := testutil.CreateProject(t, testDB, teamID, userID, "PCB-B")
@@ -150,16 +152,23 @@ func TestInterpretationReuse_TeamMemoryCrossProject(t *testing.T) {
 
 	seedGenericResistor(t, teamID, token)
 
-	// Project A: correct the interpretation via the review gate → team memory.
+	// Project A: correct the interpretation via the review gate → project A's memory.
 	revA := importResistorLine(t, teamID, projectA, token, "v1.0", overrideInterpretation())
 	pollResolvedLine(t, teamID, projectA, token, revA)
 
-	// Project B: first revision (no prior carryover), same value+footprint — the
-	// team memory must supply the remembered interpretation.
+	// Project B: first revision, same value+footprint. Memory is project-scoped, so
+	// project A's correction must NOT leak here — the line is parsed fresh.
 	revB := importResistorLine(t, teamID, projectB, token, "v1.0", nil)
 	item := pollResolvedLine(t, teamID, projectB, token, revB)
 
-	assertReusedInterpretation(t, item)
+	if item["interpretation_source"] == "user" {
+		t.Errorf("project B reused project A's correction (interpretation_source=user); memory should be project-scoped")
+	}
+	if interp, _ := item["interpretation"].(map[string]any); interp != nil {
+		if c, _ := interp["confidence"].(float64); c == 0.42 {
+			t.Errorf("project B carried project A's confidence sentinel 0.42; memory leaked across projects")
+		}
+	}
 }
 
 // TestGenericPartCandidates verifies the review-gate candidate endpoint returns the

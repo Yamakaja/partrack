@@ -457,7 +457,7 @@ type Blob struct {
 
 type BomInterpretationMemory struct {
 	ID             pgtype.UUID        `json:"id"`
-	TeamID         pgtype.UUID        `json:"team_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
 	Class          string             `json:"class"`
 	ValueKey       string             `json:"value_key"`
 	FootprintKey   string             `json:"footprint_key"`

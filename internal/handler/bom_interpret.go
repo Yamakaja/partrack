@@ -60,9 +60,10 @@ type previewItem struct {
 // re-parse after an edit).
 func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TeamID string             `json:"team_id"`
-		Stream bool               `json:"stream"`
-		Items  []interpretReqItem `json:"items"`
+		TeamID    string             `json:"team_id"`
+		ProjectID string             `json:"project_id"`
+		Stream    bool               `json:"stream"`
+		Items     []interpretReqItem `json:"items"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -73,11 +74,12 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally layer the team's remembered corrections over the fresh parse.
-	// Only team memory is consulted (no project scope): every prior-revision
-	// *user* edit is also in team memory, and a prior *auto* interpretation is
-	// identical to the fresh parse, so team memory reproduces every visible reuse.
-	var teamMemory map[string][]byte
+	// Optionally layer the project's remembered corrections over the fresh parse,
+	// so the review gate shows exactly what import will persist. Only the project's
+	// interpretation memory is consulted (not prior-revision carryover): every prior
+	// *user* edit is also in project memory, and a prior *auto* interpretation is
+	// identical to the fresh parse, so project memory reproduces every visible reuse.
+	var projectMemory map[string][]byte
 	var teamID pgtype.UUID
 	if req.TeamID != "" {
 		if err := teamID.Scan(req.TeamID); err != nil {
@@ -101,17 +103,30 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "not a member of this team", "FORBIDDEN")
 			return
 		}
-		// projectID invalid → prior-revision carryover skipped; teamMemory loaded.
-		if _, mem, err := buildInterpretationReuse(r.Context(), h.Queries, teamID, pgtype.UUID{}, pgtype.UUID{}); err != nil {
+		// Interpretation memory is project-scoped: load it only when the client
+		// supplies a project_id that belongs to this team (membership is already
+		// established above; requireProjectInTeam closes the cross-tenant gap).
+		var projectID pgtype.UUID
+		if req.ProjectID != "" {
+			if err := projectID.Scan(req.ProjectID); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid project_id", "BAD_REQUEST")
+				return
+			}
+			if !h.requireProjectInTeam(w, r, projectID, teamID) {
+				return
+			}
+		}
+		// excludeRevID invalid → prior-revision carryover skipped; project memory loaded.
+		if _, mem, err := buildInterpretationReuse(r.Context(), h.Queries, projectID, pgtype.UUID{}); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		} else {
-			teamMemory = mem
+			projectMemory = mem
 		}
 	}
 
 	// Phase 1: memory reuse, else a fresh deterministic parse.
-	out := buildPhase1(req.Items, teamMemory)
+	out := buildPhase1(req.Items, projectMemory)
 
 	// Eligible rows for the LLM fallback (only when configured + team-scoped).
 	var eligible []int
@@ -169,10 +184,10 @@ func (h *Handler) InterpretPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildPhase1 produces the deterministic / memory-reuse reading for every row.
-func buildPhase1(items []interpretReqItem, teamMemory map[string][]byte) []previewItem {
+func buildPhase1(items []interpretReqItem, projectMemory map[string][]byte) []previewItem {
 	out := make([]previewItem, len(items))
 	for i, it := range items {
-		if rb, _, ok := resolveReusedInterpretation(nil, teamMemory, it.Refdes, it.Value, it.Footprint); ok {
+		if rb, _, ok := resolveReusedInterpretation(nil, projectMemory, it.Refdes, it.Value, it.Footprint); ok {
 			var remembered genspec.Interpretation
 			if err := json.Unmarshal(rb, &remembered); err == nil {
 				out[i] = previewItem{Interpretation: remembered, Source: "reused", Reused: true}
