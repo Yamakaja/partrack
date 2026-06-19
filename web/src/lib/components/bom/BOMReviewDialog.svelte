@@ -399,9 +399,9 @@
   }
 </script>
 
-<Dialog bind:open class="max-w-2xl" title="BOM Review">
+<Dialog bind:open class="max-w-2xl flex flex-col min-h-[540px] max-h-[90vh]" title="BOM Review">
   {#snippet children()}
-    <div class="flex flex-col min-h-[540px]">
+    <div class="flex flex-col flex-1 min-h-0">
     {#if !currentItem}
       <p class="text-sm text-muted-foreground">No items to review.</p>
       <div class="mt-4 flex justify-end">
@@ -414,8 +414,11 @@
         <Button variant="ghost" size="sm" onclick={() => onclose?.()}>Close</Button>
       </div>
 
+      <!-- Scrollable body: item summary + resolution actions. Pinned progress
+           header above and navigation below stay reachable as this grows. -->
+      <div class="flex-1 min-h-0 overflow-y-auto space-y-4 pr-0.5">
       <!-- Item summary -->
-      <div class="rounded-md border border-border p-4 space-y-2 mb-4">
+      <div class="rounded-md border border-border p-4 space-y-2">
         <div class="flex items-center gap-2 flex-wrap">
           <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
           {#if currentItem.resolved_part_id && currentItem.resolved_part_mpn}
@@ -492,7 +495,7 @@
       </div>
 
       <!-- Actions -->
-      <div class="space-y-2 flex-1">
+      <div class="space-y-2">
         <!-- Matching library parts (same spec the importer matched on) -->
         {#if isParametric && !currentItem.resolved_part_id && (candidatesLoading || candidates.length > 0)}
           <div class="border border-primary/40 rounded-md">
@@ -736,9 +739,10 @@
         </div>
 
       </div>
+      </div>
 
       <!-- Navigation -->
-      <div class="flex items-center justify-between mt-6 pt-4 border-t border-border">
+      <div class="flex items-center justify-between mt-4 pt-4 border-t border-border">
         <Button
           variant="ghost"
           size="sm"
