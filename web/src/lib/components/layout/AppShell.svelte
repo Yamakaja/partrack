@@ -2,6 +2,7 @@
   import { type Snippet } from 'svelte';
   import Sidebar from './Sidebar.svelte';
   import ActivityFeedPanel from './ActivityFeedPanel.svelte';
+  import HelpDrawer from '$lib/components/help/HelpDrawer.svelte';
   import { scanSessionStore, setScanSession, markScanSessionConnected, markScanSessionDisconnected } from '$lib/stores/scanSession.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { request } from '$lib/api/client.js';
@@ -68,3 +69,5 @@
     <ActivityFeedPanel {teamId} />
   {/if}
 </div>
+
+<HelpDrawer />

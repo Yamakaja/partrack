@@ -4,6 +4,7 @@
   import { Search } from 'lucide-svelte';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
+  import HelpButton from '$lib/components/help/HelpButton.svelte';
 
   let {
     title,
@@ -66,5 +67,6 @@
     {#if actions}
       {@render actions()}
     {/if}
+    <HelpButton />
   </div>
 </div>
