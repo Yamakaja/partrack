@@ -12,6 +12,7 @@
   import CommandPalette from './CommandPalette.svelte';
   import ScanModal from '$lib/components/scanner/ScanModal.svelte';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
+  import { versionStore } from '$lib/stores/version.svelte.js';
   import { createQuery } from '@tanstack/svelte-query';
   import { getCartCount } from '$lib/api/cart.js';
   import { getBulkScanBadgeCount } from '$lib/api/bulkScan.js';
@@ -303,6 +304,18 @@
       Log out
     </button>
   </div>
+
+  <!-- Build version -->
+  {#if versionStore.info}
+    <div class="px-3 pb-2 text-center">
+      <span
+        class="font-mono text-[10px] text-muted-foreground/60"
+        title={`commit ${versionStore.info.commit} · built ${versionStore.info.date}`}
+      >
+        partrack {versionStore.info.version}
+      </span>
+    </div>
+  {/if}
 </aside>
 
 <CommandPalette />

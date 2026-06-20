@@ -22,6 +22,14 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      # Stamp the build with version metadata. Export these before building, e.g.
+      #   export PARTRACK_VERSION=$(git describe --tags --always --dirty)
+      #   export PARTRACK_COMMIT=$(git rev-parse --short HEAD)
+      #   export PARTRACK_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      args:
+        VERSION: "${PARTRACK_VERSION:-dev}"
+        COMMIT: "${PARTRACK_COMMIT:-unknown}"
+        DATE: "${PARTRACK_DATE:-unknown}"
     image: partrack:latest
     restart: unless-stopped
     depends_on:

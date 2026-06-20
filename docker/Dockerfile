@@ -26,11 +26,21 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
 COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
 
+# Build metadata. The .git directory is excluded from the build context (see
+# .dockerignore), so these are computed on the host / in CI and passed in:
+#   docker build --build-arg VERSION=$(git describe --tags --always) ...
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build \
         -trimpath \
-        -ldflags="-s -w" \
+        -ldflags="-s -w \
+            -X github.com/Yamakaja/partrack/internal/version.Version=${VERSION} \
+            -X github.com/Yamakaja/partrack/internal/version.Commit=${COMMIT} \
+            -X github.com/Yamakaja/partrack/internal/version.Date=${DATE}" \
         -o /partrack \
         ./cmd/partrack
 
