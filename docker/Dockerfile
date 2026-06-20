@@ -26,23 +26,35 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
 COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
 
-# Build metadata. The .git directory is excluded from the build context (see
-# .dockerignore), so these are computed on the host / in CI and passed in:
-#   docker build --build-arg VERSION=$(git describe --tags --always) ...
-ARG VERSION=dev
-ARG COMMIT=unknown
-ARG DATE=unknown
+# Version metadata and the embedded user-facing changelog are derived from git
+# inside this stage (the .git dir is in the build context). The runtime stage
+# only copies the binary, so .git never reaches the final image. VERSION/COMMIT/
+# DATE may be overridden via build args (e.g. a CI build from a tree with no
+# .git); otherwise they fall back to git, then to sane defaults.
+ARG VERSION=
+ARG COMMIT=
+ARG DATE=
 
 RUN --mount=type=cache,target=/root/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build \
-        -trimpath \
-        -ldflags="-s -w \
-            -X github.com/Yamakaja/partrack/internal/version.Version=${VERSION} \
-            -X github.com/Yamakaja/partrack/internal/version.Commit=${COMMIT} \
-            -X github.com/Yamakaja/partrack/internal/version.Date=${DATE}" \
-        -o /partrack \
-        ./cmd/partrack
+    --mount=type=cache,target=/root/.cache/go-build <<'SH'
+set -eu
+git config --global --add safe.directory /app
+# Read refs/objects only — never `--dirty`: the build context omits some tracked
+# files via .dockerignore, which would otherwise look like a dirty worktree.
+VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+DATE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+# Generate the embedded changelog from history before building.
+go run ./tools/genchangelog -o internal/changelog/changelog.json
+CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w \
+        -X github.com/Yamakaja/partrack/internal/version.Version=${VERSION} \
+        -X github.com/Yamakaja/partrack/internal/version.Commit=${COMMIT} \
+        -X github.com/Yamakaja/partrack/internal/version.Date=${DATE}" \
+    -o /partrack \
+    ./cmd/partrack
+SH
 
 
 # ── Stage 3: runtime ──────────────────────────────────────────────────────────

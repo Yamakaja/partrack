@@ -1,5 +1,9 @@
 # Version control
-.git
+#
+# NOTE: .git is intentionally NOT excluded — the build derives the version
+# (git describe) and generates the embedded changelog (tools/genchangelog) from
+# git history inside the backend build stage. Multi-stage keeps it out of the
+# final image (the runtime stage only copies the binary).
 .gitignore
 
 # Frontend build output (built inside Docker, not from host)

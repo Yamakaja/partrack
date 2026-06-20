@@ -16,6 +16,7 @@ Higher roles inherit all permissions of lower roles.
 |--------|------|-------------|
 | GET | `/health` | Liveness check — returns `{"status":"ok"}` with 200 |
 | GET | `/version` | Running build metadata — `{"version","commit","date"}` (CalVer; `version:"dev"` for un-stamped local builds) |
+| GET | `/changelog` | Curated user-facing changelog → `{"releases":[{version,date,entries[]}]}`. `?since=<version>` returns only releases newer than that version (drives the "what's changed" dialog). Generated from git `Changelog:` trailers, embedded at build time |
 | GET | `/categories` | All categories (flat list; build tree from `parent_id`). Each carries `value_param` (the slug whose magnitude a bare value encodes; `null` ⇒ not parametric) and the ordered `primary_params` slug list — the curated class profile (see `/admin/categories/{id}/params`). |
 | GET | `/parameter-definitions` | All canonical parameter definitions |
 
