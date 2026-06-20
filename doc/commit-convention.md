@@ -17,8 +17,11 @@ to read well for end users; that's what the `Changelog:` trailer is for.
 
 ## User-facing changelog: the `Changelog:` trailer
 
-The changelog ([CHANGELOG.md](../CHANGELOG.md)) and the in-app "What's changed"
-dialog (Phase 2) are **strictly opt-in**. A commit appears there **only** if it
+The user-facing changelog and the in-app "What's changed" dialog (Phase 2) are
+**strictly opt-in**. The changelog is **not stored in the repo** — it is
+generated on demand from git history with [git-cliff](https://git-cliff.org)
+(`git cliff`, or `git cliff --unreleased` for what's pending) and published in
+the GitHub Release notes for each tag. A commit appears there **only** if it
 carries a `Changelog:` trailer in its footer:
 
 ```
@@ -63,8 +66,8 @@ or `dev` when no tag exists yet.
 
 1. Push a CalVer tag (`2026.6.0`).
 2. `.github/workflows/release.yml` runs git-cliff against
-   [cliff.toml](../cliff.toml), regenerates `CHANGELOG.md`, and creates a GitHub
-   Release with the notes for that tag.
+   [cliff.toml](../cliff.toml) and creates a GitHub Release whose notes are the
+   curated `Changelog:` entries for that tag.
 3. Build/deploy the image with the version stamped in (the Dockerfile takes
    `VERSION`/`COMMIT`/`DATE` build args; `docker compose build` reads them from
    `PARTRACK_VERSION`/`PARTRACK_COMMIT`/`PARTRACK_DATE`).
