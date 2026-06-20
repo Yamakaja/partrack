@@ -6,6 +6,7 @@
   import { initVersion } from '$lib/stores/version.svelte.js';
   import { initPreferences } from '$lib/stores/preferences.svelte.js';
   import { checkWhatsNew } from '$lib/stores/whatsNew.svelte.js';
+  import { maybeStartTour } from '$lib/stores/tour.svelte.js';
   import { setActiveTeam, restoreActiveTeam, activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { openForTeam, closeSSE, setReconnectHandler } from '$lib/api/sse.js';
   import {
@@ -102,6 +103,17 @@
     return null;
   }
 
+  // Gate for the first-run tour: true once auth + preferences (+ the what's-new
+  // check) have resolved, so the tour is never evaluated against unloaded prefs.
+  let tourReady = $state(false);
+
+  // Start the first-run tour once a team context exists — this also covers a
+  // user who selects their first team after the initial mount. maybeStartTour is
+  // idempotent and self-gates on the saved preference and what's-new collision.
+  $effect(() => {
+    if (tourReady && activeTeamStore.current) maybeStartTour();
+  });
+
   $effect(() => {
     const route = currentRoute();
 
@@ -148,7 +160,10 @@
       restoreActiveTeam();
       // Load saved preferences first (checkWhatsNew reads/writes lastSeenVersion).
       await initPreferences();
-      checkWhatsNew();
+      // Await so the what's-new "shown this session" flag is set before the tour
+      // is evaluated (the two first-run surfaces must not collide).
+      await checkWhatsNew();
+      tourReady = true;
     }
     if (authStore.user && currentRoute().path === '/login') {
       navigate('/', true);

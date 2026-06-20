@@ -51,6 +51,7 @@
   <!-- Center: search bar (only when inside a team) -->
   {#if showSearch}
     <button
+      data-tour="search"
       onclick={() => { paletteStore.open = true; }}
       class="flex items-center gap-2 w-128 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/70 hover:border-border/80 transition-colors"
     >

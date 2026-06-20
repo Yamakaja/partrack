@@ -3,9 +3,16 @@ import { getVersion } from '$lib/api/version.js';
 import { getPref, setPref } from './preferences.svelte.js';
 import { getChangelog, type ChangelogRelease } from '$lib/api/changelog.js';
 
-export const whatsNewStore = $state<{ open: boolean; releases: ChangelogRelease[] }>({
+export const whatsNewStore = $state<{
+  open: boolean;
+  releases: ChangelogRelease[];
+  /** True once the dialog has been shown this session — the first-run tour
+   *  defers when set so the two first-run surfaces don't collide. */
+  shownThisSession: boolean;
+}>({
   open: false,
   releases: [],
+  shownThisSession: false,
 });
 
 const RELEASE_RE = /^\d+\.\d+\.\d+$/;
@@ -51,6 +58,7 @@ export async function checkWhatsNew() {
     if (releases && releases.length > 0) {
       whatsNewStore.releases = releases;
       whatsNewStore.open = true;
+      whatsNewStore.shownThisSession = true;
     }
     await setPref('lastSeenVersion', current); // mark seen on success
   } catch {

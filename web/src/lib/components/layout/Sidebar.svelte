@@ -102,7 +102,7 @@
 
   <!-- Nav -->
   {#if activeTeam}
-    <nav class="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 text-sm">
+    <nav data-tour="nav" class="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 text-sm">
       <a href={teamPath('')} use:linkAction
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
           {isActive(`/teams/${activeTeam.teamId}`) && currentRoute().path === `/teams/${activeTeam.teamId}`
@@ -214,16 +214,14 @@
     </div>
   {/if}
 
-  <!-- SSE connection indicator -->
+  <!-- Connection status: live server link + phone scanner -->
   {#if teamId}
-    <div class="border-t border-border px-2 py-0.5">
-      <SSEConnectionIndicator />
-    </div>
-  {/if}
+    <div data-tour="status">
+      <div class="border-t border-border px-2 py-0.5">
+        <SSEConnectionIndicator />
+      </div>
 
-  <!-- Scanner badge -->
-  {#if teamId}
-    <div class="border-t border-border px-2 py-1.5">
+      <div class="border-t border-border px-2 py-1.5">
       {#if !session}
         <button
           onclick={() => { scanModalOpen = true; }}
@@ -282,11 +280,12 @@
           </Popover.Content>
         </Popover.Root>
       {/if}
+      </div>
     </div>
   {/if}
 
   <!-- User footer -->
-  <div class="border-t border-border px-3 py-2 flex items-center gap-2">
+  <div data-tour="account" class="border-t border-border px-3 py-2 flex items-center gap-2">
     <div class="flex-1 min-w-0">
       <p class="text-sm font-medium truncate">{authStore.user?.display_name ?? ''}</p>
       <a href="/settings/profile" use:linkAction class="text-xs text-muted-foreground hover:underline truncate block">

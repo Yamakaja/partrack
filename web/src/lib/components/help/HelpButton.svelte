@@ -4,6 +4,7 @@
 </script>
 
 <button
+  data-tour="help"
   onclick={openHelpForCurrentRoute}
   title="Help for this page"
   aria-label="Help for this page"
