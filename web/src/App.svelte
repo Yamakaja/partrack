@@ -4,6 +4,8 @@
   import { currentRoute, linkAction, matchRoute, navigate, type RouteParams } from '$lib/router/index.svelte.js';
   import { initAuth, authStore } from '$lib/stores/auth.svelte.js';
   import { initVersion } from '$lib/stores/version.svelte.js';
+  import { initPreferences } from '$lib/stores/preferences.svelte.js';
+  import { checkWhatsNew } from '$lib/stores/whatsNew.svelte.js';
   import { setActiveTeam, restoreActiveTeam, activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { openForTeam, closeSSE, setReconnectHandler } from '$lib/api/sse.js';
   import {
@@ -142,7 +144,12 @@
     await initAuth();
     // Restore the persisted team so deep-links / refreshes onto team-less
     // routes (admin/settings) still show the last-selected team and its nav.
-    if (authStore.user) restoreActiveTeam();
+    if (authStore.user) {
+      restoreActiveTeam();
+      // Load saved preferences first (checkWhatsNew reads/writes lastSeenVersion).
+      await initPreferences();
+      checkWhatsNew();
+    }
     if (authStore.user && currentRoute().path === '/login') {
       navigate('/', true);
     }

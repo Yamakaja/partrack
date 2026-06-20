@@ -3,6 +3,7 @@
   import Sidebar from './Sidebar.svelte';
   import ActivityFeedPanel from './ActivityFeedPanel.svelte';
   import HelpDrawer from '$lib/components/help/HelpDrawer.svelte';
+  import WhatsNewDialog from '$lib/components/whatsnew/WhatsNewDialog.svelte';
   import { scanSessionStore, setScanSession, markScanSessionConnected, markScanSessionDisconnected } from '$lib/stores/scanSession.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import { request } from '$lib/api/client.js';
@@ -71,3 +72,4 @@
 </div>
 
 <HelpDrawer />
+<WhatsNewDialog />
