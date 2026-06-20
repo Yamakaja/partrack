@@ -292,13 +292,17 @@ Key data:
 ---
 
 ### Storage Location
-A physical location label managed by a Team.
+A physical location managed by a Team.
 
 Key data:
-- Label / identifier (e.g. `A3`, `Shelf-2/Bin-5`, `Red Box`)
+- Label / identifier (e.g. `A3`, `Shelf-2`, `Red Box`)
 - Optional description
+- Optional reference to a parent Storage Location (`parent_id`) — locations form a tree
+- Optional grid configuration (`grid_config`) — turns a location into an addressable matrix of cells
 
-Storage locations are flat, team-managed labels. A hierarchical model is a possible future extension.
+Storage locations are **hierarchical**, team-managed nodes (migration `000034`): each location may have a parent, so a Team can model its real layout to arbitrary depth (e.g. `Lab → Cabinet A → Drawer 3`). Label uniqueness is scoped to siblings within the same parent (root nodes are deduplicated per Team via `NULLS NOT DISTINCT`), not the whole Team. Deleting a location is restricted (`ON DELETE RESTRICT`) — a location with child locations or referencing Inventory Entries cannot be removed until they are moved away.
+
+A location may carry a `grid_config` (JSONB) describing a 1–3 level grid of cells (1D strips or 2D rows×columns). For such locations the per-part position is recorded on the **Inventory Entry** as a `storage_coordinate` (an integer array indexing into the grid), so the Inventory Entry still references exactly one Storage Location (see rule 2) but can additionally pin a specific cell within it.
 
 ---
 
