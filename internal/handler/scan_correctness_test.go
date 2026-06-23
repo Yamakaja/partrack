@@ -205,3 +205,45 @@ func TestRepro_StockAdjustment_CompareAndSet(t *testing.T) {
 		t.Errorf("after CAS retry, expected on-hand 12, got %v", body["new_quantity_on_hand"])
 	}
 }
+
+// Area 1 H1: the by-user phone endpoints (GetScanSession/SubmitScan/ConfirmScan/
+// SkipScan) must resolve the session by the presented TOKEN, not by the (shared)
+// authenticated user. With two active sessions for one user, by-user resolution
+// (GetActiveScanSessionForUser: LIMIT 1, no ORDER BY) returns the same arbitrary
+// session for every token, so a scan acts on the wrong session/team.
+func TestVerify_ScanSession_TokenBound(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+
+	// One user, two teams, two active scan sessions (the DB allows this — the create
+	// guard is non-atomic, and testutil seeds the rows directly).
+	user := testutil.CreateUser(t, testDB, "tokbind@example.com", "pw", "User")
+	teamA := testutil.CreateTeam(t, testDB, user, "member", "Team A")
+	teamB := testutil.CreateTeam(t, testDB, user, "member", "Team B")
+	tokenA := testutil.CreateScanSession(t, testDB, user, teamA)
+	tokenB := testutil.CreateScanSession(t, testDB, user, teamB)
+
+	// Pre-connect both so GetScanSession performs no write — a write would reorder the
+	// heap and let the by-user LIMIT-1 query return a different row per call by chance,
+	// masking the bug. Read-only, the by-user pick is deterministic (same row each call).
+	if _, err := testDB.Exec(ctx, `UPDATE scan_sessions SET phone_connected = true WHERE user_id = $1`, user); err != nil {
+		t.Fatalf("pre-connect sessions: %v", err)
+	}
+
+	bodyA, statusA := testutil.Do(t, testEnv.Server, http.MethodGet, "/api/v1/scan/session", nil, tokenA)
+	bodyB, statusB := testutil.Do(t, testEnv.Server, http.MethodGet, "/api/v1/scan/session", nil, tokenB)
+	if statusA != http.StatusOK || statusB != http.StatusOK {
+		t.Fatalf("get session: statuses A=%d B=%d", statusA, statusB)
+	}
+
+	idA, _ := bodyA["session_id"].(string)
+	idB, _ := bodyB["session_id"].(string)
+	if idA == "" || idB == "" {
+		t.Fatalf("missing session_id: A=%q B=%q", idA, idB)
+	}
+	// Each token must resolve to its OWN session. By-user resolution returns the same
+	// session for both tokens, so idA == idB until the endpoints are token-bound.
+	if idA == idB {
+		t.Errorf("both scan tokens resolved to the same session %s — endpoints resolve by user, not by the presented token", idA)
+	}
+}

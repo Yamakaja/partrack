@@ -61,28 +61,6 @@ func (h *Handler) scanSessionFromScanToken(r *http.Request) (*dbgen.ScanSession,
 	return &sess, nil
 }
 
-// scanSessionFromContext looks up the active scan session for the authenticated
-// user. Scan tokens carry no team role, so the session record itself is the
-// source of team_id and context. Returns nil if the user has no active session.
-func (h *Handler) scanSessionFromContext(r *http.Request) (*dbgen.ScanSession, error) {
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		return nil, nil //nolint:nilnil
-	}
-	var userID pgtype.UUID
-	if err := userID.Scan(user.ID); err != nil {
-		return nil, err
-	}
-	sess, err := h.Queries.GetActiveScanSessionForUser(r.Context(), userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil //nolint:nilnil
-		}
-		return nil, err
-	}
-	return &sess, nil
-}
-
 // generateScanToken returns a cryptographically random token with the "scan_" prefix.
 func generateScanToken() (string, error) {
 	b := make([]byte, 32)
@@ -548,7 +526,7 @@ func (h *Handler) StreamScanSession(w http.ResponseWriter, r *http.Request) {
 // GetScanSession handles GET /api/v1/scan/session.
 // Phone polls this every few seconds as a fallback / context recovery.
 func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.scanSessionFromContext(r)
+	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -1190,7 +1168,7 @@ type pendingScan struct {
 // Phone submits a raw barcode string. The backend parses and matches it to an
 // order line item, stores the result as pending_scan, and returns it.
 func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.scanSessionFromContext(r)
+	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -1333,7 +1311,7 @@ func (h *Handler) SubmitScan(w http.ResponseWriter, r *http.Request) {
 // ConfirmScan handles POST /api/v1/scan/confirm.
 // Applies the pending_scan receive action and clears the pending scan.
 func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.scanSessionFromContext(r)
+	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -1634,7 +1612,7 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 // SkipScan handles POST /api/v1/scan/skip.
 // Clears the pending scan without applying it.
 func (h *Handler) SkipScan(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.scanSessionFromContext(r)
+	sess, err := h.scanSessionFromScanToken(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
