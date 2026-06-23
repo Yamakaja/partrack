@@ -77,6 +77,41 @@
   let contextOrderId = $state<string | null>(null);
   let contextOrderRef = $state<string | null>(null);
 
+  // ── Pending context (pushed while the phone is off the menu) ───────────────
+  // A desktop "Send to Scanner" push (kitting / order) that arrives while the
+  // operator is mid-task must not be silently dropped. We stash it and surface a
+  // tappable banner so the operator can switch when ready.
+  type PendingContext =
+    | { kind: 'kitting'; kittingSessionId: string; buildRef: string }
+    | { kind: 'order'; orderId: string; orderRef: string };
+  let pendingContext = $state<PendingContext | null>(null);
+
+  function applyContext(ctx: PendingContext) {
+    pendingContext = null;
+    navStack = [{ screen: 'menu' }];
+    if (ctx.kind === 'kitting') {
+      goTo({ screen: 'build_kitting', kittingSessionId: ctx.kittingSessionId, buildRef: ctx.buildRef });
+    } else {
+      contextOrderId = ctx.orderId;
+      contextOrderRef = ctx.orderRef;
+      goTo({ screen: 'receive_order' });
+    }
+  }
+
+  // Route an incoming context: navigate immediately when idle on the menu,
+  // otherwise raise the banner so the operator isn't yanked out of a task.
+  function receiveContext(ctx: PendingContext) {
+    if (
+      ctx.kind === 'kitting' &&
+      current.screen === 'build_kitting' &&
+      current.kittingSessionId === ctx.kittingSessionId
+    ) {
+      return; // already in this kitting session
+    }
+    if (current.screen === 'menu') applyContext(ctx);
+    else pendingContext = ctx;
+  }
+
   // ── History part-select handler ───────────────────────────────────────────
 
   function handleHistoryPartSelect(entry: ScanHistoryEntry) {
@@ -107,6 +142,7 @@
   let phoneES: EventSource | null = null;
   let sseStopped = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempts = 0;
 
   // openPhoneSSE mints a fresh single-use stream ticket and opens the SSE stream
   // with it (the durable token is never placed in the URL). Because the ticket is
@@ -128,22 +164,22 @@
 
     const es = new EventSource(`/api/v1/scan/stream?ticket=${encodeURIComponent(ticket)}`);
     phoneES = es;
+    es.onopen = () => { reconnectAttempts = 0; };
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as Record<string, unknown>;
         if (msg.type === 'scan_context_changed') {
           if (msg.context_type === 'kitting') {
             const ksId = msg.context_kitting_session_id as string | undefined;
-            const ref = msg.context_build_ref as string | undefined;
-            if (ksId && current.screen === 'menu') {
-              goTo({ screen: 'build_kitting', kittingSessionId: ksId, buildRef: ref ?? '' });
-            }
+            const ref = (msg.context_build_ref as string) ?? '';
+            if (ksId) receiveContext({ kind: 'kitting', kittingSessionId: ksId, buildRef: ref });
           } else {
-            contextOrderId = (msg.context_order_id as string) ?? null;
-            contextOrderRef = (msg.context_order_ref as string) ?? null;
-            if (contextOrderId && current.screen === 'menu') {
-              goTo({ screen: 'receive_order' });
-            }
+            const orderId = (msg.context_order_id as string) ?? null;
+            const orderRef = (msg.context_order_ref as string) ?? null;
+            // Keep the stored order context fresh regardless of current screen.
+            contextOrderId = orderId;
+            contextOrderRef = orderRef;
+            if (orderId) receiveContext({ kind: 'order', orderId, orderRef: orderRef ?? '' });
           }
         }
       } catch {}
@@ -155,12 +191,29 @@
     };
   }
 
+  // Exponential backoff with jitter, capped at 30s. Reset to 0 on a successful
+  // open (es.onopen) or when the tab is brought back to the foreground.
   function scheduleReconnect() {
     if (sseStopped || reconnectTimer) return;
+    const base = Math.min(30000, 1000 * 2 ** reconnectAttempts);
+    const delay = base / 2 + Math.random() * (base / 2); // 0.5×–1× base
+    reconnectAttempts = Math.min(reconnectAttempts + 1, 6);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       openPhoneSSE();
-    }, 2000);
+    }, delay);
+  }
+
+  // When the tab returns to the foreground (iOS often freezes/kills the SSE
+  // socket and timers while backgrounded), recover promptly: cancel any pending
+  // backoff, reset it, reconnect if the stream is gone, and poll once so context
+  // pushes missed while asleep are picked up.
+  function handleVisibility() {
+    if (document.visibilityState !== 'visible' || sseStopped || !token) return;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    reconnectAttempts = 0;
+    if (!phoneES || phoneES.readyState === EventSource.CLOSED) void openPhoneSSE();
+    void pollSession();
   }
 
   // ── Polling ───────────────────────────────────────────────────────────────
@@ -223,6 +276,7 @@
     }
     document.addEventListener('touchstart', onTouchStart, { passive: true });
     document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // Pairing ticket arrives in the URL fragment (#pt=…) so it is never sent to
     // the server / proxy logs. Exchange it once for the durable token.
@@ -257,6 +311,7 @@
       viewport?.setAttribute('content', originalContent);
       document.removeEventListener('touchstart', onTouchStart);
       document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   });
 
@@ -270,6 +325,37 @@
 </script>
 
 <div class="flex h-dvh flex-col bg-black text-white overflow-hidden select-none touch-manipulation">
+
+  <!-- ── PENDING CONTEXT BANNER (pushed while off the menu) ─────────────────── -->
+  {#if pendingContext && topLevel === null && current.screen !== 'menu'}
+    <div class="fixed inset-x-0 top-0 z-[60] p-2">
+      <div class="flex items-center gap-3 rounded-lg border border-white/20 bg-zinc-900/95 px-3 py-2 shadow-lg backdrop-blur">
+        <button
+          type="button"
+          class="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-70"
+          onclick={() => pendingContext && applyContext(pendingContext)}
+        >
+          <span class="text-lg">{pendingContext.kind === 'kitting' ? '🧰' : '📦'}</span>
+          <span class="min-w-0">
+            <span class="block text-xs text-zinc-400">
+              {pendingContext.kind === 'kitting' ? 'Kitting ready — tap to open' : 'Order ready — tap to receive'}
+            </span>
+            <span class="block truncate text-sm font-medium">
+              {pendingContext.kind === 'kitting'
+                ? (pendingContext.buildRef || 'Build')
+                : (pendingContext.orderRef || 'Order')}
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          class="shrink-0 rounded p-1 text-zinc-400 active:text-white"
+          onclick={() => (pendingContext = null)}
+        >✕</button>
+      </div>
+    </div>
+  {/if}
 
   <!-- ── LOADING ──────────────────────────────────────────────────────────── -->
   {#if topLevel === 'loading'}

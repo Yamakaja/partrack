@@ -846,7 +846,11 @@ func (q *Queue) CommitResolveItem(
 	return partID, nil
 }
 
-func (q *Queue) publishPartResolveChanged(item dbgen.PartResolveItem, userID, teamID string) {
+// publishPartResolveChanged fans out a resolve-state change to the whole team.
+// Bulk scanning is inherently cross-user (a phone captures, a desktop reviews),
+// so this must NOT be scoped to the enqueuing user — the reviewer is usually a
+// different user. (The _ param is the historical actor id, intentionally unused.)
+func (q *Queue) publishPartResolveChanged(item dbgen.PartResolveItem, _, teamID string) {
 	data, _ := json.Marshal(map[string]any{
 		"resolve_item_id": item.ID.String(),
 		"source_type":     item.SourceType,
@@ -858,10 +862,9 @@ func (q *Queue) publishPartResolveChanged(item dbgen.PartResolveItem, userID, te
 		}(),
 	})
 	q.Publish(Event{
-		Type:         "part_resolve_changed",
-		TeamID:       teamID,
-		TargetUserID: userID,
-		Data:         data,
+		Type:   "part_resolve_changed",
+		TeamID: teamID,
+		Data:   data,
 	})
 }
 

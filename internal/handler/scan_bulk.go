@@ -287,6 +287,21 @@ func (h *Handler) AddBulkScanItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Notify desktop reviewers (who are usually NOT the scanning user) that a new
+	// item landed, so the review list / badge update live instead of polling.
+	// Team-wide with no actor-skip: the scanner is on the phone (which doesn't
+	// receive these worker events), so even the scanning user's own desktop should
+	// update.
+	d, _ := json.Marshal(map[string]string{
+		"session_id": sessionID.String(),
+		"item_id":    item.ID.String(),
+	})
+	h.Worker.Publish(worker.Event{
+		Type:   "bulk_scan_changed",
+		TeamID: sess.TeamID.String(),
+		Data:   d,
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"item_id":         item.ID.String(),
 		"new":             true,
@@ -704,16 +719,18 @@ func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Re
 		updatedID = updated.ID
 	}
 
-	// Publish SSE so other open tabs / desktop update.
+	// Publish SSE so other open tabs / desktop reviewers update. Deliver
+	// team-wide (skipping only the acting reviewer's own channel) — the reviewer
+	// is frequently NOT the user who scanned, so this must not be user-scoped.
 	d, _ := json.Marshal(map[string]string{
 		"session_id": sessionID.String(),
 		"item_id":    updatedID.String(),
 	})
 	h.Worker.Publish(worker.Event{
-		Type:         "bulk_scan_changed",
-		TeamID:       teamID.String(),
-		TargetUserID: userID,
-		Data:         d,
+		Type:   "bulk_scan_changed",
+		TeamID: teamID.String(),
+		UserID: userID,
+		Data:   d,
 	})
 
 	w.WriteHeader(http.StatusNoContent)

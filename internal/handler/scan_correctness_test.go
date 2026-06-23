@@ -2,10 +2,12 @@ package handler_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Yamakaja/partrack/internal/testutil"
 )
@@ -245,5 +247,76 @@ func TestVerify_ScanSession_TokenBound(t *testing.T) {
 	// session for both tokens, so idA == idB until the endpoints are token-bound.
 	if idA == idB {
 		t.Errorf("both scan tokens resolved to the same session %s — endpoints resolve by user, not by the presented token", idA)
+	}
+}
+
+// Area 1 H2/H3 (== Area 5 BLOCKER-1): the desktop "Send to Scanner" kitting push
+// must reach the phone under the field the phone actually reads
+// (context_build_ref) and carry a real project/revision ref — NOT the old
+// "build_ref" key with a "Build × N" placeholder. We subscribe to the ScanHub
+// channel and inspect the pushed SSE payload.
+func TestVerify_StartKitting_PushesContextBuildRef(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+
+	user := testutil.CreateUser(t, testDB, "ci-kit@example.com", "pw", "User")
+	team := testutil.CreateTeam(t, testDB, user, "member", "Team A")
+	apiTok := testutil.CreateAPIToken(t, testDB, user, "desktop")
+
+	project := testutil.CreateProject(t, testDB, team, user, "KittingProj")
+	rev := testutil.CreateRevision(t, testDB, project, user, "vR1")
+	build := testutil.CreateBuild(t, testDB, project, rev, team, user, 5, "pending")
+
+	// CreateScanSession returns the bearer token; the desktop route + ScanHub key
+	// by the session UUID, so look it up.
+	testutil.CreateScanSession(t, testDB, user, team)
+	var scanID string
+	if err := testDB.QueryRow(ctx,
+		`SELECT id FROM scan_sessions WHERE user_id=$1 AND team_id=$2`, user, team).Scan(&scanID); err != nil {
+		t.Fatalf("look up scan session id: %v", err)
+	}
+
+	// Subscribe to the phone's SSE channel before triggering the push.
+	ch, cleanup := testEnv.Handler.ScanHub.Register(scanID, "", "")
+	defer cleanup()
+
+	_, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/teams/"+team+"/scan-sessions/"+scanID+"/kitting",
+		map[string]any{"build_id": build}, apiTok)
+	if status != http.StatusCreated {
+		t.Fatalf("StartKitting: expected 201, got %d", status)
+	}
+
+	var raw []byte
+	select {
+	case raw = <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no SSE context push received within 2s")
+	}
+
+	var msg map[string]any
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("unmarshal push: %v (raw=%s)", err, raw)
+	}
+	if msg["type"] != "scan_context_changed" || msg["context_type"] != "kitting" {
+		t.Fatalf("unexpected push envelope: %v", msg)
+	}
+	// The phone reads context_build_ref; the legacy build_ref key would be ignored.
+	if _, ok := msg["build_ref"]; ok {
+		t.Errorf("push still uses the legacy build_ref key (phone reads context_build_ref): %v", msg)
+	}
+	ref, _ := msg["context_build_ref"].(string)
+	if ref == "" {
+		t.Fatalf("context_build_ref missing/empty: %v", msg)
+	}
+	// Must be the real project/revision ref, not the "Build × N" placeholder.
+	if !strings.Contains(ref, "KittingProj") || !strings.Contains(ref, "vR1") {
+		t.Errorf("context_build_ref should embed project + revision; got %q", ref)
+	}
+	if strings.HasPrefix(ref, "Build ") {
+		t.Errorf("context_build_ref is still the placeholder: %q", ref)
+	}
+	if s, _ := msg["context_kitting_session_id"].(string); s == "" {
+		t.Errorf("context_kitting_session_id missing: %v", msg)
 	}
 }

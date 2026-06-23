@@ -2511,13 +2511,18 @@ func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Push to phone.
-	buildRef := fmt.Sprintf("%s × %d", "Build", build.Quantity)
+	// Push to phone. Build the ref from project + revision (same shape as the
+	// poll/get path and the other kitting context pushes) and emit it under the
+	// field the phone actually reads: context_build_ref.
+	buildRef := fmt.Sprintf("Build × %d", build.Quantity)
+	if full, ferr := h.Queries.GetKittingSession(r.Context(), ks.ID); ferr == nil {
+		buildRef = fmt.Sprintf("%s %s × %d", full.ProjectName, full.BomRevisionLabel, full.BuildQuantity)
+	}
 	msg, _ := json.Marshal(map[string]any{
 		"type":                       "scan_context_changed",
 		"context_type":               "kitting",
 		"context_kitting_session_id": ks.ID.String(),
-		"build_ref":                  buildRef,
+		"context_build_ref":          buildRef,
 	})
 	h.ScanHub.Send(sessionID.String(), msg)
 
