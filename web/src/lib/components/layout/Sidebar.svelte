@@ -19,6 +19,7 @@
   import { Popover } from 'bits-ui';
   import { scanSessionStore, clearScanSession } from '$lib/stores/scanSession.svelte.js';
   import SSEConnectionIndicator from './SSEConnectionIndicator.svelte';
+  import PartrackMark from '$lib/components/brand/PartrackMark.svelte';
   import { request } from '$lib/api/client.js';
 
   function handleKeydown(e: KeyboardEvent) {
@@ -92,6 +93,7 @@
 <aside class="flex h-full w-60 shrink-0 flex-col border-r border-border bg-card">
   <!-- Header -->
   <div class="flex items-center gap-2 border-b border-border px-4 py-3">
+    <PartrackMark class="size-5 shrink-0 text-foreground" />
     <span class="font-semibold text-sm tracking-tight text-foreground">partrack</span>
   </div>
 

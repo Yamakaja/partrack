@@ -3,6 +3,7 @@
   import { login, getMe, getAuthProviders, type OIDCProvider } from '$lib/api/auth.js';
   import { setAuth } from '$lib/stores/auth.svelte.js';
   import { navigate } from '$lib/router/index.svelte.js';
+  import PartrackMark from '$lib/components/brand/PartrackMark.svelte';
 
   let email = $state('');
   let password = $state('');
@@ -67,7 +68,10 @@
   <div class="w-full max-w-sm">
     <div class="space-y-6 rounded-lg border border-border bg-card p-8 shadow-sm">
       <div>
-        <h1 class="text-2xl font-bold">partrack</h1>
+        <div class="flex items-center gap-2.5">
+          <PartrackMark class="size-7" />
+          <h1 class="text-2xl font-bold">partrack</h1>
+        </div>
         <p class="mt-1 text-sm text-muted-foreground">Sign in to your account</p>
       </div>
 
