@@ -755,6 +755,9 @@ LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
 WHERE p.id = $2
+  -- Scope guard: a team may only read global parts or its own team-scoped parts.
+  -- Without this a scan token / team member could fetch another team's private part.
+  AND (p.scope = 'global' OR p.team_id = $1)
 `
 
 type GetPartWithInventoryParams struct {

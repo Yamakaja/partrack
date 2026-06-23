@@ -199,7 +199,10 @@ FROM parts p
 LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
-WHERE p.id = sqlc.arg('id');
+WHERE p.id = sqlc.arg('id')
+  -- Scope guard: a team may only read global parts or its own team-scoped parts.
+  -- Without this a scan token / team member could fetch another team's private part.
+  AND (p.scope = 'global' OR p.team_id = sqlc.narg('team_id'));
 
 -- name: CreatePart :one
 INSERT INTO parts (scope, team_id, mpn, manufacturer, description, category, package,

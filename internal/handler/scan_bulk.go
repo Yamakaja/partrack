@@ -653,6 +653,19 @@ func (h *Handler) SetBulkScanItemStatusHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Scope guard: the item must belong to the validated session. Without this the
+	// session-team check is bypassable — an attacker passes their own session id plus
+	// another team's/session's item id and mutates it.
+	item, err := h.Queries.GetBulkScanItem(r.Context(), itemID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && item.SessionID != sessionID) {
+		writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	user := middleware.UserFromContext(r.Context())
 	var userID string
 	if user != nil {
@@ -737,7 +750,9 @@ func (h *Handler) RetryBulkScanItemHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	item, err := h.Queries.GetBulkScanItem(r.Context(), itemID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	// Scope guard: the item must belong to the validated session (the session-team
+	// check alone is bypassable with a foreign item id).
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && item.SessionID != sessionID) {
 		writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
 		return
 	}
@@ -809,7 +824,9 @@ func (h *Handler) RetryBulkScanItemDistributorsHandler(w http.ResponseWriter, r 
 	}
 
 	item, err := h.Queries.GetBulkScanItem(r.Context(), itemID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	// Scope guard: the item must belong to the validated session (the session-team
+	// check alone is bypassable with a foreign item id).
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && item.SessionID != sessionID) {
 		writeError(w, http.StatusNotFound, "item not found", "NOT_FOUND")
 		return
 	}

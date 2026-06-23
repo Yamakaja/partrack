@@ -2195,6 +2195,20 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "invalid storage_location.id", "BAD_REQUEST")
 			return
 		}
+		// Scope guard: the target location must belong to the session's team. Without
+		// this a scan token could point its own entry at another team's location
+		// (the storage_location_id FK is not team-scoped).
+		if _, err := h.Queries.GetStorageLocation(r.Context(), dbgen.GetStorageLocationParams{
+			ID:     locID,
+			TeamID: sess.TeamID,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "storage location not found", "NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
 		params.StorageLocationID = locID
 		params.StorageCoordinate = body.StorageLocation.Coordinate
 	}
