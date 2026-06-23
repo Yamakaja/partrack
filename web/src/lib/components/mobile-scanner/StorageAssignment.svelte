@@ -108,7 +108,10 @@
       const entries = await listScanStorageInventory(token, id);
       const keys = new Set<string>();
       for (const e of entries) {
-        if (e.storage_location?.coordinate) {
+        // The inventory query recurses into child locations, but only entries assigned
+        // directly to THIS location share its grid's coordinate space. Filtering by id
+        // prevents a descendant's coordinate from marking the wrong cell occupied.
+        if (e.storage_location?.id === id && e.storage_location.coordinate) {
           keys.add(e.storage_location.coordinate.join(','));
         }
       }
