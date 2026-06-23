@@ -56,6 +56,14 @@ FROM inventory_entries ie
 LEFT JOIN storage_locations sl ON sl.id = ie.storage_location_id
 WHERE ie.id = $1 AND ie.team_id = $2;
 
+-- name: GetInventoryQuantityForUpdate :one
+-- Locks the entry row and returns the current on-hand for a compare-and-set stock
+-- adjustment. Must run inside the adjustment transaction.
+SELECT quantity_on_hand
+FROM inventory_entries
+WHERE id = $1 AND team_id = $2
+FOR UPDATE;
+
 -- name: UpdateInventoryEntry :one
 UPDATE inventory_entries
 SET storage_location_id    = CASE WHEN sqlc.arg('set_storage_location_id')::bool

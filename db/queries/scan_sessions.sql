@@ -55,6 +55,24 @@ SET pending_scan = NULL
 WHERE id = $1
 RETURNING id;
 
+-- name: ClaimScanSessionPendingScan :one
+-- Atomically claims (clears) the session's pending scan, returning the PRIOR value.
+-- The CTE reads + locks the old value FOR UPDATE; the UPDATE nulls it. Run inside the
+-- confirm transaction: concurrent confirms serialize on the row lock, so only the
+-- first sees a non-null pending scan and the rest get pgx.ErrNoRows. A rollback
+-- (e.g. a stale line-item mismatch) undoes the clear, preserving the scan for retry.
+WITH claimed AS (
+    SELECT ss.id AS sid, ss.pending_scan AS old_pending
+    FROM scan_sessions ss
+    WHERE ss.id = $1 AND ss.pending_scan IS NOT NULL
+    FOR UPDATE
+)
+UPDATE scan_sessions s
+SET pending_scan = NULL
+FROM claimed
+WHERE s.id = claimed.sid
+RETURNING claimed.old_pending AS pending_scan;
+
 -- name: DeleteScanSession :exec
 DELETE FROM scan_sessions WHERE id = $1 AND team_id = $2;
 

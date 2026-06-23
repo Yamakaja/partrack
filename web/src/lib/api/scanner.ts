@@ -10,6 +10,21 @@ export class ScanExpiredError extends Error {
   }
 }
 
+// Thrown for non-OK responses (other than expiry). Carries the parsed error body so
+// callers can react to a specific code (e.g. STALE_STOCK with current_quantity).
+export class ScanRequestError extends Error {
+  status: number;
+  code?: string;
+  body?: Record<string, unknown>;
+  constructor(status: number, code?: string, body?: Record<string, unknown>) {
+    super(code ? `${code} (HTTP ${status})` : `HTTP ${status}`);
+    this.name = 'ScanRequestError';
+    this.status = status;
+    this.code = code;
+    this.body = body;
+  }
+}
+
 // ── Base request ──────────────────────────────────────────────────────────────
 
 async function scanRequest<T>(
@@ -27,7 +42,16 @@ async function scanRequest<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401 || res.status === 410) throw new ScanExpiredError();
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    let errBody: Record<string, unknown> | undefined;
+    try {
+      errBody = await res.json();
+    } catch {
+      // non-JSON error body
+    }
+    const code = typeof errBody?.code === 'string' ? errBody.code : undefined;
+    throw new ScanRequestError(res.status, code, errBody);
+  }
   if (res.status === 204) return undefined as T;
   return res.json();
 }
@@ -248,7 +272,7 @@ export function importScanPartMulti(
 
 export function stockAdjustment(
   token: string,
-  body: { inventory_entry_id: string; delta: number; reason?: string },
+  body: { inventory_entry_id: string; delta: number; reason?: string; expected_quantity?: number },
 ): Promise<StockAdjustmentResponse> {
   return scanRequest(token, 'POST', '/api/v1/scan/stock-adjustment', body);
 }
@@ -264,8 +288,8 @@ export function scanBarcode(
   return scanRequest(token, 'POST', '/api/v1/scan/scans', body);
 }
 
-export function confirmReceipt(token: string, qty: number): Promise<ConfirmReceiptResponse> {
-  return scanRequest(token, 'POST', '/api/v1/scan/confirm', { qty });
+export function confirmReceipt(token: string, qty: number, lineItemId?: string): Promise<ConfirmReceiptResponse> {
+  return scanRequest(token, 'POST', '/api/v1/scan/confirm', { qty, line_item_id: lineItemId });
 }
 
 export function skipItem(token: string): Promise<void> {

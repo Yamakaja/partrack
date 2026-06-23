@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { ScanPart } from './types.js';
-  import { stockAdjustment, ScanExpiredError } from '$lib/api/scanner.js';
+  import { stockAdjustment, ScanExpiredError, ScanRequestError } from '$lib/api/scanner.js';
 
   let {
     token,
@@ -29,6 +29,9 @@
   let adjValue = $state(untrack(() => String(initialValue ?? (mode === 'set' ? 0 : -1))));
   let adjReason = $state(untrack(() => initialReason ?? ''));
   let adjSubmitting = $state(false);
+  // On-hand the "set" delta is computed against; refreshed if the server reports
+  // stock moved (compare-and-set) so a corrected adjustment can be re-submitted.
+  let liveOnHand = $state(untrack(() => part.quantity_on_hand ?? 0));
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
@@ -37,7 +40,7 @@
     const parsed = parseInt(adjValue, 10);
     if (isNaN(parsed)) return;
     const delta = mode === 'set'
-      ? parsed - (part.quantity_on_hand ?? 0)
+      ? parsed - liveOnHand
       : parsed;
     if (delta === 0) return;
     adjSubmitting = true;
@@ -46,12 +49,20 @@
         inventory_entry_id: part.inventory_entry_id,
         delta,
         reason: adjReason || undefined,
+        // Compare-and-set: only apply if on-hand still equals what we computed against.
+        expected_quantity: liveOnHand,
       });
       pushToast('success', 'Adjustment saved', `New quantity: ${data.new_quantity_on_hand}`);
       onDone();
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
-      // keep state for retry
+      if (e instanceof ScanRequestError && e.code === 'STALE_STOCK') {
+        const cur = typeof e.body?.current_quantity === 'number' ? e.body.current_quantity : liveOnHand;
+        liveOnHand = cur;
+        pushToast('warning', 'Stock changed', `On hand is now ${cur} — review and confirm again.`);
+        return;
+      }
+      pushToast('error', 'Could not save', 'Please try again.');
     } finally {
       adjSubmitting = false;
     }
@@ -60,7 +71,7 @@
   function isSubmitDisabled(): boolean {
     const parsed = parseInt(adjValue, 10);
     if (isNaN(parsed) || adjSubmitting) return true;
-    const delta = mode === 'set' ? parsed - (part.quantity_on_hand ?? 0) : parsed;
+    const delta = mode === 'set' ? parsed - liveOnHand : parsed;
     return delta === 0;
   }
 </script>
@@ -78,7 +89,7 @@
   <div class="flex-1 overflow-y-auto p-4 space-y-4">
     <div class="rounded-xl bg-zinc-900 p-4">
       <p class="font-medium">{part.mpn ?? '—'}</p>
-      <p class="text-xs text-zinc-400 mt-0.5">Current stock: {part.quantity_on_hand ?? 0}</p>
+      <p class="text-xs text-zinc-400 mt-0.5">Current stock: {liveOnHand}</p>
     </div>
 
     <div class="space-y-3">

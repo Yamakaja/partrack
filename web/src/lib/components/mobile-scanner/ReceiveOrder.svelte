@@ -7,8 +7,9 @@
   import type { StorageLocation } from '$lib/types/inventory.js';
   import {
     listOrders, scanBarcode, confirmReceipt, skipItem, patchInventoryEntry,
-    scanFocus, ScanExpiredError, type ScanMatchedResponse,
+    scanFocus, ScanExpiredError, ScanRequestError, type ScanMatchedResponse,
   } from '$lib/api/scanner.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
   import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   let {
@@ -148,7 +149,9 @@
     if (isNaN(qty) || qty <= 0) return;
     submitting = true;
     try {
-      const data = await confirmReceipt(token, qty);
+      // Echo the line item we matched so the server rejects a stale confirm if the
+      // pending scan was overwritten by a later scan.
+      const data = await confirmReceipt(token, qty, confirmData?.lineItemId);
       confirmedInventoryEntryId = data.inventory_entry_id ?? null;
       confirmedStorageLocation = data.storage_location ?? null;
       nextScreenAfterConfirm = data.order_status === 'received' ? 'order_complete' : 'scanning';
@@ -156,7 +159,19 @@
       screen = 'confirmed';
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
-      // keep state for retry
+      if (e instanceof ScanRequestError && e.code === 'STALE_PENDING_SCAN') {
+        pushToast('warning', 'Scan changed', 'A newer scan replaced this one — rescan the item.');
+        confirmData = null;
+        screen = 'scanning';
+        return;
+      }
+      if (e instanceof ScanRequestError && e.code === 'NO_PENDING_SCAN') {
+        pushToast('info', 'Already handled', 'This scan was already confirmed.');
+        confirmData = null;
+        screen = 'scanning';
+        return;
+      }
+      pushToast('error', 'Could not confirm', 'Please try again.');
     } finally {
       submitting = false;
     }

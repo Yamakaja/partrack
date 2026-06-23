@@ -776,6 +776,10 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 		InventoryEntryID string `json:"inventory_entry_id"`
 		Delta            int32  `json:"delta"`
 		Reason           string `json:"reason"`
+		// ExpectedQuantity, when set, makes this a compare-and-set: the change is only
+		// applied if the current on-hand still equals this value (the on-hand the client
+		// based its delta on). Prevents a stale "set to N" from writing a wrong absolute.
+		ExpectedQuantity *int32 `json:"expected_quantity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -823,6 +827,28 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 	defer tx.Rollback(r.Context()) //nolint:errcheck
 
 	qtx := h.Queries.WithTx(tx)
+
+	// Compare-and-set: if the client sent the on-hand it based its change on, verify
+	// stock hasn't moved since (locking the row). On a mismatch report the actual
+	// current so the user can re-decide, rather than applying the delta to a stale base.
+	if body.ExpectedQuantity != nil {
+		cur, err := qtx.GetInventoryQuantityForUpdate(r.Context(), dbgen.GetInventoryQuantityForUpdateParams{
+			ID:     entryID,
+			TeamID: sess.TeamID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		if cur != *body.ExpectedQuantity {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":            "stock changed since you last viewed it",
+				"code":             "STALE_STOCK",
+				"current_quantity": cur,
+			})
+			return
+		}
+	}
 
 	adj, err := qtx.CreateStockAdjustment(r.Context(), dbgen.CreateStockAdjustmentParams{
 		InventoryEntryID: entryID,
@@ -1328,24 +1354,67 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(sess.PendingScan) == 0 {
+	var body struct {
+		Qty        *int32 `json:"qty"`
+		LineItemID string `json:"line_item_id"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	teamID := sess.TeamID
+
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+		return
+	}
+	var userID pgtype.UUID
+	if err := userID.Scan(user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	qtx := h.Queries.WithTx(tx)
+
+	// Atomically claim (clear) the pending scan inside the transaction. Concurrent
+	// confirms serialize on the row lock, so only the first sees a non-null pending
+	// scan; the rest get ErrNoRows -> 409. A rollback (e.g. a stale line-item or a
+	// failed receive) undoes the clear, preserving the pending scan for a retry.
+	claimed, err := qtx.ClaimScanSessionPendingScan(r.Context(), sess.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error": "no pending scan",
 			"code":  "NO_PENDING_SCAN",
 		})
 		return
 	}
-
-	var ps pendingScan
-	if err := json.Unmarshal(sess.PendingScan, &ps); err != nil {
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	var body struct {
-		Qty *int32 `json:"qty"`
+	var ps pendingScan
+	if err := json.Unmarshal(claimed, &ps); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
 	}
-	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	// Identity check: the client echoes the line item it confirmed. If the pending
+	// scan was overwritten by a later scan, reject rather than receive the wrong item
+	// (the rollback above restores the current pending scan).
+	if body.LineItemID != "" && body.LineItemID != ps.LineItemID {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "the pending scan changed; rescan the item",
+			"code":  "STALE_PENDING_SCAN",
+		})
+		return
+	}
 
 	qty := int32(ps.BarcodeQty)
 	if body.Qty != nil && *body.Qty > 0 {
@@ -1366,21 +1435,9 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	teamID := sess.TeamID
-
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
-		return
-	}
-	var userID pgtype.UUID
-	if err := userID.Scan(user.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
 
 	// Fetch line item for part_id and inventory entry.
-	li, err := h.Queries.GetOrderLineItem(r.Context(), dbgen.GetOrderLineItemParams{
+	li, err := qtx.GetOrderLineItem(r.Context(), dbgen.GetOrderLineItemParams{
 		ID:     lineItemID,
 		TeamID: teamID,
 	})
@@ -1394,7 +1451,7 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Guard: order must be receivable.
-	order, err := h.Queries.GetOrder(r.Context(), dbgen.GetOrderParams{
+	order, err := qtx.GetOrder(r.Context(), dbgen.GetOrderParams{
 		ID:     orderID,
 		TeamID: teamID,
 	})
@@ -1408,7 +1465,7 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create inventory entry.
-	invEntry, err := h.Queries.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
+	invEntry, err := qtx.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
 		TeamID: teamID,
 		PartID: li.PartID,
 	})
@@ -1422,15 +1479,6 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-
-	tx, err := h.DB.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	defer tx.Rollback(r.Context()) //nolint:errcheck
-
-	qtx := h.Queries.WithTx(tx)
 
 	updatedLI, err := qtx.ReceiveOrderLineItem(r.Context(), dbgen.ReceiveOrderLineItemParams{
 		ID:               lineItemID,
@@ -1547,8 +1595,8 @@ func (h *Handler) ConfirmScan(w http.ResponseWriter, r *http.Request) {
 		Summary: fmt.Sprintf("Received %d× %s", qty, ps.MPN),
 	})
 
-	// Clear pending_scan.
-	h.Queries.ClearScanSessionPendingScan(r.Context(), sess.ID) //nolint:errcheck
+	// pending_scan was already cleared atomically by ClaimScanSessionPendingScan
+	// inside the committed transaction.
 
 	teamIDStr := teamID.String()
 	d, _ := json.Marshal(map[string]string{"order_id": orderID.String()})

@@ -274,6 +274,27 @@ func (q *Queries) GetInventoryEntryForUpdate(ctx context.Context, id pgtype.UUID
 	return i, err
 }
 
+const getInventoryQuantityForUpdate = `-- name: GetInventoryQuantityForUpdate :one
+SELECT quantity_on_hand
+FROM inventory_entries
+WHERE id = $1 AND team_id = $2
+FOR UPDATE
+`
+
+type GetInventoryQuantityForUpdateParams struct {
+	ID     pgtype.UUID `json:"id"`
+	TeamID pgtype.UUID `json:"team_id"`
+}
+
+// Locks the entry row and returns the current on-hand for a compare-and-set stock
+// adjustment. Must run inside the adjustment transaction.
+func (q *Queries) GetInventoryQuantityForUpdate(ctx context.Context, arg GetInventoryQuantityForUpdateParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getInventoryQuantityForUpdate, arg.ID, arg.TeamID)
+	var quantity_on_hand int32
+	err := row.Scan(&quantity_on_hand)
+	return quantity_on_hand, err
+}
+
 const getPreferredListingDistributorByPartID = `-- name: GetPreferredListingDistributorByPartID :one
 SELECT dl.distributor_id
 FROM inventory_entries ie
