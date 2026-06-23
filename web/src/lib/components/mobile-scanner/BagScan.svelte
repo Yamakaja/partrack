@@ -428,6 +428,7 @@
         <input
           type="number"
           min="0"
+          inputmode="numeric"
           bind:value={qtyInput}
           placeholder="Enter quantity"
           class="w-full rounded-lg bg-zinc-800 px-4 py-3 text-base text-white placeholder-zinc-500 focus:outline-none"

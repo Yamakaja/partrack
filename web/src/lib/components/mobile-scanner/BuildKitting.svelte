@@ -268,6 +268,7 @@
                 type="number"
                 min="0"
                 max={item.quantity_needed}
+                inputmode="numeric"
                 placeholder="Available qty"
                 bind:value={shortfallInput}
                 class="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500"
