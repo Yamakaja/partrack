@@ -12,6 +12,9 @@
   let step = $derived(STEPS[tourStore.index]);
   let isFirst = $derived(tourStore.index === 0);
   let isLast = $derived(tourStore.index === STEPS.length - 1);
+  // Targetless steps (welcome / wrap-up) render as a centered card and read
+  // better with more room than the spotlight-anchored steps.
+  let centered = $derived(!step?.target);
 
   const PAD = 6; // spotlight padding around the target
   const GAP = 12; // card gap from the target
@@ -127,7 +130,9 @@
     role="dialog"
     aria-modal="true"
     aria-label={step.title}
-    class="fixed z-[62] w-80 max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-background p-4 shadow-xl"
+    class="fixed z-[62] max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-background shadow-xl {centered
+      ? 'w-[28rem] p-6'
+      : 'w-80 p-4'}"
     style="top:{cardPos.top}px; left:{cardPos.left}px;"
   >
     <h2 class="text-sm font-semibold">{step.title}</h2>

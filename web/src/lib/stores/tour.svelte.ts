@@ -17,7 +17,7 @@ export interface TourStep {
 
 export const STEPS: TourStep[] = [
   {
-    title: 'Welcome to partrack 👋',
+    title: 'Welcome to partrack',
     body: "partrack tracks your parts, turns BOMs into orders, and keeps stock accurate as you build. Here's a one-minute look at the key controls.",
   },
   {
@@ -35,14 +35,14 @@ export const STEPS: TourStep[] = [
   {
     target: '[data-tour="help"]',
     side: 'bottom',
-    title: 'Help, in context',
-    body: "Stuck on a page? This opens the user guide to that page's chapter — your map whenever something's unclear.",
+    title: 'Help',
+    body: "Opens the user guide at the chapter for the current page.",
   },
   {
     target: '[data-tour="status"]',
     side: 'right',
     title: 'Live status',
-    body: 'The top dot is your live link to the server — updates appear without refreshing. Below it, Connect Phone pairs your phone as a barcode scanner.',
+    body: 'The top dot shows the live connection to the server; updates appear without a refresh. Below it, Connect Phone pairs your phone as a barcode scanner.',
   },
   {
     target: '[data-tour="account"]',
