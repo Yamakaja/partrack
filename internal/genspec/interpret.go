@@ -200,9 +200,9 @@ func Interpret(in Input) (it Interpretation) {
 
 	// Escalation: a parametric class is "clean" only when it yielded its primary
 	// magnitude with no leftover tokens. Anything else — residue, a missing
-	// magnitude (e.g. "9k10%", "5V/10uF"), or a class conflict — is fair game for
-	// the LLM. Identity classes carry an MPN in the value, so leftover tokens there
-	// are expected, not residue.
+	// magnitude (e.g. "9k10%"), or a class conflict — is fair game for the LLM.
+	// Identity classes carry an MPN in the value, so leftover tokens there are
+	// expected, not residue.
 	if prof.ValueParam != "" {
 		it.Residue = residue
 		hasPrimary := false

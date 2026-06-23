@@ -41,12 +41,18 @@ func TestParseValue(t *testing.T) {
 		{"R meg", "R", "1M5", []want{{"resistance", 1.5e6}}, false},
 		{"R bare", "R", "49.9", []want{{"resistance", 49.9}}, false},
 		{"R + tol", "R", "10k 1%", []want{{"resistance", 10000}, {"tolerance", 1}}, false},
+		{"R slash tol", "R", "10k/1%", []want{{"resistance", 10000}, {"tolerance", 1}}, false},
 		{"R pkg + power", "R", "10k 0402 1/16W", []want{{"resistance", 10000}, {"power_rating", 0.0625}}, false},
+		{"R power unspaced", "R", "0.1 1/2W", []want{{"resistance", 0.1}, {"power_rating", 0.5}}, false},
+		{"R power spaced W", "R", "0.1 1/2 W", []want{{"resistance", 0.1}, {"power_rating", 0.5}}, false},
 		// Capacitors
 		{"C nano", "C", "100n", []want{{"capacitance", 100e-9}}, false},
 		{"C rkm", "C", "4u7", []want{{"capacitance", 4.7e-6}}, false},
 		{"C + dielectric", "C", "10 nF X7R", []want{{"capacitance", 10e-9}, {"dielectric", math.NaN()}}, false},
 		{"C + volt", "C", "1uF 25V", []want{{"capacitance", 1e-6}, {"voltage_rating", 25}}, false},
+		{"C slash volt prefix", "C", "10u/25V", []want{{"capacitance", 10e-6}, {"voltage_rating", 25}}, false},
+		{"C slash volt unit", "C", "10uF/25V", []want{{"capacitance", 10e-6}, {"voltage_rating", 25}}, false},
+		{"C slash three", "C", "10uF/25V X7R", []want{{"capacitance", 10e-6}, {"voltage_rating", 25}, {"dielectric", math.NaN()}}, false},
 		{"C three", "C", "100µF 16V 20%", []want{{"capacitance", 100e-6}, {"voltage_rating", 16}, {"tolerance", 20}}, false},
 		// Inductors — same RKM text as the cap, different unit by class
 		{"L rkm", "L", "4n7", []want{{"inductance", 4.7e-9}}, false},

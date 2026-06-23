@@ -31,10 +31,17 @@ var colors = map[string]bool{
 
 var (
 	pureNumberRe   = regexp.MustCompile(`^[+-]?\d+(\.\d+)?$`)
+	fractionTokRe  = regexp.MustCompile(`^\d+/\d+$`)
 	toleranceTokRe = regexp.MustCompile(`(?i)^[±+\-]?\d+(\.\d+)?\s*(%|ppm|ppb)$`)
 	voltageTokRe   = regexp.MustCompile(`(?i)^\d+(\.\d+)?\s*[kKmµun]?V$`)
 	currentTokRe   = regexp.MustCompile(`(?i)^\d+(\.\d+)?\s*[kKmµun]?A$`)
 	powerTokRe     = regexp.MustCompile(`(?i)^(\d+/\d+|\d+(\.\d+)?)\s*[mµu]?W$`)
+	// fieldSlashRe matches a slash used as a field separator — one immediately
+	// preceded by a unit or SI-prefix character (a letter, Ω, µ, or %), as in
+	// "10uF/25V", "100n/50V" or "10k/1%". A power-rating fraction's slash is always
+	// flanked by bare digits ("1/2W"), so it is preceded by a digit, left untouched,
+	// and still parses via the fraction path. See splitFieldSlashes.
+	fieldSlashRe = regexp.MustCompile(`([A-Za-zΩµμ%])\s*/\s*`)
 )
 
 // ParseValue parses a value field given a class profile. It returns the extracted
@@ -49,7 +56,7 @@ func ParseValue(p Profile, value string) (params []Param, pkg string, mpnLike bo
 		return nil, "", false, nil
 	}
 
-	tokens := mergeNumberUnit(tokenize(value))
+	tokens := mergeNumberUnit(tokenize(splitFieldSlashes(value)))
 
 	var (
 		foundPrimary bool
@@ -192,6 +199,13 @@ func numericParam(slug, tok string) Param {
 	return prm
 }
 
+// splitFieldSlashes rewrites field-separator slashes to spaces so each side
+// tokenizes independently (e.g. "10uF/25V" → "10uF 25V"), without disturbing an
+// int/int power fraction (e.g. "1/2W"), whose slash is flanked by bare digits.
+func splitFieldSlashes(s string) string {
+	return fieldSlashRe.ReplaceAllString(s, "$1 ")
+}
+
 // tokenize splits a value field on commas and whitespace.
 func tokenize(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool {
@@ -200,11 +214,14 @@ func tokenize(s string) []string {
 }
 
 // mergeNumberUnit merges a lone numeric token with a following unit token, so
-// "10 nF X7R" → ["10nF", "X7R"] while "100µF 16V 20%" is left untouched.
+// "10 nF X7R" → ["10nF", "X7R"] while "100µF 16V 20%" is left untouched. A bare
+// int/int fraction merges the same way, so a spaced power rating like
+// "0.1 1/2 W" rejoins into ["0.1", "1/2W"].
 func mergeNumberUnit(toks []string) []string {
 	out := make([]string, 0, len(toks))
 	for i := 0; i < len(toks); i++ {
-		if pureNumberRe.MatchString(toks[i]) && i+1 < len(toks) && startsWithUnit(toks[i+1]) {
+		if (pureNumberRe.MatchString(toks[i]) || fractionTokRe.MatchString(toks[i])) &&
+			i+1 < len(toks) && startsWithUnit(toks[i+1]) {
 			out = append(out, toks[i]+toks[i+1])
 			i++
 			continue
