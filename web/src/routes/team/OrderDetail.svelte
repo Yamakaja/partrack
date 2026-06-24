@@ -534,14 +534,14 @@
       {#snippet renderUnitPrice(_value: unknown, row: OrderLineItem)}
         {@const dk = dkStatusBySku?.get(row.sku)}
         {@const differs = dk != null && !priceMatches(row.unit_price_snapshot, dk.unit_price)}
-        <span class={differs ? 'text-amber-600 dark:text-amber-400' : ''} title={differs ? `DK: $${dk!.unit_price.toFixed(4)}` : undefined}>
+        <span class={differs ? 'text-warning' : ''} title={differs ? `DK: $${dk!.unit_price.toFixed(4)}` : undefined}>
           <PriceDisplay value={row.unit_price_snapshot} decimals={4} />
         </span>
       {/snippet}
       {#snippet renderPackaging(_value: unknown, row: OrderLineItem)}
         {@const dk = dkStatusBySku?.get(row.sku)}
         {@const differs = dk != null && dk.pack_type != null && !packagingMatches(row.packaging_type, dk.pack_type)}
-        <span class={differs ? 'text-amber-600 dark:text-amber-400' : ''} title={differs ? `DK: ${dk!.pack_type}` : undefined}>
+        <span class={differs ? 'text-warning' : ''} title={differs ? `DK: ${dk!.pack_type}` : undefined}>
           {row.packaging_type ?? '—'}
         </span>
       {/snippet}
@@ -558,7 +558,7 @@
       {#snippet renderOrdered(_value: unknown, row: OrderLineItem)}
         {@const dk = dkStatusBySku?.get(row.sku)}
         {@const differs = dk != null && dk.quantity_ordered !== row.quantity_ordered}
-        <span class={differs ? 'text-amber-600 dark:text-amber-400' : ''} title={differs ? `DK: ${dk!.quantity_ordered}` : undefined}>
+        <span class={differs ? 'text-warning' : ''} title={differs ? `DK: ${dk!.quantity_ordered}` : undefined}>
           {row.quantity_ordered}
         </span>
       {/snippet}
@@ -606,7 +606,7 @@
               {#if dk.quantity_back_order > 0}
                 <div>
                   <span class="text-muted-foreground">Backorder:</span>
-                  <span class="font-medium tabular-nums text-amber-600 dark:text-amber-400"> {dk.quantity_back_order}</span>
+                  <span class="font-medium tabular-nums text-warning"> {dk.quantity_back_order}</span>
                 </div>
               {/if}
               {#if dk.quantity_reserved > 0}

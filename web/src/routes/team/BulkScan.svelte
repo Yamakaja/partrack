@@ -93,7 +93,7 @@
                     {#if session.closed_at}
                       <span class="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Closed</span>
                     {:else}
-                      <span class="rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs text-green-700 dark:text-green-400">Active</span>
+                      <span class="rounded-full bg-success-subtle px-2 py-0.5 text-xs text-success">Active</span>
                     {/if}
                   </div>
 
@@ -101,19 +101,19 @@
                   <div class="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                     {#if session.counts.pending > 0}
                       <span class="flex items-center gap-1">
-                        <span class="h-1.5 w-1.5 rounded-full bg-yellow-500"></span>
+                        <span class="h-1.5 w-1.5 rounded-full bg-warning"></span>
                         {session.counts.pending} processing
                       </span>
                     {/if}
                     {#if session.counts.ready > 0}
                       <span class="flex items-center gap-1">
-                        <span class="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+                        <span class="h-1.5 w-1.5 rounded-full bg-info"></span>
                         {session.counts.ready} ready
                       </span>
                     {/if}
                     {#if session.counts.reviewed > 0}
                       <span class="flex items-center gap-1">
-                        <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                        <span class="h-1.5 w-1.5 rounded-full bg-success"></span>
                         {session.counts.reviewed} done
                       </span>
                     {/if}

@@ -199,7 +199,7 @@
             {#if shortfallCount > 0}
               <span class="font-medium text-destructive">{shortfallCount} item(s) need attention</span>
             {:else}
-              <span class="font-medium text-green-600">All parts covered</span>
+              <span class="font-medium text-success">All parts covered</span>
             {/if}
           </div>
         {/if}
@@ -226,7 +226,7 @@
               {#each result.items as item (item.bom_line_item_id)}
                 {@const usingSub = !!item.selected_substitute_id}
                 {@const displayQty = usingSub ? (item.substitute_qty_on_hand ?? item.quantity_on_hand) : item.quantity_on_hand}
-                <TableRow class={usingSub ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}>
+                <TableRow class={usingSub ? 'bg-info-subtle' : ''}>
                   <TableCell class="font-mono text-xs font-medium">
                     <div class="flex items-center gap-1.5">
                       {#if usingSub}

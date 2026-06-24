@@ -152,7 +152,7 @@
               {#if available > 0}
                 <tr class="text-muted-foreground">
                   <td colspan={2} class="pr-4">Available</td>
-                  <td class="text-right tabular-nums text-emerald-600 dark:text-emerald-400">−{available.toLocaleString()}</td>
+                  <td class="text-right tabular-nums text-success">−{available.toLocaleString()}</td>
                 </tr>
               {/if}
               {#if companionQty > 0}
@@ -170,7 +170,7 @@
               {#if priceBreakBump > 0}
                 <tr class="text-muted-foreground">
                   <td colspan={2} class="pr-4">Price break</td>
-                  <td class="text-right tabular-nums text-emerald-600 dark:text-emerald-400">+{priceBreakBump.toLocaleString()}</td>
+                  <td class="text-right tabular-nums text-success">+{priceBreakBump.toLocaleString()}</td>
                 </tr>
               {/if}
               <tr class="border-t border-border">
@@ -212,7 +212,7 @@
               {#if priceBreakBump > 0}
                 <tr>
                   <td class="pr-8 pb-0.5">Price break</td>
-                  <td class="text-right tabular-nums text-emerald-600 dark:text-emerald-400">+{priceBreakBump.toLocaleString()}</td>
+                  <td class="text-right tabular-nums text-success">+{priceBreakBump.toLocaleString()}</td>
                 </tr>
               {/if}
             </tbody>

@@ -240,7 +240,7 @@
       <!-- Phone connected — auto-closes -->
       {:else if modalState === 'connected'}
         <div class="flex flex-col items-center gap-3 py-6">
-          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-900/30">
+          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-success-subtle text-success">
             <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>

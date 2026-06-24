@@ -185,7 +185,7 @@
                     <span class={belowMoq ? 'text-destructive font-medium' : ''}>MOQ {moq}</span>
                   {/if}
                   {#if orderQty > combinedDemand}
-                    <span class="text-emerald-600 dark:text-emerald-400">↑ {orderQty} (price break)</span>
+                    <span class="text-success">↑ {orderQty} (price break)</span>
                   {/if}
                 </div>
               </div>
@@ -197,7 +197,7 @@
               {:else if stock === 0}
                 <span class="text-destructive font-medium">0</span>
               {:else}
-                <span class={stock < orderQty ? 'text-amber-600 dark:text-amber-400' : ''}>{stock.toLocaleString()}</span>
+                <span class={stock < orderQty ? 'text-warning' : ''}>{stock.toLocaleString()}</span>
               {/if}
             </TableCell>
             <TableCell>

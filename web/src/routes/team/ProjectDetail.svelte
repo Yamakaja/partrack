@@ -235,7 +235,7 @@
               </div>
               <div>
                 <p class="text-xs text-muted-foreground mb-0.5">Resolved</p>
-                <p class="text-xl font-bold tabular-nums text-green-600">{s.resolved_count}</p>
+                <p class="text-xl font-bold tabular-nums text-success">{s.resolved_count}</p>
               </div>
               <div>
                 <p class="text-xs text-muted-foreground mb-0.5">Unresolved</p>

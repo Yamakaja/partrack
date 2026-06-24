@@ -360,7 +360,7 @@
               </div>
             </div>
             {#if hasSku && entryDistId === ''}
-              <p class="text-xs text-amber-600 dark:text-amber-400">Choose a distributor for the SKU, or use the MPN field instead.</p>
+              <p class="text-xs text-warning">Choose a distributor for the SKU, or use the MPN field instead.</p>
             {/if}
           </div>
 
@@ -402,9 +402,9 @@
           </div>
 
         {:else if step === 'review' && taskType === 'known_part_create_entry'}
-          <div class="rounded-md border border-blue-300 bg-blue-50 p-3 text-sm mb-4 dark:border-blue-800 dark:bg-blue-950">
-            <p class="font-medium text-blue-800 dark:text-blue-200">Already in your catalog</p>
-            <p class="text-blue-700 dark:text-blue-300 mt-0.5">This part exists but has no inventory entry for your team. Create one below.</p>
+          <div class="rounded-md border border-info/30 bg-info-subtle p-3 text-sm mb-4">
+            <p class="font-medium text-info">Already in your catalog</p>
+            <p class="text-info mt-0.5">This part exists but has no inventory entry for your team. Create one below.</p>
           </div>
           {#if activePart}
             <div class="rounded-lg border border-border bg-card p-4 mb-4 space-y-1.5 text-sm">
@@ -426,9 +426,9 @@
           </div>
 
         {:else if step === 'review' && taskType === 'known_part_stock_adjustment'}
-          <div class="rounded-md border border-blue-300 bg-blue-50 p-3 text-sm mb-4 dark:border-blue-800 dark:bg-blue-950">
-            <p class="font-medium text-blue-800 dark:text-blue-200">Already in your inventory</p>
-            <p class="text-blue-700 dark:text-blue-300 mt-0.5">Adjust the stock level for this existing part.</p>
+          <div class="rounded-md border border-info/30 bg-info-subtle p-3 text-sm mb-4">
+            <p class="font-medium text-info">Already in your inventory</p>
+            <p class="text-info mt-0.5">Adjust the stock level for this existing part.</p>
           </div>
           {#if activePart}
             <div class="rounded-lg border border-border bg-card p-4 mb-4 text-sm">
@@ -448,8 +448,8 @@
 
         {:else if step === 'manual'}
           {#if resolve?.status === 'failed' || resolve?.task_type === 'unrecognized'}
-            <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm mb-4 dark:border-amber-700 dark:bg-amber-950">
-              <p class="text-amber-800 dark:text-amber-200">No distributor match was found. You can still create the part manually.</p>
+            <div class="rounded-md border border-warning/30 bg-warning-subtle p-3 text-sm mb-4">
+              <p class="text-warning">No distributor match was found. You can still create the part manually.</p>
             </div>
           {/if}
           <div class="space-y-3">
@@ -486,9 +486,9 @@
               </div>
             {/if}
             {#if duplicateFound}
-              <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
-                <p class="font-medium text-amber-800 dark:text-amber-200">This part already exists</p>
-                <p class="mt-0.5 text-amber-700 dark:text-amber-300">
+              <div class="rounded-md border border-warning/30 bg-warning-subtle p-3 text-sm">
+                <p class="font-medium text-warning">This part already exists</p>
+                <p class="mt-0.5 text-warning">
                   {duplicateFound.mpn ?? ''}
                   {#if duplicateFound.manufacturer} · {duplicateFound.manufacturer}{/if}
                   {#if duplicateFound.description} — {duplicateFound.description}{/if}

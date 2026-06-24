@@ -73,9 +73,9 @@
 
           <button
             onclick={() => { setPartsStockStatus('low_stock'); navigate(`/teams/${teamId}/parts`); }}
-            class="rounded-lg border border-border bg-card p-4 text-left hover:bg-accent transition-colors flex flex-col gap-1{s.inventory_below_restock_count > 0 ? ' border-yellow-500/50' : ''}">
+            class="rounded-lg border border-border bg-card p-4 text-left hover:bg-accent transition-colors flex flex-col gap-1{s.inventory_below_restock_count > 0 ? ' border-warning/30' : ''}">
             <p class="text-xs text-muted-foreground">Inventory Alerts</p>
-            <p class="text-2xl font-bold tabular-nums{s.inventory_below_restock_count > 0 ? ' text-yellow-600 dark:text-yellow-400' : ''}">{s.inventory_below_restock_count}</p>
+            <p class="text-2xl font-bold tabular-nums{s.inventory_below_restock_count > 0 ? ' text-warning' : ''}">{s.inventory_below_restock_count}</p>
             <p class="text-xs text-muted-foreground">below restock level</p>
           </button>
         {/if}

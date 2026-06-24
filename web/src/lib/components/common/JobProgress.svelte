@@ -43,7 +43,7 @@
     <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
     <span class="text-muted-foreground">Processing…</span>
   {:else if status === 'done'}
-    <CheckCircle class="h-4 w-4 text-green-500" />
+    <CheckCircle class="h-4 w-4 text-success" />
     <Badge variant="success">Complete</Badge>
   {:else if status === 'error'}
     <XCircle class="h-4 w-4 text-destructive" />

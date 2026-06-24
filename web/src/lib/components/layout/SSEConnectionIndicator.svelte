@@ -34,13 +34,13 @@
 
 <Tooltip content={tooltipText}>
   {#if conn.state === 'connected'}
-    <div class="flex items-center gap-2 px-2 py-1.5 text-xs text-green-600 dark:text-green-400">
-      <span class="h-2 w-2 shrink-0 rounded-full bg-green-500"></span>
+    <div class="flex items-center gap-2 px-2 py-1.5 text-xs text-success">
+      <span class="h-2 w-2 shrink-0 rounded-full bg-success"></span>
       <span class="truncate">Live</span>
     </div>
   {:else if conn.state === 'reconnecting' || conn.state === 'connecting'}
-    <div class="flex items-center gap-2 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
-      <span class="h-2 w-2 shrink-0 rounded-full bg-amber-500 animate-pulse"></span>
+    <div class="flex items-center gap-2 px-2 py-1.5 text-xs text-warning">
+      <span class="h-2 w-2 shrink-0 rounded-full bg-warning animate-pulse"></span>
       <span class="truncate">{conn.state === 'reconnecting' ? 'Reconnecting...' : 'Connecting...'}</span>
     </div>
   {:else}

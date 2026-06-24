@@ -249,8 +249,8 @@
         <Popover.Root open={badgeOpen} onOpenChange={(v) => { badgeOpen = v; }}>
           <Popover.Trigger>
             <button class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50 transition-colors
-              {session.liveConnected ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}">
-              <span class="h-2 w-2 shrink-0 rounded-full {session.liveConnected ? 'bg-green-500' : 'bg-zinc-400'}"></span>
+              {session.liveConnected ? 'text-success' : 'text-muted-foreground'}">
+              <span class="h-2 w-2 shrink-0 rounded-full {session.liveConnected ? 'bg-success' : 'bg-zinc-400'}"></span>
               <span class="truncate">{session.liveConnected ? 'Scanner connected' : 'Scanner disconnected'}</span>
             </button>
           </Popover.Trigger>

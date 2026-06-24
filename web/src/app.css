@@ -23,6 +23,32 @@
 
   --radius: 0.5rem;
   --sidebar-width: 240px;
+
+  /* Typography — Geist (UI) + Geist Mono (all data: MPNs, params, qty, prices) */
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+  /* Semantic status palette — each pairs a saturated foreground (text/icons/dots)
+     with a -subtle surface tint. Self-adapting: dark values live in `.dark` below,
+     so usages never need a `dark:` variant. Meaning is fixed:
+       success   = healthy / active / in-stock
+       warning   = low / NRND / needs-review
+       attention = ambiguous / needs-decision
+       danger    = critical / obsolete / no-match
+       reserved  = allocated to builds
+       info      = on-order / informational                                  */
+  --color-success: #138a52;
+  --color-success-subtle: #e6f5ec;
+  --color-warning: #9a6a06;
+  --color-warning-subtle: #fbf1da;
+  --color-attention: #b4530a;
+  --color-attention-subtle: #fbeede;
+  --color-danger: #c2362f;
+  --color-danger-subtle: #fbeae9;
+  --color-reserved: #6b46e0;
+  --color-reserved-subtle: #efeafe;
+  --color-info: #2f6bf0;
+  --color-info-subtle: #e9f0fe;
 }
 
 /* Dark mode overrides */
@@ -46,12 +72,27 @@
   --color-border: hsl(215 27.9% 16.9%);
   --color-input: hsl(215 27.9% 16.9%);
   --color-ring: hsl(216 12.2% 83.9%);
+
+  /* Semantic status palette — dark twins (lightness shifts, meaning holds) */
+  --color-success: #3ecf8e;
+  --color-success-subtle: #10301f;
+  --color-warning: #e0a52a;
+  --color-warning-subtle: #352a10;
+  --color-attention: #f0883c;
+  --color-attention-subtle: #3a2410;
+  --color-danger: #f0716e;
+  --color-danger-subtle: #371817;
+  --color-reserved: #a78bfa;
+  --color-reserved-subtle: #241a40;
+  --color-info: #5b8cff;
+  --color-info-subtle: #16233f;
 }
 
 @layer base {
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
   }

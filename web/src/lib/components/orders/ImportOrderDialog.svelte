@@ -150,7 +150,7 @@
 
       {:else if step === 'result'}
         <Dialog.Title class="text-lg font-semibold mb-1">Order Imported</Dialog.Title>
-        <div class="flex items-center gap-2 py-2 text-green-600">
+        <div class="flex items-center gap-2 py-2 text-success">
           <CheckCircle2 class="h-5 w-5 shrink-0" />
           <p class="text-sm">Order successfully imported and set to placed status.</p>
         </div>

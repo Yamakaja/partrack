@@ -476,7 +476,7 @@
       {/each}
     </div>
     {#if canEditBuild && row.effective_total_quantity > row.quantity_on_hand && row.override == null}
-      <div class="flex items-center justify-between rounded-md bg-[#fffbeb] border border-[#fde68a] px-3 py-2 text-xs text-[black]">
+      <div class="flex items-center justify-between rounded-md bg-warning-subtle border border-warning/30 px-3 py-2 text-xs text-warning">
         <span class="flex items-center gap-1.5">
           <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
           Still short {row.effective_total_quantity - row.quantity_on_hand} after exclusions
@@ -633,7 +633,7 @@
           {#if build.status === 'assembled'}
             <div class="flex flex-col gap-0.5">
               <span class="text-xs text-muted-foreground uppercase tracking-wide">Assembled qty</span>
-              <span class="font-medium tabular-nums {(build.assembled_quantity ?? build.quantity) < build.quantity ? 'text-yellow-600 dark:text-yellow-400' : ''}">
+              <span class="font-medium tabular-nums {(build.assembled_quantity ?? build.quantity) < build.quantity ? 'text-warning' : ''}">
                 {build.assembled_quantity ?? build.quantity}
                 {#if (build.assembled_quantity ?? build.quantity) < build.quantity}
                   <span class="text-xs text-muted-foreground">(of {build.quantity})</span>
@@ -685,11 +685,11 @@
             {@const total = prog.pending + prog.confirmed + prog.shortfall + prog.skipped}
             {@const done = prog.confirmed + prog.shortfall + prog.skipped}
             <div class="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div class="h-full bg-emerald-500 transition-all" style="width: {Math.round((done / total) * 100)}%"></div>
+              <div class="h-full bg-success transition-all" style="width: {Math.round((done / total) * 100)}%"></div>
             </div>
             <div class="flex gap-4 text-xs">
-              {#if prog.confirmed > 0}<span class="text-emerald-600 dark:text-emerald-400">✓ {prog.confirmed} confirmed</span>{/if}
-              {#if prog.shortfall > 0}<span class="text-amber-600 dark:text-amber-400">⚠ {prog.shortfall} shortfall</span>{/if}
+              {#if prog.confirmed > 0}<span class="text-success">✓ {prog.confirmed} confirmed</span>{/if}
+              {#if prog.shortfall > 0}<span class="text-warning">⚠ {prog.shortfall} shortfall</span>{/if}
               {#if prog.pending > 0}<span class="text-muted-foreground">· {prog.pending} pending</span>{/if}
             </div>
           {/if}
@@ -701,9 +701,9 @@
                 return (order[a.status] ?? 0) - (order[b.status] ?? 0);
               }) as item (item.part_id)}
                 <div class="flex items-center gap-2 py-1 px-2 rounded text-xs
-                  {item.status === 'confirmed' ? 'bg-emerald-500/10' : item.status === 'shortfall' ? 'bg-amber-500/10' : ''}">
+                  {item.status === 'confirmed' ? 'bg-success-subtle' : item.status === 'shortfall' ? 'bg-warning-subtle' : ''}">
                   <span class="shrink-0 w-4 text-center
-                    {item.status === 'confirmed' ? 'text-emerald-500' : item.status === 'shortfall' ? 'text-amber-500' : 'text-muted-foreground'}">
+                    {item.status === 'confirmed' ? 'text-success' : item.status === 'shortfall' ? 'text-warning' : 'text-muted-foreground'}">
                     {item.status === 'confirmed' ? '✓' : item.status === 'shortfall' ? '⚠' : '·'}
                   </span>
                   <span class="flex-1 font-mono truncate">{item.part_mpn ?? item.part_id}</span>
@@ -718,15 +718,15 @@
       <!-- Substitute selections staleness banner (draft builds only) -->
       {#if build.status === 'draft'}
         {#if !build.selections_checked_at}
-          <div class="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-800 dark:bg-blue-950/30">
-            <Loader2 class="h-4 w-4 shrink-0 animate-spin text-blue-500" />
-            <span class="text-blue-700 dark:text-blue-400">Calculating substitute selections…</span>
+          <div class="flex items-center gap-3 rounded-md border border-info/30 bg-info-subtle px-4 py-3 text-sm">
+            <Loader2 class="h-4 w-4 shrink-0 animate-spin text-info" />
+            <span class="text-info">Calculating substitute selections…</span>
           </div>
         {:else if build.selections_stale}
-          <div class="flex items-center justify-between gap-3 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm dark:border-yellow-800 dark:bg-yellow-950/30">
+          <div class="flex items-center justify-between gap-3 rounded-md border border-warning/30 bg-warning-subtle px-4 py-3 text-sm">
             <div class="flex items-center gap-2">
-              <AlertTriangle class="h-4 w-4 shrink-0 text-yellow-500" />
-              <span class="text-yellow-700 dark:text-yellow-400">Substitute selections may be out of date — inventory has changed since last check.</span>
+              <AlertTriangle class="h-4 w-4 shrink-0 text-warning" />
+              <span class="text-warning">Substitute selections may be out of date — inventory has changed since last check.</span>
             </div>
             <Button
               variant="outline" size="sm" disabled={refreshingSelections}

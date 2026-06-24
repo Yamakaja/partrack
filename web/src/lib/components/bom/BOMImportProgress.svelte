@@ -53,7 +53,7 @@
     <XCircle class="h-4 w-4 shrink-0 text-destructive" />
     <span class="text-destructive">Import failed: {error}</span>
   {:else if done}
-    <CheckCircle class="h-4 w-4 shrink-0 text-green-500" />
+    <CheckCircle class="h-4 w-4 shrink-0 text-success" />
     <span>Import complete — {resolved} of {total} resolved{completionDetail()}</span>
   {:else}
     <Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -62,8 +62,8 @@
       {#if total > 0}
         {resolved}/{total} resolved{#if noMatch > 0}, {noMatch} no match{/if}
         <span class="ml-2 inline-flex h-1.5 w-24 overflow-hidden rounded-full bg-border">
-          <span class="h-full bg-green-500 transition-all" style="width: {resolvedPct}%"></span>
-          <span class="h-full bg-amber-500 transition-all" style="width: {ambiguousPct}%"></span>
+          <span class="h-full bg-success transition-all" style="width: {resolvedPct}%"></span>
+          <span class="h-full bg-warning transition-all" style="width: {ambiguousPct}%"></span>
           <span class="h-full bg-destructive transition-all" style="width: {noMatchPct}%"></span>
         </span>
       {/if}

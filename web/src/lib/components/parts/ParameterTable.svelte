@@ -174,7 +174,7 @@
     />
     <input bind:value={editValue} placeholder="value" onkeydown={handleEditKey} class="flex-1 rounded border border-input bg-background px-2 py-0.5 text-xs" />
     <input bind:value={editUnit} placeholder="unit" onkeydown={handleEditKey} class="w-16 rounded border border-input bg-background px-2 py-0.5 text-xs" />
-    <button type="button" title="Save" onclick={saveInlineEdit} class="rounded p-1 hover:bg-muted"><Check class="h-3.5 w-3.5 text-green-600" /></button>
+    <button type="button" title="Save" onclick={saveInlineEdit} class="rounded p-1 hover:bg-muted"><Check class="h-3.5 w-3.5 text-success" /></button>
     <button type="button" title="Cancel" onclick={cancelInlineEdit} class="rounded p-1 hover:bg-muted"><X class="h-3.5 w-3.5" /></button>
   </div>
 {/snippet}

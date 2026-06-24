@@ -51,7 +51,7 @@
                 <DateDisplay value={adj.adjusted_at} />
               </TableCell>
               <TableCell>
-                <span class={adj.delta >= 0 ? 'text-green-600 dark:text-green-400 font-medium' : 'text-red-600 dark:text-red-400 font-medium'}>
+                <span class={adj.delta >= 0 ? 'text-success font-medium' : 'text-danger font-medium'}>
                   {adj.delta >= 0 ? '+' : ''}{adj.delta}
                 </span>
               </TableCell>

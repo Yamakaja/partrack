@@ -13,10 +13,10 @@
   };
 
   const variants: Record<string, string> = {
-    success: 'border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100',
+    success: 'border-success/30 bg-success-subtle text-success',
     error: 'border-destructive/30 bg-destructive/10 text-destructive',
     info: 'border-border bg-card text-foreground',
-    warning: 'border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-100',
+    warning: 'border-warning/30 bg-warning-subtle text-warning',
   };
 </script>
 

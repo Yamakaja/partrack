@@ -252,16 +252,16 @@
 
       {:else if step === 'mismatch'}
         <Dialog.Title class="text-lg font-semibold mb-3">Order Mismatch Warning</Dialog.Title>
-        <div class="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-3 mb-4">
-          <p class="text-sm font-medium flex items-center gap-1.5 text-amber-700 dark:text-amber-400 mb-2">
+        <div class="rounded-md border border-warning/30 bg-warning-subtle p-3 mb-4">
+          <p class="text-sm font-medium flex items-center gap-1.5 text-warning mb-2">
             <AlertTriangle class="h-4 w-4 shrink-0" />
             This DigiKey order may not match your partrack order
           </p>
-          <p class="text-sm text-amber-700 dark:text-amber-400">
+          <p class="text-sm text-warning">
             {mismatchQtyPct.toFixed(0)}% of quantity is missing from the DigiKey order.
           </p>
           {#if mismatchSkus.length > 0}
-            <ul class="mt-2 text-xs font-mono text-amber-700 dark:text-amber-400 space-y-0.5">
+            <ul class="mt-2 text-xs font-mono text-warning space-y-0.5">
               {#each mismatchSkus.slice(0, 5) as sku}
                 <li>{sku}</li>
               {/each}
@@ -374,7 +374,7 @@
               </p>
               {#if progressTotal > 0}
                 <div class="h-1.5 w-full overflow-hidden rounded-full bg-border">
-                  <div class="h-full bg-green-500 transition-all" style="width: {progressPct}%"></div>
+                  <div class="h-full bg-success transition-all" style="width: {progressPct}%"></div>
                 </div>
               {/if}
             </div>
@@ -383,7 +383,7 @@
 
       {:else if step === 'result'}
         <Dialog.Title class="text-lg font-semibold mb-1">Order Linked</Dialog.Title>
-        <div class="flex items-center gap-2 py-2 text-green-600">
+        <div class="flex items-center gap-2 py-2 text-success">
           <CheckCircle2 class="h-5 w-5 shrink-0" />
           <p class="text-sm">Order linked and set to placed status.</p>
         </div>
@@ -393,12 +393,12 @@
           </p>
         {/if}
         {#if resultUnresolved.length > 0}
-          <div class="mt-3 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-3">
-            <p class="text-sm font-medium flex items-center gap-1.5 text-amber-700 dark:text-amber-400 mb-1.5">
+          <div class="mt-3 rounded-md border border-warning/30 bg-warning-subtle p-3">
+            <p class="text-sm font-medium flex items-center gap-1.5 text-warning mb-1.5">
               <AlertTriangle class="h-4 w-4 shrink-0" />
               {resultUnresolved.length} SKU{resultUnresolved.length !== 1 ? 's' : ''} could not be resolved
             </p>
-            <ul class="text-xs text-amber-700 dark:text-amber-400 font-mono space-y-0.5 max-h-28 overflow-y-auto">
+            <ul class="text-xs text-warning font-mono space-y-0.5 max-h-28 overflow-y-auto">
               {#each resultUnresolved.slice(0, 10) as sku}
                 <li>{sku}</li>
               {/each}

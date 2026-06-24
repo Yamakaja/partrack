@@ -154,7 +154,7 @@
         placeholder="Select a generic-capable category…"
       />
       {#if categoryId != null && schema && !valueParamSlug}
-        <p class="text-xs text-amber-600 dark:text-amber-400">This category is not parametric.</p>
+        <p class="text-xs text-warning">This category is not parametric.</p>
       {/if}
     </div>
 
@@ -269,7 +269,7 @@
         <div class="rounded-md border border-border">
           <div class="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
             {#if committed}
-              <span class="font-medium text-green-700 dark:text-green-400">Created {preview.created} part{preview.created === 1 ? '' : 's'}</span>
+              <span class="font-medium text-success">Created {preview.created} part{preview.created === 1 ? '' : 's'}</span>
               <span class="text-muted-foreground">· {preview.existing} already existed · {preview.total} total</span>
             {:else}
               <span class="font-medium">{preview.to_create} to create</span>

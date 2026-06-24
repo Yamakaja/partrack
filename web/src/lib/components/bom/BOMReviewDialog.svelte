@@ -436,7 +436,7 @@
         </div>
 
         {#if isFuzzyResolved}
-          <div class="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+          <div class="flex items-center gap-2 rounded-md border border-warning/30 bg-warning-subtle px-3 py-2 text-xs">
             <span class="flex-1 text-muted-foreground">
               Matched to a similar MPN in your library (not an exact match) — confirm it's correct, or pick another below.
             </span>
@@ -695,7 +695,7 @@
                 </div>
               </div>
               {#if distHasSku === false && distSku.trim() !== ''}
-                <p class="text-xs text-amber-600 dark:text-amber-400">Choose a distributor for the SKU, or use the MPN field instead.</p>
+                <p class="text-xs text-warning">Choose a distributor for the SKU, or use the MPN field instead.</p>
               {/if}
               {#if distError}
                 <p class="text-xs text-destructive">{distError}</p>
@@ -753,7 +753,7 @@
         </Button>
         <div class="flex items-center gap-2">
           {#if currentItem.ignored}
-            <Button variant="outline" size="sm" class="text-amber-600 border-amber-600 hover:bg-amber-50 hover:text-amber-700" onclick={handleUnignore}>
+            <Button variant="outline" size="sm" class="text-warning border-warning hover:bg-warning-subtle hover:text-warning" onclick={handleUnignore}>
               Un-ignore
             </Button>
           {:else}

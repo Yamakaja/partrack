@@ -433,7 +433,7 @@
         </div>
         {#each doneItems as item (item.id)}
           <div class="mx-2 mb-1 rounded-md px-3 py-2 flex items-center gap-2 opacity-50">
-            <span class="text-xs {item.status === 'dismissed' ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}">
+            <span class="text-xs {item.status === 'dismissed' ? 'text-muted-foreground' : 'text-success'}">
               {item.status === 'reviewed' ? '✓' : '×'}
             </span>
             <span class="text-xs truncate">{itemLabel(item)}</span>

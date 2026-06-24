@@ -209,13 +209,13 @@
                 <TableCell class="text-muted-foreground text-sm">{u.email}</TableCell>
                 <TableCell>
                   <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-                    {u.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'}">
+                    {u.is_active ? 'bg-success-subtle text-success' : 'bg-muted text-muted-foreground'}">
                     {u.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </TableCell>
                 <TableCell>
                   {#if u.is_admin}
-                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-info-subtle text-info">
                       Admin
                     </span>
                   {/if}

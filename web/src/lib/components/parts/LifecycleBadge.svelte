@@ -3,11 +3,11 @@
 
   let { status }: { status: string | null | undefined } = $props();
 
-  type Config = { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' };
+  type Config = { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'danger' };
   const MAP: Record<string, Config> = {
     active:              { label: 'Active',      variant: 'success' },
     nrnd:                { label: 'NRND',        variant: 'warning' },
-    obsolete:            { label: 'Obsolete',    variant: 'destructive' },
+    obsolete:            { label: 'Obsolete',    variant: 'danger' },
     deprecated:          { label: 'Deprecated',  variant: 'secondary' },
     no_longer_available: { label: 'N/A',         variant: 'outline' },
   };

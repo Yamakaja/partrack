@@ -41,7 +41,7 @@
       </p>
       {#if total > 0}
         <div class="{unresolvedPct > 0 ? 'flex ' : ''}h-1.5 w-full overflow-hidden rounded-full bg-border">
-          <div class="h-full bg-green-500 transition-all" style="width: {progressPct}%"></div>
+          <div class="h-full bg-success transition-all" style="width: {progressPct}%"></div>
           {#if unresolvedPct > 0}
             <div class="h-full bg-destructive transition-all" style="width: {unresolvedPct}%"></div>
           {/if}

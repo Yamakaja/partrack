@@ -183,7 +183,7 @@
                     {:else if listing.stock_available === 0}
                       <span class="inline-flex items-center rounded-full border-transparent bg-destructive text-destructive-foreground px-2 py-0.5 font-semibold shrink-0">0</span>
                     {:else}
-                      <span class="inline-flex items-center rounded-full border-transparent bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 px-2 py-0.5 font-semibold shrink-0">{listing.stock_available.toLocaleString()}</span>
+                      <span class="inline-flex items-center rounded-full border-transparent bg-success-subtle text-success px-2 py-0.5 font-semibold shrink-0">{listing.stock_available.toLocaleString()}</span>
                     {/if}
                     <!-- MOQ -->
                     <span class="text-muted-foreground shrink-0">MOQ {listing.moq}</span>

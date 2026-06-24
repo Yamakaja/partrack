@@ -161,7 +161,7 @@
         <div
           class="rounded-md border px-4 py-3 text-sm font-medium
             {conn.connected
-            ? 'border-green-600/30 bg-green-600/10 text-green-700 dark:text-green-400'
+            ? 'border-success/30 bg-success-subtle text-success'
             : 'border-destructive/30 bg-destructive/10 text-destructive'}"
         >
           {conn.connected ? 'Directory reachable and service bind OK' : `Connection failed${conn.error ? ` — ${conn.error}` : ''}`}
@@ -172,7 +172,7 @@
           <ul class="space-y-1.5">
             {#each conn.steps as step (step.name)}
               <li class="flex items-start gap-2 text-sm">
-                {#if step.ok}<Check class="mt-0.5 h-4 w-4 shrink-0 text-green-600" />{:else}<X class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />{/if}
+                {#if step.ok}<Check class="mt-0.5 h-4 w-4 shrink-0 text-success" />{:else}<X class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />{/if}
                 <div>
                   <span class="font-medium">{step.name}</span>
                   {#if step.detail}<span class="text-muted-foreground"> — {step.detail}</span>{/if}
@@ -189,7 +189,7 @@
             <ul class="space-y-1">
               {#each conn.dn_checks as c (c.dn)}
                 <li class="flex items-start gap-2 text-sm">
-                  {#if c.exists}<Check class="mt-0.5 h-4 w-4 shrink-0 text-green-600" />{:else}<X class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />{/if}
+                  {#if c.exists}<Check class="mt-0.5 h-4 w-4 shrink-0 text-success" />{:else}<X class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />{/if}
                   <span class="font-mono text-xs break-all">{c.dn}</span>
                   {#if c.err}<span class="text-destructive text-xs">({c.err})</span>{/if}
                 </li>
@@ -211,8 +211,8 @@
             {result.error
             ? 'border-destructive/30 bg-destructive/10 text-destructive'
             : result.password_verified
-              ? 'border-green-600/30 bg-green-600/10 text-green-700 dark:text-green-400'
-              : 'border-blue-600/30 bg-blue-600/10 text-blue-700 dark:text-blue-400'}"
+              ? 'border-success/30 bg-success-subtle text-success'
+              : 'border-info/30 bg-info-subtle text-info'}"
         >
           {#if result.error}
             {result.password_verified ? 'Authentication failed' : 'Lookup failed'} — {result.error}
@@ -224,7 +224,7 @@
         </div>
 
         {#if result.warnings && result.warnings.length > 0}
-          <div class="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          <div class="rounded-md border border-warning/30 bg-warning-subtle px-4 py-3 text-sm text-warning">
             <p class="font-medium">Warnings</p>
             <ul class="mt-1 list-disc pl-5 space-y-0.5">
               {#each result.warnings as wmsg (wmsg)}<li>{wmsg}</li>{/each}
@@ -239,7 +239,7 @@
             {#each result.steps as step (step.name)}
               <li class="flex items-start gap-2 text-sm">
                 {#if step.ok}
-                  <Check class="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                  <Check class="mt-0.5 h-4 w-4 shrink-0 text-success" />
                 {:else}
                   <X class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                 {/if}
@@ -281,7 +281,7 @@
             {#if result.authorization.required_group_configured}
               <p class="text-sm">
                 Login gate:
-                <span class="font-medium {result.authorization.login_allowed ? 'text-green-600' : 'text-destructive'}">
+                <span class="font-medium {result.authorization.login_allowed ? 'text-success' : 'text-destructive'}">
                   {result.authorization.login_allowed ? 'allowed (member of required group)' : 'denied (not in required group)'}
                 </span>
               </p>
@@ -289,7 +289,7 @@
             {#if result.authorization.admin_group_configured}
               <p class="text-sm">
                 Instance admin:
-                <span class="font-medium {result.authorization.is_admin ? 'text-green-600' : ''}">
+                <span class="font-medium {result.authorization.is_admin ? 'text-success' : ''}">
                   {result.authorization.is_admin ? 'granted (member of admin group)' : 'not granted'}
                 </span>
               </p>
@@ -311,7 +311,7 @@
                         {m.role}{#if !m.valid_role}<span class="text-destructive"> (invalid)</span>{/if}
                       </td>
                       <td class="py-1">
-                        {#if m.matched}<Check class="h-4 w-4 text-green-600" />{:else}<X class="h-4 w-4 text-muted-foreground" />{/if}
+                        {#if m.matched}<Check class="h-4 w-4 text-success" />{:else}<X class="h-4 w-4 text-muted-foreground" />{/if}
                       </td>
                     </tr>
                   {/each}
@@ -345,7 +345,7 @@
                     <td class="py-1 pr-4 font-mono text-xs break-all">{g.dn}</td>
                     <td class="py-1 pr-4 text-muted-foreground">{(g.purposes ?? []).join(', ')}</td>
                     <td class="py-1 pr-4">
-                      {#if g.exists}<Check class="h-4 w-4 text-green-600" />{:else}
+                      {#if g.exists}<Check class="h-4 w-4 text-success" />{:else}
                         <span class="flex items-center gap-1 text-destructive">
                           <X class="h-4 w-4" />{#if g.exists_err}<span class="text-xs">{g.exists_err}</span>{/if}
                         </span>
@@ -354,7 +354,7 @@
                     <td class="py-1">
                       {#if g.member}
                         <span class="flex items-center gap-1">
-                          <Check class="h-4 w-4 text-green-600" />
+                          <Check class="h-4 w-4 text-success" />
                           {#if g.member_via}<span class="text-xs text-muted-foreground">({g.member_via})</span>{/if}
                         </span>
                       {:else}<X class="h-4 w-4 text-muted-foreground" />{/if}

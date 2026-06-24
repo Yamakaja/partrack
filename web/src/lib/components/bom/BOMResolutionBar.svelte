@@ -29,11 +29,11 @@
     const counts: Record<string, number> = {};
     for (const i of items) counts[bucketOf(i)] = (counts[bucketOf(i)] ?? 0) + 1;
     const defs: Bucket[] = [
-      { key: 'existing',   label: 'Existing parts',     color: 'bg-green-500',   count: counts.existing   ?? 0 },
-      { key: 'newAuto',    label: 'New parts imported',  color: 'bg-emerald-400', count: counts.newAuto    ?? 0 },
-      { key: 'manual',     label: 'Resolved manually',   color: 'bg-sky-500',     count: counts.manual     ?? 0 },
-      { key: 'importing',  label: 'Importing…',          color: 'bg-indigo-400',  count: counts.importing  ?? 0, animate: true },
-      { key: 'ambiguous',  label: 'Needs review',        color: 'bg-amber-500',   count: counts.ambiguous  ?? 0 },
+      { key: 'existing',   label: 'Existing parts',     color: 'bg-success',   count: counts.existing   ?? 0 },
+      { key: 'newAuto',    label: 'New parts imported',  color: 'bg-success', count: counts.newAuto    ?? 0 },
+      { key: 'manual',     label: 'Resolved manually',   color: 'bg-info',     count: counts.manual     ?? 0 },
+      { key: 'importing',  label: 'Importing…',          color: 'bg-info',  count: counts.importing  ?? 0, animate: true },
+      { key: 'ambiguous',  label: 'Needs review',        color: 'bg-attention', count: counts.ambiguous  ?? 0 },
       { key: 'noResult',   label: 'No result',           color: 'bg-destructive', count: counts.noResult   ?? 0 },
       { key: 'unresolved', label: 'Unresolved',          color: 'bg-muted-foreground/40', count: counts.unresolved ?? 0 },
       { key: 'ignored',    label: 'Ignored',             color: 'bg-muted-foreground/20', count: counts.ignored ?? 0 },
@@ -51,7 +51,7 @@
       <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Resolution</h3>
       {#if importing > 0}
         <span class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span class="h-2 w-2 animate-pulse rounded-full bg-indigo-400"></span>
+          <span class="h-2 w-2 animate-pulse rounded-full bg-info"></span>
           {importing} importing…
         </span>
       {/if}

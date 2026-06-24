@@ -458,27 +458,27 @@
     {#if unresolvedItems.length > 0}
       <div class="space-y-1.5">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Unresolved Import Items</h3>
-        <div class="rounded border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 overflow-hidden">
+        <div class="rounded border border-warning/30 bg-warning-subtle overflow-hidden">
           <table class="w-full text-xs">
-            <thead class="bg-amber-100/50 dark:bg-amber-900/30">
+            <thead class="bg-warning-subtle">
               <tr>
-                <th class="text-left px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">SKU</th>
-                <th class="text-left px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">MPN</th>
-                <th class="text-right px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">Qty</th>
-                <th class="text-right px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">Unit Price</th>
-                <th class="text-left px-3 py-1.5 font-medium text-amber-700 dark:text-amber-400">Reason</th>
+                <th class="text-left px-3 py-1.5 font-medium text-warning">SKU</th>
+                <th class="text-left px-3 py-1.5 font-medium text-warning">MPN</th>
+                <th class="text-right px-3 py-1.5 font-medium text-warning">Qty</th>
+                <th class="text-right px-3 py-1.5 font-medium text-warning">Unit Price</th>
+                <th class="text-left px-3 py-1.5 font-medium text-warning">Reason</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-amber-200 dark:divide-amber-900">
+            <tbody class="divide-y divide-warning/30">
               {#each unresolvedItems as item}
                 <tr>
-                  <td class="px-3 py-1.5 font-mono text-amber-800 dark:text-amber-300">{item.sku}</td>
-                  <td class="px-3 py-1.5 font-mono text-amber-700 dark:text-amber-400">{item.mpn || '—'}</td>
-                  <td class="px-3 py-1.5 text-right tabular-nums text-amber-700 dark:text-amber-400">{item.quantity_ordered}</td>
-                  <td class="px-3 py-1.5 text-right tabular-nums text-amber-700 dark:text-amber-400">
+                  <td class="px-3 py-1.5 font-mono text-warning">{item.sku}</td>
+                  <td class="px-3 py-1.5 font-mono text-warning">{item.mpn || '—'}</td>
+                  <td class="px-3 py-1.5 text-right tabular-nums text-warning">{item.quantity_ordered}</td>
+                  <td class="px-3 py-1.5 text-right tabular-nums text-warning">
                     {item.unit_price != null ? `$${item.unit_price.toFixed(4)}` : '—'}
                   </td>
-                  <td class="px-3 py-1.5 text-amber-600 dark:text-amber-500">
+                  <td class="px-3 py-1.5 text-warning">
                     {#if item.failure_reason === 'enrichment_failed'}API error{:else if item.failure_reason === 'enrichment_nil'}Not in catalog{:else}Not found{/if}
                   </td>
                 </tr>

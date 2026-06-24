@@ -312,7 +312,7 @@
           <Button
             size="sm"
             onclick={startFullReview}
-            class="bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700"
+            class="bg-warning text-white hover:bg-warning"
           >
             {needsAttentionCount} {needsAttentionCount === 1 ? 'item' : 'items'} ready for review
           </Button>

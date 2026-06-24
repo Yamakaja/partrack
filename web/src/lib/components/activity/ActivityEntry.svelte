@@ -22,12 +22,12 @@
 
 <div
   class="flex gap-3 px-4 py-3 border-b border-border transition-colors
-    {isNotFound ? 'bg-amber-50 dark:bg-amber-950/30' : 'hover:bg-accent/50'}"
+    {isNotFound ? 'bg-warning-subtle' : 'hover:bg-accent/50'}"
 >
   <!-- Icon / part thumbnail -->
   <div class="shrink-0 w-10 h-10 rounded-full overflow-hidden flex items-center justify-center text-xs
     {isNotFound
-      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
+      ? 'bg-warning-subtle text-warning'
       : 'bg-muted text-muted-foreground'}">
     {#if item.part_image_url}
       <img src={item.part_image_url} alt="" class="w-full h-full object-contain" />
@@ -39,7 +39,7 @@
   <!-- Content -->
   <div class="flex-1 min-w-0">
     <div class="flex items-start justify-between gap-2">
-      <span class="text-xs {isNotFound ? 'text-amber-700 dark:text-amber-400' : 'text-foreground'}">
+      <span class="text-xs {isNotFound ? 'text-warning' : 'text-foreground'}">
         {#if showActor && item.actor_label}<span class="font-medium">{item.actor_label}</span>{' '}{/if}
         {#each segments as seg}
           {#if seg.kind === 'text'}{seg.text}
@@ -57,7 +57,7 @@
     {#if isNotFound || (onAdjust && item.inventory_entry_id)}
       <div class="mt-1.5 flex items-center gap-2">
         {#if isNotFound}
-          <span class="text-[10px] text-amber-600 dark:text-amber-500">
+          <span class="text-[10px] text-warning">
             {item.subject ? 'Resolved ✓' : 'Unresolved'}
           </span>
         {/if}

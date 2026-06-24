@@ -9,13 +9,13 @@
     minimum_stock_quantity: number | null | undefined;
   } = $props();
 
-  let variant = $derived((): 'success' | 'warning' | 'destructive' => {
+  let variant = $derived((): 'success' | 'warning' | 'danger' => {
     if (minimum_stock_quantity == null) {
-      return quantity_on_hand > 0 ? 'success' : 'destructive';
+      return quantity_on_hand > 0 ? 'success' : 'danger';
     }
     if (quantity_on_hand >= minimum_stock_quantity) return 'success';
     if (quantity_on_hand > 0) return 'warning';
-    return 'destructive';
+    return 'danger';
   });
 
   let label = $derived((): string => {

@@ -151,8 +151,8 @@
   function rateLimitColor(rl: DistributorRateLimit): string {
     if (rl.limit === 0) return 'text-muted-foreground';
     const pct = rl.remaining / rl.limit;
-    if (pct >= 0.5) return 'text-green-600';
-    if (pct >= 0.1) return 'text-yellow-600';
+    if (pct >= 0.5) return 'text-success';
+    if (pct >= 0.1) return 'text-warning';
     return 'text-destructive';
   }
 

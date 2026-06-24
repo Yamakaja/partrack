@@ -105,27 +105,27 @@
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Resolved by SKU</span>
-            <span class="font-medium tabular-nums {resolvedSku > 0 ? 'text-green-600' : 'text-muted-foreground'}">{resolvedSku}</span>
+            <span class="font-medium tabular-nums {resolvedSku > 0 ? 'text-success' : 'text-muted-foreground'}">{resolvedSku}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Resolved by MPN</span>
-            <span class="font-medium tabular-nums {resolvedMpn > 0 ? 'text-green-600' : 'text-muted-foreground'}">{resolvedMpn}</span>
+            <span class="font-medium tabular-nums {resolvedMpn > 0 ? 'text-success' : 'text-muted-foreground'}">{resolvedMpn}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">From prior revision</span>
-            <span class="font-medium tabular-nums {resolvedPrior > 0 ? 'text-green-600' : 'text-muted-foreground'}">{resolvedPrior}</span>
+            <span class="font-medium tabular-nums {resolvedPrior > 0 ? 'text-success' : 'text-muted-foreground'}">{resolvedPrior}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Matched by spec (generic)</span>
-            <span class="font-medium tabular-nums {resolvedGeneric > 0 ? 'text-green-600' : 'text-muted-foreground'}">{resolvedGeneric}</span>
+            <span class="font-medium tabular-nums {resolvedGeneric > 0 ? 'text-success' : 'text-muted-foreground'}">{resolvedGeneric}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">New parts importing</span>
-            <span class="font-medium tabular-nums {importingCount > 0 ? 'text-indigo-500' : 'text-muted-foreground'}">{importingCount}</span>
+            <span class="font-medium tabular-nums {importingCount > 0 ? 'text-info' : 'text-muted-foreground'}">{importingCount}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Ambiguous</span>
-            <span class="font-medium tabular-nums {ambiguous > 0 ? 'text-amber-600' : 'text-muted-foreground'}">{ambiguous}</span>
+            <span class="font-medium tabular-nums {ambiguous > 0 ? 'text-warning' : 'text-muted-foreground'}">{ambiguous}</span>
           </div>
           <div class="flex items-center justify-between px-4 py-2">
             <span class="text-muted-foreground">Unresolved</span>
@@ -158,8 +158,8 @@
             </p>
             {#if total > 0}
               <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-border">
-                <div class="h-full bg-green-500 transition-all" style="width: {resolvedPct}%"></div>
-                <div class="h-full bg-amber-500 transition-all" style="width: {ambiguousPct}%"></div>
+                <div class="h-full bg-success transition-all" style="width: {resolvedPct}%"></div>
+                <div class="h-full bg-warning transition-all" style="width: {ambiguousPct}%"></div>
                 <div class="h-full bg-destructive transition-all" style="width: {noMatchPct}%"></div>
               </div>
             {/if}
