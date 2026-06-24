@@ -50,6 +50,7 @@ type Listing struct {
 	FixedOrderCost string       // decimal string, default "0.0000"
 	PriceBreaks    []PriceBreak // sorted ascending by BreakQty; may be empty
 	ListingURL     string       // direct URL to this listing's product page; empty if unavailable
+	Marketplace    bool         // true = third-party marketplace seller (not stocked by the distributor)
 }
 
 // SearchQuery describes a free-text distributor search request.

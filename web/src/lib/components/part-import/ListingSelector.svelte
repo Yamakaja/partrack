@@ -169,6 +169,13 @@
                     />
                     <!-- SKU -->
                     <span class="font-mono flex-1 min-w-0 truncate">{listing.sku}</span>
+                    <!-- Marketplace badge -->
+                    {#if listing.marketplace}
+                      <span
+                        class="inline-flex items-center rounded-full border border-warning/40 bg-warning-subtle text-warning px-2 py-0.5 font-semibold shrink-0"
+                        title="Third-party marketplace seller — not stocked by the distributor"
+                      >Marketplace</span>
+                    {/if}
                     <!-- Packaging -->
                     {#if listing.packaging_type}
                       <span class="text-muted-foreground shrink-0">{listing.packaging_type}</span>

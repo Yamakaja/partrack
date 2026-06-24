@@ -51,7 +51,11 @@ func categoryChain(c categoryObj) []distributor.DistributorCategory {
 }
 
 // mapProductToEnrichment converts a DigiKey product struct to an EnrichmentResult.
-func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
+// requestedSKU is the SKU the caller explicitly asked to enrich (EnrichPart's sku
+// argument). Marketplace (third-party seller) variations are normally skipped, but
+// the one matching requestedSKU is included and flagged — a user importing a specific
+// marketplace SKU must still get its listing rather than an empty result.
+func mapProductToEnrichment(p *product, requestedSKU string) *distributor.EnrichmentResult {
 	// Prefer the detailed description for the long description field; fall back to short.
 	description := p.Description.DetailedDescription
 	if description == "" {
@@ -83,9 +87,10 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 		result.Parameters = append(result.Parameters, p2)
 	}
 
-	// Build one Listing per non-marketplace ProductVariation.
+	// Build one Listing per ProductVariation. Marketplace (third-party seller)
+	// variations are skipped unless the caller explicitly requested that exact SKU.
 	for _, v := range p.ProductVariations {
-		if v.MarketPlace {
+		if v.MarketPlace && v.DigiKeyProductNumber != requestedSKU {
 			continue
 		}
 		listing := buildListing(
@@ -94,6 +99,7 @@ func mapProductToEnrichment(p *product) *distributor.EnrichmentResult {
 			v.StandardPricing, v.MyPricing, v.DigiReelFee,
 		)
 		listing.ListingURL = p.ProductUrl
+		listing.Marketplace = v.MarketPlace
 		result.Listings = append(result.Listings, listing)
 	}
 
@@ -117,7 +123,7 @@ func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMe
 	if v, ok := c.searchCache.Load(cacheKey); ok {
 		entry := v.(searchCacheEntry)
 		if time.Now().Before(entry.expiresAt) {
-			return mapProductToEnrichment(&entry.product), nil
+			return mapProductToEnrichment(&entry.product, sku), nil
 		}
 		c.searchCache.Delete(cacheKey)
 	}
@@ -132,7 +138,7 @@ func (c *Client) EnrichPart(ctx context.Context, sku string, rawCreds json.RawMe
 		return nil, nil
 	}
 
-	return mapProductToEnrichment(resp.Product), nil
+	return mapProductToEnrichment(resp.Product, sku), nil
 }
 
 // RefreshListing fetches current stock and price for sku from DigiKey.

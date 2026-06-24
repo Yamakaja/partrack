@@ -18,13 +18,19 @@ import (
 
 const enrichmentTimeout = 60 * time.Second
 
-// enrichByMPN queries a distributor for all products matching an MPN.
-// It calls SearchParts to discover candidates, then EnrichPart for each exact-match
-// product (up to maxResults). Falls back to a direct EnrichPart(mpn) call when
-// SearchParts returns nothing or is unsupported.
-func enrichByMPN(ctx context.Context, c distributor.Client, mpn string, creds json.RawMessage, maxResults int) ([]*distributor.EnrichmentResult, error) {
+// enrichByMPN queries a distributor for products matching an MPN that also belong
+// to the given manufacturer. It calls SearchParts to discover candidates, keeps only
+// those whose MPN matches exactly AND whose manufacturer matches (so a generic MPN like
+// "LM317" doesn't pull in same-MPN parts from unrelated manufacturers), then EnrichPart
+// for each (up to maxResults). A single partrack part is unique on Manufacturer+MPN, so
+// cross-distributor discovery must constrain on both.
+//
+// When manufacturer is empty (the target manufacturer is unknown) the manufacturer
+// constraint is skipped, but the exact-MPN requirement still holds — there is no
+// best-effort "top result" fallback, which previously surfaced unrelated MPNs.
+func enrichByMPN(ctx context.Context, c distributor.Client, mpn, manufacturer string, creds json.RawMessage, maxResults int) ([]*distributor.EnrichmentResult, error) {
 	distName := c.Name()
-	slog.Debug("enrichByMPN: SearchParts", "distributor", distName, "mpn", mpn)
+	slog.Debug("enrichByMPN: SearchParts", "distributor", distName, "mpn", mpn, "manufacturer", manufacturer)
 	sr, err := c.SearchParts(ctx, distributor.SearchQuery{Keywords: mpn, Limit: 20}, creds)
 	if err != nil {
 		slog.Debug("enrichByMPN: SearchParts error, falling back to EnrichPart", "distributor", distName, "mpn", mpn, "err", err)
@@ -42,40 +48,46 @@ func enrichByMPN(ctx context.Context, c distributor.Client, mpn string, creds js
 				}
 			}
 		}
-		// If still no exact match, use the top result as a best-effort fallback.
-		if len(indices) == 0 {
-			slog.Debug("enrichByMPN: no exact match found, using top result", "distributor", distName, "mpn", mpn, "top_mpn", sr.Products[0].MPN)
-			indices = []int{0}
-		}
 
+		// Keep only candidates that match BOTH the exact MPN and the manufacturer.
+		// No top-result fallback: an unrelated top hit is worse than no match here.
 		var results []*distributor.EnrichmentResult
 		for _, idx := range indices {
 			if idx >= len(sr.Products) || len(results) >= maxResults {
 				break
 			}
-			sku := sr.Products[idx].PrimarySKU
-			if sku == "" {
+			cand := sr.Products[idx]
+			if !strings.EqualFold(cand.MPN, mpn) {
 				continue
 			}
-			slog.Debug("enrichByMPN: EnrichPart for candidate", "distributor", distName, "mpn", mpn, "candidate_mpn", sr.Products[idx].MPN, "sku", sku)
-			r, err := c.EnrichPart(ctx, sku, creds)
+			if !manufacturerMatches(cand.Manufacturer, manufacturer) {
+				slog.Debug("enrichByMPN: skipping manufacturer mismatch", "distributor", distName, "mpn", mpn, "want_mfr", manufacturer, "got_mfr", cand.Manufacturer)
+				continue
+			}
+			if cand.PrimarySKU == "" {
+				continue
+			}
+			slog.Debug("enrichByMPN: EnrichPart for candidate", "distributor", distName, "mpn", mpn, "candidate_mpn", cand.MPN, "sku", cand.PrimarySKU)
+			r, err := c.EnrichPart(ctx, cand.PrimarySKU, creds)
 			if err != nil {
-				slog.Debug("enrichByMPN: EnrichPart error", "distributor", distName, "sku", sku, "err", err)
+				slog.Debug("enrichByMPN: EnrichPart error", "distributor", distName, "sku", cand.PrimarySKU, "err", err)
 				continue
 			}
 			if r == nil {
-				slog.Debug("enrichByMPN: EnrichPart returned nil", "distributor", distName, "sku", sku)
+				slog.Debug("enrichByMPN: EnrichPart returned nil", "distributor", distName, "sku", cand.PrimarySKU)
 				continue
 			}
 			results = append(results, r)
 		}
-		if len(results) > 0 {
-			slog.Debug("enrichByMPN: done via SearchParts", "distributor", distName, "mpn", mpn, "products", len(results))
-			return results, nil
-		}
+		// SearchParts succeeded: trust its catalogue. Whether or not we found a
+		// manufacturer+MPN match, do not fall through to the EnrichPart(mpn) probe
+		// (which would treat the MPN as a SKU and bypass the manufacturer filter).
+		slog.Debug("enrichByMPN: done via SearchParts", "distributor", distName, "mpn", mpn, "products", len(results))
+		return results, nil
 	}
 
-	// Fall back to direct EnrichPart lookup (e.g. when SearchParts is unsupported or empty).
+	// SearchParts is unsupported or errored: probe EnrichPart(mpn) directly (treats
+	// the MPN as a SKU). Still enforce the manufacturer constraint on the result.
 	slog.Debug("enrichByMPN: EnrichPart fallback", "distributor", distName, "mpn", mpn)
 	r, err := c.EnrichPart(ctx, mpn, creds)
 	if err != nil {
@@ -85,8 +97,74 @@ func enrichByMPN(ctx context.Context, c distributor.Client, mpn string, creds js
 		slog.Debug("enrichByMPN: EnrichPart fallback returned nil", "distributor", distName, "mpn", mpn)
 		return nil, nil
 	}
+	if !manufacturerMatches(r.Manufacturer, manufacturer) {
+		slog.Debug("enrichByMPN: EnrichPart fallback manufacturer mismatch", "distributor", distName, "mpn", mpn, "want_mfr", manufacturer, "got_mfr", r.Manufacturer)
+		return nil, nil
+	}
 	slog.Debug("enrichByMPN: done via EnrichPart fallback", "distributor", distName, "mpn", mpn)
 	return []*distributor.EnrichmentResult{r}, nil
+}
+
+// mfrCorporateSuffixes are trailing legal-form tokens stripped before comparing
+// manufacturer names, so "Texas Instruments" and "Texas Instruments Inc" match.
+var mfrCorporateSuffixes = map[string]bool{
+	"inc": true, "incorporated": true, "corp": true, "corporation": true,
+	"co": true, "company": true, "ltd": true, "limited": true, "llc": true,
+	"gmbh": true, "ag": true, "sa": true, "srl": true, "plc": true, "nv": true,
+	"bv": true, "pte": true, "kg": true, "ab": true, "oy": true,
+}
+
+// normalizeManufacturer lowercases, strips punctuation to spaces, collapses
+// whitespace, and drops trailing corporate-form tokens (Inc, Ltd, …). It is
+// intentionally conservative: it does not strip descriptive words like
+// "Technology"/"Semiconductor", so distinct manufacturers stay distinct.
+func normalizeManufacturer(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune(' ')
+		}
+	}
+	fields := strings.Fields(b.String())
+	for len(fields) > 1 && mfrCorporateSuffixes[fields[len(fields)-1]] {
+		fields = fields[:len(fields)-1]
+	}
+	return strings.Join(fields, " ")
+}
+
+// manufacturerMatches reports whether two manufacturer names refer to the same
+// manufacturer after normalization. An empty want ("manufacturer unknown") matches
+// anything, so callers that cannot determine the target manufacturer fall back to
+// MPN-only matching rather than rejecting everything.
+func manufacturerMatches(got, want string) bool {
+	if strings.TrimSpace(want) == "" {
+		return true
+	}
+	ng, nw := normalizeManufacturer(got), normalizeManufacturer(want)
+	return ng != "" && ng == nw
+}
+
+// primaryManufacturer returns the manufacturer reported by the originally-requested
+// distributor (the authoritative source for the part's identity), or "" if it has no
+// stored result. Used to recover the target manufacturer for re-queries when the
+// original request was SKU-only.
+func primaryManufacturer(ed resolveEnrichmentData, primaryDistID string) string {
+	if primaryDistID == "" {
+		return ""
+	}
+	for _, e := range ed.Distributors {
+		if e.DistributorID != primaryDistID {
+			continue
+		}
+		for _, r := range e.Results {
+			if r != nil && r.Manufacturer != "" {
+				return r.Manufacturer
+			}
+		}
+	}
+	return ""
 }
 
 // AdditionalListing identifies a specific distributor listing (by distributor + SKU)
@@ -297,7 +375,7 @@ func (q *Queue) handlePartResolve(job Job) {
 				defer wg.Done()
 				enrichCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 				defer cancel()
-				results, err := enrichByMPN(enrichCtx, c, pf.MPN, json.RawMessage(cfg.ApiCredentials), 5)
+				results, err := enrichByMPN(enrichCtx, c, pf.MPN, pf.Manufacturer, json.RawMessage(cfg.ApiCredentials), 5)
 				dr := distResult{distID: cfg.DistributorID.String(), distName: cfg.DistributorName, results: results}
 				if err != nil {
 					dr.errMsg = err.Error()
@@ -461,6 +539,15 @@ func (q *Queue) handlePartResolveRetryDistributors(
 		json.Unmarshal(item.EnrichmentData, &existing) //nolint:errcheck
 	}
 
+	// Determine the target manufacturer so the re-query stays constrained to the
+	// same Manufacturer+MPN. The original request may have been SKU-only (no
+	// manufacturer in input_fields); in that case recover it from the primary
+	// distributor's stored result.
+	targetMfr := pf.Manufacturer
+	if targetMfr == "" {
+		targetMfr = primaryManufacturer(existing, pf.DistributorID)
+	}
+
 	configs, err := queries.ListEnabledDistributorConfigsForTeam(ctx, teamID)
 	if err != nil {
 		return
@@ -484,7 +571,7 @@ func (q *Queue) handlePartResolveRetryDistributors(
 			defer wg.Done()
 			enrichCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 			defer cancel()
-			results, err := enrichByMPN(enrichCtx, c, pf.MPN, json.RawMessage(cfg.ApiCredentials), 5)
+			results, err := enrichByMPN(enrichCtx, c, pf.MPN, targetMfr, json.RawMessage(cfg.ApiCredentials), 5)
 			e := resolveEnrichmentEntry{DistributorID: cfg.DistributorID.String(), Name: cfg.DistributorName}
 			if err != nil {
 				e.Error = err.Error()

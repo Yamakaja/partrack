@@ -42,6 +42,7 @@ type resolveListing struct {
 	FixedOrderCost string                   `json:"fixed_order_cost"`
 	PriceBreaks    []distributor.PriceBreak `json:"price_breaks"`
 	ListingURL     string                   `json:"listing_url,omitempty"`
+	Marketplace    bool                     `json:"marketplace,omitempty"`
 }
 
 // resolveEnrichmentEntry is one distributor's result stored in part_resolve_items.enrichment_data.
@@ -101,6 +102,7 @@ func toResolveResult(r *distributor.EnrichmentResult) *resolveEnrichmentResult {
 			FixedOrderCost: l.FixedOrderCost,
 			PriceBreaks:    l.PriceBreaks,
 			ListingURL:     l.ListingURL,
+			Marketplace:    l.Marketplace,
 		})
 	}
 	return out
@@ -147,6 +149,7 @@ func fromResolveResult(r *resolveEnrichmentResult) *distributor.EnrichmentResult
 			FixedOrderCost: l.FixedOrderCost,
 			PriceBreaks:    l.PriceBreaks,
 			ListingURL:     l.ListingURL,
+			Marketplace:    l.Marketplace,
 		})
 	}
 	return out

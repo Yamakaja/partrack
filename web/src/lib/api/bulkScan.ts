@@ -42,6 +42,7 @@ export interface EnrichmentListing {
   fixed_order_cost?: string;
   price_breaks: Array<{ quantity: number; unit_price: string }>;
   listing_url?: string;
+  marketplace?: boolean;
 }
 
 export interface EnrichmentResult {
