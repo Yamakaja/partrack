@@ -47,6 +47,16 @@
       .catch(() => {}); // login page must still work if this fails
   });
 
+  // Surface a clearer native-validation message than the browser default.
+  function emailInvalid(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
+    if (!el.value) {
+      el.setCustomValidity(ldapEnabled ? 'Please enter your email or username.' : 'Please enter your email address.');
+    } else {
+      el.setCustomValidity('Please enter a valid email address.');
+    }
+  }
+
   async function handleSubmit(e: Event) {
     e.preventDefault();
     loading = true;
@@ -89,7 +99,10 @@
             type={ldapEnabled ? 'text' : 'email'}
             bind:value={email}
             required
+            placeholder={ldapEnabled ? 'Email or username' : 'you@example.com'}
             autocomplete="username"
+            oninvalid={emailInvalid}
+            oninput={(e) => e.currentTarget.setCustomValidity('')}
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
