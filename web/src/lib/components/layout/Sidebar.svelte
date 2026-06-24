@@ -20,7 +20,14 @@
   import { scanSessionStore, clearScanSession } from '$lib/stores/scanSession.svelte.js';
   import SSEConnectionIndicator from './SSEConnectionIndicator.svelte';
   import PartrackMark from '$lib/components/brand/PartrackMark.svelte';
+  import { Tooltip } from '$lib/components/ui/tooltip/index.js';
   import { request } from '$lib/api/client.js';
+
+  const versionTooltip = $derived(
+    versionStore.info
+      ? `partrack ${versionStore.info.version} · commit ${versionStore.info.commit} · built ${versionStore.info.date}`
+      : 'partrack'
+  );
 
   function handleKeydown(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -92,9 +99,11 @@
 
 <aside class="flex h-full w-60 shrink-0 flex-col border-r border-border bg-card">
   <!-- Header -->
-  <div class="flex items-center gap-2 border-b border-border px-4 py-3">
-    <PartrackMark class="size-5 shrink-0 text-foreground" />
-    <span class="font-semibold text-sm tracking-tight text-foreground">partrack</span>
+  <div class="border-b border-border">
+    <Tooltip content={versionTooltip} triggerClass="flex w-full items-center gap-2 px-4 py-3 text-left">
+      <PartrackMark class="size-5 shrink-0 text-foreground" />
+      <span class="font-semibold text-sm tracking-tight text-foreground">partrack</span>
+    </Tooltip>
   </div>
 
   <!-- Team switcher -->
@@ -305,18 +314,6 @@
       Log out
     </button>
   </div>
-
-  <!-- Build version -->
-  {#if versionStore.info}
-    <div class="px-3 pb-2 text-center">
-      <span
-        class="font-mono text-[10px] text-muted-foreground/60"
-        title={`commit ${versionStore.info.commit} · built ${versionStore.info.date}`}
-      >
-        partrack {versionStore.info.version}
-      </span>
-    </div>
-  {/if}
 </aside>
 
 <CommandPalette />

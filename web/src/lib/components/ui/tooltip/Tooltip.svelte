@@ -5,17 +5,19 @@
   let {
     content,
     class: className = '',
+    triggerClass = '',
     children,
   }: {
     content: string;
     class?: string;
+    triggerClass?: string;
     children?: import('svelte').Snippet;
   } = $props();
 </script>
 
 <TooltipPrimitive.Provider>
   <TooltipPrimitive.Root>
-    <TooltipPrimitive.Trigger>
+    <TooltipPrimitive.Trigger class={triggerClass}>
       {@render children?.()}
     </TooltipPrimitive.Trigger>
     <TooltipPrimitive.Content
