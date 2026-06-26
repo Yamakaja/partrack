@@ -73,13 +73,30 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
     cameraError = null;
   }
 
+  // OffscreenCanvas only shipped in Safari at 16.4; on older iOS `new
+  // OffscreenCanvas` throws, which would silently break hold-to-scan behind a
+  // working camera preview. Fall back to a reused detached <canvas>.
+  const supportsOffscreenCanvas = typeof OffscreenCanvas !== 'undefined';
+  let fallbackCanvas: HTMLCanvasElement | null = null;
+
   function captureFrame(): ImageData | null {
     const el = getVideoEl();
     if (!el || el.readyState < 2) return null;
-    const canvas = new OffscreenCanvas(el.videoWidth, el.videoHeight);
-    const ctx = canvas.getContext('2d')!;
+    const w = el.videoWidth, h = el.videoHeight;
+    if (w === 0 || h === 0) return null;
+
+    let ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+    if (supportsOffscreenCanvas) {
+      ctx = new OffscreenCanvas(w, h).getContext('2d');
+    } else {
+      fallbackCanvas ??= document.createElement('canvas');
+      fallbackCanvas.width = w;
+      fallbackCanvas.height = h;
+      ctx = fallbackCanvas.getContext('2d');
+    }
+    if (!ctx) return null;
     ctx.drawImage(el, 0, 0);
-    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return ctx.getImageData(0, 0, w, h);
   }
 
   async function decodeFrame(imageData: ImageData): Promise<string | null> {
