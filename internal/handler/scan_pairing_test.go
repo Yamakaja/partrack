@@ -3,6 +3,7 @@ package handler_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Yamakaja/partrack/internal/testutil"
@@ -121,5 +122,20 @@ func TestScanPair_SetsHttpOnlyCookie(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("scan cookie should authenticate /scan/session: got %d", resp.StatusCode)
+	}
+
+	// A cookie-authenticated mutation must pass the global CSRF check (the cookie now
+	// counts as cookie-auth) and the member role gate — not be blocked at 401/403.
+	preq, _ := http.NewRequest(http.MethodPost, testEnv.Server.URL+"/api/v1/scan/lookup",
+		strings.NewReader(`{"barcode":"DUMMY-CODE"}`))
+	preq.Header.Set("Content-Type", "application/json")
+	preq.AddCookie(scanCookie)
+	presp, err := http.DefaultClient.Do(preq)
+	if err != nil {
+		t.Fatalf("cookie-authenticated POST: %v", err)
+	}
+	presp.Body.Close()
+	if presp.StatusCode == http.StatusUnauthorized || presp.StatusCode == http.StatusForbidden {
+		t.Errorf("cookie-authenticated POST /scan/lookup was blocked (CSRF/auth): got %d", presp.StatusCode)
 	}
 }
