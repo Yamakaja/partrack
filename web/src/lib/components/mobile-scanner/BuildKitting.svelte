@@ -13,6 +13,7 @@
     type KittingProgress,
   } from '$lib/api/scanner.js';
   import { fullLocationLabel } from './locationUtils.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
   import type { StorageLocation } from '$lib/types/inventory.js';
 
   let {
@@ -116,9 +117,11 @@
     submitting = true;
     try {
       await kittingComplete(token, kittingSessionId);
+      pushToast('success', 'Kitting complete', 'Check out the build on desktop to record assembly.');
       onBack();
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not complete kitting', 'Please try again.');
     } finally {
       submitting = false;
     }

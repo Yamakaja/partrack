@@ -221,6 +221,9 @@ export interface Build {
   substitute_selections?: import('./projects.js').SubstituteSelection[];
   excluded_designators?: string[];
   line_item_overrides?: { bom_line_item_id: string; override_type: 'use_available' | 'skip' }[];
+  // Most recent non-abandoned kitting session for this build, if any (for the desktop
+  // kitting panel + checkout hand-off). Null when the build has never been kitted.
+  kitting_session?: { id: string; status: 'in_progress' | 'completed' } | null;
 }
 
 export interface BuildPartAllocation {

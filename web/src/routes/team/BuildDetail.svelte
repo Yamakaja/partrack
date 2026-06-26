@@ -188,7 +188,12 @@
   }
 
   function openCheckout() {
-    checkoutAssembledQty = buildQuery.data?.quantity ?? 1;
+    const planned = buildQuery.data?.quantity ?? 1;
+    // Prefill from kitting when a shortfall limited the picker to fewer boards than planned.
+    checkoutAssembledQty =
+      kittableBoards != null && kittableBoards > 0 && kittableBoards < planned
+        ? kittableBoards
+        : planned;
     checkoutOpen = true;
   }
 
@@ -260,8 +265,13 @@
     ['pending', 'ordered', 'ready'].includes(buildQuery.data?.status ?? '')
   );
 
-  let activeKittingSessionId = $state<string | null>(null);
+  // The session we just started locally takes precedence; otherwise fall back to the
+  // build's latest non-abandoned session (so the panel survives a reload — Area 5 M7).
+  let startedKittingId = $state<string | null>(null);
   let kittingLoading = $state(false);
+  const activeKittingSessionId = $derived(
+    startedKittingId ?? buildQuery.data?.kitting_session?.id ?? null
+  );
 
   const kittingSessionQuery = createQuery(() => ({
     queryKey: ['kitting', teamId, activeKittingSessionId],
@@ -277,12 +287,39 @@
     refetchInterval: false,
   }));
 
+  // Authoritative kitting status (refetched session wins over the build snapshot).
+  const kittingStatus = $derived(
+    kittingSessionQuery.data?.session.status ?? buildQuery.data?.kitting_session?.status ?? null
+  );
+  const kittingComplete = $derived(kittingStatus === 'completed');
+  const kittingShortfalls = $derived(
+    (kittingItemsQuery.data?.items ?? []).filter((i) => i.status === 'shortfall')
+  );
+
+  // Boards' worth of parts the picker physically confirmed. Confirmations are seeded
+  // per-part as (per_board × build_quantity), so per_board = needed / build_quantity and
+  // the kittable board count is the min over parts of floor(confirmed / per_board). When
+  // a shortfall caps this below the planned quantity we use it to prefill checkout.
+  const kittableBoards = $derived.by(() => {
+    const items = kittingItemsQuery.data?.items ?? [];
+    const buildQty = buildQuery.data?.quantity ?? 0;
+    if (!kittingComplete || items.length === 0 || buildQty <= 0) return null;
+    let min = buildQty;
+    for (const it of items) {
+      if (it.quantity_needed <= 0) continue;
+      const perBoard = it.quantity_needed / buildQty;
+      if (perBoard <= 0) continue;
+      min = Math.min(min, Math.floor(it.quantity_confirmed / perBoard));
+    }
+    return Math.max(0, min);
+  });
+
   async function handleSendToScanner() {
     if (!scanSession || kittingLoading) return;
     kittingLoading = true;
     try {
       const res = await startKittingSession(teamId, scanSession.id, buildId);
-      activeKittingSessionId = res.kitting_session_id;
+      startedKittingId = res.kitting_session_id;
       pushToast('success', 'Kitting session started on scanner');
     } catch (err: any) {
       pushToast('error', 'Failed to start kitting', err.message);
@@ -539,7 +576,7 @@
         <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
       {/snippet}
       {#snippet actions()}
-        {#if canSendToScanner && !activeKittingSessionId}
+        {#if canSendToScanner && kittingStatus !== 'in_progress'}
           <Button
             size="sm"
             variant="outline"
@@ -673,7 +710,9 @@
         {@const prog = ks?.progress}
         <div class="rounded-lg border border-border bg-card p-4 space-y-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Kitting in Progress</h3>
+            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              {kittingComplete ? 'Kitting Complete' : 'Kitting in Progress'}
+            </h3>
             {#if prog}
               <span class="text-xs text-muted-foreground">
                 {prog.confirmed + prog.shortfall + prog.skipped} / {prog.pending + prog.confirmed + prog.shortfall + prog.skipped} done
@@ -710,6 +749,24 @@
                   <span class="shrink-0 text-muted-foreground tabular-nums">{item.quantity_confirmed}/{item.quantity_needed}</span>
                 </div>
               {/each}
+            </div>
+          {/if}
+
+          <!-- Completion hand-off: kitting is advisory, so point the picker to checkout. -->
+          {#if kittingComplete}
+            <div class="flex items-center justify-between gap-3 border-t border-border pt-3">
+              <p class="text-xs text-muted-foreground">
+                {#if kittingShortfalls.length > 0}
+                  Parts picked. {kittingShortfalls.length} shortfall(s) flagged — review before checking out.
+                {:else}
+                  All parts picked. Check out the build to deduct stock and record assembly.
+                {/if}
+              </p>
+              {#if build.status === 'draft' || build.status === 'ready'}
+                <Button size="sm" class="shrink-0" onclick={openCheckout}>
+                  <CheckCircle class="h-4 w-4 mr-1" /> Check Out Build
+                </Button>
+              {/if}
             </div>
           {/if}
         </div>
@@ -857,6 +914,23 @@
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto px-6 py-4">
+        <!-- Advisory kitting context: what the picker physically confirmed at the bench. -->
+        {#if kittingComplete && (kittingItemsQuery.data?.items?.length ?? 0) > 0}
+          <div class="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            <p class="font-medium text-muted-foreground">
+              Kitted on scanner ·
+              <span class="text-success">{(kittingItemsQuery.data?.items ?? []).filter((i) => i.status === 'confirmed').length} confirmed</span>
+              {#if kittingShortfalls.length > 0}
+                · <span class="text-warning">{kittingShortfalls.length} shortfall</span>
+              {/if}
+            </p>
+            {#if kittingShortfalls.length > 0}
+              <p class="mt-1 text-warning">
+                Short at the bench: {kittingShortfalls.map((i) => i.part_mpn ?? i.part_id).join(', ')}
+              </p>
+            {/if}
+          </div>
+        {/if}
         {#if previewQuery.isFetching && !previewQuery.data}
           <div class="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
             <Loader2 class="h-4 w-4 animate-spin" /> Loading preview…

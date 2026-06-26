@@ -280,6 +280,29 @@ func (q *Queries) GetKittingSession(ctx context.Context, id pgtype.UUID) (GetKit
 	return i, err
 }
 
+const getLatestKittingSessionForBuild = `-- name: GetLatestKittingSessionForBuild :one
+SELECT id, status
+FROM build_kitting_sessions
+WHERE build_id = $1 AND status <> 'abandoned'
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetLatestKittingSessionForBuildRow struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+// Most recent non-abandoned kitting session for a build (in_progress or completed).
+// Lets the desktop build page restore the kitting panel after reload and hand the
+// session off to checkout.
+func (q *Queries) GetLatestKittingSessionForBuild(ctx context.Context, buildID pgtype.UUID) (GetLatestKittingSessionForBuildRow, error) {
+	row := q.db.QueryRow(ctx, getLatestKittingSessionForBuild, buildID)
+	var i GetLatestKittingSessionForBuildRow
+	err := row.Scan(&i.ID, &i.Status)
+	return i, err
+}
+
 const seedKittingConfirmations = `-- name: SeedKittingConfirmations :exec
 INSERT INTO build_kitting_confirmations (kitting_session_id, part_id, quantity_needed)
 SELECT $1, bpa.part_id, bpa.quantity_needed

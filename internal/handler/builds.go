@@ -808,6 +808,20 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Most recent (non-abandoned) kitting session for the build, if any — lets the
+	// desktop restore the kitting panel after reload and hand a completed kitting
+	// session off to checkout.
+	var kittingSession map[string]any
+	if ks, kerr := h.Queries.GetLatestKittingSessionForBuild(r.Context(), buildID); kerr == nil {
+		kittingSession = map[string]any{
+			"id":     ks.ID.String(),
+			"status": ks.Status,
+		}
+	} else if !errors.Is(kerr, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
 	var selectionsStale bool
 	if build.SelectionsCheckedAt.Valid {
 		stale, err := h.Queries.IsBuildSelectionStale(r.Context(), dbgen.IsBuildSelectionStaleParams{
@@ -920,6 +934,7 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		"selections_stale":          selectionsStale,
 		"substitute_selections":     subSelResp,
 		"line_item_overrides":       overrideResps,
+		"kitting_session":           kittingSession,
 	}
 	if build.AssembledAt.Valid {
 		resp["assembled_at"] = build.AssembledAt.Time.UTC().Format(time.RFC3339)

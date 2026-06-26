@@ -34,6 +34,16 @@ FROM build_kitting_sessions
 WHERE build_id = $1 AND status = 'in_progress'
 LIMIT 1;
 
+-- name: GetLatestKittingSessionForBuild :one
+-- Most recent non-abandoned kitting session for a build (in_progress or completed).
+-- Lets the desktop build page restore the kitting panel after reload and hand the
+-- session off to checkout.
+SELECT id, status
+FROM build_kitting_sessions
+WHERE build_id = $1 AND status <> 'abandoned'
+ORDER BY created_at DESC
+LIMIT 1;
+
 -- name: GetKittingItems :many
 -- Returns kitting confirmation rows with part and storage location info.
 -- Sorted: pending first, then by storage location path (depth-first), nulls last.

@@ -834,3 +834,56 @@ func TestPatchSubstituteSelection_RevertToPrimary(t *testing.T) {
 		t.Errorf("expected GetBuild to show no selections after revert, got %d", len(sels2))
 	}
 }
+
+// Tier 4 (kitting hand-off): GetBuild surfaces the latest non-abandoned kitting
+// session so the desktop can restore the kitting panel after reload and hand it off
+// to checkout. A build that was never kitted reports kitting_session = null.
+func TestGetBuild_ReportsLatestKittingSession(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+
+	userID := testutil.CreateUser(t, testDB, "kit-handoff@example.com", "pw", "Kit")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Kit Team")
+	token := testutil.CreateSession(t, testDB, userID)
+	projectID := testutil.CreateProject(t, testDB, teamID, userID, "Kit-PCB")
+	revID := testutil.CreateRevision(t, testDB, projectID, userID, "v1")
+	buildID := testutil.CreateBuild(t, testDB, projectID, revID, teamID, userID, 5, "ready")
+
+	// No kitting yet → kitting_session is null.
+	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s", teamID, buildID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("get build: expected 200, got %d: %v", status, body)
+	}
+	if body["kitting_session"] != nil {
+		t.Errorf("un-kitted build should report kitting_session=null, got %v", body["kitting_session"])
+	}
+
+	// Seed a completed kitting session for the build.
+	testutil.CreateScanSession(t, testDB, userID, teamID)
+	var ksID string
+	if err := testDB.QueryRow(ctx,
+		`INSERT INTO build_kitting_sessions (scan_session_id, build_id, team_id, status, completed_at)
+		 VALUES ((SELECT id FROM scan_sessions WHERE user_id = $1 AND team_id = $2 LIMIT 1),
+		         $3, $4, 'completed', now())
+		 RETURNING id`,
+		userID, teamID, buildID, teamID).Scan(&ksID); err != nil {
+		t.Fatalf("seed kitting session: %v", err)
+	}
+
+	body, status = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/builds/%s", teamID, buildID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("get build (kitted): expected 200, got %d: %v", status, body)
+	}
+	ks, ok := body["kitting_session"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected kitting_session object, got %T: %v", body["kitting_session"], body["kitting_session"])
+	}
+	if ks["id"] != ksID {
+		t.Errorf("kitting_session.id = %v, want %s", ks["id"], ksID)
+	}
+	if ks["status"] != "completed" {
+		t.Errorf("kitting_session.status = %v, want completed", ks["status"])
+	}
+}
