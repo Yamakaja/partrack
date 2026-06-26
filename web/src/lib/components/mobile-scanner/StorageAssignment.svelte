@@ -53,7 +53,6 @@
   let autoAdvance = $state(false);
   let direction = $state<'row' | 'col'>('row');
   let occupiedKeys = $state<Set<string>>(new Set());
-  let sessionKeys = $state<Set<string>>(new Set());
   let loadingOccupied = $state(false);
   let showLocationPicker = $state(false);
   let pickerInitialLocationId = $state<string | null>(null);
@@ -129,7 +128,7 @@
     }
   }
 
-  /** Switch to a new location, resetting cursor/log/session state. */
+  /** Switch to a new location, resetting cursor/log state. */
   function switchLocation(newId: string) {
     const changed = newId !== selectedLocationId;
     selectedLocationId = newId;
@@ -137,7 +136,6 @@
       cursor = null;
       cursorAddress = [];
       log = [];
-      sessionKeys = new Set();
       const loc = locations.find(l => l.id === newId);
       if (loc?.grid_config) {
         loadOccupied(newId);
@@ -288,7 +286,6 @@
     if (flat) {
       const key = coordKey(flat);
       occupiedKeys = new Set([...occupiedKeys, key]);
-      sessionKeys = new Set([...sessionKeys, key]);
     }
     log = [{ mpn, coord: flat }, ...log].slice(0, 5);
     const cell = isGridLocation && cursor ? cellLabel(cursor) : null;
@@ -315,7 +312,6 @@
       cursor = null;
       cursorAddress = [];
       log = [];
-      sessionKeys = new Set();
       occupiedKeys = new Set();
     } else {
       switchLocation(loc.id);
