@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { createScanner } from './scanner.svelte.js';
-  import CameraSelector from './CameraSelector.svelte';
+  import CameraViewport from './CameraViewport.svelte';
   import type { PartLocation } from './types.js';
   import type { StorageLocation, GridConfig } from '$lib/types/inventory.js';
   import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
@@ -33,18 +32,6 @@
   // created/edited on the desktop since pairing is pickable here (the scan path
   // below additionally refreshes on a QR miss before giving up).
   onMount(() => { void refreshLocations(); });
-
-  // ── Camera ────────────────────────────────────────────────────────────────
-  let videoEl = $state<HTMLVideoElement | null>(null);
-  const scanner = createScanner(() => videoEl);
-
-  $effect(() => {
-    const deviceId = scanner.selectedCameraId;
-    if (videoEl) {
-      scanner.startCamera(deviceId);
-      return () => scanner.stopCamera();
-    }
-  });
 
   // ── State ─────────────────────────────────────────────────────────────────
   let selectedLocationId = $state<string | null>(null);
@@ -342,27 +329,8 @@
 
   <!-- Camera -->
   <div class="relative overflow-hidden shrink-0" style="height: 45vh">
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={videoEl} autoplay playsinline muted class="h-full w-full object-cover"></video>
-
-    {#if scanner.cameraError}
-      <div class="absolute inset-0 flex items-center justify-center bg-black/80 px-8 text-center">
-        <p class="text-sm text-zinc-300">{scanner.cameraError}</p>
-      </div>
-    {:else}
-      <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div class="h-36 w-36 rounded-lg border-2 border-white/60 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"></div>
-      </div>
-
-      {#if toast}
-        <div class="pointer-events-none absolute top-3 left-3 right-3 rounded-xl bg-zinc-900/90 px-4 py-2 text-center text-sm text-white">
-          {toast}
-        </div>
-      {/if}
-
-      <!-- Top-right overlay: camera selector always + grid controls when a cell is active -->
-      <div class="absolute top-3 right-3 z-10 flex items-center gap-2">
-        <CameraSelector {scanner} />
+    <CameraViewport onScan={handleScan} reticleSize="sm">
+      {#snippet topRightControls()}
         {#if isGridLocation && cursor !== null}
           <!-- Auto-advance toggle -->
           <button
@@ -397,45 +365,55 @@
             {/if}
           </button>
         {/if}
-      </div>
+      {/snippet}
 
-      <!-- Bottom: prev / scan / next -->
-      <div class="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-4 pb-4">
-        {#if isGridLocation && cursor !== null}
-          <button
-            onclick={movePrev}
-            aria-label="Previous cell"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 border border-white/20 text-white active:bg-black/80"
-          >
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
+      {#snippet overlay()}
+        {#if toast}
+          <div class="pointer-events-none absolute top-3 left-3 right-3 rounded-xl bg-zinc-900/90 px-4 py-2 text-center text-sm text-white">
+            {toast}
+          </div>
         {/if}
+      {/snippet}
 
-        <button
-          onpointerdown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); scanner.startContinuousScan(handleScan); }}
-          onpointerup={() => scanner.stopContinuousScan()}
-          onpointercancel={() => scanner.stopContinuousScan()}
-          style="touch-action: none"
-          class="px-10 py-3.5 rounded-full font-semibold transition-colors {scanner.isScanning ? 'bg-zinc-200 text-black' : 'bg-white text-black active:bg-zinc-200'}"
-        >
-          {scanner.isScanning ? 'Scanning…' : 'Hold to scan'}
-        </button>
+      {#snippet bottomBar(scanner)}
+        <!-- prev / scan / next -->
+        <div class="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-4 pb-4">
+          {#if isGridLocation && cursor !== null}
+            <button
+              onclick={movePrev}
+              aria-label="Previous cell"
+              class="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 border border-white/20 text-white active:bg-black/80"
+            >
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          {/if}
 
-        {#if isGridLocation && cursor !== null}
           <button
-            onclick={advanceCursor}
-            aria-label="Next cell"
-            class="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 border border-white/20 text-white active:bg-black/80"
+            onpointerdown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); scanner.startContinuousScan(handleScan); }}
+            onpointerup={() => scanner.stopContinuousScan()}
+            onpointercancel={() => scanner.stopContinuousScan()}
+            style="touch-action: none"
+            class="px-10 py-3.5 rounded-full font-semibold transition-colors {scanner.isScanning ? 'bg-zinc-200 text-black' : 'bg-white text-black active:bg-zinc-200'}"
           >
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
-            </svg>
+            {scanner.isScanning ? 'Scanning…' : 'Hold to scan'}
           </button>
-        {/if}
-      </div>
-    {/if}
+
+          {#if isGridLocation && cursor !== null}
+            <button
+              onclick={advanceCursor}
+              aria-label="Next cell"
+              class="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 border border-white/20 text-white active:bg-black/80"
+            >
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          {/if}
+        </div>
+      {/snippet}
+    </CameraViewport>
   </div>
 
   <!-- Bottom panel -->

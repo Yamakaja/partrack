@@ -3,8 +3,7 @@
   import type { PartLocation } from './types.js';
   import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
   import { fullLocationLabel } from './locationUtils.js';
-  import { createScanner } from './scanner.svelte.js';
-  import CameraSelector from './CameraSelector.svelte';
+  import CameraViewport from './CameraViewport.svelte';
   import MobileGridVisualiser from './MobileGridVisualiser.svelte';
   import StorageTree from '$lib/components/storage/StorageTree.svelte';
 
@@ -46,18 +45,6 @@
   let pendingLocation = $state<StorageLocation | null>(null);
   let address = $state<number[][]>([]);
   let currentCell = $state<number[] | null>(null);
-
-  // Camera
-  let videoEl = $state<HTMLVideoElement | null>(null);
-  const scanner = createScanner(() => videoEl);
-
-  $effect(() => {
-    const deviceId = scanner.selectedCameraId;
-    if (screen === 'camera' && videoEl) {
-      scanner.startCamera(deviceId);
-      return () => scanner.stopCamera();
-    }
-  });
 
   // ── Filtered tree ─────────────────────────────────────────────────────────
   const filteredLocations = $derived.by(() => {
@@ -175,38 +162,15 @@
       </div>
 
       <div class="relative flex-1 overflow-hidden">
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={videoEl} autoplay playsinline muted class="h-full w-full object-cover"></video>
-
-        <div class="absolute top-3 right-3 z-10">
-          <CameraSelector {scanner} />
-        </div>
-
-        {#if scanner.cameraError}
-          <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 px-8 text-center">
-            <p class="text-sm text-zinc-300">{scanner.cameraError}</p>
-          </div>
-        {:else}
-          <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div class="h-56 w-56 rounded-lg border-2 border-white/60 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"></div>
-          </div>
-          {#if scanError}
-            <div class="absolute top-4 left-4 right-4 rounded-xl bg-red-500/20 border border-red-500/30 px-4 py-3 text-center">
-              <p class="text-sm text-red-300">{scanError}</p>
-            </div>
-          {/if}
-          <div class="absolute bottom-0 left-0 right-0 flex justify-center pb-14">
-            <button
-              onpointerdown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); scanner.startContinuousScan(handleCameraScan); }}
-              onpointerup={() => scanner.stopContinuousScan()}
-              onpointercancel={() => scanner.stopContinuousScan()}
-              style="touch-action: none"
-              class="px-14 py-5 rounded-full font-semibold text-lg transition-colors {scanner.isScanning ? 'bg-zinc-200 text-black' : 'bg-white text-black active:bg-zinc-200'}"
-            >
-              {scanner.isScanning ? 'Scanning…' : 'Hold to scan'}
-            </button>
-          </div>
-        {/if}
+        <CameraViewport onScan={handleCameraScan}>
+          {#snippet overlay()}
+            {#if scanError}
+              <div class="absolute top-4 left-4 right-4 rounded-xl bg-red-500/20 border border-red-500/30 px-4 py-3 text-center">
+                <p class="text-sm text-red-300">{scanError}</p>
+              </div>
+            {/if}
+          {/snippet}
+        </CameraViewport>
       </div>
     </div>
 
