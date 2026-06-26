@@ -25,6 +25,13 @@ export class ScanRequestError extends Error {
   }
 }
 
+// True when an error is the result of an aborted request (caller cancelled via an
+// AbortSignal — e.g. navigated away or superseded by a newer request). Callers that
+// wire abort should treat this as a no-op, not a failure to surface.
+export function isScanAbort(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
 // ── Base request ──────────────────────────────────────────────────────────────
 
 // The phone authenticates with the HttpOnly `partrack_scan` cookie set at pairing —
@@ -34,10 +41,12 @@ async function scanRequest<T>(
   method: string,
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: 'same-origin',
+    signal,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
@@ -243,8 +252,8 @@ export function checkSession(): Promise<ScanSessionState> {
   return scanRequest<ScanSessionState>('GET', '/api/v1/scan/session');
 }
 
-export function searchParts(q: string): Promise<{ parts: ScanPart[] }> {
-  return scanRequest('GET', `/api/v1/scan/parts?q=${encodeURIComponent(q)}`);
+export function searchParts(q: string, signal?: AbortSignal): Promise<{ parts: ScanPart[] }> {
+  return scanRequest('GET', `/api/v1/scan/parts?q=${encodeURIComponent(q)}`, undefined, signal);
 }
 
 export function getPartDetail(partId: string): Promise<PartDetailResponse> {
@@ -257,8 +266,9 @@ export function lookupBag(barcode: string): Promise<BagLookupResponse> {
 
 export function importScanPart(
   body: { distributor_id: string; sku: string; audit_log_id?: string | null },
+  signal?: AbortSignal,
 ): Promise<{ part_id: string }> {
-  return scanRequest('POST', '/api/v1/scan/parts/import', body);
+  return scanRequest('POST', '/api/v1/scan/parts/import', body, signal);
 }
 
 export interface ImportMultiResult {
@@ -268,8 +278,9 @@ export interface ImportMultiResult {
 
 export function importScanPartMulti(
   body: { listings: Array<{ distributor_id: string; sku: string }>; audit_log_id?: string | null },
+  signal?: AbortSignal,
 ): Promise<ImportMultiResult> {
-  return scanRequest('POST', '/api/v1/scan/parts/import-multi', body);
+  return scanRequest('POST', '/api/v1/scan/parts/import-multi', body, signal);
 }
 
 export function stockAdjustment(
@@ -299,10 +310,13 @@ export function skipItem(): Promise<void> {
 export function searchDistributor(
   distributorId: string,
   q: string,
+  signal?: AbortSignal,
 ): Promise<{ items: DistributorSearchItem[] }> {
   return scanRequest(
     'GET',
     `/api/v1/scan/distributor-search?distributor_id=${encodeURIComponent(distributorId)}&q=${encodeURIComponent(q)}`,
+    undefined,
+    signal,
   );
 }
 

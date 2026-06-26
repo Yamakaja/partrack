@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import DistributorSearch from './DistributorSearch.svelte';
   import type { ScanPart, ScanImportContext, SelectedListing } from './types.js';
-  import { importScanPartMulti, ScanExpiredError, type DistributorSearchItem } from '$lib/api/scanner.js';
+  import { importScanPartMulti, ScanExpiredError, isScanAbort, type DistributorSearchItem } from '$lib/api/scanner.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
@@ -120,14 +120,18 @@
 
   // ── Import ────────────────────────────────────────────────────────────────
 
+  let importAC: AbortController | null = null;
+  onDestroy(() => importAC?.abort());
+
   async function confirmImport() {
     importing = true;
     importError = '';
+    importAC = new AbortController();
     try {
       const data = await importScanPartMulti({
         listings: selectedListings.map(l => ({ distributor_id: l.distributor_id, sku: l.sku })),
         audit_log_id: context.auditLogId,
-      });
+      }, importAC.signal);
 
       if (data.failed.length > 0) {
         const names = data.failed.map(f => `${f.sku} (${f.reason})`).join(', ');
@@ -148,6 +152,7 @@
       };
       onImportDone(part, context.parsedQty ?? 0);
     } catch (e) {
+      if (isScanAbort(e)) return; // navigated away mid-import
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       importError = 'Import failed. Try again.';
     } finally {

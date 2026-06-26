@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import type { ScanPart } from './types.js';
-  import { searchDistributor, importScanPart, ScanExpiredError, type DistributorSearchItem } from '$lib/api/scanner.js';
+  import { searchDistributor, importScanPart, ScanExpiredError, isScanAbort, type DistributorSearchItem } from '$lib/api/scanner.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
@@ -46,6 +46,9 @@
   let checkedSkus = $state<Set<string>>(new Set());
   const selectedItems = new Map<string, DistributorSearchItem>();
 
+  let searchAC: AbortController | null = null;
+  let importAC: AbortController | null = null;
+
   // ── Search ────────────────────────────────────────────────────────────────
 
   function scheduleSearch() {
@@ -59,16 +62,21 @@
   }
 
   async function runSearch(q: string) {
+    // Cancel any in-flight search so a slow earlier request can't resolve after a
+    // newer one and clobber the results (the query is editable — searches overlap).
+    searchAC?.abort();
     if (!q.trim()) {
       results = [];
       searchError = '';
       searchLoading = false;
       return;
     }
+    const ac = new AbortController();
+    searchAC = ac;
     searchLoading = true;
     searchError = '';
     try {
-      const data = await searchDistributor(distributorId, q);
+      const data = await searchDistributor(distributorId, q, ac.signal);
       results = data.items ?? [];
       // Capture full data for any (pre-)checked SKU that appears in these results so
       // a later re-search can't drop it from the confirmed selection.
@@ -76,13 +84,16 @@
         if (checkedSkus.has(item.primary_sku)) selectedItems.set(item.primary_sku, item);
       }
     } catch (e) {
+      if (isScanAbort(e)) return; // superseded — the newer search owns the UI
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       results = [];
       searchError = 'Search failed. Edit your query and try again.';
     } finally {
-      searchLoading = false;
+      if (!ac.signal.aborted) searchLoading = false;
     }
   }
+
+  onDestroy(() => { searchAC?.abort(); importAC?.abort(); });
 
   onMount(() => {
     if (mode === 'multi' && initialCheckedSkus.length > 0) {
@@ -96,8 +107,9 @@
   async function selectResult(idx: number, item: DistributorSearchItem) {
     importingIdx = idx;
     importError = '';
+    importAC = new AbortController();
     try {
-      const data = await importScanPart({ distributor_id: distributorId, sku: item.primary_sku, audit_log_id: auditLogId });
+      const data = await importScanPart({ distributor_id: distributorId, sku: item.primary_sku, audit_log_id: auditLogId }, importAC.signal);
       const part: ScanPart = {
         id: data.part_id,
         mpn: item.mpn || null,
@@ -111,6 +123,7 @@
       };
       onImportDone?.(part, parsedQty ?? 0);
     } catch (e) {
+      if (isScanAbort(e)) return; // navigated away mid-import
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       importError = 'Import failed. Try another result or go back.';
     } finally {

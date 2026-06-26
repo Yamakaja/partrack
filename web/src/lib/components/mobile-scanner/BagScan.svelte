@@ -3,7 +3,7 @@
   import ScannerCamera from './ScannerCamera.svelte';
   import type { ScanPart, ScanImportContext, PartLocation } from './types.js';
   import {
-    lookupBag, importScanPart, ScanExpiredError,
+    lookupBag, importScanPart, ScanExpiredError, isScanAbort,
     checkSession, startBulkSession, addBulkScanItem, patchBulkScanItem,
     closeBulkSession, navigateBulkSession,
   } from '$lib/api/scanner.js';
@@ -227,11 +227,12 @@
 
   $effect(() => {
     if (screen !== 'importing') return;
-    let cancelled = false;
+    // Cancelling the import (back button, navigating away) aborts the in-flight
+    // request rather than just suppressing its result, so we stop waiting on it.
+    const ac = new AbortController();
     (async () => {
       try {
-        const data = await importScanPart({ distributor_id: parsedDistributorId, sku: parsedSKU, audit_log_id: auditLogId });
-        if (cancelled) return;
+        const data = await importScanPart({ distributor_id: parsedDistributorId, sku: parsedSKU, audit_log_id: auditLogId }, ac.signal);
         const part: ScanPart = {
           id: data.part_id,
           mpn: parsedMPN || null,
@@ -245,13 +246,13 @@
         };
         onPartImported(part, parsedQty ?? 0);
       } catch (e) {
-        if (cancelled) return;
+        if (isScanAbort(e)) return;
         if (e instanceof ScanExpiredError) { onExpired(); return; }
         importError = 'Import failed. Try again.';
         screen = 'not_found_in_db';
       }
     })();
-    return () => { cancelled = true; };
+    return () => ac.abort();
   });
 
   // ── Start multi-listing import flow ───────────────────────────────────────

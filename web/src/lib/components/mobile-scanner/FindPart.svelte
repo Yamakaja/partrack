@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, onDestroy } from 'svelte';
   import type { ScanPart } from './types.js';
-  import { searchParts, ScanExpiredError } from '$lib/api/scanner.js';
+  import { searchParts, ScanExpiredError, isScanAbort } from '$lib/api/scanner.js';
 
   let {
     initialQuery = '',
@@ -22,27 +22,36 @@
   let partSearchLoading = $state(false);
   let searchError = $state(false);
   let partSearchDebounce: ReturnType<typeof setTimeout> | null = null;
+  let searchAC: AbortController | null = null;
 
   // ── Search ────────────────────────────────────────────────────────────────
 
   function doSearch(q: string) {
     if (partSearchDebounce) clearTimeout(partSearchDebounce);
     partSearchDebounce = setTimeout(async () => {
-      if (!q.trim()) { partResults = []; searchError = false; return; }
+      // Cancel any in-flight search so a slow earlier request can't resolve after
+      // a newer one and clobber the results.
+      searchAC?.abort();
+      if (!q.trim()) { partResults = []; searchError = false; partSearchLoading = false; return; }
+      const ac = new AbortController();
+      searchAC = ac;
       partSearchLoading = true;
       searchError = false;
       try {
-        const data = await searchParts(q);
+        const data = await searchParts(q, ac.signal);
         partResults = data.parts;
       } catch (e) {
+        if (isScanAbort(e)) return; // superseded — the newer search owns the UI
         if (e instanceof ScanExpiredError) { onExpired(); return; }
         partResults = [];
         searchError = true;
       } finally {
-        partSearchLoading = false;
+        if (!ac.signal.aborted) partSearchLoading = false;
       }
     }, 300);
   }
+
+  onDestroy(() => searchAC?.abort());
 
   // Kick off search if we arrived with a pre-filled query.
   untrack(() => {
