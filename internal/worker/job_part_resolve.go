@@ -12,6 +12,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/mfrmatch"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -28,7 +29,7 @@ const enrichmentTimeout = 60 * time.Second
 // When manufacturer is empty (the target manufacturer is unknown) the manufacturer
 // constraint is skipped, but the exact-MPN requirement still holds — there is no
 // best-effort "top result" fallback, which previously surfaced unrelated MPNs.
-func enrichByMPN(ctx context.Context, c distributor.Client, mpn, manufacturer string, creds json.RawMessage, maxResults int) ([]*distributor.EnrichmentResult, error) {
+func enrichByMPN(ctx context.Context, c distributor.Client, mpn, manufacturer string, creds json.RawMessage, maxResults int, mfr *mfrmatch.Resolver) ([]*distributor.EnrichmentResult, error) {
 	distName := c.Name()
 	slog.Debug("enrichByMPN: SearchParts", "distributor", distName, "mpn", mpn, "manufacturer", manufacturer)
 	sr, err := c.SearchParts(ctx, distributor.SearchQuery{Keywords: mpn, Limit: 20}, creds)
@@ -60,7 +61,7 @@ func enrichByMPN(ctx context.Context, c distributor.Client, mpn, manufacturer st
 			if !strings.EqualFold(cand.MPN, mpn) {
 				continue
 			}
-			if !manufacturerMatches(cand.Manufacturer, manufacturer) {
+			if !mfr.Matches(cand.Manufacturer, manufacturer) {
 				slog.Debug("enrichByMPN: skipping manufacturer mismatch", "distributor", distName, "mpn", mpn, "want_mfr", manufacturer, "got_mfr", cand.Manufacturer)
 				continue
 			}
@@ -97,53 +98,12 @@ func enrichByMPN(ctx context.Context, c distributor.Client, mpn, manufacturer st
 		slog.Debug("enrichByMPN: EnrichPart fallback returned nil", "distributor", distName, "mpn", mpn)
 		return nil, nil
 	}
-	if !manufacturerMatches(r.Manufacturer, manufacturer) {
+	if !mfr.Matches(r.Manufacturer, manufacturer) {
 		slog.Debug("enrichByMPN: EnrichPart fallback manufacturer mismatch", "distributor", distName, "mpn", mpn, "want_mfr", manufacturer, "got_mfr", r.Manufacturer)
 		return nil, nil
 	}
 	slog.Debug("enrichByMPN: done via EnrichPart fallback", "distributor", distName, "mpn", mpn)
 	return []*distributor.EnrichmentResult{r}, nil
-}
-
-// mfrCorporateSuffixes are trailing legal-form tokens stripped before comparing
-// manufacturer names, so "Texas Instruments" and "Texas Instruments Inc" match.
-var mfrCorporateSuffixes = map[string]bool{
-	"inc": true, "incorporated": true, "corp": true, "corporation": true,
-	"co": true, "company": true, "ltd": true, "limited": true, "llc": true,
-	"gmbh": true, "ag": true, "sa": true, "srl": true, "plc": true, "nv": true,
-	"bv": true, "pte": true, "kg": true, "ab": true, "oy": true,
-}
-
-// normalizeManufacturer lowercases, strips punctuation to spaces, collapses
-// whitespace, and drops trailing corporate-form tokens (Inc, Ltd, …). It is
-// intentionally conservative: it does not strip descriptive words like
-// "Technology"/"Semiconductor", so distinct manufacturers stay distinct.
-func normalizeManufacturer(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune(' ')
-		}
-	}
-	fields := strings.Fields(b.String())
-	for len(fields) > 1 && mfrCorporateSuffixes[fields[len(fields)-1]] {
-		fields = fields[:len(fields)-1]
-	}
-	return strings.Join(fields, " ")
-}
-
-// manufacturerMatches reports whether two manufacturer names refer to the same
-// manufacturer after normalization. An empty want ("manufacturer unknown") matches
-// anything, so callers that cannot determine the target manufacturer fall back to
-// MPN-only matching rather than rejecting everything.
-func manufacturerMatches(got, want string) bool {
-	if strings.TrimSpace(want) == "" {
-		return true
-	}
-	ng, nw := normalizeManufacturer(got), normalizeManufacturer(want)
-	return ng != "" && ng == nw
 }
 
 // primaryManufacturer returns the manufacturer reported by the originally-requested
@@ -253,9 +213,9 @@ func (q *Queue) handlePartResolve(job Job) {
 		}
 	}
 	if !foundPartID.Valid && pf.MPN != "" && pf.Manufacturer != "" {
-		mpn, mfr := pf.MPN, pf.Manufacturer
+		mpn, mfrName := pf.MPN, q.canonicalManufacturer(pf.Manufacturer)
 		row, err := queries.GetPartByMPNAndManufacturerWithInventory(ctx, dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
-			Mpn: &mpn, Manufacturer: &mfr, TeamID: teamID,
+			Mpn: &mpn, Manufacturer: &mfrName, TeamID: teamID,
 		})
 		if err == nil {
 			foundPartID = row.ID
@@ -375,7 +335,7 @@ func (q *Queue) handlePartResolve(job Job) {
 				defer wg.Done()
 				enrichCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 				defer cancel()
-				results, err := enrichByMPN(enrichCtx, c, pf.MPN, pf.Manufacturer, json.RawMessage(cfg.ApiCredentials), 5)
+				results, err := enrichByMPN(enrichCtx, c, pf.MPN, pf.Manufacturer, json.RawMessage(cfg.ApiCredentials), 5, q.mfr)
 				dr := distResult{distID: cfg.DistributorID.String(), distName: cfg.DistributorName, results: results}
 				if err != nil {
 					dr.errMsg = err.Error()
@@ -440,9 +400,9 @@ func (q *Queue) handlePartResolve(job Job) {
 	// Post-API re-check: MPN may have been blank before enrichment resolved it.
 	if pf.MPN != "" && !foundPartID.Valid {
 		if pf.Manufacturer != "" {
-			mpn, mfr := pf.MPN, pf.Manufacturer
+			mpn, mfrName := pf.MPN, q.canonicalManufacturer(pf.Manufacturer)
 			row, err := queries.GetPartByMPNAndManufacturerWithInventory(ctx, dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
-				Mpn: &mpn, Manufacturer: &mfr, TeamID: teamID,
+				Mpn: &mpn, Manufacturer: &mfrName, TeamID: teamID,
 			})
 			if err == nil {
 				foundPartID = row.ID
@@ -571,7 +531,7 @@ func (q *Queue) handlePartResolveRetryDistributors(
 			defer wg.Done()
 			enrichCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 			defer cancel()
-			results, err := enrichByMPN(enrichCtx, c, pf.MPN, targetMfr, json.RawMessage(cfg.ApiCredentials), 5)
+			results, err := enrichByMPN(enrichCtx, c, pf.MPN, targetMfr, json.RawMessage(cfg.ApiCredentials), 5, q.mfr)
 			e := resolveEnrichmentEntry{DistributorID: cfg.DistributorID.String(), Name: cfg.DistributorName}
 			if err != nil {
 				e.Error = err.Error()
@@ -748,7 +708,7 @@ func (q *Queue) CommitResolveItem(
 		filteredPrimary.Listings = filteredPrimaryListings
 
 		primaryResult := fromResolveResult(&filteredPrimary)
-		partID, err = ApplyEnrichmentResult(ctx, q.db, queries, teamID, primaryDistUUID, primaryResult, nil, nil)
+		partID, err = ApplyEnrichmentResult(ctx, q.db, queries, teamID, primaryDistUUID, primaryResult, nil, nil, q.mfr)
 		if err != nil {
 			return pgtype.UUID{}, fmt.Errorf("apply primary enrichment: %w", err)
 		}

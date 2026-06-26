@@ -368,7 +368,7 @@ func (h *Handler) EnrichBOMItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		partID, err := worker.ApplyEnrichmentResult(ctx, h.DB, h.Queries, teamID, distributorID, result, nil, nil)
+		partID, err := worker.ApplyEnrichmentResult(ctx, h.DB, h.Queries, teamID, distributorID, result, nil, nil, h.Manufacturers)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "distributor enrichment failed: "+err.Error(), "INTERNAL_ERROR")
 			return

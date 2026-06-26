@@ -17,6 +17,7 @@ import (
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/llm"
+	"github.com/Yamakaja/partrack/internal/mfrmatch"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
 	"github.com/jackc/pgx/v5"
@@ -69,21 +70,22 @@ func (h *Handler) record(r *http.Request, e activity.Event) {
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	DB           *pgxpool.Pool
-	Queries      *dbgen.Queries
-	Config       *config.Config
-	Worker       *worker.Queue
-	Cache        *middleware.AuthCache
-	Distributors distributor.Registry
-	Blobs        blob.Store
-	LLM          llm.Client // nil unless config.LLM.Active(); the BOM-interpretation fallback
-	CartResolver *CartResolver
-	ScanHub      *ScanHub
-	Tickets      *ticketStore
-	Activity     *activity.Recorder
-	oidcEntries  map[string]*oidcEntry // populated by initOIDC() in auth.go
-	ldapEntries  map[string]*ldapEntry // populated by initLDAP() in auth_ldap.go
-	refreshGroup singleflight.Group    // deduplicates concurrent credential enrichment per (team, distributor)
+	DB            *pgxpool.Pool
+	Queries       *dbgen.Queries
+	Config        *config.Config
+	Worker        *worker.Queue
+	Cache         *middleware.AuthCache
+	Distributors  distributor.Registry
+	Manufacturers *mfrmatch.Resolver // manufacturer-name equivalence resolver (shared with the worker)
+	Blobs         blob.Store
+	LLM           llm.Client // nil unless config.LLM.Active(); the BOM-interpretation fallback
+	CartResolver  *CartResolver
+	ScanHub       *ScanHub
+	Tickets       *ticketStore
+	Activity      *activity.Recorder
+	oidcEntries   map[string]*oidcEntry // populated by initOIDC() in auth.go
+	ldapEntries   map[string]*ldapEntry // populated by initLDAP() in auth_ldap.go
+	refreshGroup  singleflight.Group    // deduplicates concurrent credential enrichment per (team, distributor)
 }
 
 // getEnrichedCreds returns credentials for ordering API calls.
@@ -134,16 +136,17 @@ func (h *Handler) getEnrichedCreds(r *http.Request, order dbgen.GetOrderRow) (js
 // New creates a Handler and initialises OIDC providers.
 func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middleware.AuthCache, reg distributor.Registry, store blob.Store) *Handler {
 	h := &Handler{
-		DB:           db,
-		Queries:      dbgen.New(db),
-		Config:       cfg,
-		Worker:       q,
-		Cache:        cache,
-		Distributors: reg,
-		Blobs:        store,
-		CartResolver: NewCartResolver(),
-		ScanHub:      NewScanHub(),
-		Tickets:      newTicketStore(),
+		DB:            db,
+		Queries:       dbgen.New(db),
+		Config:        cfg,
+		Worker:        q,
+		Cache:         cache,
+		Distributors:  reg,
+		Manufacturers: q.Manufacturers(),
+		Blobs:         store,
+		CartResolver:  NewCartResolver(),
+		ScanHub:       NewScanHub(),
+		Tickets:       newTicketStore(),
 	}
 	if cfg.LLM.Active() {
 		h.LLM = llm.New(llm.Options{
@@ -167,6 +170,18 @@ func New(db *pgxpool.Pool, cfg *config.Config, q *worker.Queue, cache *middlewar
 	h.initLDAP()
 	q.SetCartInvalidate(h.CartResolver.Invalidate)
 	return h
+}
+
+// canonicalManufacturer returns the canonical display spelling for a manufacturer
+// name, or the input unchanged when the spelling is unknown or no resolver is
+// configured. Aligns "find existing part" lookups with the canonical name new parts
+// are stored under (see internal/mfrmatch).
+func (h *Handler) canonicalManufacturer(name string) string {
+	if h.Manufacturers == nil {
+		return name
+	}
+	canon, _ := h.Manufacturers.CanonicalName(name)
+	return canon
 }
 
 // writeError writes a JSON error response. For 5xx statuses it logs the

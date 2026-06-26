@@ -62,7 +62,7 @@ func (h *Handler) importPartBySKU(ctx context.Context, teamID pgtype.UUID, distr
 		return pgtype.UUID{}, errPartNotFoundAtDistributor
 	}
 
-	partID, err := worker.ApplyEnrichmentResult(ctx, h.DB, h.Queries, teamID, cfg.DistributorID, result, nil, nil)
+	partID, err := worker.ApplyEnrichmentResult(ctx, h.DB, h.Queries, teamID, cfg.DistributorID, result, nil, nil, h.Manufacturers)
 	if err != nil {
 		return pgtype.UUID{}, fmt.Errorf("apply enrichment: %w", err)
 	}

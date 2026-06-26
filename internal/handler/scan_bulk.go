@@ -191,8 +191,9 @@ func (h *Handler) AddBulkScanItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !foundPartID.Valid && mpn != "" && manufacturer != "" {
+		canonMfr := h.canonicalManufacturer(manufacturer)
 		row, err := h.Queries.GetPartByMPNAndManufacturerWithInventory(ctx, dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
-			Mpn: &mpn, Manufacturer: &manufacturer, TeamID: sess.TeamID,
+			Mpn: &mpn, Manufacturer: &canonMfr, TeamID: sess.TeamID,
 		})
 		if err == nil {
 			foundPartID = row.ID

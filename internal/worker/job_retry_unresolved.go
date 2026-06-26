@@ -129,7 +129,7 @@ func (q *Queue) handleRetryUnresolved(job Job) {
 			enrichResult, enrichErr := client.EnrichPart(ctx, item.SKU, json.RawMessage(cfg.ApiCredentials))
 			if enrichErr == nil && enrichResult != nil {
 				mpn := item.MPN
-				if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, order.DistributorID, enrichResult, &mpn, nil); err == nil && pid.Valid {
+				if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, order.DistributorID, enrichResult, &mpn, nil, q.mfr); err == nil && pid.Valid {
 					if row, err := queries.GetListingBySKUAndDistributorID(ctx, dbgen.GetListingBySKUAndDistributorIDParams{
 						Sku:           item.SKU,
 						DistributorID: order.DistributorID,

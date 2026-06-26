@@ -137,7 +137,7 @@ func (q *Queue) handleOrderImport(job Job) {
 			enrichResult, enrichErr := client.EnrichPart(ctx, li.SKU, json.RawMessage(cfg.ApiCredentials))
 			if enrichErr == nil && enrichResult != nil {
 				mpn := li.MPN
-				if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, distributorID, enrichResult, &mpn, nil); err == nil && pid.Valid {
+				if pid, err := ApplyEnrichmentResult(ctx, q.db, queries, teamID, distributorID, enrichResult, &mpn, nil, q.mfr); err == nil && pid.Valid {
 					if row, err := queries.GetListingBySKUAndDistributorID(ctx, dbgen.GetListingBySKUAndDistributorIDParams{
 						Sku:           li.SKU,
 						DistributorID: distributorID,

@@ -958,9 +958,10 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 	// avoid false matches on shared MPNs across manufacturers.
 	if parsed.MPN != "" {
 		if parsed.Manufacturer != "" {
+			mfrName := h.canonicalManufacturer(parsed.Manufacturer)
 			row, err := h.Queries.GetPartByMPNAndManufacturerWithInventory(r.Context(), dbgen.GetPartByMPNAndManufacturerWithInventoryParams{
 				Mpn:          &parsed.MPN,
-				Manufacturer: &parsed.Manufacturer,
+				Manufacturer: &mfrName,
 				TeamID:       sess.TeamID,
 			})
 			if err == nil {

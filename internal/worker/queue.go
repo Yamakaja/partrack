@@ -16,6 +16,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/mfrmatch"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -68,6 +69,7 @@ type Queue struct {
 	mu             sync.RWMutex
 	db             *pgxpool.Pool
 	distributors   distributor.Registry
+	mfr            *mfrmatch.Resolver // manufacturer-name equivalence resolver (shared with handlers)
 	cartInvalidate func(teamID string)
 	activity       *activity.Recorder
 	quit           chan struct{}  // closed by Shutdown to signal goroutines to stop
@@ -83,6 +85,21 @@ type Queue struct {
 // SetActivity wires the activity recorder so jobs can emit rollup events
 // (e.g. bom.imported). Set once at startup, before jobs are processed.
 func (q *Queue) SetActivity(rec *activity.Recorder) { q.activity = rec }
+
+// Manufacturers returns the shared manufacturer-equivalence resolver so handlers
+// reuse the same in-memory alias cache the worker matches against.
+func (q *Queue) Manufacturers() *mfrmatch.Resolver { return q.mfr }
+
+// canonicalManufacturer returns the canonical display spelling for a manufacturer
+// name, or the input unchanged when the spelling is unknown. Aligns "find existing
+// part" lookups with the canonical name new parts are stored under.
+func (q *Queue) canonicalManufacturer(name string) string {
+	if q.mfr == nil {
+		return name
+	}
+	canon, _ := q.mfr.CanonicalName(name)
+	return canon
+}
 
 // SetCartInvalidate registers a callback that is called whenever a background
 // job updates distributor listing data. The callback should invalidate any
@@ -110,7 +127,14 @@ func New(workers int, db *pgxpool.Pool, reg distributor.Registry) *Queue {
 		subscribers:  make(map[string][]subscription),
 		db:           db,
 		distributors: reg,
+		mfr:          mfrmatch.NewResolver(db),
 		quit:         make(chan struct{}),
+	}
+	// Load the manufacturer alias table once at startup. Best-effort: a failure
+	// leaves an empty resolver, which degrades to conservative Normalize-only
+	// matching rather than blocking startup.
+	if err := q.mfr.Reload(context.Background()); err != nil {
+		slog.Warn("worker: manufacturer alias reload failed; using normalize-only matching", "err", err)
 	}
 	for i := 0; i < workers; i++ {
 		q.wg.Add(1)

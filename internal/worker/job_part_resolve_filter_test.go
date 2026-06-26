@@ -6,44 +6,11 @@ import (
 	"testing"
 
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/mfrmatch"
 )
 
-func TestNormalizeManufacturer(t *testing.T) {
-	cases := map[string]string{
-		"Texas Instruments":                      "texas instruments",
-		"Texas Instruments Inc.":                 "texas instruments",
-		"Texas Instruments, Inc":                 "texas instruments",
-		"STMicroelectronics":                     "stmicroelectronics",
-		"Lumimax Optoelectronic Technology":      "lumimax optoelectronic technology",
-		"Jiangsu Changjing Electronics Co., Ltd": "jiangsu changjing electronics",
-		"":                                       "",
-	}
-	for in, want := range cases {
-		if got := normalizeManufacturer(in); got != want {
-			t.Errorf("normalizeManufacturer(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestManufacturerMatches(t *testing.T) {
-	cases := []struct {
-		got, want string
-		match     bool
-	}{
-		{"Texas Instruments", "Texas Instruments Inc", true},
-		{"Texas Instruments", "Lumimax Optoelectronic Technology", false},
-		// Empty target ("manufacturer unknown") matches anything so callers fall
-		// back to MPN-only behaviour rather than rejecting everything.
-		{"Texas Instruments", "", true},
-		// A non-empty target never matches an empty/unknown candidate manufacturer.
-		{"", "Texas Instruments", false},
-	}
-	for _, c := range cases {
-		if got := manufacturerMatches(c.got, c.want); got != c.match {
-			t.Errorf("manufacturerMatches(%q, %q) = %v, want %v", c.got, c.want, got, c.match)
-		}
-	}
-}
+// Normalize/Matches unit tests live in internal/mfrmatch; these exercise how
+// enrichByMPN applies the resolver to filter candidates.
 
 // fakeEnrichClient is a minimal distributor.Client whose SearchParts/EnrichPart
 // return canned data, for exercising enrichByMPN's candidate filtering.
@@ -85,10 +52,14 @@ func enrichMapForLM317() map[string]*distributor.EnrichmentResult {
 	}
 }
 
+// noAliases is a resolver with an empty alias table — equivalence falls back to
+// conservative Normalize-only matching, the pre-resolver behaviour.
+var noAliases = mfrmatch.NewStaticResolver(nil)
+
 func TestEnrichByMPN_FiltersByManufacturer(t *testing.T) {
 	f := &fakeEnrichClient{search: newLM317SearchResult(), enrich: enrichMapForLM317()}
 
-	got, err := enrichByMPN(context.Background(), f, "LM317", "Lumimax Optoelectronic Technology", nil, 5)
+	got, err := enrichByMPN(context.Background(), f, "LM317", "Lumimax Optoelectronic Technology", nil, 5, noAliases)
 	if err != nil {
 		t.Fatalf("enrichByMPN: %v", err)
 	}
@@ -111,7 +82,7 @@ func TestEnrichByMPN_UnknownManufacturer_DropsTopResultFallback(t *testing.T) {
 
 	// Manufacturer unknown: keep every exact-MPN match, but never the unrelated
 	// top result (LM317LCD) that the old best-effort fallback used to surface.
-	got, err := enrichByMPN(context.Background(), f, "LM317", "", nil, 5)
+	got, err := enrichByMPN(context.Background(), f, "LM317", "", nil, 5, noAliases)
 	if err != nil {
 		t.Fatalf("enrichByMPN: %v", err)
 	}
@@ -122,5 +93,34 @@ func TestEnrichByMPN_UnknownManufacturer_DropsTopResultFallback(t *testing.T) {
 		if sku == "TI-LCD" {
 			t.Errorf("top-result fallback leaked an unrelated MPN: %s", sku)
 		}
+	}
+}
+
+// With an alias table, a candidate spelled differently from the target ("TI" vs
+// "Texas Instruments") is recognised as the same manufacturer and kept — the
+// cross-distributor listing that plain normalization used to drop.
+func TestEnrichByMPN_AliasMatchesAcrossSpellings(t *testing.T) {
+	search := &distributor.SearchResult{
+		Products: []distributor.SearchProduct{
+			{MPN: "LM317", Manufacturer: "TI", PrimarySKU: "TI-LM317"},
+		},
+	}
+	enrich := map[string]*distributor.EnrichmentResult{
+		"TI-LM317": {MPN: "LM317", Manufacturer: "TI"},
+	}
+	f := &fakeEnrichClient{search: search, enrich: enrich}
+
+	resolver := mfrmatch.NewStaticResolver([]mfrmatch.Alias{
+		{AliasNormalized: "texas instruments", ManufacturerID: "m1", CanonicalName: "Texas Instruments", NormalizedName: "texas instruments"},
+		{AliasNormalized: "ti", ManufacturerID: "m1", CanonicalName: "Texas Instruments", NormalizedName: "texas instruments"},
+	})
+
+	// Without the alias this would be dropped (normalize "ti" != "texas instruments").
+	got, err := enrichByMPN(context.Background(), f, "LM317", "Texas Instruments", nil, 5, resolver)
+	if err != nil {
+		t.Fatalf("enrichByMPN: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected the aliased candidate to be kept, got %d results", len(got))
 	}
 }

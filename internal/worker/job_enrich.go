@@ -9,6 +9,7 @@ import (
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
 	"github.com/Yamakaja/partrack/internal/genspec"
+	"github.com/Yamakaja/partrack/internal/mfrmatch"
 	"github.com/Yamakaja/partrack/internal/paramparse"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -261,6 +262,11 @@ func (q *Queue) enrichOnePart(
 //
 // fallbackMPN and fallbackManufacturer are used when the enrichment result itself
 // omits those fields. Returns an invalid pgtype.UUID and a non-nil error on failure.
+//
+// mfr canonicalizes the manufacturer name before matching and creation, so a part
+// listed under a distributor's spelling variant ("TI") resolves to — and is stored
+// under — the canonical manufacturer ("Texas Instruments"), keeping one part per
+// manufacturer+MPN. nil disables canonicalization (raw spelling is used as-is).
 func ApplyEnrichmentResult(
 	ctx context.Context,
 	db *pgxpool.Pool,
@@ -269,6 +275,7 @@ func ApplyEnrichmentResult(
 	distributorID pgtype.UUID,
 	result *distributor.EnrichmentResult,
 	fallbackMPN, fallbackManufacturer *string,
+	mfr *mfrmatch.Resolver,
 ) (pgtype.UUID, error) {
 	mpn := strOrNil(result.MPN)
 	if mpn == nil {
@@ -277,6 +284,13 @@ func ApplyEnrichmentResult(
 	manufacturer := strOrNil(result.Manufacturer)
 	if manufacturer == nil {
 		manufacturer = fallbackManufacturer
+	}
+	// Canonicalize the manufacturer spelling so matching and creation both key on the
+	// canonical identity rather than the distributor's variant spelling.
+	if mfr != nil && manufacturer != nil {
+		if canon, ok := mfr.CanonicalName(*manufacturer); ok {
+			manufacturer = &canon
+		}
 	}
 
 	// 1. Try to find an existing part.

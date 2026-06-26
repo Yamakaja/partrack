@@ -702,6 +702,25 @@ type InventoryEntry struct {
 	StorageCoordinate    []int32     `json:"storage_coordinate"`
 }
 
+type Manufacturer struct {
+	ID             pgtype.UUID        `json:"id"`
+	CanonicalName  string             `json:"canonical_name"`
+	NormalizedName string             `json:"normalized_name"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type ManufacturerAlias struct {
+	ID              pgtype.UUID        `json:"id"`
+	ManufacturerID  pgtype.UUID        `json:"manufacturer_id"`
+	Alias           string             `json:"alias"`
+	AliasNormalized string             `json:"alias_normalized"`
+	Source          string             `json:"source"`
+	DistributorID   pgtype.UUID        `json:"distributor_id"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type OauthToken struct {
 	ID            pgtype.UUID        `json:"id"`
 	TeamID        pgtype.UUID        `json:"team_id"`
