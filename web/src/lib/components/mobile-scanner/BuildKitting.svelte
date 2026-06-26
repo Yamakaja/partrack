@@ -155,13 +155,13 @@
 
 <!-- Header -->
 <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 shrink-0">
-  <button onclick={onBack} aria-label="Back" class="text-zinc-400 hover:text-white transition-colors">
+  <button onclick={onBack} aria-label="Back" class="text-zinc-400 active:text-white transition-colors">
     <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
     </svg>
   </button>
   <div class="flex-1 min-w-0">
-    <p class="text-sm font-semibold truncate">Kitting: {buildRef}</p>
+    <p class="font-medium truncate">Kitting: {buildRef}</p>
     {#if !loading && total > 0}
       <p class="text-xs text-zinc-500">{done} / {total} done</p>
     {/if}
@@ -169,7 +169,7 @@
   <button
     onclick={() => (showAbandonConfirm = true)}
     disabled={submitting}
-    class="text-xs text-zinc-600 hover:text-red-400 transition-colors"
+    class="text-xs text-zinc-600 active:text-red-400 transition-colors"
   >
     Abandon
   </button>
@@ -208,7 +208,7 @@
       <button
         onclick={complete}
         disabled={submitting}
-        class="mt-2 w-full rounded-xl bg-emerald-600 py-4 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+        class="mt-2 w-full rounded-xl bg-emerald-600 py-4 text-sm font-semibold active:bg-emerald-500 disabled:opacity-50 transition-colors"
       >
         {submitting ? 'Completing…' : 'Complete Kitting'}
       </button>
@@ -236,7 +236,7 @@
         <!-- Item row -->
         <button
           onclick={() => { activeItemId = isActive ? null : item.part_id; shortfallInput = ''; }}
-          class="w-full flex gap-3 px-4 py-4 text-left hover:bg-zinc-900/50 transition-colors"
+          class="w-full flex gap-3 px-4 py-4 text-left active:bg-zinc-900/50 transition-colors"
         >
           <div class="shrink-0 w-7 h-7 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-400">
             ·
@@ -264,7 +264,7 @@
             <button
               onclick={() => confirm(item)}
               disabled={submitting}
-              class="w-full rounded-xl bg-emerald-700 py-3 text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+              class="w-full rounded-xl bg-emerald-700 py-3 text-sm font-semibold active:bg-emerald-600 disabled:opacity-50 transition-colors"
             >
               Confirm ({item.quantity_needed})
             </button>
@@ -282,7 +282,7 @@
               <button
                 onclick={() => submitShortfall(item)}
                 disabled={submitting || shortfallInput === ''}
-                class="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold hover:bg-amber-600 disabled:opacity-50 transition-colors"
+                class="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold active:bg-amber-600 disabled:opacity-50 transition-colors"
               >
                 Shortfall
               </button>
