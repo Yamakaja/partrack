@@ -42,6 +42,7 @@
   let activeItemId = $state<string | null>(null);
   let shortfallInput = $state('');
   let submitting = $state(false);
+  let showAbandonConfirm = $state(false);
 
   const pendingItems = $derived(items.filter((i) => i.status === 'pending'));
   const confirmedItems = $derived(items.filter((i) => i.status === 'confirmed'));
@@ -135,6 +136,7 @@
       onBack();
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      showAbandonConfirm = false; // close the dialog so the toast is visible
       pushToast('error', 'Could not abandon kitting', 'Please try again.');
     } finally {
       submitting = false;
@@ -165,7 +167,7 @@
     {/if}
   </div>
   <button
-    onclick={abandon}
+    onclick={() => (showAbandonConfirm = true)}
     disabled={submitting}
     class="text-xs text-zinc-600 hover:text-red-400 transition-colors"
   >
@@ -310,3 +312,33 @@
     {/if}
   {/if}
 </div>
+
+<!-- Abandon confirmation — abandoning discards all pick progress, non-recoverable -->
+{#if showAbandonConfirm}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6">
+    <div class="w-full max-w-sm rounded-2xl bg-zinc-900 p-6 space-y-4">
+      <div class="space-y-1">
+        <p class="font-semibold">Abandon kitting?</p>
+        <p class="text-sm text-zinc-400">
+          Pick progress for this build will be discarded. This can't be undone.
+        </p>
+      </div>
+      <div class="flex gap-3">
+        <button
+          onclick={() => (showAbandonConfirm = false)}
+          disabled={submitting}
+          class="flex-1 rounded-xl border border-zinc-700 py-3 text-sm font-semibold text-zinc-300 active:bg-zinc-800 disabled:opacity-50"
+        >
+          Keep going
+        </button>
+        <button
+          onclick={abandon}
+          disabled={submitting}
+          class="flex-1 rounded-xl bg-red-600 py-3 text-sm font-semibold text-white active:bg-red-500 disabled:opacity-50"
+        >
+          {submitting ? 'Abandoning…' : 'Abandon'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
