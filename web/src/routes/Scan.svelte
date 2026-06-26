@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
   import type { NavEntry, ScanPart, PartLocation } from '$lib/components/mobile-scanner/types.js';
-  import type { ScanHistoryEntry } from '$lib/stores/scannerHistory.svelte.js';
+  import { type ScanHistoryEntry, setHistoryTeam, clearHistory } from '$lib/stores/scannerHistory.svelte.js';
   import { checkSession, listScanStorageLocations, ScanExpiredError, pairScanSession, createStreamTicket } from '$lib/api/scanner.js';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import ScanMenu from '$lib/components/mobile-scanner/ScanMenu.svelte';
@@ -18,16 +18,25 @@
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  const TOKEN_KEY = 'scan_token';
-  let token = $state('');
+  // The durable scan credential is the HttpOnly `partrack_scan` cookie set at pairing.
+  // It is never held in JS, so it can't be read/exfiltrated by XSS and nothing lingers
+  // in localStorage. `paired` tracks whether we hold a live session; `token` is a
+  // vestigial empty string still threaded to child screens — auth rides the cookie
+  // inside scanRequest, which ignores the value.
+  const token = '';
+  let paired = $state(false);
+
+  // Older builds persisted the bearer token here; remove it so no long-lived
+  // credential lingers on the device after upgrading.
+  const LEGACY_TOKEN_KEY = 'scan_token';
 
   // ── Storage locations (fetched once, passed to all child screens) ─────────
 
   let locations = $state<StorageLocation[]>([]);
 
-  async function fetchLocations(t: string) {
+  async function fetchLocations() {
     try {
-      const res = await listScanStorageLocations(t);
+      const res = await listScanStorageLocations(token);
       locations = res.locations;
     } catch {
       // non-fatal — components degrade gracefully with empty list
@@ -35,8 +44,8 @@
   }
 
   function handleExpired() {
-    localStorage.removeItem(TOKEN_KEY);
-    token = '';
+    paired = false;
+    clearHistory(); // drop the recent-parts view so a re-pair can't show stale entries
     stopPolling();
     sseStopped = true;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -115,14 +124,15 @@
   // ── History part-select handler ───────────────────────────────────────────
 
   function handleHistoryPartSelect(entry: ScanHistoryEntry) {
+    // History holds identity only; PartDetail re-fetches live stock/location on open.
     const part: ScanPart = {
       id: entry.partId,
       mpn: entry.mpn,
       description: entry.description,
       manufacturer: entry.manufacturer,
-      inventory_entry_id: entry.inventoryEntryId,
-      quantity_on_hand: entry.quantityOnHand,
-      storage_location: entry.storageLocation,
+      inventory_entry_id: null,
+      quantity_on_hand: null,
+      storage_location: null,
     };
     goTo({ screen: 'part_detail', part });
   }
@@ -151,7 +161,7 @@
   async function openPhoneSSE() {
     phoneES?.close();
     phoneES = null;
-    if (!token || sseStopped) return;
+    if (!paired || sseStopped) return;
 
     let ticket: string;
     try {
@@ -209,7 +219,7 @@
   // backoff, reset it, reconnect if the stream is gone, and poll once so context
   // pushes missed while asleep are picked up.
   function handleVisibility() {
-    if (document.visibilityState !== 'visible' || sseStopped || !token) return;
+    if (document.visibilityState !== 'visible' || sseStopped || !paired) return;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     reconnectAttempts = 0;
     if (!phoneES || phoneES.readyState === EventSource.CLOSED) void openPhoneSSE();
@@ -221,7 +231,7 @@
   let pollInterval: ReturnType<typeof setInterval> | null = null;
 
   async function pollSession() {
-    if (!token) return;
+    if (!paired) return;
     try {
       const s = await checkSession(token);
       if (topLevel === 'loading') topLevel = null;
@@ -287,24 +297,42 @@
     }
 
     void (async () => {
-      let t = localStorage.getItem(TOKEN_KEY) ?? '';
+      // Drop any legacy localStorage bearer token from older builds — auth is the
+      // HttpOnly cookie now.
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
+
+      // Redeem a pairing ticket if present; the response sets the HttpOnly scan cookie.
       if (pairingTicket) {
         try {
-          t = (await pairScanSession(pairingTicket)).token;
-          localStorage.setItem(TOKEN_KEY, t);
+          await pairScanSession(pairingTicket);
         } catch {
-          // fall back to any stored token below
+          // ignore — a prior cookie may still be valid; the probe below decides.
         }
       }
-      if (!t) {
+
+      // Probe the session over the cookie. A confirmed expiry → expired screen; a
+      // transient network error keeps us on "loading" and lets polling recover.
+      let expired = false;
+      try {
+        const s = await checkSession(token);
+        topLevel = null;
+        setHistoryTeam(s.team_id); // load this team's recent-parts list (namespaced)
+        if (s.active_kitting_session_id) {
+          goTo({ screen: 'build_kitting', kittingSessionId: s.active_kitting_session_id, buildRef: s.active_kitting_build_ref ?? '' });
+        }
+      } catch (e) {
+        if (e instanceof ScanExpiredError) expired = true;
+      }
+      if (expired) {
         topLevel = 'expired';
         return;
       }
-      token = t;
+
+      paired = true;
       sseStopped = false;
       await openPhoneSSE();
       startPolling();
-      fetchLocations(t);
+      fetchLocations();
     })();
 
     return () => {

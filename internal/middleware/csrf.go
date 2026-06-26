@@ -27,7 +27,11 @@ func (m *Middleware) CSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if _, err := r.Cookie("session"); err != nil {
+		_, sessErr := r.Cookie("session")
+		_, scanErr := r.Cookie(ScanCookieName)
+		if sessErr != nil && scanErr != nil {
+			// Neither the desktop session cookie nor the mobile-scanner cookie is
+			// present → request is not cookie-authenticated.
 			next.ServeHTTP(w, r)
 			return
 		}

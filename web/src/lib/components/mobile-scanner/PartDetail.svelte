@@ -86,10 +86,6 @@
           manufacturer: detail.manufacturer,
           description: detail.description,
           imageUrl: detail.image_url,
-          storageLocation: detail.storage_location,
-          locationLabel: detail.storage_location ? fullLocationLabel(detail.storage_location, locations) : null,
-          quantityOnHand: detail.quantity_on_hand,
-          inventoryEntryId: detail.inventory_entry_id,
         });
       }
       if (initialAdjust && detail?.inventory_entry_id) {

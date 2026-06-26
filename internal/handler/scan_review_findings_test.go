@@ -171,3 +171,45 @@ func TestVerify_OverReceive_IsAllowed(t *testing.T) {
 		t.Errorf("expected order status 'received' after fully receiving, got %q", orderStatus)
 	}
 }
+
+// Tier 3 (Area 5 M9 / Area 4 L14 / Area 7 L17): phone scan MUTATIONS must enforce
+// member role, matching the sibling guards on stock-adjust / receive / import. A
+// viewer-role scan token must be rejected with 403 on kitting mutations and on the
+// barcode lookup (which performs a hidden write — it auto-creates an inventory entry).
+func TestVerify_ScanMutations_RequireMemberRole(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	viewer := testutil.CreateUser(t, testDB, "scan-viewer@example.com", "pw", "Viewer")
+	team := testutil.CreateTeam(t, testDB, viewer, "viewer", "Viewer Team")
+	viewerScan := testutil.CreateScanSession(t, testDB, viewer, team)
+
+	member := testutil.CreateUser(t, testDB, "scan-member@example.com", "pw", "Member")
+	testutil.AddMember(t, testDB, team, member, "member")
+	memberScan := testutil.CreateScanSession(t, testDB, member, team)
+
+	// A non-existent kitting session id — the role gate must fire BEFORE the kitting
+	// lookup, so a viewer gets 403 (not 404) even without a real kitting session.
+	const ksID = "00000000-0000-0000-0000-0000000000aa"
+
+	cases := []struct {
+		name, method, path string
+		body               any
+	}{
+		{"lookup", http.MethodPost, "/api/v1/scan/lookup", map[string]any{"barcode": "SOME-CODE"}},
+		{"kitting confirm", http.MethodPost, fmt.Sprintf("/api/v1/scan/kitting/%s/confirm", ksID), map[string]any{"part_id": "00000000-0000-0000-0000-0000000000bb"}},
+		{"kitting shortfall", http.MethodPost, fmt.Sprintf("/api/v1/scan/kitting/%s/shortfall", ksID), map[string]any{"part_id": "00000000-0000-0000-0000-0000000000bb"}},
+		{"kitting complete", http.MethodPost, fmt.Sprintf("/api/v1/scan/kitting/%s/complete", ksID), nil},
+		{"kitting abandon", http.MethodPost, fmt.Sprintf("/api/v1/scan/kitting/%s/abandon", ksID), nil},
+	}
+
+	for _, c := range cases {
+		_, status := testutil.Do(t, testEnv.Server, c.method, c.path, c.body, viewerScan)
+		if status != http.StatusForbidden {
+			t.Errorf("%s: viewer-role scan token expected 403, got %d", c.name, status)
+		}
+		// A member must NOT be blocked by the role gate (404/200 are fine, just not 403).
+		if _, mstatus := testutil.Do(t, testEnv.Server, c.method, c.path, c.body, memberScan); mstatus == http.StatusForbidden {
+			t.Errorf("%s: member-role scan token wrongly rejected with 403", c.name)
+		}
+	}
+}

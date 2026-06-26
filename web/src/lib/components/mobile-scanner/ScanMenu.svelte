@@ -139,9 +139,6 @@
               {#if entry.description}
                 <p class="text-xs text-zinc-400 truncate">{entry.description}</p>
               {/if}
-              {#if entry.locationLabel}
-                <p class="text-xs text-zinc-500 truncate">{entry.locationLabel}</p>
-              {/if}
             </div>
           </button>
         {/each}

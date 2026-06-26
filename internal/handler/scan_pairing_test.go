@@ -72,3 +72,54 @@ func TestScanPairingFlow(t *testing.T) {
 		t.Errorf("bogus stream ticket: expected 401, got %d", resp.StatusCode)
 	}
 }
+
+// TestScanPair_SetsHttpOnlyCookie verifies that /scan/pair delivers the durable
+// credential as an HttpOnly cookie (not JS-readable, so not XSS-exfiltratable) and
+// that the cookie alone — with no Authorization header — authenticates a phone
+// endpoint. This is the Tier-3 hardening replacing the localStorage bearer token.
+func TestScanPair_SetsHttpOnlyCookie(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "cookie@example.com", "pw", "Cookie")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Cookie Team")
+	desktop := testutil.CreateSession(t, testDB, userID)
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/scan-sessions", teamID), map[string]any{}, desktop)
+	if status != http.StatusCreated {
+		t.Fatalf("create scan session: expected 201, got %d: %v", status, body)
+	}
+	ticket, _ := body["pairing_ticket"].(string)
+
+	pairResp := testutil.DoRaw(t, testEnv.Server, http.MethodPost,
+		"/api/v1/scan/pair", map[string]any{"ticket": ticket}, "")
+	pairResp.Body.Close()
+
+	var scanCookie *http.Cookie
+	for _, c := range pairResp.Cookies() {
+		if c.Name == "partrack_scan" {
+			scanCookie = c
+		}
+	}
+	if scanCookie == nil {
+		t.Fatal("pair did not set the partrack_scan cookie")
+	}
+	if !scanCookie.HttpOnly {
+		t.Error("partrack_scan cookie must be HttpOnly so JS / XSS cannot read it")
+	}
+	if scanCookie.Value == "" {
+		t.Fatal("partrack_scan cookie has no value")
+	}
+
+	// The cookie alone (no Authorization header) must authenticate a phone endpoint.
+	req, _ := http.NewRequest(http.MethodGet, testEnv.Server.URL+"/api/v1/scan/session", nil)
+	req.AddCookie(scanCookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("cookie-authenticated request: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("scan cookie should authenticate /scan/session: got %d", resp.StatusCode)
+	}
+}

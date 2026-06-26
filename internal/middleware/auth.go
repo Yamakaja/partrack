@@ -16,6 +16,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ScanCookieName is the cookie carrying the durable mobile-scanner token. The phone
+// authenticates with this HttpOnly cookie (set at /scan/pair) instead of a localStorage
+// bearer token, so the credential is not readable by JS / XSS. Scoped to /api/v1/scan.
+const ScanCookieName = "partrack_scan"
+
 // contextKey is an unexported type for context keys in this package.
 type contextKey int
 
@@ -113,7 +118,9 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// extractToken reads the raw token from the session cookie or Bearer header.
+// extractToken reads the raw token from the session cookie, the Bearer header, or
+// the scan cookie (in that order). The scan cookie carries a "scan_"-prefixed token
+// that lookupToken resolves as a mobile-scanner session.
 func extractToken(r *http.Request) string {
 	if cookie, err := r.Cookie("session"); err == nil && cookie.Value != "" {
 		return cookie.Value
@@ -121,6 +128,9 @@ func extractToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	if cookie, err := r.Cookie(ScanCookieName); err == nil && cookie.Value != "" {
+		return cookie.Value
 	}
 	return ""
 }

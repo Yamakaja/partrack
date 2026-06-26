@@ -27,16 +27,20 @@ export class ScanRequestError extends Error {
 
 // ── Base request ──────────────────────────────────────────────────────────────
 
+// The phone authenticates with the HttpOnly `partrack_scan` cookie set at pairing —
+// the durable token is never held in JS (so it is not XSS-exfiltratable). `credentials:
+// 'same-origin'` sends that cookie. The leading `_token` arg is retained for call-site
+// stability but is unused; auth rides the cookie.
 async function scanRequest<T>(
-  token: string,
+  _token: string,
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
   const res = await fetch(path, {
     method,
+    credentials: 'same-origin',
     headers: {
-      Authorization: `Bearer ${token}`,
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -209,6 +213,7 @@ export interface BulkSessionInfo {
 
 export interface ScanSessionState {
   id: string;
+  team_id: string;
   phone_connected: boolean;
   active_kitting_session_id: string | null;
   active_kitting_build_ref: string | null;
@@ -222,6 +227,7 @@ export async function pairScanSession(
 ): Promise<{ token: string; session_id: string; team_id: string; expires_at: string }> {
   const res = await fetch('/api/v1/scan/pair', {
     method: 'POST',
+    credentials: 'same-origin', // store the HttpOnly scan cookie the response sets
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket }),
   });

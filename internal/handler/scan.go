@@ -31,11 +31,17 @@ const scanSessionTTL = 24 * time.Hour
 // (sent as ?token= query param by EventSource, or Authorization: Bearer by fetch).
 // Returns (nil, nil) if the token doesn't match any live session.
 func (h *Handler) scanSessionFromScanToken(r *http.Request) (*dbgen.ScanSession, error) {
-	// The durable scan token is only ever sent as Authorization: Bearer — never in
-	// a URL. The SSE stream authenticates with a single-use ticket instead.
+	// The durable scan token rides an HttpOnly cookie (set at /scan/pair) so it is
+	// never readable by JS / XSS and never in a URL. A Bearer header is still accepted
+	// for API clients and tests. The SSE stream uses a single-use ticket instead.
 	rawToken := ""
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		rawToken = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if rawToken == "" {
+		if c, err := r.Cookie(middleware.ScanCookieName); err == nil {
+			rawToken = c.Value
+		}
 	}
 	if rawToken == "" {
 		return nil, nil //nolint:nilnil
@@ -59,6 +65,22 @@ func (h *Handler) scanSessionFromScanToken(r *http.Request) (*dbgen.ScanSession,
 		ExpiresAt:      row.ExpiresAt,
 	}
 	return &sess, nil
+}
+
+// setScanCookie writes the HttpOnly scan-token cookie. Scoped to /api/v1/scan so it
+// is only sent to the phone scan endpoints, and expiring with the session. SameSite=Lax
+// (like the desktop session cookie) plus the global CSRF same-origin check guard the
+// cookie-authenticated mutations.
+func (h *Handler) setScanCookie(w http.ResponseWriter, r *http.Request, rawToken string, expiresAt time.Time) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     middleware.ScanCookieName,
+		Value:    rawToken,
+		Path:     "/api/v1/scan",
+		Expires:  expiresAt,
+		HttpOnly: true,
+		Secure:   h.cookieSecure(r),
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // generateScanToken returns a cryptographically random token with the "scan_" prefix.
@@ -231,6 +253,11 @@ func (h *Handler) PairScanSession(w http.ResponseWriter, r *http.Request) {
 	}
 	// Drop any cached entry under the prior (placeholder/old) hash.
 	h.Cache.EvictScanTokenBySessionID(sessionID.String())
+
+	// The durable credential is delivered as an HttpOnly cookie (not JS-readable).
+	// The token is still echoed in the body for API clients/tests that authenticate
+	// with a Bearer header; the web phone UI ignores it and relies on the cookie.
+	h.setScanCookie(w, r, rawToken, row.ExpiresAt.Time)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":      rawToken,
@@ -556,6 +583,7 @@ func (h *Handler) GetScanSession(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]any{
 		"session_id":                sess.ID.String(),
+		"team_id":                   sess.TeamID.String(),
 		"pending_scan":              nil,
 		"active_kitting_session_id": nil,
 		"active_kitting_build_ref":  nil,
@@ -883,6 +911,11 @@ func (h *Handler) LookupScanBarcode(w http.ResponseWriter, r *http.Request) {
 	}
 	if sess == nil {
 		w.WriteHeader(http.StatusGone)
+		return
+	}
+	// Member+ required: a found lookup performs a hidden write (writeLookupFound
+	// auto-creates a zero-qty inventory entry), so gate it like the other mutations.
+	if !h.requireScanMember(w, r, sess) {
 		return
 	}
 
@@ -1779,6 +1812,23 @@ func (h *Handler) GetScanPartDetail(w http.ResponseWriter, r *http.Request) {
 func roleAtLeast(role, minRole string) bool {
 	order := map[string]int{"viewer": 0, "member": 1, "purchaser": 2, "admin": 3}
 	return order[role] >= order[minRole]
+}
+
+// requireScanMember enforces that the scan session's user still has at least member
+// role in the session's team. It writes the response and returns false on failure
+// (403 when below member, 500 on lookup error), mirroring the inline guard the other
+// scan mutations use. Call it before performing any write.
+func (h *Handler) requireScanMember(w http.ResponseWriter, r *http.Request, sess *dbgen.ScanSession) bool {
+	membership, err := h.checkTeamMembership(r.Context(), sess.TeamID, sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return false
+	}
+	if membership == nil || !roleAtLeast(membership.Role, "member") {
+		writeError(w, http.StatusForbidden, "member role required", "FORBIDDEN")
+		return false
+	}
+	return true
 }
 
 // SearchScanDistributor handles GET /api/v1/scan/distributor-search
@@ -2707,6 +2757,9 @@ func (h *Handler) KittingConfirm(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusGone)
 		return
 	}
+	if !h.requireScanMember(w, r, sess) {
+		return
+	}
 	if ks == nil {
 		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
 		return
@@ -2783,6 +2836,9 @@ func (h *Handler) KittingShortfall(w http.ResponseWriter, r *http.Request) {
 	}
 	if sess == nil {
 		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if !h.requireScanMember(w, r, sess) {
 		return
 	}
 	if ks == nil {
@@ -2863,6 +2919,9 @@ func (h *Handler) KittingComplete(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusGone)
 		return
 	}
+	if !h.requireScanMember(w, r, sess) {
+		return
+	}
 	if ks == nil {
 		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
 		return
@@ -2899,6 +2958,9 @@ func (h *Handler) KittingAbandon(w http.ResponseWriter, r *http.Request) {
 	}
 	if sess == nil {
 		w.WriteHeader(http.StatusGone)
+		return
+	}
+	if !h.requireScanMember(w, r, sess) {
 		return
 	}
 	if ks == nil {
