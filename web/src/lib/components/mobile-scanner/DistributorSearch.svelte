@@ -5,7 +5,6 @@
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
-    token,
     distributorId,
     distributorName,
     initialQuery,
@@ -18,7 +17,6 @@
     onSelectListings,
     onExpired,
   }: {
-    token: string;
     distributorId: string;
     distributorName: string;
     initialQuery: string;
@@ -48,7 +46,7 @@
       checkedSkus = new Set(initialCheckedSkus);
     }
     try {
-      const data = await searchDistributor(token, distributorId, initialQuery);
+      const data = await searchDistributor(distributorId, initialQuery);
       results = data.items ?? [];
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
@@ -64,7 +62,7 @@
     importingIdx = idx;
     importError = '';
     try {
-      const data = await importScanPart(token, { distributor_id: distributorId, sku: item.primary_sku, audit_log_id: auditLogId });
+      const data = await importScanPart({ distributor_id: distributorId, sku: item.primary_sku, audit_log_id: auditLogId });
       const part: ScanPart = {
         id: data.part_id,
         mpn: item.mpn || null,

@@ -17,14 +17,12 @@
   import type { StorageLocation } from '$lib/types/inventory.js';
 
   let {
-    token,
     kittingSessionId,
     buildRef,
     locations,
     onBack,
     onExpired,
   }: {
-    token: string;
     kittingSessionId: string;
     buildRef: string;
     locations: StorageLocation[];
@@ -58,8 +56,8 @@
   async function load() {
     try {
       const [s, its] = await Promise.all([
-        getKittingSession(token, kittingSessionId),
-        getKittingItems(token, kittingSessionId),
+        getKittingSession(kittingSessionId),
+        getKittingItems(kittingSessionId),
       ]);
       session = s;
       items = its.items;
@@ -75,7 +73,7 @@
     if (submitting) return;
     submitting = true;
     try {
-      const res = await kittingConfirm(token, kittingSessionId, item.part_id, item.quantity_needed);
+      const res = await kittingConfirm(kittingSessionId, item.part_id, item.quantity_needed);
       session = { ...session!, progress: res.progress };
       items = items.map((i) =>
         i.part_id === item.part_id
@@ -96,7 +94,7 @@
     if (submitting) return;
     submitting = true;
     try {
-      const res = await kittingShortfall(token, kittingSessionId, item.part_id, qty);
+      const res = await kittingShortfall(kittingSessionId, item.part_id, qty);
       session = { ...session!, progress: res.progress };
       items = items.map((i) =>
         i.part_id === item.part_id
@@ -116,7 +114,7 @@
     if (submitting) return;
     submitting = true;
     try {
-      await kittingComplete(token, kittingSessionId);
+      await kittingComplete(kittingSessionId);
       pushToast('success', 'Kitting complete', 'Check out the build on desktop to record assembly.');
       onBack();
     } catch (e) {
@@ -131,7 +129,7 @@
     if (submitting) return;
     submitting = true;
     try {
-      await kittingAbandon(token, kittingSessionId);
+      await kittingAbandon(kittingSessionId);
       onBack();
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }

@@ -9,7 +9,6 @@
   import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   let {
-    token,
     part,
     initialAdjust,
     locations,
@@ -17,7 +16,6 @@
     onAdjustStock,
     onExpired,
   }: {
-    token: string;
     part: ScanPart;
     initialAdjust?: { value: number; mode: 'set' | 'adjust'; reason?: string };
     locations: StorageLocation[];
@@ -78,7 +76,7 @@
 
   onMount(async () => {
     try {
-      detail = await getPartDetail(token, part.id);
+      detail = await getPartDetail(part.id);
       if (detail) {
         recordVisit({
           partId: part.id,
@@ -103,7 +101,7 @@
     if (!entryId) return;
     assigningLocation = true;
     try {
-      await patchInventoryEntry(token, entryId, loc);
+      await patchInventoryEntry(entryId, loc);
       if (detail) detail = { ...detail, storage_location: loc };
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
@@ -150,7 +148,7 @@
     </button>
     <p class="font-medium flex-1">Part Details</p>
     <button
-      onclick={() => scanFocus(token, 'part', part.id).catch(() => {})}
+      onclick={() => scanFocus('part', part.id).catch(() => {})}
       class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
       aria-label="Open on Desktop"
     >

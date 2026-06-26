@@ -29,10 +29,8 @@ export class ScanRequestError extends Error {
 
 // The phone authenticates with the HttpOnly `partrack_scan` cookie set at pairing —
 // the durable token is never held in JS (so it is not XSS-exfiltratable). `credentials:
-// 'same-origin'` sends that cookie. The leading `_token` arg is retained for call-site
-// stability but is unused; auth rides the cookie.
+// 'same-origin'` sends that cookie.
 async function scanRequest<T>(
-  _token: string,
   method: string,
   path: string,
   body?: unknown,
@@ -237,31 +235,30 @@ export async function pairScanSession(
 
 // createStreamTicket mints a single-use ticket for opening the SSE stream, so the
 // durable token never appears in the stream URL.
-export function createStreamTicket(token: string): Promise<{ ticket: string; expires_in: number }> {
-  return scanRequest(token, 'POST', '/api/v1/scan/stream-ticket');
+export function createStreamTicket(): Promise<{ ticket: string; expires_in: number }> {
+  return scanRequest('POST', '/api/v1/scan/stream-ticket');
 }
 
-export function checkSession(token: string): Promise<ScanSessionState> {
-  return scanRequest<ScanSessionState>(token, 'GET', '/api/v1/scan/session');
+export function checkSession(): Promise<ScanSessionState> {
+  return scanRequest<ScanSessionState>('GET', '/api/v1/scan/session');
 }
 
-export function searchParts(token: string, q: string): Promise<{ parts: ScanPart[] }> {
-  return scanRequest(token, 'GET', `/api/v1/scan/parts?q=${encodeURIComponent(q)}`);
+export function searchParts(q: string): Promise<{ parts: ScanPart[] }> {
+  return scanRequest('GET', `/api/v1/scan/parts?q=${encodeURIComponent(q)}`);
 }
 
-export function getPartDetail(token: string, partId: string): Promise<PartDetailResponse> {
-  return scanRequest(token, 'GET', `/api/v1/scan/parts/${partId}`);
+export function getPartDetail(partId: string): Promise<PartDetailResponse> {
+  return scanRequest('GET', `/api/v1/scan/parts/${partId}`);
 }
 
-export function lookupBag(token: string, barcode: string): Promise<BagLookupResponse> {
-  return scanRequest(token, 'POST', '/api/v1/scan/lookup', { barcode });
+export function lookupBag(barcode: string): Promise<BagLookupResponse> {
+  return scanRequest('POST', '/api/v1/scan/lookup', { barcode });
 }
 
 export function importScanPart(
-  token: string,
   body: { distributor_id: string; sku: string; audit_log_id?: string | null },
 ): Promise<{ part_id: string }> {
-  return scanRequest(token, 'POST', '/api/v1/scan/parts/import', body);
+  return scanRequest('POST', '/api/v1/scan/parts/import', body);
 }
 
 export interface ImportMultiResult {
@@ -270,52 +267,47 @@ export interface ImportMultiResult {
 }
 
 export function importScanPartMulti(
-  token: string,
   body: { listings: Array<{ distributor_id: string; sku: string }>; audit_log_id?: string | null },
 ): Promise<ImportMultiResult> {
-  return scanRequest(token, 'POST', '/api/v1/scan/parts/import-multi', body);
+  return scanRequest('POST', '/api/v1/scan/parts/import-multi', body);
 }
 
 export function stockAdjustment(
-  token: string,
   body: { inventory_entry_id: string; delta: number; reason?: string; expected_quantity?: number },
 ): Promise<StockAdjustmentResponse> {
-  return scanRequest(token, 'POST', '/api/v1/scan/stock-adjustment', body);
+  return scanRequest('POST', '/api/v1/scan/stock-adjustment', body);
 }
 
-export function listOrders(token: string): Promise<{ orders: ScanOrder[] }> {
-  return scanRequest(token, 'GET', '/api/v1/scan/orders');
+export function listOrders(): Promise<{ orders: ScanOrder[] }> {
+  return scanRequest('GET', '/api/v1/scan/orders');
 }
 
 export function scanBarcode(
-  token: string,
   body: { order_id: string; barcode: string },
 ): Promise<ScanResponse> {
-  return scanRequest(token, 'POST', '/api/v1/scan/scans', body);
+  return scanRequest('POST', '/api/v1/scan/scans', body);
 }
 
-export function confirmReceipt(token: string, qty: number, lineItemId?: string): Promise<ConfirmReceiptResponse> {
-  return scanRequest(token, 'POST', '/api/v1/scan/confirm', { qty, line_item_id: lineItemId });
+export function confirmReceipt(qty: number, lineItemId?: string): Promise<ConfirmReceiptResponse> {
+  return scanRequest('POST', '/api/v1/scan/confirm', { qty, line_item_id: lineItemId });
 }
 
-export function skipItem(token: string): Promise<void> {
-  return scanRequest<void>(token, 'POST', '/api/v1/scan/skip');
+export function skipItem(): Promise<void> {
+  return scanRequest<void>('POST', '/api/v1/scan/skip');
 }
 
 export function searchDistributor(
-  token: string,
   distributorId: string,
   q: string,
 ): Promise<{ items: DistributorSearchItem[] }> {
   return scanRequest(
-    token,
     'GET',
     `/api/v1/scan/distributor-search?distributor_id=${encodeURIComponent(distributorId)}&q=${encodeURIComponent(q)}`,
   );
 }
 
-export function listScanStorageLocations(token: string): Promise<{ locations: StorageLocation[] }> {
-  return scanRequest(token, 'GET', '/api/v1/scan/storage-locations');
+export function listScanStorageLocations(): Promise<{ locations: StorageLocation[] }> {
+  return scanRequest('GET', '/api/v1/scan/storage-locations');
 }
 
 export interface StorageInventoryEntry {
@@ -328,18 +320,16 @@ export interface StorageInventoryEntry {
 }
 
 export function listScanStorageInventory(
-  token: string,
   locationId: string,
 ): Promise<StorageInventoryEntry[]> {
-  return scanRequest(token, 'GET', `/api/v1/scan/storage/${locationId}/inventory`);
+  return scanRequest('GET', `/api/v1/scan/storage/${locationId}/inventory`);
 }
 
 export function patchInventoryEntry(
-  token: string,
   inventoryEntryId: string,
   storageLocation: PartLocation | null,
 ): Promise<{ id: string; storage_location: PartLocation | null }> {
-  return scanRequest(token, 'PATCH', `/api/v1/scan/inventory-entries/${inventoryEntryId}`, {
+  return scanRequest('PATCH', `/api/v1/scan/inventory-entries/${inventoryEntryId}`, {
     storage_location: storageLocation,
   });
 }
@@ -347,11 +337,10 @@ export function patchInventoryEntry(
 // ── Scan-to-Focus ──────────────────────────────────────────────────────────────
 
 export function scanFocus(
-  token: string,
   entityType: 'part' | 'order' | 'storage' | 'build',
   entityId: string,
 ): Promise<void> {
-  return scanRequest(token, 'POST', '/api/v1/scan/focus', {
+  return scanRequest('POST', '/api/v1/scan/focus', {
     entity_type: entityType,
     entity_id: entityId,
   });
@@ -389,47 +378,44 @@ export interface KittingItem {
   storage_coordinate: number[] | null;
 }
 
-export function getKittingSession(token: string, kittingSessionId: string): Promise<KittingSession> {
-  return scanRequest(token, 'GET', `/api/v1/scan/kitting/${kittingSessionId}`);
+export function getKittingSession(kittingSessionId: string): Promise<KittingSession> {
+  return scanRequest('GET', `/api/v1/scan/kitting/${kittingSessionId}`);
 }
 
-export function getKittingItems(token: string, kittingSessionId: string): Promise<{ items: KittingItem[] }> {
-  return scanRequest(token, 'GET', `/api/v1/scan/kitting/${kittingSessionId}/items`);
+export function getKittingItems(kittingSessionId: string): Promise<{ items: KittingItem[] }> {
+  return scanRequest('GET', `/api/v1/scan/kitting/${kittingSessionId}/items`);
 }
 
 export function kittingConfirm(
-  token: string,
   kittingSessionId: string,
   partId: string,
   quantityConfirmed: number,
 ): Promise<{ item: unknown; progress: KittingProgress }> {
-  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/confirm`, {
+  return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/confirm`, {
     part_id: partId,
     quantity_confirmed: quantityConfirmed,
   });
 }
 
 export function kittingShortfall(
-  token: string,
   kittingSessionId: string,
   partId: string,
   quantityAvailable: number,
 ): Promise<{ item: unknown; progress: KittingProgress }> {
-  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/shortfall`, {
+  return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/shortfall`, {
     part_id: partId,
     quantity_available: quantityAvailable,
   });
 }
 
 export function kittingComplete(
-  token: string,
   kittingSessionId: string,
 ): Promise<{ progress: KittingProgress }> {
-  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/complete`);
+  return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/complete`);
 }
 
-export function kittingAbandon(token: string, kittingSessionId: string): Promise<void> {
-  return scanRequest(token, 'POST', `/api/v1/scan/kitting/${kittingSessionId}/abandon`);
+export function kittingAbandon(kittingSessionId: string): Promise<void> {
+  return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/abandon`);
 }
 
 // ── Bulk scan (phone side) ─────────────────────────────────────────────────────
@@ -446,35 +432,33 @@ export interface AddBulkScanItemResponse {
   encoded_qty: number | null;
 }
 
-export function startBulkSession(token: string): Promise<StartBulkSessionResponse> {
-  return scanRequest(token, 'POST', '/api/v1/scan/bulk/start');
+export function startBulkSession(): Promise<StartBulkSessionResponse> {
+  return scanRequest('POST', '/api/v1/scan/bulk/start');
 }
 
 export function addBulkScanItem(
-  token: string,
   sessionId: string,
   barcode: string,
 ): Promise<AddBulkScanItemResponse> {
-  return scanRequest(token, 'POST', `/api/v1/scan/bulk/sessions/${sessionId}/items`, { barcode });
+  return scanRequest('POST', `/api/v1/scan/bulk/sessions/${sessionId}/items`, { barcode });
 }
 
 export function patchBulkScanItem(
-  token: string,
   sessionId: string,
   itemId: string,
   body: { initial_qty: number | null },
 ): Promise<void> {
-  return scanRequest(token, 'PATCH', `/api/v1/scan/bulk/sessions/${sessionId}/items/${itemId}`, body);
+  return scanRequest('PATCH', `/api/v1/scan/bulk/sessions/${sessionId}/items/${itemId}`, body);
 }
 
-export function closeBulkSession(token: string, sessionId: string): Promise<void> {
-  return scanRequest(token, 'POST', `/api/v1/scan/bulk/sessions/${sessionId}/close`);
+export function closeBulkSession(sessionId: string): Promise<void> {
+  return scanRequest('POST', `/api/v1/scan/bulk/sessions/${sessionId}/close`);
 }
 
-export async function navigateBulkSession(token: string, sessionId: string): Promise<void> {
+export async function navigateBulkSession(sessionId: string): Promise<void> {
   const res = await fetch(`/api/v1/scan/bulk/sessions/${sessionId}/navigate`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'same-origin', // auth rides the HttpOnly scan cookie
   });
   if (res.status === 401 || res.status === 410) throw new ScanExpiredError();
   if (res.status === 409) throw new Error('desktop_offline');

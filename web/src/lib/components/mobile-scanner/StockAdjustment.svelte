@@ -5,7 +5,6 @@
   import { stockAdjustment, ScanExpiredError, ScanRequestError } from '$lib/api/scanner.js';
 
   let {
-    token,
     part,
     mode = 'adjust',
     initialValue,
@@ -14,7 +13,6 @@
     onDone,
     onExpired,
   }: {
-    token: string;
     part: ScanPart;
     mode?: 'set' | 'adjust';
     initialValue?: number;
@@ -45,7 +43,7 @@
     if (delta === 0) return;
     adjSubmitting = true;
     try {
-      const data = await stockAdjustment(token, {
+      const data = await stockAdjustment({
         inventory_entry_id: part.inventory_entry_id,
         delta,
         reason: adjReason || undefined,

@@ -4,13 +4,11 @@
   import { searchParts, ScanExpiredError } from '$lib/api/scanner.js';
 
   let {
-    token,
     initialQuery = '',
     onBack,
     onSelectPart,
     onExpired,
   }: {
-    token: string;
     initialQuery?: string;
     onBack: () => void;
     onSelectPart: (part: ScanPart) => void;
@@ -32,7 +30,7 @@
       if (!q.trim()) { partResults = []; return; }
       partSearchLoading = true;
       try {
-        const data = await searchParts(token, q);
+        const data = await searchParts(q);
         partResults = data.parts;
       } catch (e) {
         if (e instanceof ScanExpiredError) { onExpired(); return; }

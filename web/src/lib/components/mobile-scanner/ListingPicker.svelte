@@ -7,13 +7,11 @@
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
 
   let {
-    token,
     context,
     onBack,
     onImportDone,
     onExpired,
   }: {
-    token: string;
     context: ScanImportContext;
     onBack: () => void;
     onImportDone: (part: ScanPart, bagQty: number) => void;
@@ -126,7 +124,7 @@
     importing = true;
     importError = '';
     try {
-      const data = await importScanPartMulti(token, {
+      const data = await importScanPartMulti({
         listings: selectedListings.map(l => ({ distributor_id: l.distributor_id, sku: l.sku })),
         audit_log_id: context.auditLogId,
       });
@@ -164,7 +162,6 @@
   <!-- state updates are batched and innerScreen stays 'searching'.            -->
   {#key activeDistributorId}
     <DistributorSearch
-      {token}
       mode="multi"
       distributorId={activeDistributorId}
       distributorName={activeDistributorName}

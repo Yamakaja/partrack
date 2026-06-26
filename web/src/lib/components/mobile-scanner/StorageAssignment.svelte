@@ -20,13 +20,12 @@
   import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   interface Props {
-    token: string;
     locations: StorageLocation[];
     onBack: () => void;
     onExpired: () => void;
   }
 
-  let { token, locations, onBack, onExpired }: Props = $props();
+  let { locations, onBack, onExpired }: Props = $props();
 
   // ── Camera ────────────────────────────────────────────────────────────────
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -105,7 +104,7 @@
     loadingOccupied = true;
     occupiedKeys = new Set();
     try {
-      const entries = await listScanStorageInventory(token, id);
+      const entries = await listScanStorageInventory(id);
       const keys = new Set<string>();
       for (const e of entries) {
         // The inventory query recurses into child locations, but only entries assigned
@@ -251,7 +250,7 @@
     const target: PartLocation = { id: selectedLocationId, coordinate: flat };
 
     try {
-      const data = await lookupBag(token, raw);
+      const data = await lookupBag(raw);
       if (data.status !== 'found') { showToast('Part not found — import it first'); return; }
       const entryId = data.inventory_entry_id;
       if (!entryId) { showToast('No inventory entry for this part'); return; }
@@ -273,7 +272,7 @@
   }
 
   async function doAssign(entryId: string, target: PartLocation, mpn: string | null, flat: number[] | null) {
-    await patchInventoryEntry(token, entryId, target);
+    await patchInventoryEntry(entryId, target);
     if (flat) {
       const key = coordKey(flat);
       occupiedKeys = new Set([...occupiedKeys, key]);

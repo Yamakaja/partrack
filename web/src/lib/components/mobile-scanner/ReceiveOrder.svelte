@@ -13,7 +13,6 @@
   import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   let {
-    token,
     contextOrderId: initialContextOrderId,  // snapshot — used only to seed initial screen state
     contextOrderRef,
     locations,
@@ -21,7 +20,6 @@
     onContextChange,
     onExpired,
   }: {
-    token: string;
     contextOrderId: string | null;
     contextOrderRef: string | null;
     locations: StorageLocation[];
@@ -78,7 +76,7 @@
     if (!confirmedInventoryEntryId) return;
     assigningLocation = true;
     try {
-      await patchInventoryEntry(token, confirmedInventoryEntryId, loc);
+      await patchInventoryEntry(confirmedInventoryEntryId, loc);
       confirmedStorageLocation = loc;
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
@@ -92,7 +90,7 @@
   async function loadOrders() {
     ordersLoading = true;
     try {
-      const data = await listOrders(token);
+      const data = await listOrders();
       orders = data.orders;
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
@@ -112,7 +110,7 @@
 
   async function handleScanResult(raw: string) {
     try {
-      const data = await scanBarcode(token, { order_id: currentOrderId, barcode: raw });
+      const data = await scanBarcode({ order_id: currentOrderId, barcode: raw });
       if (data.status === 'matched') {
         applyPendingScan(data);
       } else if (data.status === 'no_match') {
@@ -151,7 +149,7 @@
     try {
       // Echo the line item we matched so the server rejects a stale confirm if the
       // pending scan was overwritten by a later scan.
-      const data = await confirmReceipt(token, qty, confirmData?.lineItemId);
+      const data = await confirmReceipt(qty, confirmData?.lineItemId);
       confirmedInventoryEntryId = data.inventory_entry_id ?? null;
       confirmedStorageLocation = data.storage_location ?? null;
       nextScreenAfterConfirm = data.order_status === 'received' ? 'order_complete' : 'scanning';
@@ -178,7 +176,7 @@
   }
 
   async function skip() {
-    skipItem(token).catch(() => {});
+    skipItem().catch(() => {});
     confirmData = null;
     screen = 'scanning';
   }
@@ -200,7 +198,7 @@
       <p class="font-medium flex-1">Select Order</p>
       {#if currentOrderId}
         <button
-          onclick={() => scanFocus(token, 'order', currentOrderId).catch(() => {})}
+          onclick={() => scanFocus('order', currentOrderId).catch(() => {})}
           class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
         >
           Open ↗

@@ -6,7 +6,6 @@
   import MobileGridVisualiser from './MobileGridVisualiser.svelte';
 
   interface Props {
-    token: string;
     locationId: string;
     coordinate?: number[] | null;
     locations: StorageLocation[];
@@ -15,7 +14,7 @@
     onExpired: () => void;
   }
 
-  let { token, locationId, coordinate, locations, onBack, onPartSelect, onExpired }: Props = $props();
+  let { locationId, coordinate, locations, onBack, onPartSelect, onExpired }: Props = $props();
 
   let entries = $state<StorageInventoryEntry[]>([]);
   let loading = $state(true);
@@ -111,7 +110,7 @@
 
   onMount(async () => {
     try {
-      entries = await listScanStorageInventory(token, locationId);
+      entries = await listScanStorageInventory(locationId);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
     } finally {
@@ -147,7 +146,7 @@
       {/if}
     </div>
     <button
-      onclick={() => scanFocus(token, 'storage', locationId).catch(() => {})}
+      onclick={() => scanFocus('storage', locationId).catch(() => {})}
       class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
     >
       Open ↗

@@ -20,10 +20,8 @@
 
   // The durable scan credential is the HttpOnly `partrack_scan` cookie set at pairing.
   // It is never held in JS, so it can't be read/exfiltrated by XSS and nothing lingers
-  // in localStorage. `paired` tracks whether we hold a live session; `token` is a
-  // vestigial empty string still threaded to child screens — auth rides the cookie
-  // inside scanRequest, which ignores the value.
-  const token = '';
+  // in localStorage. The scan API calls authenticate via that cookie (no token is
+  // threaded); `paired` just tracks whether we currently hold a live session.
   let paired = $state(false);
 
   // Older builds persisted the bearer token here; remove it so no long-lived
@@ -36,7 +34,7 @@
 
   async function fetchLocations() {
     try {
-      const res = await listScanStorageLocations(token);
+      const res = await listScanStorageLocations();
       locations = res.locations;
     } catch {
       // non-fatal — components degrade gracefully with empty list
@@ -165,7 +163,7 @@
 
     let ticket: string;
     try {
-      ticket = (await createStreamTicket(token)).ticket;
+      ticket = (await createStreamTicket()).ticket;
     } catch (e) {
       if (e instanceof ScanExpiredError) { handleExpired(); return; }
       scheduleReconnect();
@@ -233,7 +231,7 @@
   async function pollSession() {
     if (!paired) return;
     try {
-      const s = await checkSession(token);
+      const s = await checkSession();
       if (topLevel === 'loading') topLevel = null;
       if (s.active_kitting_session_id && current.screen === 'menu') {
         goTo({ screen: 'build_kitting', kittingSessionId: s.active_kitting_session_id, buildRef: s.active_kitting_build_ref ?? '' });
@@ -314,7 +312,7 @@
       // transient network error keeps us on "loading" and lets polling recover.
       let expired = false;
       try {
-        const s = await checkSession(token);
+        const s = await checkSession();
         topLevel = null;
         setHistoryTeam(s.team_id); // load this team's recent-parts list (namespaced)
         if (s.active_kitting_session_id) {
@@ -418,7 +416,6 @@
   <!-- ── RECEIVE ORDER ─────────────────────────────────────────────────────── -->
   {:else if current.screen === 'receive_order'}
     <ReceiveOrder
-      {token}
       {locations}
       {contextOrderId}
       {contextOrderRef}
@@ -430,7 +427,6 @@
   <!-- ── BAG SCAN ──────────────────────────────────────────────────────────── -->
   {:else if current.screen === 'bag_scan'}
     <BagScan
-      {token}
       onBack={goBack}
       onPartFound={handlePartFound}
       onPartImported={(part, qty) => goTo({
@@ -445,7 +441,6 @@
   <!-- ── LISTING PICKER ────────────────────────────────────────────────────── -->
   {:else if current.screen === 'listing_picker'}
     <ListingPicker
-      {token}
       context={current.context}
       onBack={goBack}
       onImportDone={(part, qty) => goReplace({
@@ -458,7 +453,6 @@
   <!-- ── FIND PART ─────────────────────────────────────────────────────────── -->
   {:else if current.screen === 'find_part'}
     <FindPart
-      {token}
       initialQuery={current.initialQuery}
       onBack={goBack}
       onSelectPart={(part) => goTo({ screen: 'part_detail', part })}
@@ -468,7 +462,6 @@
   <!-- ── PART DETAIL ───────────────────────────────────────────────────────── -->
   {:else if current.screen === 'part_detail'}
     <PartDetail
-      {token}
       {locations}
       part={current.part}
       initialAdjust={current.initialAdjust}
@@ -485,7 +478,6 @@
   <!-- ── STOCK ADJUSTMENT ──────────────────────────────────────────────────── -->
   {:else if current.screen === 'stock_adjustment'}
     <StockAdjustment
-      {token}
       part={current.part}
       mode={current.mode}
       initialValue={current.initialValue}
@@ -498,7 +490,6 @@
   <!-- ── LOCATION INVENTORY ────────────────────────────────────────────────── -->
   {:else if current.screen === 'location_inventory'}
     <LocationInventory
-      {token}
       {locations}
       locationId={current.locationId}
       coordinate={current.coordinate}
@@ -510,7 +501,6 @@
   <!-- ── STORAGE ASSIGNMENT ───────────────────────────────────────────────── -->
   {:else if current.screen === 'storage_assignment'}
     <StorageAssignment
-      {token}
       {locations}
       onBack={goBack}
       onExpired={handleExpired}
@@ -519,7 +509,6 @@
   <!-- ── BUILD KITTING ─────────────────────────────────────────────────────── -->
   {:else if current.screen === 'build_kitting'}
     <BuildKitting
-      {token}
       {locations}
       kittingSessionId={current.kittingSessionId}
       buildRef={current.buildRef}

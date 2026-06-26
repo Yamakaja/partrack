@@ -11,7 +11,6 @@
   import { pushToast } from '$lib/stores/toasts.svelte.js';
 
   let {
-    token,
     onBack,
     onPartFound,
     onPartImported,
@@ -19,7 +18,6 @@
     onLocationScanned,
     onExpired,
   }: {
-    token: string;
     onBack: () => void;
     onPartFound: (part: ScanPart, bagQty: number, newEntry: boolean) => void;
     onPartImported: (part: ScanPart, bagQty: number) => void;
@@ -84,7 +82,7 @@
   // ── On mount: check for existing bulk session to resume ───────────────────
 
   onMount(() => {
-    checkSession(token).then((s) => {
+    checkSession().then((s) => {
       if (!s.bulk_session) return;
       if (s.bulk_session.state === 'active') {
         // Auto-resume silently
@@ -117,7 +115,7 @@
   async function handleResumeDismiss() {
     showResumeDialog = false;
     if (resumeSessionId) {
-      closeBulkSession(token, resumeSessionId).catch(() => {});
+      closeBulkSession(resumeSessionId).catch(() => {});
     }
     resumeSessionId = null;
   }
@@ -126,7 +124,7 @@
 
   async function enableBulkMode() {
     try {
-      const res = await startBulkSession(token);
+      const res = await startBulkSession();
       bulkSessionId = res.session_id;
       bulkItemCount = res.item_count;
       bulkMode = true;
@@ -141,7 +139,7 @@
   async function disableBulkMode() {
     bulkMode = false;
     if (bulkSessionId) {
-      closeBulkSession(token, bulkSessionId).catch(() => {});
+      closeBulkSession(bulkSessionId).catch(() => {});
     }
     bulkSessionId = null;
     bulkItemCount = 0;
@@ -166,7 +164,7 @@
     qtyOverlayItemId = null;
     qtyOverlaySessionId = null;
     if (itemId && sid) {
-      patchBulkScanItem(token, sid, itemId, { initial_qty: qty }).catch(() => {});
+      patchBulkScanItem(sid, itemId, { initial_qty: qty }).catch(() => {});
     }
   }
 
@@ -184,7 +182,7 @@
   async function handleNavigateReview() {
     if (!bulkSessionId) return;
     try {
-      await navigateBulkSession(token, bulkSessionId);
+      await navigateBulkSession(bulkSessionId);
       pushToast('success', 'Desktop navigated to review');
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
@@ -211,7 +209,7 @@
     }
 
     try {
-      const res = await addBulkScanItem(token, bulkSessionId, raw);
+      const res = await addBulkScanItem(bulkSessionId, raw);
       if (res.new) {
         bulkItemCount++;
         pushToast('success', res.found_in_db ? 'Scanned' : 'Scanned — looking up part…');
@@ -232,7 +230,7 @@
     let cancelled = false;
     (async () => {
       try {
-        const data = await importScanPart(token, { distributor_id: parsedDistributorId, sku: parsedSKU, audit_log_id: auditLogId });
+        const data = await importScanPart({ distributor_id: parsedDistributorId, sku: parsedSKU, audit_log_id: auditLogId });
         if (cancelled) return;
         const part: ScanPart = {
           id: data.part_id,
@@ -289,7 +287,7 @@
     }
 
     try {
-      const data = await lookupBag(token, raw);
+      const data = await lookupBag(raw);
 
       if (data.status === 'found') {
         onPartFound(
