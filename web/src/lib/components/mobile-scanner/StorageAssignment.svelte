@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { createScanner } from './scanner.svelte.js';
   import CameraSelector from './CameraSelector.svelte';
   import type { PartLocation } from './types.js';
@@ -21,11 +22,17 @@
 
   interface Props {
     locations: StorageLocation[];
+    refreshLocations: () => Promise<void>;
     onBack: () => void;
     onExpired: () => void;
   }
 
-  let { locations, onBack, onExpired }: Props = $props();
+  let { locations, refreshLocations, onBack, onExpired }: Props = $props();
+
+  // Locations are fetched once at session pairing. Refresh on entry so a location
+  // created/edited on the desktop since pairing is pickable here (the scan path
+  // below additionally refreshes on a QR miss before giving up).
+  onMount(() => { void refreshLocations(); });
 
   // ── Camera ────────────────────────────────────────────────────────────────
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -215,7 +222,12 @@
 
     const loc = parseStorageLocationQR(raw);
     if (loc) {
-      const found = locations.find(l => l.id === loc.id);
+      let found = locations.find(l => l.id === loc.id);
+      if (!found) {
+        // Possibly a location created after we paired — refresh once, then retry.
+        await refreshLocations();
+        found = locations.find(l => l.id === loc.id);
+      }
       if (!found) { showToast('Location not found'); return; }
 
       const locationChanged = loc.id !== selectedLocationId;

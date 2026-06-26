@@ -222,6 +222,9 @@
     reconnectAttempts = 0;
     if (!phoneES || phoneES.readyState === EventSource.CLOSED) void openPhoneSSE();
     void pollSession();
+    // Pick up storage locations created/edited on the desktop while we were away
+    // (the phone fetches them once at pairing and the SSE doesn't carry them).
+    void fetchLocations();
   }
 
   // ── Polling ───────────────────────────────────────────────────────────────
@@ -502,6 +505,7 @@
   {:else if current.screen === 'storage_assignment'}
     <StorageAssignment
       {locations}
+      refreshLocations={fetchLocations}
       onBack={goBack}
       onExpired={handleExpired}
     />
