@@ -80,6 +80,7 @@
       confirmedStorageLocation = loc;
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not save location', 'Please try again.');
     } finally {
       assigningLocation = false;
     }
@@ -176,9 +177,32 @@
   }
 
   async function skip() {
-    skipItem().catch(() => {});
-    confirmData = null;
-    screen = 'scanning';
+    if (submitting) return;
+    submitting = true;
+    try {
+      await skipItem();
+      confirmData = null;
+      screen = 'scanning';
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not skip', 'Please try again.');
+    } finally {
+      submitting = false;
+    }
+  }
+
+  // Jump the desktop to this order; surface a clear message when it isn't connected.
+  async function openOnDesktop() {
+    try {
+      await scanFocus('order', currentOrderId);
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      if (e instanceof ScanRequestError && e.status === 409) {
+        pushToast('info', 'Desktop not connected', 'Open partrack on your computer to jump there.');
+        return;
+      }
+      pushToast('error', "Couldn't open on desktop", 'Please try again.');
+    }
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -198,7 +222,7 @@
       <p class="font-medium flex-1">Select Order</p>
       {#if currentOrderId}
         <button
-          onclick={() => scanFocus('order', currentOrderId).catch(() => {})}
+          onclick={openOnDesktop}
           class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
         >
           Open ↗
@@ -332,7 +356,8 @@
         </button>
         <button
           onclick={skip}
-          class="flex-1 rounded-lg border border-zinc-700 py-3 text-base font-semibold text-zinc-300 active:bg-zinc-800"
+          disabled={submitting}
+          class="flex-1 rounded-lg border border-zinc-700 py-3 text-base font-semibold text-zinc-300 active:bg-zinc-800 disabled:opacity-50"
         >
           Skip
         </button>

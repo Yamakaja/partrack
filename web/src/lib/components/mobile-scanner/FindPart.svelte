@@ -20,6 +20,7 @@
   let partSearchQ = $state(untrack(() => initialQuery));
   let partResults = $state<ScanPart[]>([]);
   let partSearchLoading = $state(false);
+  let searchError = $state(false);
   let partSearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -27,14 +28,16 @@
   function doSearch(q: string) {
     if (partSearchDebounce) clearTimeout(partSearchDebounce);
     partSearchDebounce = setTimeout(async () => {
-      if (!q.trim()) { partResults = []; return; }
+      if (!q.trim()) { partResults = []; searchError = false; return; }
       partSearchLoading = true;
+      searchError = false;
       try {
         const data = await searchParts(q);
         partResults = data.parts;
       } catch (e) {
         if (e instanceof ScanExpiredError) { onExpired(); return; }
         partResults = [];
+        searchError = true;
       } finally {
         partSearchLoading = false;
       }
@@ -70,7 +73,9 @@
   </div>
 
   <div class="flex-1 overflow-y-auto divide-y divide-zinc-800">
-    {#if partResults.length === 0 && partSearchQ.trim()}
+    {#if searchError}
+      <div class="py-12 text-center text-red-400 text-sm">Search failed — try again</div>
+    {:else if partResults.length === 0 && partSearchQ.trim()}
       <div class="py-12 text-center text-zinc-400 text-sm">No parts found</div>
     {:else}
       {#each partResults as part}

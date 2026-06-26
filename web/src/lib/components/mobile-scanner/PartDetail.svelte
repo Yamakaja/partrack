@@ -3,7 +3,8 @@
   import type { ScanPart, PartLocation } from './types.js';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import { recordVisit } from '$lib/stores/scannerHistory.svelte.js';
-  import { getPartDetail, patchInventoryEntry, scanFocus, ScanExpiredError } from '$lib/api/scanner.js';
+  import { getPartDetail, patchInventoryEntry, scanFocus, ScanExpiredError, ScanRequestError } from '$lib/api/scanner.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { fullLocationLabel } from './locationUtils.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import MobileLocationPicker from './MobileLocationPicker.svelte';
@@ -91,6 +92,7 @@
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', "Couldn't load part details", 'Please try again.');
     } finally {
       loading = false;
     }
@@ -105,8 +107,23 @@
       if (detail) detail = { ...detail, storage_location: loc };
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not save location', 'Please try again.');
     } finally {
       assigningLocation = false;
+    }
+  }
+
+  // Jump the desktop to this part; surface a clear message when it isn't connected.
+  async function openOnDesktop() {
+    try {
+      await scanFocus('part', part.id);
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      if (e instanceof ScanRequestError && e.status === 409) {
+        pushToast('info', 'Desktop not connected', 'Open partrack on your computer to jump there.');
+        return;
+      }
+      pushToast('error', "Couldn't open on desktop", 'Please try again.');
     }
   }
 
@@ -148,7 +165,7 @@
     </button>
     <p class="font-medium flex-1">Part Details</p>
     <button
-      onclick={() => scanFocus('part', part.id).catch(() => {})}
+      onclick={openOnDesktop}
       class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
       aria-label="Open on Desktop"
     >

@@ -83,6 +83,7 @@
       activeItemId = null;
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not confirm', 'Please try again.');
     } finally {
       submitting = false;
     }
@@ -105,6 +106,7 @@
       shortfallInput = '';
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not record shortfall', 'Please try again.');
     } finally {
       submitting = false;
     }
@@ -133,6 +135,7 @@
       onBack();
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not abandon kitting', 'Please try again.');
     } finally {
       submitting = false;
     }

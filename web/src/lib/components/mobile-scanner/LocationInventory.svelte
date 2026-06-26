@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import type { StorageLocation } from '$lib/types/inventory.js';
   import type { ScanPart } from './types.js';
-  import { listScanStorageInventory, scanFocus, ScanExpiredError, type StorageInventoryEntry } from '$lib/api/scanner.js';
+  import { listScanStorageInventory, scanFocus, ScanExpiredError, ScanRequestError, type StorageInventoryEntry } from '$lib/api/scanner.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
   import MobileGridVisualiser from './MobileGridVisualiser.svelte';
 
   interface Props {
@@ -18,6 +19,7 @@
 
   let entries = $state<StorageInventoryEntry[]>([]);
   let loading = $state(true);
+  let loadError = $state(false);
   let searchQuery = $state('');
 
   // ── Location path ─────────────────────────────────────────────────────────
@@ -113,10 +115,25 @@
       entries = await listScanStorageInventory(locationId);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      loadError = true;
     } finally {
       loading = false;
     }
   });
+
+  // Jump the desktop to this location; surface a clear message when it isn't connected.
+  async function openOnDesktop() {
+    try {
+      await scanFocus('storage', locationId);
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      if (e instanceof ScanRequestError && e.status === 409) {
+        pushToast('info', 'Desktop not connected', 'Open partrack on your computer to jump there.');
+        return;
+      }
+      pushToast('error', "Couldn't open on desktop", 'Please try again.');
+    }
+  }
 
   function selectEntry(entry: StorageInventoryEntry) {
     const part: ScanPart = {
@@ -146,7 +163,7 @@
       {/if}
     </div>
     <button
-      onclick={() => scanFocus('storage', locationId).catch(() => {})}
+      onclick={openOnDesktop}
       class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
     >
       Open ↗
@@ -180,6 +197,14 @@
     {#if loading}
       <div class="flex flex-1 items-center justify-center py-16">
         <div class="h-6 w-6 animate-spin rounded-full border-2 border-zinc-600 border-t-white"></div>
+      </div>
+    {:else if loadError}
+      <div class="flex flex-col items-center justify-center py-16 px-8 text-center gap-2">
+        <svg class="h-8 w-8 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+        </svg>
+        <p class="text-sm text-red-400">Couldn't load this location's inventory</p>
       </div>
     {:else if filteredEntries.length === 0}
       <div class="flex flex-col items-center justify-center py-16 px-8 text-center gap-2">

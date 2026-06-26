@@ -290,6 +290,7 @@
       await doAssign(conflict.inventoryEntryId, conflict.newLocation, conflict.mpn, conflict.newLocation.coordinate);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      showToast('Could not move — try again');
     } finally {
       conflict = null;
     }
