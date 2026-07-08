@@ -42,6 +42,25 @@ func numericString(n pgtype.Numeric) *string {
 	return &result
 }
 
+// numericLess reports whether a < b. An invalid (NULL) value sorts after a
+// valid one, so numericLess(NULL, valid) is false and numericLess(valid, NULL)
+// is true — a valid price is always preferred over a missing one.
+func numericLess(a, b pgtype.Numeric) bool {
+	as, bs := numericString(a), numericString(b)
+	if as == nil {
+		return false
+	}
+	if bs == nil {
+		return true
+	}
+	af, _ := new(big.Float).SetString(*as)
+	bf, _ := new(big.Float).SetString(*bs)
+	if af == nil || bf == nil {
+		return false
+	}
+	return af.Cmp(bf) < 0
+}
+
 // timestamptzString formats a pgtype.Timestamptz as an RFC3339 string.
 // Returns nil when the value is not valid (NULL).
 func timestamptzString(t pgtype.Timestamptz) *string {

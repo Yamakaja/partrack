@@ -828,6 +828,29 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Collapse items that resolved to the same listing into one line item.
+	// order_line_items has a UNIQUE(order_id, listing_id) constraint, and two cart
+	// items for the same part (e.g. a BOM shortfall plus a manual companion) can
+	// resolve to the same listing — summing their quantities keeps the demand while
+	// keeping the cheaper price snapshot for the combined order.
+	{
+		byListing := make(map[string]int, len(effectiveItems))
+		merged := make([]effectiveItem, 0, len(effectiveItems))
+		for _, ei := range effectiveItems {
+			key := ei.listingID.String()
+			if idx, ok := byListing[key]; ok {
+				merged[idx].quantity += ei.quantity
+				if numericLess(ei.unitPrice, merged[idx].unitPrice) {
+					merged[idx].unitPrice = ei.unitPrice
+				}
+				continue
+			}
+			byListing[key] = len(merged)
+			merged = append(merged, ei)
+		}
+		effectiveItems = merged
+	}
+
 	// Sort by distributor ID to enable grouping.
 	sort.Slice(effectiveItems, func(i, j int) bool {
 		return effectiveItems[i].distributorID.String() < effectiveItems[j].distributorID.String()
@@ -872,7 +895,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 			CreatedBy:     userID,
 		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			serverError(w, r, err)
 			return
 		}
 		co := createdOrder{id: order.ID, distributorID: g.distributorID, partQty: make(map[string]int32)}
@@ -885,7 +908,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 				FixedOrderCostSnapshot: ei.fixedOrderCost,
 			})
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+				serverError(w, r, err)
 				return
 			}
 			co.partQty[ei.partID.String()] += ei.quantity

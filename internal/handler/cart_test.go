@@ -211,6 +211,63 @@ func TestConvertCart(t *testing.T) {
 	}
 }
 
+// TestConvertCart_DuplicateListingAcrossItems reproduces the case where two cart
+// items for the same part (different sources, so they don't merge) resolve to the
+// same listing. They must be collapsed into a single order line item — previously
+// the second insert violated UNIQUE(order_id, listing_id) and returned a 500.
+func TestConvertCart_DuplicateListingAcrossItems(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "cart-dup@example.com", "pw", "Cart")
+	teamID := testutil.CreateTeam(t, testDB, userID, "purchaser", "Cart Team")
+	partID := testutil.CreatePart(t, testDB, "global", "CART-DUP-01", nil)
+	distID := testutil.GetTestDistributorID(t, testDB)
+	testutil.EnableDistributor(t, testDB, teamID, distID)
+	testutil.CreateListing(t, testDB, partID, distID, "CART-DUP-SKU-01")
+	token := testutil.CreateSession(t, testDB, userID)
+
+	ctx := context.Background()
+	var cartID string
+	if err := testDB.QueryRow(ctx,
+		`INSERT INTO shopping_carts (team_id) VALUES ($1) RETURNING id`, teamID).Scan(&cartID); err != nil {
+		t.Fatalf("create cart: %v", err)
+	}
+	for _, it := range []struct {
+		qty    int32
+		source string
+	}{{5, "manual"}, {3, "bom_shortfall"}} {
+		if _, err := testDB.Exec(ctx,
+			`INSERT INTO cart_line_items (shopping_cart_id, part_id, quantity, listing_id, source)
+			 VALUES ($1, $2, $3, NULL, $4)`, cartID, partID, it.qty, it.source); err != nil {
+			t.Fatalf("insert cart item (%s): %v", it.source, err)
+		}
+	}
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/cart/convert", teamID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %v", status, body)
+	}
+	orderIDs, _ := body["order_ids"].([]any)
+	if len(orderIDs) != 1 {
+		t.Fatalf("expected 1 order, got %d: %v", len(orderIDs), body)
+	}
+
+	// Exactly one line item for the listing, with the two demands summed (5 + 3).
+	var lineCount, totalQty int
+	if err := testDB.QueryRow(ctx,
+		`SELECT count(*), coalesce(sum(quantity_ordered), 0)
+		 FROM order_line_items WHERE order_id = $1`, orderIDs[0].(string)).Scan(&lineCount, &totalQty); err != nil {
+		t.Fatalf("query line items: %v", err)
+	}
+	if lineCount != 1 {
+		t.Errorf("expected 1 merged line item, got %d", lineCount)
+	}
+	if totalQty != 8 {
+		t.Errorf("expected summed quantity 8, got %d", totalQty)
+	}
+}
+
 // TestBuildDrivenShortfall tests that submitting a build for fulfillment drives
 // cart bom_shortfall items (replaces the old add-shortfall endpoint).
 func TestBuildDrivenShortfall(t *testing.T) {
