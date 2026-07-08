@@ -371,7 +371,9 @@ SELECT
     dl.packaging_type,
     dl.stock_available,
     dl.last_refreshed_at,
-    dc.preferred
+    dc.preferred,
+    dc.priority,
+    dc.cache_duration_seconds
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
 JOIN distributor_configs dc
@@ -379,7 +381,7 @@ JOIN distributor_configs dc
     AND dc.team_id = $1
     AND dc.enabled = TRUE
 WHERE dl.part_id = ANY($2::uuid[])
-ORDER BY dl.part_id, dc.preferred DESC, d.name
+ORDER BY dl.part_id, dc.priority ASC NULLS LAST, dc.preferred DESC, d.name
 `
 
 type GetListingsForCartResolutionParams struct {
@@ -388,19 +390,21 @@ type GetListingsForCartResolutionParams struct {
 }
 
 type GetListingsForCartResolutionRow struct {
-	ListingID       pgtype.UUID        `json:"listing_id"`
-	PartID          pgtype.UUID        `json:"part_id"`
-	DistributorID   pgtype.UUID        `json:"distributor_id"`
-	DistributorName string             `json:"distributor_name"`
-	Sku             string             `json:"sku"`
-	UnitPrice       pgtype.Numeric     `json:"unit_price"`
-	FixedOrderCost  pgtype.Numeric     `json:"fixed_order_cost"`
-	Moq             int32              `json:"moq"`
-	PriceBreaks     []byte             `json:"price_breaks"`
-	PackagingType   string             `json:"packaging_type"`
-	StockAvailable  *int32             `json:"stock_available"`
-	LastRefreshedAt pgtype.Timestamptz `json:"last_refreshed_at"`
-	Preferred       bool               `json:"preferred"`
+	ListingID            pgtype.UUID        `json:"listing_id"`
+	PartID               pgtype.UUID        `json:"part_id"`
+	DistributorID        pgtype.UUID        `json:"distributor_id"`
+	DistributorName      string             `json:"distributor_name"`
+	Sku                  string             `json:"sku"`
+	UnitPrice            pgtype.Numeric     `json:"unit_price"`
+	FixedOrderCost       pgtype.Numeric     `json:"fixed_order_cost"`
+	Moq                  int32              `json:"moq"`
+	PriceBreaks          []byte             `json:"price_breaks"`
+	PackagingType        string             `json:"packaging_type"`
+	StockAvailable       *int32             `json:"stock_available"`
+	LastRefreshedAt      pgtype.Timestamptz `json:"last_refreshed_at"`
+	Preferred            bool               `json:"preferred"`
+	Priority             *int32             `json:"priority"`
+	CacheDurationSeconds int32              `json:"cache_duration_seconds"`
 }
 
 func (q *Queries) GetListingsForCartResolution(ctx context.Context, arg GetListingsForCartResolutionParams) ([]GetListingsForCartResolutionRow, error) {
@@ -426,6 +430,8 @@ func (q *Queries) GetListingsForCartResolution(ctx context.Context, arg GetListi
 			&i.StockAvailable,
 			&i.LastRefreshedAt,
 			&i.Preferred,
+			&i.Priority,
+			&i.CacheDurationSeconds,
 		); err != nil {
 			return nil, err
 		}

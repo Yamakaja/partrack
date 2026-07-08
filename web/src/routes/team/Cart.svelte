@@ -10,8 +10,9 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { RefreshCw, ArrowRight } from 'lucide-svelte';
+  import { RefreshCw, ArrowRight, SlidersHorizontal } from 'lucide-svelte';
   import CartPendingBuildsTable from '$lib/components/cart/CartPendingBuildsTable.svelte';
+  import SourcingPolicyDialog from '$lib/components/cart/SourcingPolicyDialog.svelte';
   import CartManualRequestsTable from '$lib/components/cart/CartManualRequestsTable.svelte';
   import CartOrderSummaryTable from '$lib/components/cart/CartOrderSummaryTable.svelte';
   import CartOrderDetailsSection from '$lib/components/cart/CartOrderDetailsSection.svelte';
@@ -37,6 +38,7 @@
   let addingLowStock = $state(false);
   let converting = $state(false);
   let refreshingListings = $state(false);
+  let sourcingPolicyOpen = $state(false);
 
   async function handleAddLowStock() {
     addingLowStock = true;
@@ -210,6 +212,15 @@
       <Button
         variant="outline"
         size="sm"
+        onclick={() => (sourcingPolicyOpen = true)}
+        title="Configure how cart items are matched to a distributor"
+      >
+        <SlidersHorizontal class="h-4 w-4 mr-1" />
+        Sourcing Policy
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
         onclick={handleAddLowStock}
         disabled={addingLowStock}
       >
@@ -291,3 +302,5 @@
     {/if}
   </div>
 </div>
+
+<SourcingPolicyDialog {teamId} bind:open={sourcingPolicyOpen} />

@@ -635,6 +635,7 @@ type DistributorConfig struct {
 	Preferred            bool        `json:"preferred"`
 	CacheDurationSeconds int32       `json:"cache_duration_seconds"`
 	ApiCredentials       []byte      `json:"api_credentials"`
+	Priority             *int32      `json:"priority"`
 }
 
 type DistributorListing struct {
@@ -932,6 +933,15 @@ type TeamMembership struct {
 	Role             TeamRole           `json:"role"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	DirectoryManaged bool               `json:"directory_managed"`
+}
+
+type TeamSourcingSetting struct {
+	TeamID           pgtype.UUID        `json:"team_id"`
+	Strategy         string             `json:"strategy"`
+	CostTolerancePct pgtype.Numeric     `json:"cost_tolerance_pct"`
+	CostToleranceAbs pgtype.Numeric     `json:"cost_tolerance_abs"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 type User struct {

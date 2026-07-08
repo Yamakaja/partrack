@@ -17,13 +17,14 @@ SELECT
     d.api_type,
     dc.enabled,
     dc.preferred,
+    dc.priority,
     dc.cache_duration_seconds,
     (dc.api_credentials IS NOT NULL) AS has_credentials,
     dc.api_credentials
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1
-ORDER BY d.name;
+ORDER BY dc.priority ASC NULLS LAST, d.name;
 
 -- name: GetDistributorConfigRaw :one
 -- Returns api_type and raw credentials for a team+distributor config.
@@ -89,6 +90,35 @@ SELECT d.api_type, dc.api_credentials
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1 AND dc.distributor_id = $2 AND dc.enabled = TRUE;
+
+-- name: GetTeamSourcingSettings :one
+-- Returns the team's sourcing strategy row, if one exists.
+SELECT team_id, strategy, cost_tolerance_pct, cost_tolerance_abs, created_at, updated_at
+FROM team_sourcing_settings
+WHERE team_id = $1;
+
+-- name: UpsertTeamSourcingSettings :one
+INSERT INTO team_sourcing_settings (team_id, strategy, cost_tolerance_pct, cost_tolerance_abs)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (team_id) DO UPDATE
+SET strategy           = EXCLUDED.strategy,
+    cost_tolerance_pct = EXCLUDED.cost_tolerance_pct,
+    cost_tolerance_abs = EXCLUDED.cost_tolerance_abs,
+    updated_at         = now()
+RETURNING team_id, strategy, cost_tolerance_pct, cost_tolerance_abs, created_at, updated_at;
+
+-- name: ClearTeamDistributorPriorities :exec
+-- Resets the ranked preference for a team. Call before applying a new ordering.
+UPDATE distributor_configs
+SET priority = NULL, preferred = FALSE
+WHERE team_id = $1 AND (priority IS NOT NULL OR preferred = TRUE);
+
+-- name: SetDistributorPriority :exec
+-- Sets one distributor's rank. `preferred` is kept in sync (rank 1 = the legacy
+-- preferred distributor) so enrichment ordering and existing readers stay coherent.
+UPDATE distributor_configs
+SET priority = @priority, preferred = (@priority::int = 1)
+WHERE team_id = @team_id AND distributor_id = @distributor_id;
 
 -- name: GetListingBySKUAndDistributorName :one
 SELECT dl.id, dl.part_id

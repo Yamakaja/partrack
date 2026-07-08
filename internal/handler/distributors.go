@@ -106,6 +106,7 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 		DistributorName      string                       `json:"distributor_name"`
 		Enabled              bool                         `json:"enabled"`
 		Preferred            bool                         `json:"preferred"`
+		Priority             *int32                       `json:"priority"`
 		CacheDurationSeconds int32                        `json:"cache_duration_seconds"`
 		HasCredentials       bool                         `json:"has_credentials"`
 		ApiCredentials       map[string]any               `json:"api_credentials,omitempty"`
@@ -119,6 +120,7 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 			DistributorName:      c.DistributorName,
 			Enabled:              c.Enabled,
 			Preferred:            c.Preferred,
+			Priority:             c.Priority,
 			CacheDurationSeconds: c.CacheDurationSeconds,
 			HasCredentials:       hasCreds,
 		}

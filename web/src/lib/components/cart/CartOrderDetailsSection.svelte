@@ -9,6 +9,7 @@
   import { ChevronDown, ChevronRight, SquareArrowOutUpRight, Trash2 } from 'lucide-svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import CartItemDetail from '$lib/components/cart/CartItemDetail.svelte';
+  import CartListingReasonBadge from '$lib/components/cart/CartListingReasonBadge.svelte';
   import {
     effectiveOrderQty, effectiveUnitPriceStr,
     calcSubtotal, itemSku, itemMoq, totalBuildDemand,
@@ -157,7 +158,12 @@
               </span>
             </TableCell>
             <TableCell class="text-muted-foreground text-sm">
-              {itemSku(item) ?? '—'}
+              <div class="flex items-center gap-1.5">
+                <span>{itemSku(item) ?? '—'}</span>
+                {#if !item.listing?.chosen}
+                  <CartListingReasonBadge listing={item.listing} />
+                {/if}
+              </div>
             </TableCell>
             <TableCell>
               <div class="flex flex-col gap-0.5">

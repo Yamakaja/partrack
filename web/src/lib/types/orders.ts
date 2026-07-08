@@ -30,6 +30,10 @@ export interface CartListing {
   last_refreshed_at: string | null;
   optimized_qty: number;
   chosen: boolean;
+  /** Why this listing was auto-selected under the sourcing policy (absent when user-chosen). */
+  reason?: string;
+  /** Preference honoured on missing/stale stock data — surface a warning. */
+  preferred_stale?: boolean;
 }
 
 export interface BuildDemand {

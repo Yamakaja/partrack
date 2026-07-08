@@ -33,6 +33,10 @@ type cartListingJSON struct {
 	LastRefreshedAt *string         `json:"last_refreshed_at"`
 	OptimizedQty    int32           `json:"optimized_qty"`
 	Chosen          bool            `json:"chosen"`
+	// Reason explains an auto-resolved selection under the sourcing policy (empty when
+	// the user chose the listing). PreferredStale flags a preference honoured on stale stock.
+	Reason         string `json:"reason,omitempty"`
+	PreferredStale bool   `json:"preferred_stale,omitempty"`
 }
 
 // publishCartChanged notifies other team members that the cart has been modified.
@@ -358,6 +362,8 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 					LastRefreshedAt: timestamptzString(rl.LastRefreshedAt),
 					OptimizedQty:    rl.OptimizedQty,
 					Chosen:          false,
+					Reason:          rl.Reason,
+					PreferredStale:  rl.PreferredStale,
 				}
 			} else {
 				m["listing"] = nil

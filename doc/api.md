@@ -152,7 +152,7 @@ Higher roles inherit all permissions of lower roles.
 | PATCH | `/members/{userId}` | admin | `{role}`; a manual change pins the membership (`directory_managed=false`), preserving it against LDAP sync |
 | DELETE | `/members/{userId}` | admin | Remove member |
 | POST | `/members/{userId}/deactivate` | admin | Globally deactivate user; clears all sessions/tokens |
-| GET | `/distributor-configs` | admin | List configs (secret credential values omitted; includes `rate_limit` if available) |
+| GET | `/distributor-configs` | admin | List configs (secret credential values omitted; includes `priority` (sourcing rank, null if unranked) and `rate_limit` if available) |
 | PUT | `/distributor-configs/{distributorId}` | admin | `{enabled, preferred, cache_duration_seconds, api_credentials?}`. Setting `preferred` clears other distributors' preferred flag and deletes their OAuth tokens. Credentials are merged (blank secret fields preserve existing values). |
 | DELETE | `/distributor-configs/{distributorId}` | admin | Delete config + OAuth tokens; 204 |
 
@@ -312,6 +312,10 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 | POST | `/cart/add-low-stock` | purchaser | Add items to reach reorder levels → `{added_count}` |
 | POST | `/cart/refresh-listings` | purchaser | Enqueue refresh for all cart listings → 202 `{job_id, listing_count}` (or 204 if nothing to refresh). Progress streams over SSE: per-listing `listing_refresh_done` then a terminal `listing_refresh_complete` `{total, done, unavailable, failed}`. |
 | POST | `/cart/convert` | purchaser | Convert to orders grouped by distributor; links pending builds, creates allocations, transitions pending→ordered/ready. Returns 422 if cart empty or items missing listings. → `{order_ids}` |
+| GET | `/sourcing-policy` | purchaser | Team sourcing policy → `{strategy, cost_tolerance_pct, cost_tolerance_abs, distributors: [{distributor_id, distributor_name, enabled, priority}]}` |
+| PUT | `/sourcing-policy` | purchaser | Replace policy. Body: `{strategy: "cost"\|"preferred_in_stock", cost_tolerance_pct?, cost_tolerance_abs?, distributor_priority: [distributorId,...]}`. `distributor_priority` is the ordered ranking (index+1 = priority); rank 1 also syncs the legacy `preferred` flag. Invalidates cached cart resolution. → same shape as GET |
+
+**Listing auto-resolution.** Cart items with no explicit `listing_id` are resolved to a listing on read/convert. Under `cost` (default) the cheapest total-cost listing wins. Under `preferred_in_stock` the highest-ranked distributor that has the quantity in stock wins, falling through the ranking when a distributor is out of stock and finally to cheapest when none qualify; an optional cost guardrail (`cost_tolerance_pct`/`abs`) vetoes an over-expensive preferred pick. The resolved `listing` object carries `reason` (`cost`/`only_option`/`preferred`/`preferred_fallback`/`out_of_stock_fallback`/`over_tolerance`) and `preferred_stale` (preference honoured on missing/stale stock data).
 
 ### Orders
 

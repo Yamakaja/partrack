@@ -369,6 +369,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/cart/refresh-listings", h.RefreshCartListings)
 					r.Post("/cart/convert", h.ConvertCart)
 
+					// Distributor sourcing policy (ranked preference + fallback)
+					r.Get("/sourcing-policy", h.GetSourcingPolicy)
+					r.Put("/sourcing-policy", h.UpdateSourcingPolicy)
+
 					// Build cart-inclusion toggle (purchaser+)
 					r.Patch("/builds/{buildId}/cart-inclusion", h.ToggleBuildCartInclusion)
 

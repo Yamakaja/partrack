@@ -187,7 +187,9 @@ SELECT
     dl.packaging_type,
     dl.stock_available,
     dl.last_refreshed_at,
-    dc.preferred
+    dc.preferred,
+    dc.priority,
+    dc.cache_duration_seconds
 FROM distributor_listings dl
 JOIN distributors d ON d.id = dl.distributor_id
 JOIN distributor_configs dc
@@ -195,4 +197,4 @@ JOIN distributor_configs dc
     AND dc.team_id = @team_id
     AND dc.enabled = TRUE
 WHERE dl.part_id = ANY(@part_ids::uuid[])
-ORDER BY dl.part_id, dc.preferred DESC, d.name;
+ORDER BY dl.part_id, dc.priority ASC NULLS LAST, dc.preferred DESC, d.name;

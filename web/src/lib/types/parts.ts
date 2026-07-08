@@ -155,6 +155,7 @@ export interface DistributorConfig {
   distributor_name: string;
   enabled: boolean;
   preferred: boolean;
+  priority: number | null;
   cache_duration_seconds: number;
   has_credentials: boolean;
   api_credentials?: Record<string, unknown> | null;

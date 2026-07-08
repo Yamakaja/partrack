@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearTeamDistributorPriorities = `-- name: ClearTeamDistributorPriorities :exec
+UPDATE distributor_configs
+SET priority = NULL, preferred = FALSE
+WHERE team_id = $1 AND (priority IS NOT NULL OR preferred = TRUE)
+`
+
+// Resets the ranked preference for a team. Call before applying a new ordering.
+func (q *Queries) ClearTeamDistributorPriorities(ctx context.Context, teamID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearTeamDistributorPriorities, teamID)
+	return err
+}
+
 const clearTeamPreferredDistributor = `-- name: ClearTeamPreferredDistributor :exec
 UPDATE distributor_configs
 SET preferred = FALSE
@@ -173,6 +185,27 @@ func (q *Queries) GetListingBySKUAndDistributorName(ctx context.Context, arg Get
 	return i, err
 }
 
+const getTeamSourcingSettings = `-- name: GetTeamSourcingSettings :one
+SELECT team_id, strategy, cost_tolerance_pct, cost_tolerance_abs, created_at, updated_at
+FROM team_sourcing_settings
+WHERE team_id = $1
+`
+
+// Returns the team's sourcing strategy row, if one exists.
+func (q *Queries) GetTeamSourcingSettings(ctx context.Context, teamID pgtype.UUID) (TeamSourcingSetting, error) {
+	row := q.db.QueryRow(ctx, getTeamSourcingSettings, teamID)
+	var i TeamSourcingSetting
+	err := row.Scan(
+		&i.TeamID,
+		&i.Strategy,
+		&i.CostTolerancePct,
+		&i.CostToleranceAbs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listDistributorConfigs = `-- name: ListDistributorConfigs :many
 SELECT
     dc.id,
@@ -181,13 +214,14 @@ SELECT
     d.api_type,
     dc.enabled,
     dc.preferred,
+    dc.priority,
     dc.cache_duration_seconds,
     (dc.api_credentials IS NOT NULL) AS has_credentials,
     dc.api_credentials
 FROM distributor_configs dc
 JOIN distributors d ON d.id = dc.distributor_id
 WHERE dc.team_id = $1
-ORDER BY d.name
+ORDER BY dc.priority ASC NULLS LAST, d.name
 `
 
 type ListDistributorConfigsRow struct {
@@ -197,6 +231,7 @@ type ListDistributorConfigsRow struct {
 	ApiType              *string     `json:"api_type"`
 	Enabled              bool        `json:"enabled"`
 	Preferred            bool        `json:"preferred"`
+	Priority             *int32      `json:"priority"`
 	CacheDurationSeconds int32       `json:"cache_duration_seconds"`
 	HasCredentials       interface{} `json:"has_credentials"`
 	ApiCredentials       []byte      `json:"api_credentials"`
@@ -218,6 +253,7 @@ func (q *Queries) ListDistributorConfigs(ctx context.Context, teamID pgtype.UUID
 			&i.ApiType,
 			&i.Enabled,
 			&i.Preferred,
+			&i.Priority,
 			&i.CacheDurationSeconds,
 			&i.HasCredentials,
 			&i.ApiCredentials,
@@ -313,6 +349,25 @@ func (q *Queries) ListEnabledDistributorConfigsForTeam(ctx context.Context, team
 		return nil, err
 	}
 	return items, nil
+}
+
+const setDistributorPriority = `-- name: SetDistributorPriority :exec
+UPDATE distributor_configs
+SET priority = $1, preferred = ($1::int = 1)
+WHERE team_id = $2 AND distributor_id = $3
+`
+
+type SetDistributorPriorityParams struct {
+	Priority      *int32      `json:"priority"`
+	TeamID        pgtype.UUID `json:"team_id"`
+	DistributorID pgtype.UUID `json:"distributor_id"`
+}
+
+// Sets one distributor's rank. `preferred` is kept in sync (rank 1 = the legacy
+// preferred distributor) so enrichment ordering and existing readers stay coherent.
+func (q *Queries) SetDistributorPriority(ctx context.Context, arg SetDistributorPriorityParams) error {
+	_, err := q.db.Exec(ctx, setDistributorPriority, arg.Priority, arg.TeamID, arg.DistributorID)
+	return err
 }
 
 const upsertDistributorConfig = `-- name: UpsertDistributorConfig :one
@@ -416,6 +471,43 @@ func (q *Queries) UpsertDistributorConfigKeepCredentials(ctx context.Context, ar
 		&i.Preferred,
 		&i.CacheDurationSeconds,
 		&i.HasCredentials,
+	)
+	return i, err
+}
+
+const upsertTeamSourcingSettings = `-- name: UpsertTeamSourcingSettings :one
+INSERT INTO team_sourcing_settings (team_id, strategy, cost_tolerance_pct, cost_tolerance_abs)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (team_id) DO UPDATE
+SET strategy           = EXCLUDED.strategy,
+    cost_tolerance_pct = EXCLUDED.cost_tolerance_pct,
+    cost_tolerance_abs = EXCLUDED.cost_tolerance_abs,
+    updated_at         = now()
+RETURNING team_id, strategy, cost_tolerance_pct, cost_tolerance_abs, created_at, updated_at
+`
+
+type UpsertTeamSourcingSettingsParams struct {
+	TeamID           pgtype.UUID    `json:"team_id"`
+	Strategy         string         `json:"strategy"`
+	CostTolerancePct pgtype.Numeric `json:"cost_tolerance_pct"`
+	CostToleranceAbs pgtype.Numeric `json:"cost_tolerance_abs"`
+}
+
+func (q *Queries) UpsertTeamSourcingSettings(ctx context.Context, arg UpsertTeamSourcingSettingsParams) (TeamSourcingSetting, error) {
+	row := q.db.QueryRow(ctx, upsertTeamSourcingSettings,
+		arg.TeamID,
+		arg.Strategy,
+		arg.CostTolerancePct,
+		arg.CostToleranceAbs,
+	)
+	var i TeamSourcingSetting
+	err := row.Scan(
+		&i.TeamID,
+		&i.Strategy,
+		&i.CostTolerancePct,
+		&i.CostToleranceAbs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
