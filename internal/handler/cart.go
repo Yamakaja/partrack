@@ -304,7 +304,7 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 
 	resolution, err := h.CartResolver.Resolve(r.Context(), teamID.String(), rows, h.Queries)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		serverError(w, r, err)
 		return
 	}
 
@@ -763,7 +763,7 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	// Fetch items in the format needed by the resolver.
 	allItems, err := h.Queries.GetCartItems(r.Context(), teamID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		serverError(w, r, err)
 		return
 	}
 	if len(allItems) == 0 {
@@ -774,14 +774,14 @@ func (h *Handler) ConvertCart(w http.ResponseWriter, r *http.Request) {
 	// Auto-resolve listings for items that lack an explicit listing_id.
 	resolution, err := h.CartResolver.Resolve(r.Context(), teamID.String(), allItems, h.Queries)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		serverError(w, r, err)
 		return
 	}
 
 	// Fetch convert-optimised rows (includes distributor_id and pricing for explicitly-set listings).
 	cartItems, err := h.Queries.GetCartItemsForConvert(r.Context(), teamID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		serverError(w, r, err)
 		return
 	}
 

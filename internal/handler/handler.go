@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
@@ -185,13 +187,41 @@ func (h *Handler) canonicalManufacturer(name string) string {
 }
 
 // writeError writes a JSON error response. For 5xx statuses it logs the
-// message and a stack trace to help with debugging.
+// message and a stack trace to help with debugging. When a concrete error
+// value is available, prefer serverError so the underlying cause is logged too.
 func writeError(w http.ResponseWriter, status int, message, code string) {
+	if status >= 500 {
+		slog.Error("request failed",
+			"code", code,
+			"message", message,
+			"stack", string(debug.Stack()),
+		)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
 		"error": message,
 		"code":  code,
+	})
+}
+
+// serverError logs the underlying cause of an internal failure (with request
+// context and a stack trace) and returns a generic 500 to the client. Use this
+// at any handler site where a real error value is in scope, instead of
+// writeError(w, http.StatusInternalServerError, ...), so the cause is captured
+// in the server logs rather than silently discarded.
+func serverError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Error("internal server error",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"err", err,
+		"stack", string(debug.Stack()),
+	)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusInternalServerError)
+	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+		"error": "internal error",
+		"code":  "INTERNAL_ERROR",
 	})
 }
 
