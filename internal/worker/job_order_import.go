@@ -106,16 +106,26 @@ func (q *Queue) handleOrderImport(job Job) {
 	publishProgress("progress", 0, nil)
 
 	// Resolve each DigiKey line item to a listing.
+	//
+	// DigiKey can split a single ordered part across multiple line items — e.g.
+	// when one reel runs out mid-pick and the remainder ships from a fresh reel,
+	// often at a different (worse) quantity-break price. Those split lines carry
+	// the same SKU and therefore resolve to the same listing, so we must merge
+	// them into one order line item: the (order_id, listing_id) uniqueness
+	// constraint allows only one row per listing. We sum the quantities and
+	// accumulate the extended price so the blended unit price preserves total cost.
 	type resolvedItem struct {
 		listingID    pgtype.UUID
 		partID       pgtype.UUID
-		unitPrice    float64
+		extPrice     float64 // Σ unitPrice·qtyOrdered across merged DigiKey lines
 		qtyOrdered   int32
 		qtyShipped   int32
 		qtyBackorder int32
 	}
 
-	var resolved []resolvedItem
+	var resolved []*resolvedItem
+	byListing := make(map[[16]byte]*resolvedItem)
+	resolvedCount := 0 // DigiKey line items resolved (pre-merge), for progress reporting
 	var unresolvedItems []UnresolvedImportItem
 	lastPublish := time.Now()
 
@@ -168,18 +178,29 @@ func (q *Queue) handleOrderImport(job Job) {
 		}
 
 		if listingID.Valid {
-			resolved = append(resolved, resolvedItem{
-				listingID:    listingID,
-				partID:       partID,
-				unitPrice:    li.UnitPrice,
-				qtyOrdered:   li.QuantityOrdered,
-				qtyShipped:   li.QuantityShipped,
-				qtyBackorder: li.QuantityBackOrder,
-			})
+			resolvedCount++
+			if existing, ok := byListing[listingID.Bytes]; ok {
+				// Split line for a listing we've already seen — accumulate.
+				existing.extPrice += li.UnitPrice * float64(li.QuantityOrdered)
+				existing.qtyOrdered += li.QuantityOrdered
+				existing.qtyShipped += li.QuantityShipped
+				existing.qtyBackorder += li.QuantityBackOrder
+			} else {
+				item := &resolvedItem{
+					listingID:    listingID,
+					partID:       partID,
+					extPrice:     li.UnitPrice * float64(li.QuantityOrdered),
+					qtyOrdered:   li.QuantityOrdered,
+					qtyShipped:   li.QuantityShipped,
+					qtyBackorder: li.QuantityBackOrder,
+				}
+				byListing[listingID.Bytes] = item
+				resolved = append(resolved, item)
+			}
 		}
 
 		if time.Since(lastPublish) >= 100*time.Millisecond {
-			publishProgress("progress", len(resolved), unresolvedItems)
+			publishProgress("progress", resolvedCount, unresolvedItems)
 			lastPublish = time.Now()
 		}
 	}
@@ -204,7 +225,13 @@ func (q *Queue) handleOrderImport(job Job) {
 	}
 
 	for _, item := range resolved {
-		priceStr := fmt.Sprintf("%.4f", item.unitPrice)
+		// Blended unit price = total extended price / total quantity, so merged
+		// split lines with differing break prices report the correct total cost.
+		unitPrice := item.extPrice
+		if item.qtyOrdered != 0 {
+			unitPrice = item.extPrice / float64(item.qtyOrdered)
+		}
+		priceStr := fmt.Sprintf("%.4f", unitPrice)
 		var priceNum pgtype.Numeric
 		if err := priceNum.Scan(priceStr); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
@@ -283,7 +310,7 @@ func (q *Queue) handleOrderImport(job Job) {
 		"job_id":          job.ID,
 		"order_id":        order.ID.String(),
 		"total":           total,
-		"resolved":        len(resolved),
+		"resolved":        resolvedCount,
 		"unresolved_skus": skus,
 	})
 

@@ -3,7 +3,9 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -246,6 +248,87 @@ func TestHandleListingRefresh_LM317(t *testing.T) {
 	}
 	if stockAvailable == nil || *stockAvailable != 0 {
 		t.Errorf("expected stock_available=0, got %v", stockAvailable)
+	}
+}
+
+// TestHandleOrderImport_SplitLineItems reproduces a DigiKey order where one part
+// ships split across two line items (same SKU, different quantity-break prices —
+// a reel ran out mid-pick). Both resolve to the same listing, so importing them
+// must collapse into a single order line item: previously the second insert
+// violated UNIQUE(order_id, listing_id) and rolled back the whole import.
+func TestHandleOrderImport_SplitLineItems(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "orderimport@example.com", "pw", "Order Import")
+	teamID := testutil.CreateTeam(t, testDB, userID, "purchaser", "order-import-team")
+	distID := testutil.GetTestDistributorID(t, testDB)
+	testutil.EnableDistributor(t, testDB, teamID, distID)
+
+	// Pre-create part + listing so the two split lines resolve by direct lookup.
+	partID := testutil.CreatePart(t, testDB, "global", "LM317T", nil)
+	listingID := testutil.CreateListing(t, testDB, partID, distID, "LM317-TEST-TUBE")
+
+	q := newTestQueue(testDB)
+	ch, cancel := q.Subscribe(teamID, "")
+	defer cancel()
+
+	q.process(Job{
+		ID:     "j-order-import",
+		Type:   JobOrderImport,
+		TeamID: teamID,
+		Payload: map[string]string{
+			"sales_order_id": testclient.SplitOrderID,
+			"distributor_id": distID,
+			"user_id":        userID,
+		},
+	})
+
+	d := drainEvents(ch, "complete", 3*time.Second)
+	if d == nil {
+		t.Fatal("timed out waiting for status=complete")
+	}
+	// total/resolved count DigiKey lines (2) pre-merge.
+	if d["total"] != float64(2) {
+		t.Errorf("expected total=2, got %v", d["total"])
+	}
+	if d["resolved"] != float64(2) {
+		t.Errorf("expected resolved=2, got %v", d["resolved"])
+	}
+
+	orderID, _ := d["order_id"].(string)
+	if orderID == "" {
+		t.Fatalf("missing order_id in complete event: %v", d)
+	}
+
+	// The two split lines must collapse into exactly one row for the listing,
+	// with quantities summed and the unit price blended (extended cost preserved).
+	var lineCount int
+	var totalQty, extShipped int32
+	var unitPriceText string
+	if err := testDB.QueryRow(context.Background(),
+		`SELECT count(*), coalesce(sum(quantity_ordered),0), coalesce(sum(external_qty_shipped),0),
+		        coalesce(max(unit_price_snapshot::text), '')
+		 FROM order_line_items WHERE order_id = $1 AND listing_id = $2`,
+		orderID, listingID,
+	).Scan(&lineCount, &totalQty, &extShipped, &unitPriceText); err != nil {
+		t.Fatalf("query line items: %v", err)
+	}
+	if lineCount != 1 {
+		t.Fatalf("expected 1 merged line item, got %d", lineCount)
+	}
+	if totalQty != 112 {
+		t.Errorf("expected summed quantity_ordered 112, got %d", totalQty)
+	}
+	if extShipped != 112 {
+		t.Errorf("expected summed external_qty_shipped 112, got %d", extShipped)
+	}
+	// Blended unit price: (100*0.0103 + 12*0.0180) / 112 = 1.246/112 = 0.011125 -> "0.0111".
+	blended, err := strconv.ParseFloat(unitPriceText, 64)
+	if err != nil {
+		t.Fatalf("parse unit price %q: %v", unitPriceText, err)
+	}
+	if math.Abs(blended-0.0111) > 1e-9 {
+		t.Errorf("expected blended unit price 0.0111, got %s", unitPriceText)
 	}
 }
 

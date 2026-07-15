@@ -14,6 +14,11 @@ import (
 const (
 	testSKU        = "LM317-TEST-TUBE"
 	simulateDelays = true
+
+	// SplitOrderID is the sales order the test distributor reports as a reel split:
+	// two line items carrying the same SKU at different quantity-break prices.
+	// Importing it exercises handleOrderImport's same-listing merge path.
+	SplitOrderID = "SPLIT-ORDER"
 )
 
 // Client is the test distributor implementation.
@@ -98,6 +103,44 @@ func (c *Client) RefreshListing(_ context.Context, sku string, _ json.RawMessage
 				{BreakQty: 1, UnitPrice: "0.5000"},
 			},
 		},
+	}, nil
+}
+
+// ---- OrderingClient implementation (exercises the order-import flow in tests) ----
+
+// CreateList is a no-op stub so the test client satisfies distributor.OrderingClient.
+func (c *Client) CreateList(_ context.Context, _ string, _ []distributor.OrderItem, _ json.RawMessage) (*distributor.PartsListResult, string, error) {
+	return &distributor.PartsListResult{ListID: "test-list", ListURL: "https://example.test/list/test-list"}, "test-list", nil
+}
+
+// RequestQuote is a no-op stub so the test client satisfies distributor.OrderingClient.
+func (c *Client) RequestQuote(_ context.Context, quoteName string, _ []distributor.OrderItem, _ json.RawMessage) (*distributor.QuoteResult, error) {
+	return &distributor.QuoteResult{QuoteID: 1, QuoteName: quoteName}, nil
+}
+
+// GetOrderStatus returns a canned shipped order. SplitOrderID reports the same SKU
+// across two line items (a reel split) so importing it must merge them into one
+// order line item; any other id returns a single-line order.
+func (c *Client) GetOrderStatus(_ context.Context, salesOrderID string, _ json.RawMessage) (*distributor.OrderStatusResult, error) {
+	now := time.Now()
+	lineItems := []distributor.OrderStatusLineItem{
+		{SKU: testSKU, MPN: "LM317TEST", UnitPrice: 0.5000, QuantityOrdered: 5, QuantityShipped: 5, PackType: "Tube"},
+	}
+	if salesOrderID == SplitOrderID {
+		lineItems = []distributor.OrderStatusLineItem{
+			{SKU: testSKU, MPN: "LM317TEST", UnitPrice: 0.0103, QuantityOrdered: 100, QuantityShipped: 100, PackType: "CutTape"},
+			{SKU: testSKU, MPN: "LM317TEST", UnitPrice: 0.0180, QuantityOrdered: 12, QuantityShipped: 12, PackType: "CutTape"},
+		}
+	}
+	return &distributor.OrderStatusResult{
+		SalesOrderID:  salesOrderID,
+		Status:        "Shipped",
+		PurchaseOrder: "PO-TEST",
+		DateEntered:   now,
+		LineItems:     lineItems,
+		LastCheckedAt: now,
+		OrderNumber:   9910000000000001,
+		Currency:      "USD",
 	}, nil
 }
 
