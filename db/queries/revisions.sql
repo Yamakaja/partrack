@@ -57,7 +57,8 @@ SELECT
     COALESCE(d.name, bli.distributor_name, '') AS distributor_name,
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
-    p.mpn AS resolved_part_mpn
+    p.mpn AS resolved_part_mpn,
+    COALESCE(p.short_description, p.description, '') AS resolved_part_description
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
 LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id

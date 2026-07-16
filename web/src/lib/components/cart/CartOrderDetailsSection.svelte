@@ -10,6 +10,7 @@
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import CartItemDetail from '$lib/components/cart/CartItemDetail.svelte';
   import CartListingReasonBadge from '$lib/components/cart/CartListingReasonBadge.svelte';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
   import {
     effectiveOrderQty, effectiveUnitPriceStr,
     calcSubtotal, itemSku, itemMoq, totalBuildDemand,
@@ -120,8 +121,7 @@
       <TableHeader>
         <TableRow>
           <TableHead class="w-6"></TableHead>
-          <TableHead>Part MPN</TableHead>
-          <TableHead>Description</TableHead>
+          <TableHead>Part</TableHead>
           <TableHead>SKU</TableHead>
           <TableHead>Order Qty</TableHead>
           <TableHead>Distributor Stock</TableHead>
@@ -151,11 +151,14 @@
                 <ChevronRight class="h-4 w-4" />
               {/if}
             </TableCell>
-            <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
-            <TableCell class="text-xs text-muted-foreground max-w-[14rem]">
-              <span class="line-clamp-2 leading-snug" title={item.part_short_description ?? item.part_description ?? undefined}>
-                {item.part_short_description ?? item.part_description ?? '—'}
-              </span>
+            <TableCell>
+              <PartCell
+                partId={item.part_id}
+                mpn={item.part_mpn}
+                {teamId}
+                manufacturer={item.part_manufacturer}
+                description={item.part_short_description ?? item.part_description}
+              />
             </TableCell>
             <TableCell class="text-muted-foreground text-sm">
               <div class="flex items-center gap-1.5">
@@ -243,7 +246,7 @@
 
           <!-- Expandable detail row -->
           {#if isExpanded}
-            <CartItemDetail {item} {orderQty} {moq} {demand} {companionQty} />
+            <CartItemDetail {item} {teamId} {orderQty} {moq} {demand} {companionQty} />
           {/if}
 
         {/each}

@@ -5,6 +5,7 @@
     Hammer, PackageMinus,
   } from 'lucide-svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import Badge from '$lib/components/ui/badge/Badge.svelte';
   import Skeleton from '$lib/components/ui/skeleton/Skeleton.svelte';
   import { linkAction, navigate } from '$lib/router/index.svelte.js';
@@ -148,7 +149,9 @@
                 {#each alerts as a (a.inventory_entry_id)}
                   <a href={`/teams/${teamId}/inventory/${a.inventory_entry_id}`} use:linkAction
                     class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-accent transition-colors no-underline gap-2">
-                    <span class="text-sm font-medium truncate">{a.mpn ?? a.description ?? '—'}</span>
+                    <span class="min-w-0 truncate">
+                      <PartRef partId={a.part_id} mpn={a.mpn} {teamId} link={false} fallback={a.description} />
+                    </span>
                     <span class="text-xs text-muted-foreground shrink-0 tabular-nums">
                       {a.quantity_on_hand} / min {a.min_stock_level}
                     </span>

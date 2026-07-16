@@ -16,6 +16,7 @@
   import type { StorageLocationFilter } from '$lib/components/storage/StorageLocationFilterPicker.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { DataTable, RemoteDataSource } from '$lib/components/table/index.js';
@@ -428,8 +429,13 @@
   {/if}
 {/snippet}
 
-{#snippet renderMpn(value: unknown, _row: PartSummary)}
-  <span class="font-mono font-medium text-xs">{value ?? '—'}</span>
+{#snippet renderMpn(_value: unknown, row: PartSummary)}
+  <PartRef
+    partId={row.id}
+    mpn={row.mpn}
+    {teamId}
+    fallback={row.short_description ?? row.description}
+  />
 {/snippet}
 
 {#snippet renderLifecycle(value: unknown, _row: PartSummary)}

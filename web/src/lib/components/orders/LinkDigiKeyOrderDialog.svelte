@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import { subscribeSSE } from '$lib/api/sse.js';
   import { importOrder, commitLinkOrder, type ImportOrderProgress } from '$lib/api/orders.js';
   import { ApiError } from '$lib/api/client.js';
@@ -308,7 +309,7 @@
                     <div class="space-y-0.5">
                       {#each build.parts_short as ps}
                         <div class="text-xs text-muted-foreground">
-                          <span class="font-mono">{ps.mpn || ps.part_id}</span>:
+                          <PartRef partId={ps.part_id} mpn={ps.mpn || null} {teamId} fallback={ps.description} class="text-muted-foreground" />:
                           {ps.quantity_from_order_before} needed,
                           {ps.actual_qty} available
                         </div>

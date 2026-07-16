@@ -7,6 +7,7 @@ export interface BuildPreviewItem {
   reference_designators: string;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
+  resolved_part_description: string | null;
   quantity_per_board: number;
   effective_quantity_per_board: number;
   total_quantity: number;
@@ -16,7 +17,7 @@ export interface BuildPreviewItem {
   excluded_designator_count: number;
   override: 'use_available' | 'skip' | null;
   available_quantity: number | null;
-  substitutes: { part_id: string; part_mpn: string | null; quantity_on_hand: number }[];
+  substitutes: { part_id: string; part_mpn: string | null; part_description: string | null; quantity_on_hand: number }[];
 }
 
 export function listBuilds(

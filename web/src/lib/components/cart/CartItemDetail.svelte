@@ -1,6 +1,7 @@
 <script lang="ts">
   import { TableRow, TableCell } from '$lib/components/ui/table/index.js';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import PriceBreaksTable from '$lib/components/common/PriceBreaksTable.svelte';
   import {
     effectiveUnitPriceStr, itemDistributor,
@@ -8,8 +9,9 @@
   } from '$lib/utils/cart.js';
   import type { CartItem } from '$lib/types/orders.js';
 
-  let { item, orderQty, moq, demand, companionQty = 0 }: {
+  let { item, teamId, orderQty, moq, demand, companionQty = 0 }: {
     item: CartItem;
+    teamId?: string;
     orderQty: number;
     moq: number;
     demand: number;
@@ -53,7 +55,7 @@
         <dl class="text-xs grid grid-cols-[5.5rem_auto] gap-x-4 gap-y-1">
           {#if item.part_mpn}
             <dt class="text-muted-foreground">MPN</dt>
-            <dd class="font-mono">{item.part_mpn}</dd>
+            <dd><PartRef partId={item.part_id} mpn={item.part_mpn} {teamId} /></dd>
           {/if}
           {#if item.part_manufacturer}
             <dt class="text-muted-foreground">Manufacturer</dt>

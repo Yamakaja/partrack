@@ -233,6 +233,7 @@ export interface Build {
 export interface BuildPartAllocation {
   part_id: string;
   part_mpn?: string;
+  part_description?: string | null;
   quantity_needed: number;
   quantity_reserved: number;
   quantity_received: number;
@@ -242,6 +243,7 @@ export interface BuildConsumedItem {
   inventory_entry_id: string;
   part_id: string;
   part_mpn: string | null;
+  part_description: string | null;
   quantity_deducted: number;
 }
 

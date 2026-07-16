@@ -13,6 +13,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
   import QRDialog from '$lib/components/common/QRDialog.svelte';
   import GridVisual from './GridVisual.svelte';
   import GridConfigEditor from './GridConfigEditor.svelte';
@@ -423,8 +424,7 @@
           <table class="w-full text-sm">
             <thead class="bg-muted/50">
               <tr>
-                <th class="text-left px-3 py-2 font-medium text-muted-foreground">MPN</th>
-                <th class="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
+                <th class="text-left px-3 py-2 font-medium text-muted-foreground">Part</th>
                 <th class="text-right px-3 py-2 font-medium text-muted-foreground">Qty</th>
                 <th class="text-left px-3 py-2 font-medium text-muted-foreground">Location</th>
               </tr>
@@ -439,8 +439,9 @@
                   class="border-t border-border hover:bg-muted/30 cursor-pointer"
                   onclick={() => navigate(`/teams/${teamId}/parts/${entry.part_id}`)}
                 >
-                  <td class="px-3 py-2 font-mono font-medium">{entry.part_mpn ?? '—'}</td>
-                  <td class="px-3 py-2 text-muted-foreground truncate max-w-48">{entry.part_description ?? '—'}</td>
+                  <td class="px-3 py-2">
+                    <PartCell partId={entry.part_id} mpn={entry.part_mpn} {teamId} description={entry.part_description} />
+                  </td>
                   <td class="px-3 py-2 text-right">{entry.quantity_on_hand}</td>
                   <td class="px-3 py-2 text-muted-foreground text-xs">{relLoc}</td>
                 </tr>

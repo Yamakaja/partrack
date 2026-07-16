@@ -433,15 +433,17 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type subItem struct {
-		PartID         string  `json:"part_id"`
-		PartMpn        *string `json:"part_mpn"`
-		QuantityOnHand int32   `json:"quantity_on_hand"`
+		PartID          string  `json:"part_id"`
+		PartMpn         *string `json:"part_mpn"`
+		PartDescription *string `json:"part_description"`
+		QuantityOnHand  int32   `json:"quantity_on_hand"`
 	}
 	type previewItem struct {
 		BomLineItemID             string    `json:"bom_line_item_id"`
 		ReferenceDesignators      string    `json:"reference_designators"`
 		ResolvedPartID            *string   `json:"resolved_part_id"`
 		ResolvedPartMpn           *string   `json:"resolved_part_mpn"`
+		ResolvedPartDescription   *string   `json:"resolved_part_description"`
 		QuantityPerBoard          int32     `json:"quantity_per_board"`
 		EffectiveQuantityPerBoard int32     `json:"effective_quantity_per_board"`
 		TotalQuantity             int32     `json:"total_quantity"`
@@ -475,6 +477,7 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 		// Resolve part: substitute selection overrides primary.
 		var resolvedPartID *string
 		var resolvedPartMpn *string
+		var resolvedPartDescription *string
 		partID := li.ResolvedPartID
 		if sub, ok := subSelMap[li.ID.String()]; ok {
 			partID = sub
@@ -485,6 +488,7 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 			s := li.ResolvedPartID.String()
 			resolvedPartID = &s
 			resolvedPartMpn = li.ResolvedPartMpn
+			resolvedPartDescription = strPtrOrNil(li.ResolvedPartDescription)
 		}
 		if partID.Valid {
 			entry, err := h.Queries.GetInventoryEntryByPartID(r.Context(), dbgen.GetInventoryEntryByPartIDParams{
@@ -525,9 +529,10 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 				subQty = *s.QuantityOnHand
 			}
 			subItems[j] = subItem{
-				PartID:         s.PartID.String(),
-				PartMpn:        s.PartMpn,
-				QuantityOnHand: subQty,
+				PartID:          s.PartID.String(),
+				PartMpn:         s.PartMpn,
+				PartDescription: s.Description,
+				QuantityOnHand:  subQty,
 			}
 		}
 
@@ -536,6 +541,7 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 			ReferenceDesignators:      li.ReferenceDesignators,
 			ResolvedPartID:            resolvedPartID,
 			ResolvedPartMpn:           resolvedPartMpn,
+			ResolvedPartDescription:   resolvedPartDescription,
 			QuantityPerBoard:          li.Quantity,
 			EffectiveQuantityPerBoard: effectivePerBoard,
 			TotalQuantity:             li.Quantity * build.Quantity,
@@ -837,6 +843,7 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		InventoryEntryID string  `json:"inventory_entry_id"`
 		PartID           string  `json:"part_id"`
 		PartMpn          *string `json:"part_mpn"`
+		PartDescription  *string `json:"part_description"`
 		QuantityDeducted int32   `json:"quantity_deducted"`
 	}
 	var consumedItems []consumedItemResp
@@ -852,6 +859,7 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 				InventoryEntryID: d.InventoryEntryID.String(),
 				PartID:           d.PartID.String(),
 				PartMpn:          d.PartMpn,
+				PartDescription:  strPtrOrNil(d.PartDescription),
 				QuantityDeducted: -d.Delta,
 			}
 		}
@@ -861,6 +869,7 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		ID               string  `json:"id"`
 		PartID           string  `json:"part_id"`
 		PartMpn          *string `json:"part_mpn"`
+		PartDescription  *string `json:"part_description"`
 		QuantityNeeded   int32   `json:"quantity_needed"`
 		QuantityReserved int32   `json:"quantity_reserved"`
 		QuantityReceived int32   `json:"quantity_received"`
@@ -871,6 +880,7 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 			ID:               a.ID.String(),
 			PartID:           a.PartID.String(),
 			PartMpn:          a.PartMpn,
+			PartDescription:  strPtrOrNil(a.PartDescription),
 			QuantityNeeded:   a.QuantityNeeded,
 			QuantityReserved: a.QuantityReserved,
 			QuantityReceived: a.QuantityReceived,

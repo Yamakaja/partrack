@@ -4,6 +4,7 @@
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
   import { Trash2 } from 'lucide-svelte';
   import type { CartItem } from '$lib/types/orders.js';
 
@@ -41,7 +42,15 @@
   <TableBody>
     {#each items as item (item.id)}
       <TableRow>
-        <TableCell class="font-mono font-medium text-xs">{item.part_mpn ?? '—'}</TableCell>
+        <TableCell>
+          <PartCell
+            partId={item.part_id}
+            mpn={item.part_mpn}
+            {teamId}
+            manufacturer={item.part_manufacturer}
+            description={item.part_short_description ?? item.part_description}
+          />
+        </TableCell>
         <TableCell class="tabular-nums">{item.quantity}</TableCell>
         <TableCell>
           <Button

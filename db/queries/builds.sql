@@ -116,7 +116,8 @@ RETURNING id, build_id, part_id, quantity_needed, quantity_reserved, quantity_re
 
 -- name: GetBuildPartAllocations :many
 SELECT bpa.id, bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
-       p.mpn AS part_mpn
+       p.mpn AS part_mpn,
+       COALESCE(p.short_description, p.description, '') AS part_description
 FROM build_part_allocations bpa
 JOIN parts p ON p.id = bpa.part_id
 WHERE bpa.build_id = $1;
@@ -236,7 +237,8 @@ ORDER BY b.created_at;
 -- name: ListBuildDeductions :many
 SELECT
     sa.id, sa.inventory_entry_id, sa.delta,
-    ie.part_id, p.mpn AS part_mpn
+    ie.part_id, p.mpn AS part_mpn,
+    COALESCE(p.short_description, p.description, '') AS part_description
 FROM stock_adjustments sa
 JOIN inventory_entries ie ON ie.id = sa.inventory_entry_id
 JOIN parts p ON p.id = ie.part_id

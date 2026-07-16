@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { listCheckouts, createCheckout, type InsufficientCheckoutItem } from '$lib/api/checkouts.js';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import { ApiError } from '$lib/api/client.js';
   import { listInventory } from '$lib/api/inventory.js';
   import Topbar from '$lib/components/layout/Topbar.svelte';
@@ -264,7 +265,7 @@
         {#each insufficientItems as item (item.inventory_entry_id)}
           <div class="space-y-1">
             <Label>
-              {item.part_mpn ?? item.part_id}
+              <PartRef partId={item.part_id} mpn={item.part_mpn} {teamId} link={false} />
               <span class="text-muted-foreground text-xs ml-1">(system shows {item.quantity_on_hand}, need {item.quantity_requested})</span>
             </Label>
             <Input

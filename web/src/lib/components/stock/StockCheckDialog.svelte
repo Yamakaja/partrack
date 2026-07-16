@@ -5,6 +5,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import { getStockCheck } from '$lib/api/revisions.js';
   import { createBuild, submitBuild, checkoutBuild } from '$lib/api/builds.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
@@ -231,10 +232,12 @@
                     <div class="flex items-center gap-1.5">
                       {#if usingSub}
                         <span class="text-muted-foreground line-through">{item.resolved_part_mpn ?? '—'}</span>
-                        <span>{item.selected_substitute_mpn ?? '—'}</span>
+                        <PartRef partId={item.selected_substitute_id!} mpn={item.selected_substitute_mpn} {teamId} />
                         <Badge variant="secondary" class="text-[10px] px-1 py-0">sub</Badge>
+                      {:else if item.resolved_part_id}
+                        <PartRef partId={item.resolved_part_id} mpn={item.resolved_part_mpn} {teamId} />
                       {:else}
-                        {item.resolved_part_mpn ?? '—'}
+                        —
                       {/if}
                     </div>
                   </TableCell>

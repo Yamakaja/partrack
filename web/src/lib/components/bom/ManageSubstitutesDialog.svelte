@@ -8,6 +8,7 @@
   import { ArrowUp, ArrowDown, Trash2, Download, X } from 'lucide-svelte';
   import PartsTable from '$lib/components/parts/PartsTable.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import type { BOMLineItem } from '$lib/types/projects.js';
@@ -255,8 +256,8 @@
   }
 </script>
 
-{#snippet renderMpn(value: unknown)}
-  <span class="font-mono text-sm">{value ?? '—'}</span>
+{#snippet renderMpn(_value: unknown, row: LineItemSubstituteItem)}
+  <PartRef partId={row.part_id} mpn={row.part_mpn} {teamId} fallback={row.description} />
 {/snippet}
 
 {#snippet renderLifecycle(value: unknown)}

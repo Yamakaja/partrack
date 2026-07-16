@@ -577,7 +577,8 @@ func (q *Queries) GetBuildOrderIDs(ctx context.Context, buildID pgtype.UUID) ([]
 
 const getBuildPartAllocations = `-- name: GetBuildPartAllocations :many
 SELECT bpa.id, bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
-       p.mpn AS part_mpn
+       p.mpn AS part_mpn,
+       COALESCE(p.short_description, p.description, '') AS part_description
 FROM build_part_allocations bpa
 JOIN parts p ON p.id = bpa.part_id
 WHERE bpa.build_id = $1
@@ -591,6 +592,7 @@ type GetBuildPartAllocationsRow struct {
 	QuantityReserved int32       `json:"quantity_reserved"`
 	QuantityReceived int32       `json:"quantity_received"`
 	PartMpn          *string     `json:"part_mpn"`
+	PartDescription  string      `json:"part_description"`
 }
 
 func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UUID) ([]GetBuildPartAllocationsRow, error) {
@@ -610,6 +612,7 @@ func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UU
 			&i.QuantityReserved,
 			&i.QuantityReceived,
 			&i.PartMpn,
+			&i.PartDescription,
 		); err != nil {
 			return nil, err
 		}
@@ -972,7 +975,8 @@ func (q *Queries) IncrementBuildPartAllocationReceived(ctx context.Context, arg 
 const listBuildDeductions = `-- name: ListBuildDeductions :many
 SELECT
     sa.id, sa.inventory_entry_id, sa.delta,
-    ie.part_id, p.mpn AS part_mpn
+    ie.part_id, p.mpn AS part_mpn,
+    COALESCE(p.short_description, p.description, '') AS part_description
 FROM stock_adjustments sa
 JOIN inventory_entries ie ON ie.id = sa.inventory_entry_id
 JOIN parts p ON p.id = ie.part_id
@@ -986,6 +990,7 @@ type ListBuildDeductionsRow struct {
 	Delta            int32       `json:"delta"`
 	PartID           pgtype.UUID `json:"part_id"`
 	PartMpn          *string     `json:"part_mpn"`
+	PartDescription  string      `json:"part_description"`
 }
 
 func (q *Queries) ListBuildDeductions(ctx context.Context, buildID pgtype.UUID) ([]ListBuildDeductionsRow, error) {
@@ -1003,6 +1008,7 @@ func (q *Queries) ListBuildDeductions(ctx context.Context, buildID pgtype.UUID) 
 			&i.Delta,
 			&i.PartID,
 			&i.PartMpn,
+			&i.PartDescription,
 		); err != nil {
 			return nil, err
 		}

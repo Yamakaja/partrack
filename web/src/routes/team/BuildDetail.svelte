@@ -14,6 +14,8 @@
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -379,12 +381,25 @@
   );
 </script>
 
-{#snippet renderMpn(value: unknown, row: BuildConsumedItem | BuildPartAllocation)}
-    <span class="font-mono font-medium text-xs hover:underline">{value && row.part_id ? value : "—"}</span>
+{#snippet renderMpn(_value: unknown, row: BuildConsumedItem | BuildPartAllocation)}
+  {#if row.part_id}
+    <PartCell partId={row.part_id} mpn={row.part_mpn ?? null} {teamId} description={row.part_description} />
+  {:else}
+    —
+  {/if}
 {/snippet}
 
-{#snippet renderPreviewMpn(value: unknown, row: BuildPreviewItem)}
-    <span class="font-mono font-medium text-xs hover:underline">{value && row.resolved_part_id ? value : "—"}</span>
+{#snippet renderPreviewMpn(_value: unknown, row: BuildPreviewItem)}
+  {#if row.resolved_part_id}
+    <PartCell
+      partId={row.resolved_part_id}
+      mpn={row.resolved_part_mpn}
+      {teamId}
+      description={row.resolved_part_description}
+    />
+  {:else}
+    —
+  {/if}
 {/snippet}
 
 {#snippet renderAllocStatus(_value: unknown, row: BuildPartAllocation)}
@@ -440,7 +455,7 @@
     >
       <option value="">Primary</option>
       {#each subs as sub (sub.part_id)}
-        <option value={sub.part_id}>{sub.part_mpn ?? sub.part_id} ({sub.quantity_on_hand} on hand)</option>
+        <option value={sub.part_id}>{sub.part_mpn ?? sub.part_description ?? sub.part_id} ({sub.quantity_on_hand} on hand)</option>
       {/each}
     </select>
   {/if}
@@ -747,7 +762,9 @@
                     {item.status === 'confirmed' ? 'text-success' : item.status === 'shortfall' ? 'text-warning' : 'text-muted-foreground'}">
                     {item.status === 'confirmed' ? '✓' : item.status === 'shortfall' ? '⚠' : '·'}
                   </span>
-                  <span class="flex-1 font-mono truncate">{item.part_mpn ?? item.part_id}</span>
+                  <span class="flex-1 min-w-0 truncate">
+                    <PartRef partId={item.part_id} mpn={item.part_mpn} {teamId} fallback={item.part_description} />
+                  </span>
                   <span class="shrink-0 text-muted-foreground tabular-nums">{item.quantity_confirmed}/{item.quantity_needed}</span>
                 </div>
               {/each}
@@ -928,7 +945,13 @@
             </p>
             {#if kittingShortfalls.length > 0}
               <p class="mt-1 text-warning">
-                Short at the bench: {kittingShortfalls.map((i) => i.part_mpn ?? i.part_id).join(', ')}
+                Short at the bench:
+                {#each kittingShortfalls as i, idx (i.part_id)}{#if idx > 0},{' '}{/if}<PartRef
+                    partId={i.part_id}
+                    mpn={i.part_mpn}
+                    {teamId}
+                    fallback={i.part_description}
+                  />{/each}
               </p>
             {/if}
           </div>
@@ -951,7 +974,13 @@
             <TableBody>
               {#each previewQuery.data?.items ?? [] as pi (pi.bom_line_item_id)}
                 <TableRow>
-                  <TableCell class="font-mono text-xs">{pi.resolved_part_mpn ?? '—'}</TableCell>
+                  <TableCell>
+                    {#if pi.resolved_part_id}
+                      <PartRef partId={pi.resolved_part_id} mpn={pi.resolved_part_mpn} {teamId} fallback={pi.resolved_part_description} />
+                    {:else}
+                      —
+                    {/if}
+                  </TableCell>
                   <TableCell class="text-right tabular-nums">{pi.effective_quantity_per_board}</TableCell>
                   <TableCell class="text-right tabular-nums">{pi.effective_total_quantity}</TableCell>
                   <TableCell class="text-right tabular-nums">{pi.quantity_on_hand}</TableCell>

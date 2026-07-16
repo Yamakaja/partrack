@@ -22,7 +22,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import { linkAction } from '$lib/router/index.svelte.js';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import { ClipboardCheck, Pencil, Shuffle } from 'lucide-svelte';
   import { formatDate } from '$lib/utils/date.js';
 
@@ -441,13 +441,15 @@
   })()}
   <div class="inline-flex items-center gap-1.5">
     <Badge variant={statusVariant}>{value as string}</Badge>
-    {#if row.resolved_part_id && row.resolved_part_mpn}
-      <a
-        use:linkAction
-        href="/teams/{teamId}/parts/{row.resolved_part_id}"
-        onclick={(e) => e.stopPropagation()}
-        class="font-mono text-xs text-muted-foreground hover:underline"
-      >{row.resolved_part_mpn}</a>
+    {#if row.resolved_part_id}
+      <PartRef
+        partId={row.resolved_part_id}
+        mpn={row.resolved_part_mpn}
+        {teamId}
+        flag={row.resolved_part_flag}
+        fallback={row.value ?? row.part_name}
+        class="text-muted-foreground"
+      />
     {/if}
   </div>
 {/snippet}

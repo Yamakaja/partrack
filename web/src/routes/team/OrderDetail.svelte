@@ -6,6 +6,7 @@
   import MetadataCard from '$lib/components/common/MetadataCard.svelte';
   import DateDisplay from '$lib/components/common/DateDisplay.svelte';
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
   import DigiKeyCard from '$lib/components/orders/DigiKeyCard.svelte';
   import { DataTable, LocalDataSource, getNestedValue } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
@@ -281,9 +282,11 @@
 
   const columns: ColumnSpec<OrderLineItem>[] = [
     { key: 'sku',                 header: 'SKU',              type: 'text',     filterable: true },
-    { key: 'part_mpn',            header: 'Part MPN',         type: 'text',     filterable: true },
+    { key: 'part_mpn',            header: 'Part',             type: 'text',     filterable: true },
     { key: 'part_manufacturer',   header: 'Manufacturer',     type: 'text',     filterable: true },
-    { key: 'part_description',    header: 'Description',      type: 'text' },
+    // Shown as the second line of the Part cell; kept as an export-only column
+    // so CSV output still carries the description.
+    { key: 'part_description',    header: 'Description',      type: 'text',     exportOnly: true },
     { key: 'packaging_type',      header: 'Packaging',        type: 'enum',     filterable: true },
     { key: 'unit_price_snapshot', header: 'Unit Price',    type: 'currency', align: 'right' },
     { key: '_quoted_price',       header: 'Quoted Price',  type: 'currency', align: 'right', hidden: true },
@@ -525,11 +528,7 @@
         <span class="font-mono text-xs">{String(value ?? '')}</span>
       {/snippet}
       {#snippet renderMpn(_value: unknown, row: OrderLineItem)}
-        <a
-          href={`/teams/${teamId}/parts/${row.part_id}`}
-          class="font-mono font-medium text-xs hover:underline"
-          onclick={(e) => e.stopPropagation()}
-        >{row.part_mpn ?? '—'}</a>
+        <PartCell partId={row.part_id} mpn={row.part_mpn} {teamId} description={row.part_description} />
       {/snippet}
       {#snippet renderUnitPrice(_value: unknown, row: OrderLineItem)}
         {@const dk = dkStatusBySku?.get(row.sku)}

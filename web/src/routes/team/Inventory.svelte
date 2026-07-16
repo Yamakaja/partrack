@@ -9,6 +9,7 @@
   import EmptyState from '$lib/components/common/EmptyState.svelte';
   import Pagination from '$lib/components/common/Pagination.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
   import PartSearch from '$lib/components/parts/PartSearch.svelte';
   import StorageLocationPicker from '$lib/components/storage/StorageLocationPicker.svelte';
   import type { StorageLocationValue } from '$lib/components/storage/StorageLocationPicker.svelte';
@@ -215,7 +216,9 @@
                 class="cursor-pointer"
                 onclick={() => navigate(`/teams/${teamId}/inventory/${entry.id}`)}
               >
-                <TableCell class="font-mono font-medium text-xs">{entry.part_mpn ?? '—'}</TableCell>
+                <TableCell>
+                  <PartRef partId={entry.part_id} mpn={entry.part_mpn} {teamId} fallback={entry.part_description} />
+                </TableCell>
                 <TableCell class="max-w-xs truncate text-muted-foreground">{entry.part_description ?? '—'}</TableCell>
                 <TableCell class="font-medium">{entry.quantity_on_hand}</TableCell>
                 <TableCell class="text-muted-foreground text-xs">

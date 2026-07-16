@@ -12,6 +12,7 @@
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
   import ListingSelector from '$lib/components/part-import/ListingSelector.svelte';
   import InterpretationEditor from '$lib/components/bom/InterpretationEditor.svelte';
+  import PartRef from '$lib/components/parts/PartRef.svelte';
 
   let {
     items,
@@ -421,8 +422,15 @@
       <div class="rounded-md border border-border p-4 space-y-2">
         <div class="flex items-center gap-2 flex-wrap">
           <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-          {#if currentItem.resolved_part_id && currentItem.resolved_part_mpn}
-            <span class="font-mono text-xs text-muted-foreground">→ {currentItem.resolved_part_mpn}</span>
+          {#if currentItem.resolved_part_id}
+            <span class="text-xs text-muted-foreground">→</span>
+            <PartRef
+              partId={currentItem.resolved_part_id}
+              mpn={currentItem.resolved_part_mpn}
+              {teamId}
+              fallback={currentItem.value ?? currentItem.part_name}
+              class="text-muted-foreground"
+            />
           {/if}
           {#if currentItem.resolved_part_id}
             <button
@@ -517,7 +525,7 @@
                       onclick={() => handleUseCandidate(c)}
                     >
                       <div class="flex items-center gap-2">
-                        <span class="font-medium font-mono">{c.mpn ?? '—'}</span>
+                        <PartRef partId={c.part_id} mpn={c.mpn} {teamId} link={false} />
                         {#if c.manufacturer}<span class="text-muted-foreground">{c.manufacturer}</span>{/if}
                         {#if c.value_si != null}<Badge variant="outline">{formatSi(c.value_si)}</Badge>{/if}
                         {#if c.package}<span class="text-xs text-muted-foreground">{c.package}</span>{/if}
@@ -615,7 +623,7 @@
                     onclick={() => handleLocalImport(part)}
                   >
                     <div class="flex items-center gap-2">
-                      <span class="font-medium font-mono">{part.mpn ?? '—'}</span>
+                      <PartRef partId={part.id} mpn={part.mpn} {teamId} link={false} fallback={part.short_description} />
                       {#if part.manufacturer}
                         <span class="text-muted-foreground">{part.manufacturer}</span>
                       {/if}
