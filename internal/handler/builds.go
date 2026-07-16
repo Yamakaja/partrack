@@ -1114,35 +1114,36 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": buildID.String(), "status": newStatus})
 }
 
-// reserveStockForSubmit computes a build's per-part demand (honouring designator
-// exclusions, skip/use_available overrides, and locked substitute selections),
-// then checks whether free (on-hand minus stock already reserved by other
-// builds) covers it in full. If so it persists soft reservations on
-// build_part_allocations and returns "ready"; otherwise it persists nothing and
-// returns "pending". Must be called within the submit transaction.
-func (h *Handler) reserveStockForSubmit(
+// computeBuildDemand aggregates a build's per-part demand from its BOM
+// revision: resolved, non-ignored line items honouring designator exclusions,
+// skip/use_available overrides, and locked substitute selections (a selection
+// wins over the primary part), multiplied by the build quantity. Keys are
+// part-ID strings. Shared by submit reservation and kitting seeding — kitting
+// must not depend on build_part_allocations, which only exist once a build
+// reaches ready/ordered.
+func computeBuildDemand(
 	ctx context.Context,
-	qtx *dbgen.Queries,
+	q *dbgen.Queries,
 	build dbgen.GetBuildForUpdateRow,
-	teamID, buildID pgtype.UUID,
-) (string, error) {
-	lineItems, err := qtx.ListBOMLineItems(ctx, build.BomRevisionID)
+	buildID pgtype.UUID,
+) (map[string]int32, error) {
+	lineItems, err := q.ListBOMLineItems(ctx, build.BomRevisionID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	overrideRows, err := qtx.GetBuildLineItemOverridesForBuilds(ctx, []pgtype.UUID{buildID})
+	overrideRows, err := q.GetBuildLineItemOverridesForBuilds(ctx, []pgtype.UUID{buildID})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	overrideMap := make(map[string]string, len(overrideRows))
 	for _, ov := range overrideRows {
 		overrideMap[ov.BomLineItemID.String()] = ov.OverrideType
 	}
 
-	selRows, err := qtx.GetBuildSubstituteSelections(ctx, buildID)
+	selRows, err := q.GetBuildSubstituteSelections(ctx, buildID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	selectionMap := make(map[string]string, len(selRows))
 	for _, s := range selRows {
@@ -1175,6 +1176,25 @@ func (h *Handler) reserveStockForSubmit(
 			partIDStr = sel
 		}
 		neededByPart[partIDStr] += effectivePerBoard * build.Quantity
+	}
+	return neededByPart, nil
+}
+
+// reserveStockForSubmit computes a build's per-part demand (honouring designator
+// exclusions, skip/use_available overrides, and locked substitute selections),
+// then checks whether free (on-hand minus stock already reserved by other
+// builds) covers it in full. If so it persists soft reservations on
+// build_part_allocations and returns "ready"; otherwise it persists nothing and
+// returns "pending". Must be called within the submit transaction.
+func (h *Handler) reserveStockForSubmit(
+	ctx context.Context,
+	qtx *dbgen.Queries,
+	build dbgen.GetBuildForUpdateRow,
+	teamID, buildID pgtype.UUID,
+) (string, error) {
+	neededByPart, err := computeBuildDemand(ctx, qtx, build, buildID)
+	if err != nil {
+		return "", err
 	}
 
 	// Decide reservation per part against free (non-reserved) stock.

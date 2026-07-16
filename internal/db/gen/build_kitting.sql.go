@@ -305,18 +305,25 @@ func (q *Queries) GetLatestKittingSessionForBuild(ctx context.Context, buildID p
 
 const seedKittingConfirmations = `-- name: SeedKittingConfirmations :exec
 INSERT INTO build_kitting_confirmations (kitting_session_id, part_id, quantity_needed)
-SELECT $1, bpa.part_id, bpa.quantity_needed
-FROM build_part_allocations bpa
-WHERE bpa.build_id = $2
+SELECT $1, u.part_id, u.quantity_needed
+FROM (
+    SELECT unnest($2::uuid[])   AS part_id,
+           unnest($3::int[]) AS quantity_needed
+) u
 `
 
 type SeedKittingConfirmationsParams struct {
-	KittingSessionID pgtype.UUID `json:"kitting_session_id"`
-	BuildID          pgtype.UUID `json:"build_id"`
+	KittingSessionID pgtype.UUID   `json:"kitting_session_id"`
+	PartIds          []pgtype.UUID `json:"part_ids"`
+	Quantities       []int32       `json:"quantities"`
 }
 
+// Seeds one confirmation row per part from BOM demand computed in Go
+// (computeBuildDemand). Kitting must work for any non-terminal build status,
+// so it cannot seed from build_part_allocations, which only exist once a
+// build reaches ready/ordered.
 func (q *Queries) SeedKittingConfirmations(ctx context.Context, arg SeedKittingConfirmationsParams) error {
-	_, err := q.db.Exec(ctx, seedKittingConfirmations, arg.KittingSessionID, arg.BuildID)
+	_, err := q.db.Exec(ctx, seedKittingConfirmations, arg.KittingSessionID, arg.PartIds, arg.Quantities)
 	return err
 }
 

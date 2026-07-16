@@ -260,9 +260,11 @@
   // ── Kitting ─────────────────────────────────────────────────────────────────
 
   const scanSession = $derived(scanSessionStore.current);
+  // Kitting is advisory (stock only moves at checkout), so any non-terminal
+  // build — including drafts — may be sent to the scanner.
   const canSendToScanner = $derived(
     !!scanSession?.liveConnected &&
-    ['pending', 'ordered', 'ready'].includes(buildQuery.data?.status ?? '')
+    !['assembled', 'cancelled'].includes(buildQuery.data?.status ?? '')
   );
 
   // The session we just started locally takes precedence; otherwise fall back to the

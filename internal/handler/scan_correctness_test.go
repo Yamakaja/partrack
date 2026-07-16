@@ -265,6 +265,11 @@ func TestVerify_StartKitting_PushesContextBuildRef(t *testing.T) {
 
 	project := testutil.CreateProject(t, testDB, team, user, "KittingProj")
 	rev := testutil.CreateRevision(t, testDB, project, user, "vR1")
+	// Kitting seeds from BOM demand and rejects empty sessions (EMPTY_KITTING),
+	// so the build needs at least one resolved line item.
+	part := testutil.CreatePart(t, testDB, "team", "MPN-KIT-REF", &team)
+	item := testutil.CreateBOMLineItem(t, testDB, rev, "R1", 1)
+	testutil.ResolveBOMLineItem(t, testDB, item, part)
 	build := testutil.CreateBuild(t, testDB, project, rev, team, user, 5, "pending")
 
 	// CreateScanSession returns the bearer token; the desktop route + ScanHub key
@@ -318,5 +323,95 @@ func TestVerify_StartKitting_PushesContextBuildRef(t *testing.T) {
 	}
 	if s, _ := msg["context_kitting_session_id"].(string); s == "" {
 		t.Errorf("context_kitting_session_id missing: %v", msg)
+	}
+}
+
+// Kitting is advisory (stock only moves at build checkout), so it must work on
+// any non-terminal build — including drafts — and seed its item list from BOM
+// demand rather than build_part_allocations (which only exist once a build
+// reaches ready/ordered; review finding L14: pending builds got an empty,
+// inert kitting session). Terminal builds are still rejected.
+func TestStartKitting_DraftBuildSeedsFromBOM(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+
+	user := testutil.CreateUser(t, testDB, "ci-kit-draft@example.com", "pw", "User")
+	team := testutil.CreateTeam(t, testDB, user, "member", "Team A")
+	apiTok := testutil.CreateAPIToken(t, testDB, user, "desktop")
+
+	project := testutil.CreateProject(t, testDB, team, user, "DraftKitProj")
+	rev := testutil.CreateRevision(t, testDB, project, user, "vD1")
+	partA := testutil.CreatePart(t, testDB, "team", "MPN-KIT-A", &team)
+	partB := testutil.CreatePart(t, testDB, "team", "MPN-KIT-B", &team)
+	itemA := testutil.CreateBOMLineItem(t, testDB, rev, "R1", 2) // 2 per board
+	itemB := testutil.CreateBOMLineItem(t, testDB, rev, "C1", 3) // 3 per board
+	testutil.ResolveBOMLineItem(t, testDB, itemA, partA)
+	testutil.ResolveBOMLineItem(t, testDB, itemB, partB)
+
+	// Draft build of 5 boards: never submitted, so no build_part_allocations.
+	build := testutil.CreateBuild(t, testDB, project, rev, team, user, 5, "draft")
+
+	testutil.CreateScanSession(t, testDB, user, team)
+	var scanID string
+	if err := testDB.QueryRow(ctx,
+		`SELECT id FROM scan_sessions WHERE user_id=$1 AND team_id=$2`, user, team).Scan(&scanID); err != nil {
+		t.Fatalf("look up scan session id: %v", err)
+	}
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/teams/"+team+"/scan-sessions/"+scanID+"/kitting",
+		map[string]any{"build_id": build}, apiTok)
+	if status != http.StatusCreated {
+		t.Fatalf("StartKitting on a draft build: expected 201, got %d (body=%v)", status, body)
+	}
+	ksID, _ := body["kitting_session_id"].(string)
+	if ksID == "" {
+		t.Fatalf("missing kitting_session_id: %v", body)
+	}
+
+	// Confirmations must come from BOM demand: per-board qty × build qty.
+	want := map[string]int32{partA: 10, partB: 15}
+	rows, err := testDB.Query(ctx,
+		`SELECT part_id, quantity_needed FROM build_kitting_confirmations WHERE kitting_session_id = $1`, ksID)
+	if err != nil {
+		t.Fatalf("query confirmations: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int32{}
+	for rows.Next() {
+		var partID string
+		var qty int32
+		if err := rows.Scan(&partID, &qty); err != nil {
+			t.Fatalf("scan confirmation row: %v", err)
+		}
+		got[partID] = qty
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d confirmations, got %d: %v", len(want), len(got), got)
+	}
+	for partID, qty := range want {
+		if got[partID] != qty {
+			t.Errorf("part %s: quantity_needed = %d, want %d", partID, got[partID], qty)
+		}
+	}
+
+	// Terminal builds stay rejected.
+	cancelled := testutil.CreateBuild(t, testDB, project, rev, team, user, 5, "cancelled")
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/teams/"+team+"/scan-sessions/"+scanID+"/kitting",
+		map[string]any{"build_id": cancelled}, apiTok)
+	if status != http.StatusConflict || body["code"] != "INVALID_BUILD_STATUS" {
+		t.Errorf("cancelled build: expected 409 INVALID_BUILD_STATUS, got %d %v", status, body)
+	}
+
+	// A build whose revision has no resolvable demand must not create an
+	// inert, empty kitting session (review finding L14).
+	emptyRev := testutil.CreateRevision(t, testDB, project, user, "vD2")
+	emptyBuild := testutil.CreateBuild(t, testDB, project, emptyRev, team, user, 5, "pending")
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/teams/"+team+"/scan-sessions/"+scanID+"/kitting",
+		map[string]any{"build_id": emptyBuild}, apiTok)
+	if status != http.StatusConflict || body["code"] != "EMPTY_KITTING" {
+		t.Errorf("empty-demand build: expected 409 EMPTY_KITTING, got %d %v", status, body)
 	}
 }

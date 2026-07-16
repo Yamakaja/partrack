@@ -138,7 +138,7 @@ Submission triggers a cart recompute, so the cart immediately reflects the new d
 
 ## Kitting with a Mobile Scanner
 
-When a build is pending, ordered, or ready and a mobile scanner is active and connected, a **Send to Scanner** button appears on the build detail page. This starts a **kitting session** — a guided workflow on the mobile scanner that walks through each required part and asks you to confirm the quantity you are placing in the kit.
+When a mobile scanner is active and connected, a **Send to Scanner** button appears on the build detail page for any build that is not yet assembled (or cancelled) — including drafts. This starts a **kitting session** — a guided workflow on the mobile scanner that walks through each required part and asks you to confirm the quantity you are placing in the kit. The pick list comes from the build's BOM (honouring excluded designators, line-item overrides, and substitute selections), so it works at any stage of the build's lifecycle.
 
 While a kitting session is active, the build detail page shows a **Kitting in Progress** panel with a progress bar and per-part status (confirmed, shortfall, pending). Parts are sorted so pending items appear first.
 

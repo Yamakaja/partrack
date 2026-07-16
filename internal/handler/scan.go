@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -2509,8 +2511,20 @@ func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up build and validate status.
-	build, err := h.Queries.GetBuildForUpdate(r.Context(), dbgen.GetBuildForUpdateParams{
+	// The tx makes the row lock real (GetBuildForUpdate outside a tx was a
+	// no-op) and keeps the exists-check + create + seed atomic, so two
+	// concurrent starts can't create two sessions for the same build.
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	// Look up build and validate status. Kitting is advisory (stock only moves
+	// at checkout), so any non-terminal build may be kitted — including drafts.
+	build, err := qtx.GetBuildForUpdate(r.Context(), dbgen.GetBuildForUpdateParams{
 		ID:     buildID,
 		TeamID: teamID,
 	})
@@ -2522,14 +2536,13 @@ func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	validStatuses := map[string]bool{"pending": true, "ordered": true, "ready": true}
-	if !validStatuses[string(build.Status)] {
-		writeError(w, http.StatusConflict, "build must be in pending, ordered, or ready status", "INVALID_BUILD_STATUS")
+	if build.Status == "assembled" || build.Status == "cancelled" {
+		writeError(w, http.StatusConflict, "build must not be assembled or cancelled", "INVALID_BUILD_STATUS")
 		return
 	}
 
 	// Check for an existing in-progress kitting session for this build.
-	existing, err := h.Queries.GetActiveKittingSessionForBuild(r.Context(), buildID)
+	existing, err := qtx.GetActiveKittingSessionForBuild(r.Context(), buildID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -2543,8 +2556,32 @@ func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Seed from BOM demand, not build_part_allocations: allocations only exist
+	// once a build reaches ready/ordered, which would leave draft and pending
+	// builds with an empty, inert kitting session.
+	demand, err := computeBuildDemand(r.Context(), qtx, build, buildID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if len(demand) == 0 {
+		writeError(w, http.StatusConflict, "build has no resolved parts to kit", "EMPTY_KITTING")
+		return
+	}
+	partIDs := make([]pgtype.UUID, 0, len(demand))
+	quantities := make([]int32, 0, len(demand))
+	for _, partStr := range slices.Sorted(maps.Keys(demand)) {
+		var partID pgtype.UUID
+		if err := partID.Scan(partStr); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		partIDs = append(partIDs, partID)
+		quantities = append(quantities, demand[partStr])
+	}
+
 	// Create kitting session and seed confirmations.
-	ks, err := h.Queries.CreateKittingSession(r.Context(), dbgen.CreateKittingSessionParams{
+	ks, err := qtx.CreateKittingSession(r.Context(), dbgen.CreateKittingSessionParams{
 		ScanSessionID: sessionID,
 		BuildID:       buildID,
 		TeamID:        teamID,
@@ -2554,10 +2591,16 @@ func (h *Handler) StartKitting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.SeedKittingConfirmations(r.Context(), dbgen.SeedKittingConfirmationsParams{
+	if err := qtx.SeedKittingConfirmations(r.Context(), dbgen.SeedKittingConfirmationsParams{
 		KittingSessionID: ks.ID,
-		BuildID:          buildID,
+		PartIds:          partIDs,
+		Quantities:       quantities,
 	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}

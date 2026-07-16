@@ -4,10 +4,16 @@ VALUES ($1, $2, $3)
 RETURNING id, scan_session_id, build_id, team_id, status, created_at, completed_at;
 
 -- name: SeedKittingConfirmations :exec
+-- Seeds one confirmation row per part from BOM demand computed in Go
+-- (computeBuildDemand). Kitting must work for any non-terminal build status,
+-- so it cannot seed from build_part_allocations, which only exist once a
+-- build reaches ready/ordered.
 INSERT INTO build_kitting_confirmations (kitting_session_id, part_id, quantity_needed)
-SELECT @kitting_session_id, bpa.part_id, bpa.quantity_needed
-FROM build_part_allocations bpa
-WHERE bpa.build_id = @build_id;
+SELECT @kitting_session_id, u.part_id, u.quantity_needed
+FROM (
+    SELECT unnest(@part_ids::uuid[])   AS part_id,
+           unnest(@quantities::int[]) AS quantity_needed
+) u;
 
 -- name: GetKittingSession :one
 SELECT
