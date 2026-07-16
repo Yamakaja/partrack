@@ -89,6 +89,11 @@ ORDER BY
     COALESCE(lp.path, sl.label) NULLS LAST,
     p.mpn NULLS LAST;
 
+-- name: GetKittingConfirmation :one
+SELECT id, kitting_session_id, part_id, quantity_needed, quantity_confirmed, status
+FROM build_kitting_confirmations
+WHERE kitting_session_id = @kitting_session_id AND part_id = @part_id;
+
 -- name: UpsertKittingConfirmation :one
 UPDATE build_kitting_confirmations
 SET status             = @status,

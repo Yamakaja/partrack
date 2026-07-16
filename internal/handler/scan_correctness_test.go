@@ -415,3 +415,102 @@ func TestStartKitting_DraftBuildSeedsFromBOM(t *testing.T) {
 		t.Errorf("empty-demand build: expected 409 EMPTY_KITTING, got %d %v", status, body)
 	}
 }
+
+// Kitting mutations must (a) validate quantities server-side (not trust the
+// phone) and (b) refuse to act on a session that is no longer in_progress.
+// The nastiest case: abandon on a COMPLETED session retroactively hides it
+// (GetLatestKittingSessionForBuild excludes abandoned), silently killing the
+// checkout hand-off. Review Area 5 H4 + L13.
+func TestKittingMutations_ValidateQtyAndSessionState(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	ctx := context.Background()
+
+	user := testutil.CreateUser(t, testDB, "ci-kit-guard@example.com", "pw", "User")
+	team := testutil.CreateTeam(t, testDB, user, "member", "Team A")
+	apiTok := testutil.CreateAPIToken(t, testDB, user, "desktop")
+
+	project := testutil.CreateProject(t, testDB, team, user, "KitGuardProj")
+	rev := testutil.CreateRevision(t, testDB, project, user, "vG1")
+	partA := testutil.CreatePart(t, testDB, "team", "MPN-GUARD-A", &team)
+	partB := testutil.CreatePart(t, testDB, "team", "MPN-GUARD-B", &team)
+	itemA := testutil.CreateBOMLineItem(t, testDB, rev, "R1", 2) // needed = 2 × 5 = 10
+	itemB := testutil.CreateBOMLineItem(t, testDB, rev, "C1", 3) // needed = 3 × 5 = 15
+	testutil.ResolveBOMLineItem(t, testDB, itemA, partA)
+	testutil.ResolveBOMLineItem(t, testDB, itemB, partB)
+	build := testutil.CreateBuild(t, testDB, project, rev, team, user, 5, "pending")
+
+	scanTok := testutil.CreateScanSession(t, testDB, user, team)
+	var scanID string
+	if err := testDB.QueryRow(ctx,
+		`SELECT id FROM scan_sessions WHERE user_id=$1 AND team_id=$2`, user, team).Scan(&scanID); err != nil {
+		t.Fatalf("look up scan session id: %v", err)
+	}
+
+	start, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/teams/"+team+"/scan-sessions/"+scanID+"/kitting",
+		map[string]any{"build_id": build}, apiTok)
+	if status != http.StatusCreated {
+		t.Fatalf("StartKitting: expected 201, got %d (%v)", status, start)
+	}
+	ks, _ := start["kitting_session_id"].(string)
+	shortfallURL := "/api/v1/scan/kitting/" + ks + "/shortfall"
+	confirmURL := "/api/v1/scan/kitting/" + ks + "/confirm"
+
+	// (L13) Shortfall validation on the in-progress session.
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost, shortfallURL,
+		map[string]any{"part_id": partA, "quantity_available": -1}, scanTok)
+	if status != http.StatusBadRequest {
+		t.Errorf("negative shortfall: expected 400, got %d", status)
+	}
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost, shortfallURL,
+		map[string]any{"part_id": partA, "quantity_available": 10}, scanTok) // == needed
+	if status != http.StatusConflict {
+		t.Errorf("shortfall == needed (really a confirm): expected 409, got %d", status)
+	}
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost, shortfallURL,
+		map[string]any{"part_id": partA, "quantity_available": 8}, scanTok)
+	if status != http.StatusOK {
+		t.Errorf("valid shortfall: expected 200, got %d", status)
+	}
+
+	// (L13) Confirm validation.
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost, confirmURL,
+		map[string]any{"part_id": partB, "quantity_confirmed": -1}, scanTok)
+	if status != http.StatusBadRequest {
+		t.Errorf("negative confirm: expected 400, got %d", status)
+	}
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost, confirmURL,
+		map[string]any{"part_id": partB, "quantity_confirmed": 15}, scanTok)
+	if status != http.StatusOK {
+		t.Errorf("valid confirm: expected 200, got %d", status)
+	}
+
+	// Complete the session.
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/scan/kitting/"+ks+"/complete", nil, scanTok)
+	if status != http.StatusOK {
+		t.Fatalf("complete: expected 200, got %d", status)
+	}
+
+	// (H4) Mutations on a completed session must be rejected, not silently applied.
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPost, confirmURL,
+		map[string]any{"part_id": partB, "quantity_confirmed": 5}, scanTok)
+	if status != http.StatusConflict {
+		t.Errorf("confirm on completed session: expected 409, got %d", status)
+	}
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		"/api/v1/scan/kitting/"+ks+"/abandon", nil, scanTok)
+	if status != http.StatusConflict || body["code"] != "KITTING_NOT_ACTIVE" {
+		t.Errorf("abandon on completed session: expected 409 KITTING_NOT_ACTIVE, got %d %v", status, body)
+	}
+
+	// The completed session must remain the latest (not retroactively abandoned).
+	var latestStatus string
+	if err := testDB.QueryRow(ctx,
+		`SELECT status FROM build_kitting_sessions WHERE id = $1`, ks).Scan(&latestStatus); err != nil {
+		t.Fatalf("re-read session status: %v", err)
+	}
+	if latestStatus != "completed" {
+		t.Errorf("session status = %q, want completed (abandon must not have applied)", latestStatus)
+	}
+}

@@ -400,11 +400,18 @@ export function getKittingItems(kittingSessionId: string): Promise<{ items: Kitt
   return scanRequest('GET', `/api/v1/scan/kitting/${kittingSessionId}/items`);
 }
 
+export interface KittingItemResult {
+  part_id: string;
+  quantity_needed: number;
+  quantity_confirmed: number;
+  status: 'pending' | 'confirmed' | 'shortfall' | 'skipped';
+}
+
 export function kittingConfirm(
   kittingSessionId: string,
   partId: string,
   quantityConfirmed: number,
-): Promise<{ item: unknown; progress: KittingProgress }> {
+): Promise<{ item: KittingItemResult; progress: KittingProgress }> {
   return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/confirm`, {
     part_id: partId,
     quantity_confirmed: quantityConfirmed,
@@ -415,7 +422,7 @@ export function kittingShortfall(
   kittingSessionId: string,
   partId: string,
   quantityAvailable: number,
-): Promise<{ item: unknown; progress: KittingProgress }> {
+): Promise<{ item: KittingItemResult; progress: KittingProgress }> {
   return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/shortfall`, {
     part_id: partId,
     quantity_available: quantityAvailable,

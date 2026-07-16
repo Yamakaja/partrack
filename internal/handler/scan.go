@@ -2648,6 +2648,20 @@ func (h *Handler) kittingSessionFromToken(r *http.Request, kittingSessionID pgty
 	return sess, &ks, nil
 }
 
+// kittingActive guards mutations against a session that is no longer being
+// picked. Acting on a completed/abandoned session would silently corrupt the
+// record — e.g. abandoning a completed session retroactively hides it from the
+// desktop (GetLatestKittingSessionForBuild excludes abandoned), killing the
+// checkout hand-off. The handler re-reads status per request, so this catches a
+// stale phone screen. Writes a 409 and returns false when not in progress.
+func kittingActive(w http.ResponseWriter, ks *dbgen.GetKittingSessionRow) bool {
+	if ks.Status != "in_progress" {
+		writeError(w, http.StatusConflict, "kitting session is no longer active", "KITTING_NOT_ACTIVE")
+		return false
+	}
+	return true
+}
+
 // kittingProgress fetches progress counts and returns them as a map.
 func (h *Handler) kittingProgress(ctx context.Context, kittingSessionID pgtype.UUID) (map[string]int32, error) {
 	rows, err := h.Queries.GetKittingProgress(ctx, kittingSessionID)
@@ -2807,6 +2821,9 @@ func (h *Handler) KittingConfirm(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
 		return
 	}
+	if !kittingActive(w, ks) {
+		return
+	}
 
 	var body struct {
 		PartID            string `json:"part_id"`
@@ -2814,6 +2831,10 @@ func (h *Handler) KittingConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PartID == "" {
 		writeError(w, http.StatusBadRequest, "part_id is required", "BAD_REQUEST")
+		return
+	}
+	if body.QuantityConfirmed < 0 {
+		writeError(w, http.StatusBadRequest, "quantity_confirmed must be >= 0", "BAD_REQUEST")
 		return
 	}
 	var partID pgtype.UUID
@@ -2888,6 +2909,9 @@ func (h *Handler) KittingShortfall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
 		return
 	}
+	if !kittingActive(w, ks) {
+		return
+	}
 
 	var body struct {
 		PartID            string `json:"part_id"`
@@ -2897,9 +2921,32 @@ func (h *Handler) KittingShortfall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "part_id is required", "BAD_REQUEST")
 		return
 	}
+	if body.QuantityAvailable < 0 {
+		writeError(w, http.StatusBadRequest, "quantity_available must be >= 0", "BAD_REQUEST")
+		return
+	}
 	var partID pgtype.UUID
 	if err := partID.Scan(body.PartID); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid part_id", "BAD_REQUEST")
+		return
+	}
+
+	// A shortfall means fewer on hand than needed; an amount >= needed is a
+	// confirm, not a shortfall. Validate against the seeded quantity_needed.
+	conf, err := h.Queries.GetKittingConfirmation(r.Context(), dbgen.GetKittingConfirmationParams{
+		KittingSessionID: ks.ID,
+		PartID:           partID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "kitting item not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if body.QuantityAvailable >= conf.QuantityNeeded {
+		writeError(w, http.StatusConflict, "quantity_available meets or exceeds the amount needed — confirm instead of recording a shortfall", "NOT_A_SHORTFALL")
 		return
 	}
 
@@ -2969,6 +3016,9 @@ func (h *Handler) KittingComplete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
 		return
 	}
+	if !kittingActive(w, ks) {
+		return
+	}
 
 	if err := h.Queries.CompleteKittingSession(r.Context(), ks.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -3008,6 +3058,9 @@ func (h *Handler) KittingAbandon(w http.ResponseWriter, r *http.Request) {
 	}
 	if ks == nil {
 		writeError(w, http.StatusNotFound, "kitting session not found", "NOT_FOUND")
+		return
+	}
+	if !kittingActive(w, ks) {
 		return
 	}
 

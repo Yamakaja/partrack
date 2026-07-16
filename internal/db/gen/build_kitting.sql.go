@@ -104,6 +104,40 @@ func (q *Queries) GetActiveKittingSessionForScanSession(ctx context.Context, sca
 	return i, err
 }
 
+const getKittingConfirmation = `-- name: GetKittingConfirmation :one
+SELECT id, kitting_session_id, part_id, quantity_needed, quantity_confirmed, status
+FROM build_kitting_confirmations
+WHERE kitting_session_id = $1 AND part_id = $2
+`
+
+type GetKittingConfirmationParams struct {
+	KittingSessionID pgtype.UUID `json:"kitting_session_id"`
+	PartID           pgtype.UUID `json:"part_id"`
+}
+
+type GetKittingConfirmationRow struct {
+	ID                pgtype.UUID `json:"id"`
+	KittingSessionID  pgtype.UUID `json:"kitting_session_id"`
+	PartID            pgtype.UUID `json:"part_id"`
+	QuantityNeeded    int32       `json:"quantity_needed"`
+	QuantityConfirmed int32       `json:"quantity_confirmed"`
+	Status            string      `json:"status"`
+}
+
+func (q *Queries) GetKittingConfirmation(ctx context.Context, arg GetKittingConfirmationParams) (GetKittingConfirmationRow, error) {
+	row := q.db.QueryRow(ctx, getKittingConfirmation, arg.KittingSessionID, arg.PartID)
+	var i GetKittingConfirmationRow
+	err := row.Scan(
+		&i.ID,
+		&i.KittingSessionID,
+		&i.PartID,
+		&i.QuantityNeeded,
+		&i.QuantityConfirmed,
+		&i.Status,
+	)
+	return i, err
+}
+
 const getKittingItems = `-- name: GetKittingItems :many
 WITH RECURSIVE loc_path AS (
     SELECT sl.id, sl.label, sl.parent_id, sl.label AS path

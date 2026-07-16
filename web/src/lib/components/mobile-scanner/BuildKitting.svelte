@@ -78,7 +78,7 @@
       session = { ...session!, progress: res.progress };
       items = items.map((i) =>
         i.part_id === item.part_id
-          ? { ...i, status: 'confirmed', quantity_confirmed: item.quantity_needed }
+          ? { ...i, status: res.item.status, quantity_confirmed: res.item.quantity_confirmed }
           : i,
       );
       activeItemId = null;
@@ -100,7 +100,7 @@
       session = { ...session!, progress: res.progress };
       items = items.map((i) =>
         i.part_id === item.part_id
-          ? { ...i, status: 'shortfall', quantity_confirmed: qty }
+          ? { ...i, status: res.item.status, quantity_confirmed: res.item.quantity_confirmed }
           : i,
       );
       activeItemId = null;

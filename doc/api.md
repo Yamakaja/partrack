@@ -414,8 +414,8 @@ Phone endpoints take the scan token as an `Authorization: Bearer scan_...` heade
 | POST | `/scan/bulk/sessions/{sessionId}/navigate` | Push `scan_focus_requested` to desktop with `entity_type=bulk_scan_session`. Returns 204 or 409 if offline. |
 | GET | `/scan/kitting/{kittingSessionId}` | Get kitting session info + progress counts. Returns `{session:{id,build_id,build_ref,status}, progress:{pending,confirmed,shortfall,skipped}}`. |
 | GET | `/scan/kitting/{kittingSessionId}/items` | List kitting items with storage location. Returns `{items:[{part_id,part_mpn,part_manufacturer,part_description,quantity_needed,quantity_confirmed,status,storage_location_id,storage_location_path,storage_coordinate}]}`. |
-| POST | `/scan/kitting/{kittingSessionId}/confirm` | Mark item confirmed. Body: `{part_id, quantity_confirmed}`. Returns `{item, progress}`. |
-| POST | `/scan/kitting/{kittingSessionId}/shortfall` | Mark item shortfall. Body: `{part_id, quantity_available}`. Returns `{item, progress}`. |
+| POST | `/scan/kitting/{kittingSessionId}/confirm` | Mark item confirmed. Body: `{part_id, quantity_confirmed}` (`quantity_confirmed` >= 0). Returns `{item, progress}`. All four kitting mutations 409 `KITTING_NOT_ACTIVE` if the session is not `in_progress`. |
+| POST | `/scan/kitting/{kittingSessionId}/shortfall` | Mark item shortfall. Body: `{part_id, quantity_available}` (0 <= `quantity_available` < `quantity_needed`; 409 `NOT_A_SHORTFALL` if it meets/exceeds need — that's a confirm). Returns `{item, progress}`. |
 | POST | `/scan/kitting/{kittingSessionId}/complete` | Complete kitting session. Returns `{progress}`. |
 | POST | `/scan/kitting/{kittingSessionId}/abandon` | Abandon kitting session. Returns 204. |
 
