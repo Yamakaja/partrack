@@ -12,6 +12,7 @@
 - [Storage](storage.md)
 - [Projects & BOMs](projects-bom.md)
 - [Shopping cart](cart.md)
+- [Lists](lists.md)
 - [Orders](orders.md)
 - [Builds](builds.md)
 - [Scanning](scanning.md)

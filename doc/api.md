@@ -307,6 +307,7 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 | GET | `/cart` | purchaser | Full cart with items, listings, and build demands per item |
 | DELETE | `/cart` | purchaser | Clear all items; 204 |
 | POST | `/cart/items` | purchaser | `{part_id, quantity, listing_id?, source?}` → 201 |
+| POST | `/cart/items/bulk` | purchaser | `{items: [{part_id, quantity, listing_id?}]}` → `{added}`. Upserts all items in one tx (quantities merge per part, `source=manual`); one `cart_changed` event. Used by "Add from list". |
 | PATCH | `/cart/items/{itemId}` | purchaser | `{quantity?, listing_id?}` → 204. Demand floors enforced for `bom_shortfall`/`inventory_maintenance` sources. |
 | DELETE | `/cart/items/{itemId}` | purchaser | Remove item; 204 |
 | POST | `/cart/add-low-stock` | purchaser | Add items to reach reorder levels → `{added_count}` |
@@ -352,12 +353,32 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 | GET | `/checkouts/{checkoutId}` | viewer | Checkout + items (part details + stock adjustment IDs) |
 | POST | `/checkouts` | member | `{reason?, notes?, items: [{inventory_entry_id or part_id, quantity, reconcile_to?}]}` → 201 `{id, performed_at, reason, items, reservation_warnings?}`. Returns 409 with `insufficient_items` if stock insufficient. |
 
+### Part Collections ("Lists")
+
+User-private within a team: every route filters to the acting user, so one member's
+lists are invisible to teammates (foreign ids → 404). Items reference resolved catalog
+parts only (global or this team's; foreign team-scoped parts → 403). All mutations
+publish a `collection_changed` SSE event **targeted at the owner only** (delivered to
+all of the owner's connections, nobody else's).
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/collections` | member | Own lists, recently-used first → `{collections: [{id, name, archived, collect_capture_qty, created_at, updated_at, item_count, total_quantity, unquantified_count}]}`. Query: `archived=true` includes archived. |
+| POST | `/collections` | member | `{name?}` → 201. Blank name is auto-named ("Untitled list — Jul 17"). |
+| GET | `/collections/{collectionId}` | member | List + items in insertion order → `{..., items: [{id, part_id, quantity, note, mpn, manufacturer, description, lifecycle_status}]}` |
+| PATCH | `/collections/{collectionId}` | member | `{name?, archived?, collect_capture_qty?}` → updated list |
+| DELETE | `/collections/{collectionId}` | member | Hard delete; 204 (archive via PATCH is the soft path) |
+| POST | `/collections/{collectionId}/items` | member | `{part_id, quantity?, note?}` → 201. Upsert-merge: an incoming quantity **sums** onto the row (NULL counts as 0); a bare add leaves the stored quantity untouched. Quantity must be > 0 when present (NULL = "no quantity recorded"). |
+| POST | `/collections/{collectionId}/items/bulk` | member | `{items: [{part_id, quantity?, note?}]}` → `{added}`. Same merge rule, one tx + one event. Used by "Add from cart". |
+| PATCH | `/collections/{collectionId}/items/{itemId}` | member | `{quantity?, note?}` — set-if-present: explicit `null` clears the field, absent leaves it untouched |
+| DELETE | `/collections/{collectionId}/items/{itemId}` | member | Remove row; 204 |
+
 ### Search & Events
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/search?q=` | viewer | Full-text search across parts, projects, BOM revisions, orders, builds, storage (min 2 chars). Returns `{parts, projects, revisions, orders, builds, storage_locations}` |
-| GET | `/events` | viewer | SSE stream. Events: `part_changed`, `inventory_changed`, `cart_changed`, `order_changed`, `storage_changed`, `project_changed`, `revision_changed`, `build_changed`. Events from the acting user's own actions are skipped. |
+| GET | `/events` | viewer | SSE stream. Events: `part_changed`, `inventory_changed`, `cart_changed`, `order_changed`, `storage_changed`, `project_changed`, `revision_changed`, `build_changed`. Events from the acting user's own actions are skipped. Exception: `collection_changed` is delivered ONLY to the owning user (all their connections, including the acting one) since collections are private. |
 
 ---
 

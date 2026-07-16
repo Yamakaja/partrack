@@ -2,6 +2,7 @@
   import { type Snippet } from 'svelte';
   import Sidebar from './Sidebar.svelte';
   import ActivityFeedPanel from './ActivityFeedPanel.svelte';
+  import ListPanel from '$lib/components/lists/ListPanel.svelte';
   import HelpDrawer from '$lib/components/help/HelpDrawer.svelte';
   import WhatsNewDialog from '$lib/components/whatsnew/WhatsNewDialog.svelte';
   import Tour from '$lib/components/tour/Tour.svelte';
@@ -15,6 +16,8 @@
   let unsubSSE: (() => void) | null = null;
 
   const teamId = $derived(activeTeamStore.current?.teamId ?? '');
+  // Lists are member+ (viewers can't create collections server-side).
+  const canUseLists = $derived((activeTeamStore.current?.role ?? 'viewer') !== 'viewer');
 
   // ── Mount check + SSE subscription ──────────────────────────────────────
 
@@ -71,6 +74,10 @@
     <ActivityFeedPanel {teamId} />
   {/if}
 </div>
+
+{#if teamId && canUseLists}
+  <ListPanel {teamId} />
+{/if}
 
 <HelpDrawer />
 <WhatsNewDialog />

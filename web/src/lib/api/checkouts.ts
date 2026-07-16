@@ -14,9 +14,11 @@ export interface InsufficientCheckoutItem {
   quantity_requested: number;
 }
 
+// Items may reference either an inventory entry or (fallback) a bare part id —
+// the server resolves part_id to the team's inventory entry when one exists.
 export function createCheckout(teamId: string, body: {
   reason?: string;
-  items: { inventory_entry_id: string; quantity: number; reconcile_to?: number }[];
+  items: { inventory_entry_id?: string; part_id?: string; quantity: number; reconcile_to?: number }[];
 }) {
   return request<GeneralCheckout>('POST', `/api/v1/teams/${teamId}/checkouts`, body);
 }

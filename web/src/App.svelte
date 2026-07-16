@@ -35,6 +35,7 @@
   import Builds from './routes/team/Builds.svelte';
   import BuildDetail from './routes/team/BuildDetail.svelte';
   import Checkouts from './routes/team/Checkouts.svelte';
+  import Lists from './routes/team/Lists.svelte';
   import TeamSettings from './routes/team/settings/Team.svelte';
   import Members from './routes/team/settings/Members.svelte';
   import Distributors from './routes/team/settings/Distributors.svelte';
@@ -86,6 +87,7 @@
     { pattern: '/teams/:teamId/builds/:buildId',                                          component: BuildDetail },
     { pattern: '/teams/:teamId/builds',                                                   component: Builds },
     { pattern: '/teams/:teamId/checkouts',                                                component: Checkouts },
+    { pattern: '/teams/:teamId/lists',                                                    component: Lists },
     { pattern: '/teams/:teamId/bulk-scan/:sessionId',                                     component: BulkScanReview },
     { pattern: '/teams/:teamId/bulk-scan',                                                component: BulkScan },
     { pattern: '/teams/:teamId/settings/members',                                         component: Members },

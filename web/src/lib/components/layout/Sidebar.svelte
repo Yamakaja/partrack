@@ -142,6 +142,13 @@
           <span class="ml-auto text-xs font-medium tabular-nums bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 leading-none">{bulkScanCount}</span>
         {/if}
       </a>
+      {#if activeTeam.role !== 'viewer'}
+        <a href={teamPath('lists')} use:linkAction
+          class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
+            {isActive(teamPath('lists')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
+          Lists
+        </a>
+      {/if}
 
       <div class="mt-1 border-t border-border pt-3 pb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</div>
 

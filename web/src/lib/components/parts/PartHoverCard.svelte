@@ -1,12 +1,16 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
+  import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { LinkPreview } from 'bits-ui';
-  import { Cpu } from 'lucide-svelte';
+  import { Check, Cpu, ListPlus } from 'lucide-svelte';
   import { getPart } from '$lib/api/parts.js';
   import { listCategories } from '$lib/api/categories.js';
+  import { listCollections, createCollection, addCollectionItem } from '$lib/api/collections.js';
   import { linkAction } from '$lib/router/index.svelte.js';
   import { formatSI } from '$lib/utils/si.js';
   import { coordLabel } from '$lib/components/mobile-scanner/locationUtils.js';
+  import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
+  import { listPanelStore, setActiveList } from '$lib/stores/listPanel.svelte.js';
+  import { pushToast } from '$lib/stores/toasts.svelte.js';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
   import type { Part, Parameter, StorageLocationRef } from '$lib/types/parts.js';
   import type { Category } from '$lib/types/categories.js';
@@ -36,6 +40,52 @@
     staleTime: Infinity,
     enabled: open,
   }));
+
+  // "Add to list": the hover card is mounted on every part reference in the
+  // app, so this one affordance makes any part anywhere addable to the active
+  // list. Bare membership (no quantity) — counts are set on the list itself.
+  const qc = useQueryClient();
+  const canUseLists = $derived(
+    !!teamId &&
+      activeTeamStore.current?.teamId === teamId &&
+      (activeTeamStore.current?.role ?? 'viewer') !== 'viewer',
+  );
+  const collectionsQuery = createQuery(() => ({
+    queryKey: ['collections', teamId],
+    queryFn: () => listCollections(teamId!),
+    enabled: open && canUseLists,
+    staleTime: 30_000,
+  }));
+  const activeList = $derived(
+    collectionsQuery.data?.collections.find((c) => c.id === listPanelStore.activeListId) ?? null,
+  );
+
+  let addBusy = $state(false);
+  let justAdded = $state(false);
+
+  async function addToList(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!teamId || addBusy) return;
+    addBusy = true;
+    try {
+      let listId = listPanelStore.activeListId;
+      if (!listId) {
+        const created = await createCollection(teamId);
+        setActiveList(created.id);
+        listId = created.id;
+      }
+      await addCollectionItem(teamId, listId, { part_id: partId });
+      qc.invalidateQueries({ queryKey: ['collections', teamId] });
+      qc.invalidateQueries({ queryKey: ['collection', teamId, listId] });
+      justAdded = true;
+      setTimeout(() => (justAdded = false), 1500);
+    } catch (err) {
+      pushToast('error', err instanceof Error ? err.message : 'Could not add to list');
+    } finally {
+      addBusy = false;
+    }
+  }
 
   interface Spec {
     slug: string;
@@ -157,6 +207,24 @@
           <div class="flex items-center gap-2">
             <span class={part.mpn ? 'font-mono text-[13px] font-semibold' : 'text-[13px] font-medium italic'}>{title}</span>
             <LifecycleBadge status={part.lifecycle_status} />
+            {#if canUseLists}
+              <button
+                onclick={addToList}
+                disabled={addBusy}
+                title={justAdded
+                  ? 'Added'
+                  : activeList
+                    ? `Add to “${activeList.name}”`
+                    : 'Add to a new list'}
+                class="ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              >
+                {#if justAdded}
+                  <Check class="h-3.5 w-3.5 text-success" />
+                {:else}
+                  <ListPlus class="h-3.5 w-3.5" />
+                {/if}
+              </button>
+            {/if}
           </div>
           {#if subtitle}
             <p class="truncate text-[11.5px] text-muted-foreground">{subtitle}</p>

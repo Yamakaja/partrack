@@ -95,6 +95,17 @@ export function activateTeamInvalidation(teamId: string) {
       qc!.invalidateQueries({ queryKey: ['checkouts', teamId] });
     }),
 
+    // Private to the acting user: the server targets delivery at the owner, so
+    // this only ever fires for your own lists (e.g. edited in another tab, or
+    // the phone scanning into one).
+    subscribeSSEType(teamId, 'collection_changed', (ev) => {
+      qc!.invalidateQueries({ queryKey: ['collections', teamId] });
+      const collectionId = ev.data.collection_id as string | undefined;
+      if (collectionId) {
+        qc!.invalidateQueries({ queryKey: ['collection', teamId, collectionId] });
+      }
+    }),
+
     subscribeSSEType(teamId, 'activity_changed', () => {
       qc!.invalidateQueries({ queryKey: ['activity-log', teamId] });
     }),

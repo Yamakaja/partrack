@@ -8,12 +8,15 @@
     value = $bindable<PartSummary | null>(null),
     placeholder = 'Search parts by MPN…',
     initialQuery = '',
+    dropUp = false,
     onselect,
   }: {
     teamId?: string;
     value?: PartSummary | null;
     placeholder?: string;
     initialQuery?: string;
+    /** Open the results above the input (for pickers near the bottom of the viewport). */
+    dropUp?: boolean;
     onselect?: (part: PartSummary) => void;
   } = $props();
 
@@ -70,7 +73,7 @@
     />
   </div>
   {#if open && results.length > 0}
-    <ul class="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-60 overflow-y-auto">
+    <ul class="absolute z-50 w-full rounded-md border border-border bg-popover shadow-md max-h-60 overflow-y-auto {dropUp ? 'bottom-full mb-1' : 'mt-1'}">
       {#each results as part (part.id)}
         <li>
           <button

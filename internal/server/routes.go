@@ -331,6 +331,18 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// Checkouts
 					r.Post("/checkouts", h.CreateCheckout)
 
+					// Part collections ("Lists") — user-private within the team;
+					// every handler filters to the acting user.
+					r.Get("/collections", h.ListCollections)
+					r.Post("/collections", h.CreateCollection)
+					r.Get("/collections/{collectionId}", h.GetCollection)
+					r.Patch("/collections/{collectionId}", h.UpdateCollection)
+					r.Delete("/collections/{collectionId}", h.DeleteCollection)
+					r.Post("/collections/{collectionId}/items", h.AddCollectionItem)
+					r.Post("/collections/{collectionId}/items/bulk", h.BulkAddCollectionItems)
+					r.Patch("/collections/{collectionId}/items/{itemId}", h.UpdateCollectionItem)
+					r.Delete("/collections/{collectionId}/items/{itemId}", h.DeleteCollectionItem)
+
 					// Scan sessions (member+) — literal path before wildcard
 					r.Post("/scan-sessions", h.CreateScanSession)
 					r.Get("/scan-sessions/active", h.GetActiveScanSession)
@@ -363,6 +375,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Get("/cart", h.GetCart)
 					r.Delete("/cart", h.ClearCart)
 					r.Post("/cart/items", h.AddCartItem)
+					r.Post("/cart/items/bulk", h.BulkAddCartItems)
 					r.Patch("/cart/items/{itemId}", h.UpdateCartItem)
 					r.Delete("/cart/items/{itemId}", h.RemoveCartItem)
 					r.Post("/cart/add-low-stock", h.AddLowStock)

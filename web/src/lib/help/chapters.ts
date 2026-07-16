@@ -66,6 +66,11 @@ export const CHAPTERS: Chapter[] = [
     routes: ['/teams/:teamId/cart'],
   },
   {
+    slug: 'lists',
+    title: 'Lists',
+    routes: ['/teams/:teamId/lists'],
+  },
+  {
     slug: 'orders',
     title: 'Orders',
     routes: ['/teams/:teamId/orders', '/teams/:teamId/orders/:orderId'],

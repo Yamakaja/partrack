@@ -804,6 +804,25 @@ type PartAlias struct {
 	Alias  string      `json:"alias"`
 }
 
+type PartCollection struct {
+	ID                pgtype.UUID        `json:"id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	TeamID            pgtype.UUID        `json:"team_id"`
+	Name              string             `json:"name"`
+	Archived          bool               `json:"archived"`
+	CollectCaptureQty *bool              `json:"collect_capture_qty"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PartCollectionItem struct {
+	ID           pgtype.UUID `json:"id"`
+	CollectionID pgtype.UUID `json:"collection_id"`
+	PartID       pgtype.UUID `json:"part_id"`
+	Quantity     *int32      `json:"quantity"`
+	Note         *string     `json:"note"`
+}
+
 type PartNote struct {
 	TeamID    pgtype.UUID        `json:"team_id"`
 	PartID    pgtype.UUID        `json:"part_id"`

@@ -19,6 +19,13 @@ export function addCartItem(teamId: string, body: { part_id: string; quantity: n
   return request<CartItem>('POST', `/api/v1/teams/${teamId}/cart/items`, body);
 }
 
+export function bulkAddCartItems(
+  teamId: string,
+  items: { part_id: string; quantity: number; listing_id?: string }[],
+) {
+  return request<{ added: number }>('POST', `/api/v1/teams/${teamId}/cart/items/bulk`, { items });
+}
+
 export function updateCartItem(teamId: string, itemId: string, body: { quantity?: number; listing_id?: string | null }) {
   return request<CartItem>('PATCH', `/api/v1/teams/${teamId}/cart/items/${itemId}`, body);
 }

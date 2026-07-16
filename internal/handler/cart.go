@@ -505,6 +505,98 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BulkAddCartItems handles POST /api/v1/teams/{teamId}/cart/items/bulk
+// Body: {items: [{part_id, quantity, listing_id?}]}. All items are upserted
+// (cart merge: quantities sum per part) in one transaction with a single
+// resolver invalidation and one cart_changed event — the batch counterpart of
+// AddCartItem, used by "Add from list".
+func (h *Handler) BulkAddCartItems(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
+		return
+	}
+
+	var body struct {
+		Items []struct {
+			PartID    string  `json:"part_id"`
+			Quantity  int32   `json:"quantity"`
+			ListingID *string `json:"listing_id"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	if len(body.Items) == 0 {
+		writeError(w, http.StatusBadRequest, "items is required and must not be empty", "BAD_REQUEST")
+		return
+	}
+
+	// Parse and validate everything before writing anything.
+	type parsedItem struct {
+		PartID    pgtype.UUID
+		Quantity  int32
+		ListingID pgtype.UUID
+	}
+	parsed := make([]parsedItem, 0, len(body.Items))
+	for _, it := range body.Items {
+		var pi parsedItem
+		if err := pi.PartID.Scan(it.PartID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid part_id: "+it.PartID, "BAD_REQUEST")
+			return
+		}
+		if it.Quantity <= 0 {
+			writeError(w, http.StatusBadRequest, "item quantity must be positive", "BAD_REQUEST")
+			return
+		}
+		pi.Quantity = it.Quantity
+		if it.ListingID != nil {
+			if err := pi.ListingID.Scan(*it.ListingID); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid listing_id", "BAD_REQUEST")
+				return
+			}
+		}
+		parsed = append(parsed, pi)
+	}
+
+	cart, err := h.Queries.GetOrCreateCart(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	for _, pi := range parsed {
+		if _, err := qtx.UpsertCartItem(r.Context(), dbgen.UpsertCartItemParams{
+			ShoppingCartID: cart.ID,
+			PartID:         pi.PartID,
+			Quantity:       pi.Quantity,
+			ListingID:      pi.ListingID,
+			Source:         dbgen.CartItemSourceManual,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.CartResolver.Invalidate(teamID.String())
+	h.publishCartChanged(r, teamID)
+	writeJSON(w, http.StatusOK, map[string]any{"added": len(parsed)})
+}
+
 // GetCartPartQuantity handles GET /api/v1/teams/{teamId}/cart/part-quantity
 // Query params: part_id (required), listing_id (optional)
 func (h *Handler) GetCartPartQuantity(w http.ResponseWriter, r *http.Request) {
