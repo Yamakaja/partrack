@@ -292,7 +292,7 @@
 
 <!-- ── LIST PICKER ─────────────────────────────────────────────────────────── -->
 {#if screen === 'picker'}
-  <div class="flex flex-1 flex-col">
+  <div class="flex flex-1 flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={onBack} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -337,7 +337,7 @@
 
 <!-- ── LIST DETAIL (browse: stock + locations) ─────────────────────────────── -->
 {:else if screen === 'detail' && selected}
-  <div class="flex flex-1 flex-col">
+  <div class="flex flex-1 flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={() => { screen = 'picker'; void refreshLists(); }} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

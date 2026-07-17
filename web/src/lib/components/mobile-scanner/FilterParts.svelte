@@ -177,7 +177,7 @@
 
 <!-- ── SOURCE PICKER ───────────────────────────────────────────────────────── -->
 {#if screen === 'source'}
-  <div class="flex flex-1 flex-col">
+  <div class="flex flex-1 flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={onBack} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -204,7 +204,7 @@
 
 <!-- ── LIST PICKER ─────────────────────────────────────────────────────────── -->
 {:else if screen === 'pick_list'}
-  <div class="flex flex-1 flex-col">
+  <div class="flex flex-1 flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={() => (screen = 'source')} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -233,7 +233,7 @@
 
 <!-- ── BUILD PICKER ────────────────────────────────────────────────────────── -->
 {:else if screen === 'pick_build'}
-  <div class="flex flex-1 flex-col">
+  <div class="flex flex-1 flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={() => (screen = 'source')} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -262,7 +262,7 @@
 
 <!-- ── ORDER PICKER (multi-select) ─────────────────────────────────────────── -->
 {:else if screen === 'pick_order'}
-  <div class="flex flex-1 flex-col">
+  <div class="flex flex-1 flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
       <button onclick={() => (screen = 'source')} aria-label="Back" class="text-zinc-400 active:text-white">
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
