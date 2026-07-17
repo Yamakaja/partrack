@@ -58,6 +58,8 @@ SELECT
     dl.part_id,
     p.mpn AS part_mpn,
     p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
+    p.image_url AS part_image_url,
     COALESCE(p.short_description, p.description) AS part_description,
     dl.sku, dl.packaging_type,
     oli.quantity_ordered, oli.quantity_received,

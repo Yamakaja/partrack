@@ -528,7 +528,15 @@
         <span class="font-mono text-xs">{String(value ?? '')}</span>
       {/snippet}
       {#snippet renderMpn(_value: unknown, row: OrderLineItem)}
-        <PartCell partId={row.part_id} mpn={row.part_mpn} {teamId} description={row.part_description} />
+        <PartCell
+          partId={row.part_id}
+          mpn={row.part_mpn}
+          {teamId}
+          manufacturer={row.part_manufacturer}
+          description={row.part_description}
+          lifecycle={row.part_lifecycle_status}
+          imageUrl={row.part_image_url}
+        />
       {/snippet}
       {#snippet renderUnitPrice(_value: unknown, row: OrderLineItem)}
         {@const dk = dkStatusBySku?.get(row.sku)}

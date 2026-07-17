@@ -57,6 +57,9 @@ WITH RECURSIVE descendants AS (
 SELECT
     ie.id, ie.team_id, ie.part_id,
     p.mpn AS part_mpn, p.description AS part_description,
+    p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
+    p.image_url AS part_image_url,
     ie.quantity_on_hand, ie.storage_location_id,
     ie.storage_coordinate,
     sl.label AS storage_location_label,

@@ -39,6 +39,7 @@ type collectionItemResponse struct {
 	Manufacturer    *string `json:"manufacturer"`
 	Description     string  `json:"description"`
 	LifecycleStatus string  `json:"lifecycle_status"`
+	ImageURL        *string `json:"image_url"`
 }
 
 func collectionToResponse(c dbgen.PartCollection) collectionResponse {
@@ -62,6 +63,7 @@ func collectionItemToResponse(it dbgen.ListPartCollectionItemsRow) collectionIte
 		Manufacturer:    it.Manufacturer,
 		Description:     it.PartDescription,
 		LifecycleStatus: string(it.LifecycleStatus),
+		ImageURL:        it.ImageUrl,
 	}
 }
 

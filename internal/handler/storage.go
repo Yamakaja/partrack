@@ -348,6 +348,9 @@ func (h *Handler) ListInventoryByLocation(w http.ResponseWriter, r *http.Request
 		TeamID               string  `json:"team_id"`
 		PartID               string  `json:"part_id"`
 		PartMpn              *string `json:"part_mpn"`
+		PartManufacturer     *string `json:"part_manufacturer"`
+		PartLifecycleStatus  string  `json:"part_lifecycle_status"`
+		PartImageURL         *string `json:"part_image_url"`
 		PartDescription      *string `json:"part_description"`
 		QuantityOnHand       int32   `json:"quantity_on_hand"`
 		StorageLocationID    *string `json:"storage_location_id"`
@@ -365,6 +368,9 @@ func (h *Handler) ListInventoryByLocation(w http.ResponseWriter, r *http.Request
 			TeamID:               row.TeamID.String(),
 			PartID:               row.PartID.String(),
 			PartMpn:              row.PartMpn,
+			PartManufacturer:     row.PartManufacturer,
+			PartLifecycleStatus:  string(row.PartLifecycleStatus),
+			PartImageURL:         row.PartImageUrl,
 			PartDescription:      row.PartDescription,
 			QuantityOnHand:       row.QuantityOnHand,
 			StorageCoordinate:    row.StorageCoordinate,

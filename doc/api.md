@@ -284,8 +284,7 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 |--------|------|------|-------------|
 | GET | `/builds` | viewer | List; query: `project_id?`, `status?` (repeatable), `created_by?`, `sort_by?` (`project_name`/`bom_revision_label`/`status`/`quantity`/`created_at`), `sort_dir?` (`asc`/`desc`), `limit`, `offset` |
 | GET | `/builds/pipeline` | viewer | Builds grouped by status: `{draft: [], pending: [], ordered: [], ready: []}` |
-| GET | `/builds/{buildId}` | viewer | Build details with `allocations`, `order_ids`, `substitute_selections`, `selections_stale`, `excluded_designators`, `line_item_overrides`, and (if assembled) `items` showing per-part deductions. Allocation and deduction items carry `part_mpn` + `part_description` (short description, falling back to full) |
-| POST | `/builds/preview` | member | `{bom_revision_id, quantity}` → ad-hoc preview without a saved build |
+| GET | `/builds/{buildId}` | viewer | Build details with `allocations`, `order_ids`, `substitute_selections`, `selections_stale`, `excluded_designators`, `line_item_overrides`, and (if assembled) `items` showing per-part deductions. Allocation and deduction items carry the full PartCell identity set — `part_mpn`, `part_manufacturer`, `part_lifecycle_status`, `part_image_url`, `part_description` (short description, falling back to full) |
 | GET | `/builds/{buildId}/preview` | viewer | Preview for a saved draft/pending build; accounts for `excluded_designators` and `line_item_overrides`. Items include `resolved_part_description`, `effective_quantity_per_board`, `effective_total_quantity`, `excluded_designator_count`, `override` (`use_available`/`skip`/`null`), `available_quantity` |
 | PUT | `/builds/{buildId}/excluded-designators` | member | `{designators: string[]}` — replace full excluded designator set (draft/pending only); recomputes cart shortfalls for pending builds; 200 |
 | PATCH | `/builds/{buildId}/line-item-overrides/{itemId}` | member | `{override_type: "use_available" \| "skip" \| null}` — set or clear stock override for a BOM line item (draft/pending only); null deletes the override; 200 |
@@ -365,7 +364,7 @@ all of the owner's connections, nobody else's).
 |--------|------|------|-------------|
 | GET | `/collections` | member | Own lists, recently-used first → `{collections: [{id, name, archived, collect_capture_qty, created_at, updated_at, item_count, total_quantity, unquantified_count}]}`. Query: `archived=true` includes archived. |
 | POST | `/collections` | member | `{name?}` → 201. Blank name is auto-named ("Untitled list — Jul 17"). |
-| GET | `/collections/{collectionId}` | member | List + items in insertion order → `{..., items: [{id, part_id, quantity, note, mpn, manufacturer, description, lifecycle_status}]}` |
+| GET | `/collections/{collectionId}` | member | List + items in insertion order → `{..., items: [{id, part_id, quantity, note, mpn, manufacturer, description, lifecycle_status, image_url}]}` |
 | PATCH | `/collections/{collectionId}` | member | `{name?, archived?, collect_capture_qty?}` → updated list |
 | DELETE | `/collections/{collectionId}` | member | Hard delete; 204 (archive via PATCH is the soft path) |
 | POST | `/collections/{collectionId}/items` | member | `{part_id, quantity?, note?}` → 201. Upsert-merge: an incoming quantity **sums** onto the row (NULL counts as 0); a bare add leaves the stored quantity untouched. Quantity must be > 0 when present (NULL = "no quantity recorded"). |

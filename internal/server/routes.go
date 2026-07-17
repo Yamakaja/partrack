@@ -330,7 +330,6 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/parts/{partId}/listings/{listingId}/refresh", h.RefreshListing)
 
 					// Builds
-					r.Post("/builds/preview", h.PreviewBuild)
 					r.Post("/builds", h.CreateBuild)
 					r.Post("/builds/{buildId}/submit", h.SubmitBuild)
 					r.Post("/builds/{buildId}/checkout", h.CheckoutBuild)

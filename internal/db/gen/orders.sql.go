@@ -434,6 +434,8 @@ SELECT
     dl.part_id,
     p.mpn AS part_mpn,
     p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
+    p.image_url AS part_image_url,
     COALESCE(p.short_description, p.description) AS part_description,
     dl.sku, dl.packaging_type,
     oli.quantity_ordered, oli.quantity_received,
@@ -446,18 +448,20 @@ ORDER BY oli.id
 `
 
 type GetOrderLineItemsRow struct {
-	ID                     pgtype.UUID    `json:"id"`
-	ListingID              pgtype.UUID    `json:"listing_id"`
-	PartID                 pgtype.UUID    `json:"part_id"`
-	PartMpn                *string        `json:"part_mpn"`
-	PartManufacturer       *string        `json:"part_manufacturer"`
-	PartDescription        *string        `json:"part_description"`
-	Sku                    string         `json:"sku"`
-	PackagingType          string         `json:"packaging_type"`
-	QuantityOrdered        int32          `json:"quantity_ordered"`
-	QuantityReceived       int32          `json:"quantity_received"`
-	UnitPriceSnapshot      pgtype.Numeric `json:"unit_price_snapshot"`
-	FixedOrderCostSnapshot pgtype.Numeric `json:"fixed_order_cost_snapshot"`
+	ID                     pgtype.UUID         `json:"id"`
+	ListingID              pgtype.UUID         `json:"listing_id"`
+	PartID                 pgtype.UUID         `json:"part_id"`
+	PartMpn                *string             `json:"part_mpn"`
+	PartManufacturer       *string             `json:"part_manufacturer"`
+	PartLifecycleStatus    PartLifecycleStatus `json:"part_lifecycle_status"`
+	PartImageUrl           *string             `json:"part_image_url"`
+	PartDescription        *string             `json:"part_description"`
+	Sku                    string              `json:"sku"`
+	PackagingType          string              `json:"packaging_type"`
+	QuantityOrdered        int32               `json:"quantity_ordered"`
+	QuantityReceived       int32               `json:"quantity_received"`
+	UnitPriceSnapshot      pgtype.Numeric      `json:"unit_price_snapshot"`
+	FixedOrderCostSnapshot pgtype.Numeric      `json:"fixed_order_cost_snapshot"`
 }
 
 func (q *Queries) GetOrderLineItems(ctx context.Context, orderID pgtype.UUID) ([]GetOrderLineItemsRow, error) {
@@ -475,6 +479,8 @@ func (q *Queries) GetOrderLineItems(ctx context.Context, orderID pgtype.UUID) ([
 			&i.PartID,
 			&i.PartMpn,
 			&i.PartManufacturer,
+			&i.PartLifecycleStatus,
+			&i.PartImageUrl,
 			&i.PartDescription,
 			&i.Sku,
 			&i.PackagingType,

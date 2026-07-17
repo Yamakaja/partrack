@@ -73,8 +73,10 @@
       partId={item.part_id}
       mpn={item.mpn}
       {teamId}
+      manufacturer={item.manufacturer}
       description={item.description}
       lifecycle={item.lifecycle_status}
+      imageUrl={item.image_url}
     />
     <div class="text-right">
       {#if editingQty}

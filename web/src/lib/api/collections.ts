@@ -23,6 +23,7 @@ export interface CollectionItem {
   manufacturer: string | null;
   description: string;
   lifecycle_status: string;
+  image_url: string | null;
 }
 
 export interface CollectionDetail {

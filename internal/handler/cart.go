@@ -52,6 +52,7 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 		"part_description":        i.PartDescription,
 		"part_short_description":  i.PartShortDescription,
 		"part_manufacturer":       i.PartManufacturer,
+		"part_lifecycle_status":   string(i.PartLifecycleStatus),
 		"part_category":           i.PartCategory,
 		"part_package":            i.PartPackage,
 		"part_product_url":        i.PartProductUrl,

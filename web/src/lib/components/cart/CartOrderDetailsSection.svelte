@@ -158,6 +158,8 @@
                 {teamId}
                 manufacturer={item.part_manufacturer}
                 description={item.part_short_description ?? item.part_description}
+                lifecycle={item.part_lifecycle_status}
+                imageUrl={item.part_image_url}
               />
             </TableCell>
             <TableCell class="text-muted-foreground text-sm">

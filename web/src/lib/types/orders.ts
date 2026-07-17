@@ -50,6 +50,7 @@ export interface CartItem {
   part_description: string | null;
   part_short_description: string | null;
   part_manufacturer: string | null;
+  part_lifecycle_status: string;
   part_category: string | null;
   part_package: string | null;
   part_product_url: string | null;
@@ -179,6 +180,8 @@ export interface OrderLineItem {
   part_id: string;
   part_mpn: string | null;
   part_manufacturer: string | null;
+  part_lifecycle_status: string;
+  part_image_url: string | null;
   part_description: string | null;
   distributor_name: string;
   sku: string;
@@ -233,6 +236,9 @@ export interface Build {
 export interface BuildPartAllocation {
   part_id: string;
   part_mpn?: string;
+  part_manufacturer: string | null;
+  part_lifecycle_status: string;
+  part_image_url: string | null;
   part_description?: string | null;
   quantity_needed: number;
   quantity_reserved: number;
@@ -243,6 +249,9 @@ export interface BuildConsumedItem {
   inventory_entry_id: string;
   part_id: string;
   part_mpn: string | null;
+  part_manufacturer: string | null;
+  part_lifecycle_status: string;
+  part_image_url: string | null;
   part_description: string | null;
   quantity_deducted: number;
 }

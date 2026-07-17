@@ -556,6 +556,9 @@ SELECT
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn,
+    p.manufacturer AS resolved_part_manufacturer,
+    p.lifecycle_status AS resolved_part_lifecycle_status,
+    p.image_url AS resolved_part_image_url,
     COALESCE(p.short_description, p.description, '') AS resolved_part_description
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id
@@ -565,23 +568,26 @@ ORDER BY bli.id
 `
 
 type ListBOMLineItemsRow struct {
-	ID                      pgtype.UUID `json:"id"`
-	ReferenceDesignators    string      `json:"reference_designators"`
-	Quantity                int32       `json:"quantity"`
-	RawDescription          *string     `json:"raw_description"`
-	ResolvedPartID          pgtype.UUID `json:"resolved_part_id"`
-	PartName                *string     `json:"part_name"`
-	Manufacturer            *string     `json:"manufacturer"`
-	Mpn                     *string     `json:"mpn"`
-	Sku                     *string     `json:"sku"`
-	Value                   *string     `json:"value"`
-	Footprint               *string     `json:"footprint"`
-	DistributorName         string      `json:"distributor_name"`
-	ResolvedDistributorID   pgtype.UUID `json:"resolved_distributor_id"`
-	ResolutionState         *string     `json:"resolution_state"`
-	Ignored                 bool        `json:"ignored"`
-	ResolvedPartMpn         *string     `json:"resolved_part_mpn"`
-	ResolvedPartDescription string      `json:"resolved_part_description"`
+	ID                          pgtype.UUID             `json:"id"`
+	ReferenceDesignators        string                  `json:"reference_designators"`
+	Quantity                    int32                   `json:"quantity"`
+	RawDescription              *string                 `json:"raw_description"`
+	ResolvedPartID              pgtype.UUID             `json:"resolved_part_id"`
+	PartName                    *string                 `json:"part_name"`
+	Manufacturer                *string                 `json:"manufacturer"`
+	Mpn                         *string                 `json:"mpn"`
+	Sku                         *string                 `json:"sku"`
+	Value                       *string                 `json:"value"`
+	Footprint                   *string                 `json:"footprint"`
+	DistributorName             string                  `json:"distributor_name"`
+	ResolvedDistributorID       pgtype.UUID             `json:"resolved_distributor_id"`
+	ResolutionState             *string                 `json:"resolution_state"`
+	Ignored                     bool                    `json:"ignored"`
+	ResolvedPartMpn             *string                 `json:"resolved_part_mpn"`
+	ResolvedPartManufacturer    *string                 `json:"resolved_part_manufacturer"`
+	ResolvedPartLifecycleStatus NullPartLifecycleStatus `json:"resolved_part_lifecycle_status"`
+	ResolvedPartImageUrl        *string                 `json:"resolved_part_image_url"`
+	ResolvedPartDescription     string                  `json:"resolved_part_description"`
 }
 
 func (q *Queries) ListBOMLineItems(ctx context.Context, bomRevisionID pgtype.UUID) ([]ListBOMLineItemsRow, error) {
@@ -610,6 +616,9 @@ func (q *Queries) ListBOMLineItems(ctx context.Context, bomRevisionID pgtype.UUI
 			&i.ResolutionState,
 			&i.Ignored,
 			&i.ResolvedPartMpn,
+			&i.ResolvedPartManufacturer,
+			&i.ResolvedPartLifecycleStatus,
+			&i.ResolvedPartImageUrl,
 			&i.ResolvedPartDescription,
 		); err != nil {
 			return nil, err

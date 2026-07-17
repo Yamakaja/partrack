@@ -440,7 +440,15 @@
                   onclick={() => navigate(`/teams/${teamId}/parts/${entry.part_id}`)}
                 >
                   <td class="px-3 py-2">
-                    <PartCell partId={entry.part_id} mpn={entry.part_mpn} {teamId} description={entry.part_description} />
+                    <PartCell
+                      partId={entry.part_id}
+                      mpn={entry.part_mpn}
+                      {teamId}
+                      manufacturer={entry.part_manufacturer}
+                      description={entry.part_description}
+                      lifecycle={entry.part_lifecycle_status}
+                      imageUrl={entry.part_image_url}
+                    />
                   </td>
                   <td class="px-3 py-2 text-right">{entry.quantity_on_hand}</td>
                   <td class="px-3 py-2 text-muted-foreground text-xs">{relLoc}</td>

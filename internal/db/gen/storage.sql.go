@@ -151,6 +151,9 @@ WITH RECURSIVE descendants AS (
 SELECT
     ie.id, ie.team_id, ie.part_id,
     p.mpn AS part_mpn, p.description AS part_description,
+    p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
+    p.image_url AS part_image_url,
     ie.quantity_on_hand, ie.storage_location_id,
     ie.storage_coordinate,
     sl.label AS storage_location_label,
@@ -173,18 +176,21 @@ type ListInventoryByLocationParams struct {
 }
 
 type ListInventoryByLocationRow struct {
-	ID                   pgtype.UUID `json:"id"`
-	TeamID               pgtype.UUID `json:"team_id"`
-	PartID               pgtype.UUID `json:"part_id"`
-	PartMpn              *string     `json:"part_mpn"`
-	PartDescription      *string     `json:"part_description"`
-	QuantityOnHand       int32       `json:"quantity_on_hand"`
-	StorageLocationID    pgtype.UUID `json:"storage_location_id"`
-	StorageCoordinate    []int32     `json:"storage_coordinate"`
-	StorageLocationLabel *string     `json:"storage_location_label"`
-	PreferredListingID   pgtype.UUID `json:"preferred_listing_id"`
-	MinimumStockQuantity *int32      `json:"minimum_stock_quantity"`
-	ReorderQuantity      *int32      `json:"reorder_quantity"`
+	ID                   pgtype.UUID         `json:"id"`
+	TeamID               pgtype.UUID         `json:"team_id"`
+	PartID               pgtype.UUID         `json:"part_id"`
+	PartMpn              *string             `json:"part_mpn"`
+	PartDescription      *string             `json:"part_description"`
+	PartManufacturer     *string             `json:"part_manufacturer"`
+	PartLifecycleStatus  PartLifecycleStatus `json:"part_lifecycle_status"`
+	PartImageUrl         *string             `json:"part_image_url"`
+	QuantityOnHand       int32               `json:"quantity_on_hand"`
+	StorageLocationID    pgtype.UUID         `json:"storage_location_id"`
+	StorageCoordinate    []int32             `json:"storage_coordinate"`
+	StorageLocationLabel *string             `json:"storage_location_label"`
+	PreferredListingID   pgtype.UUID         `json:"preferred_listing_id"`
+	MinimumStockQuantity *int32              `json:"minimum_stock_quantity"`
+	ReorderQuantity      *int32              `json:"reorder_quantity"`
 }
 
 // Returns inventory entries at the given location or any descendant location.
@@ -208,6 +214,9 @@ func (q *Queries) ListInventoryByLocation(ctx context.Context, arg ListInventory
 			&i.PartID,
 			&i.PartMpn,
 			&i.PartDescription,
+			&i.PartManufacturer,
+			&i.PartLifecycleStatus,
+			&i.PartImageUrl,
 			&i.QuantityOnHand,
 			&i.StorageLocationID,
 			&i.StorageCoordinate,

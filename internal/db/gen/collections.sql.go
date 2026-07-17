@@ -132,7 +132,7 @@ func (q *Queries) GetPartCollectionTally(ctx context.Context, collectionID pgtyp
 
 const listPartCollectionItems = `-- name: ListPartCollectionItems :many
 SELECT pci.id, pci.part_id, pci.quantity, pci.note,
-       p.mpn, p.manufacturer, p.lifecycle_status,
+       p.mpn, p.manufacturer, p.lifecycle_status, p.image_url,
        COALESCE(p.short_description, p.description, '') AS part_description
 FROM part_collection_items pci
 JOIN parts p ON p.id = pci.part_id
@@ -148,6 +148,7 @@ type ListPartCollectionItemsRow struct {
 	Mpn             *string             `json:"mpn"`
 	Manufacturer    *string             `json:"manufacturer"`
 	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+	ImageUrl        *string             `json:"image_url"`
 	PartDescription string              `json:"part_description"`
 }
 
@@ -171,6 +172,7 @@ func (q *Queries) ListPartCollectionItems(ctx context.Context, collectionID pgty
 			&i.Mpn,
 			&i.Manufacturer,
 			&i.LifecycleStatus,
+			&i.ImageUrl,
 			&i.PartDescription,
 		); err != nil {
 			return nil, err

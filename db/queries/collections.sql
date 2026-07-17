@@ -95,7 +95,7 @@ WHERE pci.collection_id = $1;
 -- lazy fetch. uuidv7 PK order = insertion order.
 -- name: ListPartCollectionItems :many
 SELECT pci.id, pci.part_id, pci.quantity, pci.note,
-       p.mpn, p.manufacturer, p.lifecycle_status,
+       p.mpn, p.manufacturer, p.lifecycle_status, p.image_url,
        COALESCE(p.short_description, p.description, '') AS part_description
 FROM part_collection_items pci
 JOIN parts p ON p.id = pci.part_id

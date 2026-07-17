@@ -12,6 +12,7 @@ SELECT
     p.description AS part_description,
     p.short_description AS part_short_description,
     p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
     p.category AS part_category,
     p.package AS part_package,
     p.product_url AS part_product_url,

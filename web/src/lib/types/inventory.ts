@@ -31,6 +31,9 @@ export interface InventoryEntry {
   team_id: string;
   part_id: string;
   part_mpn: string | null;
+  part_manufacturer: string | null;
+  part_lifecycle_status: string;
+  part_image_url: string | null;
   part_description: string | null;
   quantity_on_hand: number;
   storage_location_id: string | null;

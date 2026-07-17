@@ -129,6 +129,9 @@ RETURNING id, build_id, part_id, quantity_needed, quantity_reserved, quantity_re
 -- name: GetBuildPartAllocations :many
 SELECT bpa.id, bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
        p.mpn AS part_mpn,
+       p.manufacturer AS part_manufacturer,
+       p.lifecycle_status AS part_lifecycle_status,
+       p.image_url AS part_image_url,
        COALESCE(p.short_description, p.description, '') AS part_description
 FROM build_part_allocations bpa
 JOIN parts p ON p.id = bpa.part_id
@@ -250,6 +253,9 @@ ORDER BY b.created_at;
 SELECT
     sa.id, sa.inventory_entry_id, sa.delta,
     ie.part_id, p.mpn AS part_mpn,
+    p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
+    p.image_url AS part_image_url,
     COALESCE(p.short_description, p.description, '') AS part_description
 FROM stock_adjustments sa
 JOIN inventory_entries ie ON ie.id = sa.inventory_entry_id

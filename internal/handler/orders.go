@@ -65,6 +65,8 @@ func orderLineItemResponse(li dbgen.GetOrderLineItemsRow) map[string]any {
 		"part_id":                   li.PartID.String(),
 		"part_mpn":                  li.PartMpn,
 		"part_manufacturer":         li.PartManufacturer,
+		"part_lifecycle_status":     string(li.PartLifecycleStatus),
+		"part_image_url":            li.PartImageUrl,
 		"part_description":          li.PartDescription,
 		"sku":                       li.Sku,
 		"packaging_type":            li.PackagingType,

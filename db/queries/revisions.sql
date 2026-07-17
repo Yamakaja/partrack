@@ -58,6 +58,9 @@ SELECT
     bli.resolved_distributor_id,
     bli.resolution_state, bli.ignored,
     p.mpn AS resolved_part_mpn,
+    p.manufacturer AS resolved_part_manufacturer,
+    p.lifecycle_status AS resolved_part_lifecycle_status,
+    p.image_url AS resolved_part_image_url,
     COALESCE(p.short_description, p.description, '') AS resolved_part_description
 FROM bom_line_items bli
 LEFT JOIN parts p ON p.id = bli.resolved_part_id

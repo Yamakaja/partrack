@@ -7,6 +7,9 @@ export interface BuildPreviewItem {
   reference_designators: string;
   resolved_part_id: string | null;
   resolved_part_mpn: string | null;
+  resolved_part_manufacturer: string | null;
+  resolved_part_lifecycle_status: string | null;
+  resolved_part_image_url: string | null;
   resolved_part_description: string | null;
   quantity_per_board: number;
   effective_quantity_per_board: number;
@@ -129,13 +132,6 @@ export function getBuildPipeline(teamId: string) {
     ordered: Build[];
     ready: Build[];
   }>('GET', `/api/v1/teams/${teamId}/builds/pipeline`);
-}
-
-export function previewBuild(
-  teamId: string,
-  body: { bom_revision_id: string; quantity: number },
-) {
-  return request<{ items: BuildPreviewItem[] }>('POST', `/api/v1/teams/${teamId}/builds/preview`, body);
 }
 
 export function patchBuildSubstituteSelections(

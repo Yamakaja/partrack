@@ -578,6 +578,9 @@ func (q *Queries) GetBuildOrderIDs(ctx context.Context, buildID pgtype.UUID) ([]
 const getBuildPartAllocations = `-- name: GetBuildPartAllocations :many
 SELECT bpa.id, bpa.build_id, bpa.part_id, bpa.quantity_needed, bpa.quantity_reserved, bpa.quantity_received,
        p.mpn AS part_mpn,
+       p.manufacturer AS part_manufacturer,
+       p.lifecycle_status AS part_lifecycle_status,
+       p.image_url AS part_image_url,
        COALESCE(p.short_description, p.description, '') AS part_description
 FROM build_part_allocations bpa
 JOIN parts p ON p.id = bpa.part_id
@@ -585,14 +588,17 @@ WHERE bpa.build_id = $1
 `
 
 type GetBuildPartAllocationsRow struct {
-	ID               pgtype.UUID `json:"id"`
-	BuildID          pgtype.UUID `json:"build_id"`
-	PartID           pgtype.UUID `json:"part_id"`
-	QuantityNeeded   int32       `json:"quantity_needed"`
-	QuantityReserved int32       `json:"quantity_reserved"`
-	QuantityReceived int32       `json:"quantity_received"`
-	PartMpn          *string     `json:"part_mpn"`
-	PartDescription  string      `json:"part_description"`
+	ID                  pgtype.UUID         `json:"id"`
+	BuildID             pgtype.UUID         `json:"build_id"`
+	PartID              pgtype.UUID         `json:"part_id"`
+	QuantityNeeded      int32               `json:"quantity_needed"`
+	QuantityReserved    int32               `json:"quantity_reserved"`
+	QuantityReceived    int32               `json:"quantity_received"`
+	PartMpn             *string             `json:"part_mpn"`
+	PartManufacturer    *string             `json:"part_manufacturer"`
+	PartLifecycleStatus PartLifecycleStatus `json:"part_lifecycle_status"`
+	PartImageUrl        *string             `json:"part_image_url"`
+	PartDescription     string              `json:"part_description"`
 }
 
 func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UUID) ([]GetBuildPartAllocationsRow, error) {
@@ -612,6 +618,9 @@ func (q *Queries) GetBuildPartAllocations(ctx context.Context, buildID pgtype.UU
 			&i.QuantityReserved,
 			&i.QuantityReceived,
 			&i.PartMpn,
+			&i.PartManufacturer,
+			&i.PartLifecycleStatus,
+			&i.PartImageUrl,
 			&i.PartDescription,
 		); err != nil {
 			return nil, err
@@ -976,6 +985,9 @@ const listBuildDeductions = `-- name: ListBuildDeductions :many
 SELECT
     sa.id, sa.inventory_entry_id, sa.delta,
     ie.part_id, p.mpn AS part_mpn,
+    p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
+    p.image_url AS part_image_url,
     COALESCE(p.short_description, p.description, '') AS part_description
 FROM stock_adjustments sa
 JOIN inventory_entries ie ON ie.id = sa.inventory_entry_id
@@ -985,12 +997,15 @@ ORDER BY sa.id
 `
 
 type ListBuildDeductionsRow struct {
-	ID               pgtype.UUID `json:"id"`
-	InventoryEntryID pgtype.UUID `json:"inventory_entry_id"`
-	Delta            int32       `json:"delta"`
-	PartID           pgtype.UUID `json:"part_id"`
-	PartMpn          *string     `json:"part_mpn"`
-	PartDescription  string      `json:"part_description"`
+	ID                  pgtype.UUID         `json:"id"`
+	InventoryEntryID    pgtype.UUID         `json:"inventory_entry_id"`
+	Delta               int32               `json:"delta"`
+	PartID              pgtype.UUID         `json:"part_id"`
+	PartMpn             *string             `json:"part_mpn"`
+	PartManufacturer    *string             `json:"part_manufacturer"`
+	PartLifecycleStatus PartLifecycleStatus `json:"part_lifecycle_status"`
+	PartImageUrl        *string             `json:"part_image_url"`
+	PartDescription     string              `json:"part_description"`
 }
 
 func (q *Queries) ListBuildDeductions(ctx context.Context, buildID pgtype.UUID) ([]ListBuildDeductionsRow, error) {
@@ -1008,6 +1023,9 @@ func (q *Queries) ListBuildDeductions(ctx context.Context, buildID pgtype.UUID) 
 			&i.Delta,
 			&i.PartID,
 			&i.PartMpn,
+			&i.PartManufacturer,
+			&i.PartLifecycleStatus,
+			&i.PartImageUrl,
 			&i.PartDescription,
 		); err != nil {
 			return nil, err

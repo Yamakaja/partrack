@@ -124,6 +124,7 @@ SELECT
     p.description AS part_description,
     p.short_description AS part_short_description,
     p.manufacturer AS part_manufacturer,
+    p.lifecycle_status AS part_lifecycle_status,
     p.category AS part_category,
     p.package AS part_package,
     p.product_url AS part_product_url,
@@ -153,31 +154,32 @@ ORDER BY p.mpn NULLS LAST, cli.id
 `
 
 type GetCartItemsRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	PartID                 pgtype.UUID        `json:"part_id"`
-	PartMpn                *string            `json:"part_mpn"`
-	PartDescription        *string            `json:"part_description"`
-	PartShortDescription   *string            `json:"part_short_description"`
-	PartManufacturer       *string            `json:"part_manufacturer"`
-	PartCategory           *string            `json:"part_category"`
-	PartPackage            *string            `json:"part_package"`
-	PartProductUrl         *string            `json:"part_product_url"`
-	PartDatasheetUrl       *string            `json:"part_datasheet_url"`
-	PartImageUrl           *string            `json:"part_image_url"`
-	Quantity               int32              `json:"quantity"`
-	ListingID              pgtype.UUID        `json:"listing_id"`
-	ListingSku             *string            `json:"listing_sku"`
-	ListingDistributorName *string            `json:"listing_distributor_name"`
-	ListingDistributorID   pgtype.UUID        `json:"listing_distributor_id"`
-	ListingUnitPrice       pgtype.Numeric     `json:"listing_unit_price"`
-	ListingPriceBreaks     []byte             `json:"listing_price_breaks"`
-	ListingFixedOrderCost  pgtype.Numeric     `json:"listing_fixed_order_cost"`
-	ListingMoq             *int32             `json:"listing_moq"`
-	ListingPackagingType   *string            `json:"listing_packaging_type"`
-	ListingStockAvailable  *int32             `json:"listing_stock_available"`
-	ListingLastRefreshedAt pgtype.Timestamptz `json:"listing_last_refreshed_at"`
-	Source                 CartItemSource     `json:"source"`
-	SourceBomLineItemID    pgtype.UUID        `json:"source_bom_line_item_id"`
+	ID                     pgtype.UUID         `json:"id"`
+	PartID                 pgtype.UUID         `json:"part_id"`
+	PartMpn                *string             `json:"part_mpn"`
+	PartDescription        *string             `json:"part_description"`
+	PartShortDescription   *string             `json:"part_short_description"`
+	PartManufacturer       *string             `json:"part_manufacturer"`
+	PartLifecycleStatus    PartLifecycleStatus `json:"part_lifecycle_status"`
+	PartCategory           *string             `json:"part_category"`
+	PartPackage            *string             `json:"part_package"`
+	PartProductUrl         *string             `json:"part_product_url"`
+	PartDatasheetUrl       *string             `json:"part_datasheet_url"`
+	PartImageUrl           *string             `json:"part_image_url"`
+	Quantity               int32               `json:"quantity"`
+	ListingID              pgtype.UUID         `json:"listing_id"`
+	ListingSku             *string             `json:"listing_sku"`
+	ListingDistributorName *string             `json:"listing_distributor_name"`
+	ListingDistributorID   pgtype.UUID         `json:"listing_distributor_id"`
+	ListingUnitPrice       pgtype.Numeric      `json:"listing_unit_price"`
+	ListingPriceBreaks     []byte              `json:"listing_price_breaks"`
+	ListingFixedOrderCost  pgtype.Numeric      `json:"listing_fixed_order_cost"`
+	ListingMoq             *int32              `json:"listing_moq"`
+	ListingPackagingType   *string             `json:"listing_packaging_type"`
+	ListingStockAvailable  *int32              `json:"listing_stock_available"`
+	ListingLastRefreshedAt pgtype.Timestamptz  `json:"listing_last_refreshed_at"`
+	Source                 CartItemSource      `json:"source"`
+	SourceBomLineItemID    pgtype.UUID         `json:"source_bom_line_item_id"`
 }
 
 func (q *Queries) GetCartItems(ctx context.Context, teamID pgtype.UUID) ([]GetCartItemsRow, error) {
@@ -196,6 +198,7 @@ func (q *Queries) GetCartItems(ctx context.Context, teamID pgtype.UUID) ([]GetCa
 			&i.PartDescription,
 			&i.PartShortDescription,
 			&i.PartManufacturer,
+			&i.PartLifecycleStatus,
 			&i.PartCategory,
 			&i.PartPackage,
 			&i.PartProductUrl,

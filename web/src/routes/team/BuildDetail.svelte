@@ -383,7 +383,15 @@
 
 {#snippet renderMpn(_value: unknown, row: BuildConsumedItem | BuildPartAllocation)}
   {#if row.part_id}
-    <PartCell partId={row.part_id} mpn={row.part_mpn ?? null} {teamId} description={row.part_description} />
+    <PartCell
+      partId={row.part_id}
+      mpn={row.part_mpn ?? null}
+      {teamId}
+      manufacturer={row.part_manufacturer}
+      description={row.part_description ?? null}
+      lifecycle={row.part_lifecycle_status}
+      imageUrl={row.part_image_url}
+    />
   {:else}
     —
   {/if}
@@ -395,7 +403,10 @@
       partId={row.resolved_part_id}
       mpn={row.resolved_part_mpn}
       {teamId}
+      manufacturer={row.resolved_part_manufacturer}
       description={row.resolved_part_description}
+      lifecycle={row.resolved_part_lifecycle_status}
+      imageUrl={row.resolved_part_image_url}
     />
   {:else}
     —

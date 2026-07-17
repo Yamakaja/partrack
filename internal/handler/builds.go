@@ -311,74 +311,6 @@ func (h *Handler) GetBuildPipeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// PreviewBuild handles POST /api/v1/teams/{teamId}/builds/preview
-// Body: {bom_revision_id, quantity, substitute_selections?}
-// Returns list of deductions without committing.
-func (h *Handler) PreviewBuild(w http.ResponseWriter, r *http.Request) {
-	var teamID pgtype.UUID
-	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid team id", "BAD_REQUEST")
-		return
-	}
-
-	var body struct {
-		BomRevisionID        string                `json:"bom_revision_id"`
-		Quantity             int32                 `json:"quantity"`
-		SubstituteSelections []buildDeductionInput `json:"substitute_selections"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
-		return
-	}
-	if body.BomRevisionID == "" || body.Quantity <= 0 {
-		writeError(w, http.StatusBadRequest, "bom_revision_id and quantity (>0) are required", "BAD_REQUEST")
-		return
-	}
-
-	var revID pgtype.UUID
-	if err := revID.Scan(body.BomRevisionID); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid bom_revision_id", "BAD_REQUEST")
-		return
-	}
-	if !h.requireRevisionInTeam(w, r, revID, teamID) {
-		return
-	}
-
-	deductions, err := h.computeDeductions(r, teamID, revID, body.Quantity, body.SubstituteSelections, nil)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-
-	type previewItem struct {
-		BomLineItemID        string  `json:"bom_line_item_id"`
-		ReferenceDesignators string  `json:"reference_designators"`
-		ResolvedPartID       string  `json:"resolved_part_id"`
-		ResolvedPartMpn      *string `json:"resolved_part_mpn"`
-		QuantityPerBoard     int32   `json:"quantity_per_board"`
-		TotalQuantity        int32   `json:"total_quantity"`
-		QuantityOnHand       int32   `json:"quantity_on_hand"`
-		Sufficient           bool    `json:"sufficient"`
-	}
-
-	items := make([]previewItem, len(deductions))
-	for i, d := range deductions {
-		totalQty := -d.Delta
-		items[i] = previewItem{
-			BomLineItemID:        d.BomLineItemID.String(),
-			ReferenceDesignators: d.ReferenceDesignators,
-			ResolvedPartID:       d.PartID.String(),
-			ResolvedPartMpn:      d.PartMpn,
-			QuantityPerBoard:     d.QuantityPerBoard,
-			TotalQuantity:        totalQty,
-			QuantityOnHand:       d.QuantityOnHand,
-			Sufficient:           d.QuantityOnHand >= totalQty,
-		}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
-}
-
 // GetBuildPreview handles GET /api/v1/teams/{teamId}/builds/{buildId}/preview
 // Returns per-line-item preview for a saved build, incorporating its excluded_designators
 // and line_item_overrides to show effective quantities and stock status.
@@ -439,21 +371,24 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 		QuantityOnHand  int32   `json:"quantity_on_hand"`
 	}
 	type previewItem struct {
-		BomLineItemID             string    `json:"bom_line_item_id"`
-		ReferenceDesignators      string    `json:"reference_designators"`
-		ResolvedPartID            *string   `json:"resolved_part_id"`
-		ResolvedPartMpn           *string   `json:"resolved_part_mpn"`
-		ResolvedPartDescription   *string   `json:"resolved_part_description"`
-		QuantityPerBoard          int32     `json:"quantity_per_board"`
-		EffectiveQuantityPerBoard int32     `json:"effective_quantity_per_board"`
-		TotalQuantity             int32     `json:"total_quantity"`
-		EffectiveTotalQuantity    int32     `json:"effective_total_quantity"`
-		QuantityOnHand            int32     `json:"quantity_on_hand"`
-		Sufficient                bool      `json:"sufficient"`
-		ExcludedDesignatorCount   int       `json:"excluded_designator_count"`
-		Override                  *string   `json:"override"`
-		AvailableQuantity         *int32    `json:"available_quantity"`
-		Substitutes               []subItem `json:"substitutes"`
+		BomLineItemID               string    `json:"bom_line_item_id"`
+		ReferenceDesignators        string    `json:"reference_designators"`
+		ResolvedPartID              *string   `json:"resolved_part_id"`
+		ResolvedPartMpn             *string   `json:"resolved_part_mpn"`
+		ResolvedPartManufacturer    *string   `json:"resolved_part_manufacturer"`
+		ResolvedPartLifecycleStatus *string   `json:"resolved_part_lifecycle_status"`
+		ResolvedPartImageURL        *string   `json:"resolved_part_image_url"`
+		ResolvedPartDescription     *string   `json:"resolved_part_description"`
+		QuantityPerBoard            int32     `json:"quantity_per_board"`
+		EffectiveQuantityPerBoard   int32     `json:"effective_quantity_per_board"`
+		TotalQuantity               int32     `json:"total_quantity"`
+		EffectiveTotalQuantity      int32     `json:"effective_total_quantity"`
+		QuantityOnHand              int32     `json:"quantity_on_hand"`
+		Sufficient                  bool      `json:"sufficient"`
+		ExcludedDesignatorCount     int       `json:"excluded_designator_count"`
+		Override                    *string   `json:"override"`
+		AvailableQuantity           *int32    `json:"available_quantity"`
+		Substitutes                 []subItem `json:"substitutes"`
 	}
 
 	var items []previewItem
@@ -477,6 +412,9 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 		// Resolve part: substitute selection overrides primary.
 		var resolvedPartID *string
 		var resolvedPartMpn *string
+		var resolvedPartManufacturer *string
+		var resolvedPartLifecycle *string
+		var resolvedPartImageURL *string
 		var resolvedPartDescription *string
 		partID := li.ResolvedPartID
 		if sub, ok := subSelMap[li.ID.String()]; ok {
@@ -488,6 +426,12 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 			s := li.ResolvedPartID.String()
 			resolvedPartID = &s
 			resolvedPartMpn = li.ResolvedPartMpn
+			resolvedPartManufacturer = li.ResolvedPartManufacturer
+			if li.ResolvedPartLifecycleStatus.Valid {
+				ls := string(li.ResolvedPartLifecycleStatus.PartLifecycleStatus)
+				resolvedPartLifecycle = &ls
+			}
+			resolvedPartImageURL = li.ResolvedPartImageUrl
 			resolvedPartDescription = strPtrOrNil(li.ResolvedPartDescription)
 		}
 		if partID.Valid {
@@ -537,21 +481,24 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 		}
 
 		items = append(items, previewItem{
-			BomLineItemID:             li.ID.String(),
-			ReferenceDesignators:      li.ReferenceDesignators,
-			ResolvedPartID:            resolvedPartID,
-			ResolvedPartMpn:           resolvedPartMpn,
-			ResolvedPartDescription:   resolvedPartDescription,
-			QuantityPerBoard:          li.Quantity,
-			EffectiveQuantityPerBoard: effectivePerBoard,
-			TotalQuantity:             li.Quantity * build.Quantity,
-			EffectiveTotalQuantity:    effectiveTotal,
-			QuantityOnHand:            qtyOnHand,
-			Sufficient:                sufficient,
-			ExcludedDesignatorCount:   excludedCount,
-			Override:                  overridePtr,
-			AvailableQuantity:         availQty,
-			Substitutes:               subItems,
+			BomLineItemID:               li.ID.String(),
+			ReferenceDesignators:        li.ReferenceDesignators,
+			ResolvedPartID:              resolvedPartID,
+			ResolvedPartMpn:             resolvedPartMpn,
+			ResolvedPartManufacturer:    resolvedPartManufacturer,
+			ResolvedPartLifecycleStatus: resolvedPartLifecycle,
+			ResolvedPartImageURL:        resolvedPartImageURL,
+			ResolvedPartDescription:     resolvedPartDescription,
+			QuantityPerBoard:            li.Quantity,
+			EffectiveQuantityPerBoard:   effectivePerBoard,
+			TotalQuantity:               li.Quantity * build.Quantity,
+			EffectiveTotalQuantity:      effectiveTotal,
+			QuantityOnHand:              qtyOnHand,
+			Sufficient:                  sufficient,
+			ExcludedDesignatorCount:     excludedCount,
+			Override:                    overridePtr,
+			AvailableQuantity:           availQty,
+			Substitutes:                 subItems,
 		})
 	}
 
@@ -840,11 +787,14 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type consumedItemResp struct {
-		InventoryEntryID string  `json:"inventory_entry_id"`
-		PartID           string  `json:"part_id"`
-		PartMpn          *string `json:"part_mpn"`
-		PartDescription  *string `json:"part_description"`
-		QuantityDeducted int32   `json:"quantity_deducted"`
+		InventoryEntryID    string  `json:"inventory_entry_id"`
+		PartID              string  `json:"part_id"`
+		PartMpn             *string `json:"part_mpn"`
+		PartManufacturer    *string `json:"part_manufacturer"`
+		PartLifecycleStatus string  `json:"part_lifecycle_status"`
+		PartImageURL        *string `json:"part_image_url"`
+		PartDescription     *string `json:"part_description"`
+		QuantityDeducted    int32   `json:"quantity_deducted"`
 	}
 	var consumedItems []consumedItemResp
 	if build.Status == "assembled" {
@@ -856,34 +806,43 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		consumedItems = make([]consumedItemResp, len(deductions))
 		for i, d := range deductions {
 			consumedItems[i] = consumedItemResp{
-				InventoryEntryID: d.InventoryEntryID.String(),
-				PartID:           d.PartID.String(),
-				PartMpn:          d.PartMpn,
-				PartDescription:  strPtrOrNil(d.PartDescription),
-				QuantityDeducted: -d.Delta,
+				InventoryEntryID:    d.InventoryEntryID.String(),
+				PartID:              d.PartID.String(),
+				PartMpn:             d.PartMpn,
+				PartManufacturer:    d.PartManufacturer,
+				PartLifecycleStatus: string(d.PartLifecycleStatus),
+				PartImageURL:        d.PartImageUrl,
+				PartDescription:     strPtrOrNil(d.PartDescription),
+				QuantityDeducted:    -d.Delta,
 			}
 		}
 	}
 
 	type allocationResp struct {
-		ID               string  `json:"id"`
-		PartID           string  `json:"part_id"`
-		PartMpn          *string `json:"part_mpn"`
-		PartDescription  *string `json:"part_description"`
-		QuantityNeeded   int32   `json:"quantity_needed"`
-		QuantityReserved int32   `json:"quantity_reserved"`
-		QuantityReceived int32   `json:"quantity_received"`
+		ID                  string  `json:"id"`
+		PartID              string  `json:"part_id"`
+		PartMpn             *string `json:"part_mpn"`
+		PartManufacturer    *string `json:"part_manufacturer"`
+		PartLifecycleStatus string  `json:"part_lifecycle_status"`
+		PartImageURL        *string `json:"part_image_url"`
+		PartDescription     *string `json:"part_description"`
+		QuantityNeeded      int32   `json:"quantity_needed"`
+		QuantityReserved    int32   `json:"quantity_reserved"`
+		QuantityReceived    int32   `json:"quantity_received"`
 	}
 	allocs := make([]allocationResp, len(allocations))
 	for i, a := range allocations {
 		allocs[i] = allocationResp{
-			ID:               a.ID.String(),
-			PartID:           a.PartID.String(),
-			PartMpn:          a.PartMpn,
-			PartDescription:  strPtrOrNil(a.PartDescription),
-			QuantityNeeded:   a.QuantityNeeded,
-			QuantityReserved: a.QuantityReserved,
-			QuantityReceived: a.QuantityReceived,
+			ID:                  a.ID.String(),
+			PartID:              a.PartID.String(),
+			PartMpn:             a.PartMpn,
+			PartManufacturer:    a.PartManufacturer,
+			PartLifecycleStatus: string(a.PartLifecycleStatus),
+			PartImageURL:        a.PartImageUrl,
+			PartDescription:     strPtrOrNil(a.PartDescription),
+			QuantityNeeded:      a.QuantityNeeded,
+			QuantityReserved:    a.QuantityReserved,
+			QuantityReceived:    a.QuantityReceived,
 		}
 	}
 
