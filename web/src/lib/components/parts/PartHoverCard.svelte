@@ -125,14 +125,24 @@
     return { slug, label, value };
   }
 
-  // Primary parameters: the category's value_param first, then its curated
-  // primary_params order, capped at 4. Uncurated category => no block at all.
+  // Primary parameters: value_param first, then the curated primary_params
+  // order, capped at 4. Categories are hierarchical and params are frequently
+  // curated on a parent ("Capacitors") while the part sits on a leaf
+  // ("Ceramic Capacitors") that adds none of its own — so walk the chain from
+  // the part's category up to the root, inheriting slugs (nearest category
+  // first). No curated ancestor anywhere => no block at all.
   function resolveSpecs(part: Part, categories: Category[]): Spec[] {
-    const cat = part.category_id != null ? categories.find((c) => c.id === part.category_id) : undefined;
-    if (!cat) return [];
+    if (part.category_id == null) return [];
+    const byId = new Map(categories.map((c) => [c.id, c]));
     const slugs: string[] = [];
-    if (cat.value_param) slugs.push(cat.value_param);
-    for (const s of cat.primary_params) if (!slugs.includes(s)) slugs.push(s);
+    const seen = new Set<number>(); // guard against a malformed parent cycle
+    let cat = byId.get(part.category_id);
+    while (cat && !seen.has(cat.id)) {
+      seen.add(cat.id);
+      if (cat.value_param && !slugs.includes(cat.value_param)) slugs.push(cat.value_param);
+      for (const s of cat.primary_params) if (!slugs.includes(s)) slugs.push(s);
+      cat = cat.parent_id != null ? byId.get(cat.parent_id) : undefined;
+    }
 
     const specs: Spec[] = [];
     for (const slug of slugs) {
