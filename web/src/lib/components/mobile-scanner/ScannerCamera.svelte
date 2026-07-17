@@ -25,7 +25,7 @@
 
   {#if label}
     <div class="pointer-events-none absolute top-3 left-0 right-0 z-10 text-center">
-      <span class="rounded-full bg-black/60 px-3 py-1 text-xs text-zinc-300">{label}</span>
+      <span class="inline-block max-w-[55%] truncate rounded-full bg-black/60 px-3 py-1 text-xs text-zinc-300">{label}</span>
     </div>
   {/if}
 </div>

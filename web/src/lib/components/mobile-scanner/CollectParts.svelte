@@ -401,7 +401,7 @@
 <!-- ── SCANNING ────────────────────────────────────────────────────────────── -->
 {:else if selected}
   <div class="relative flex flex-1 flex-col overflow-hidden">
-    <ScannerCamera onBack={backToDetail} onScan={handleScan}>
+    <ScannerCamera onBack={backToDetail} onScan={handleScan} label={`Collect: ${selected.name}`}>
       {#snippet topRightControls()}
         {#if tally}
           <div class="rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white">
@@ -411,16 +411,10 @@
       {/snippet}
     </ScannerCamera>
 
-    <!-- List banner -->
-    <div class="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-3">
-      <p class="rounded-full bg-black/50 px-3 py-1 text-xs text-white">
-        Collect: <span class="font-semibold">{selected.name}</span>
-      </p>
-    </div>
-
-    <!-- Result card: owns the lower area, persists until the next scan -->
+    <!-- Result card: persists until the next scan. Sits above the
+         hold-to-scan button (which owns the bottom ~7rem of the viewport). -->
     {#if card && !qtyPrompt}
-      <div class="absolute inset-x-0 bottom-0 z-20 p-3">
+      <div class="absolute inset-x-0 bottom-32 z-20 px-3">
         {#if card.kind === 'added'}
           <div class="rounded-2xl bg-emerald-950/95 border border-emerald-700 p-4">
             <div class="flex items-center gap-3">

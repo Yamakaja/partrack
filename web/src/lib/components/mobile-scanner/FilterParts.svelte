@@ -308,7 +308,7 @@
 <!-- ── SCANNING ────────────────────────────────────────────────────────────── -->
 {:else if screen === 'scanning'}
   <div class="relative flex flex-1 flex-col overflow-hidden">
-    <ScannerCamera onBack={requestLeave} onScan={handleScan}>
+    <ScannerCamera onBack={requestLeave} onScan={handleScan} label={`Filter: ${targetRef}`}>
       {#snippet topRightControls()}
         <button
           onclick={finish}
@@ -319,15 +319,10 @@
       {/snippet}
     </ScannerCamera>
 
-    <div class="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-3">
-      <p class="rounded-full bg-black/50 px-3 py-1 text-xs text-white">
-        Filter: <span class="font-semibold">{targetRef}</span>
-      </p>
-    </div>
-
-    <!-- Verdict card: full-tint + icon + text (never color alone) -->
+    <!-- Verdict card: full-tint + icon + text (never color alone). Sits above
+         the hold-to-scan button (which owns the bottom ~7rem of the viewport). -->
     {#if card}
-      <div class="absolute inset-x-0 bottom-0 z-20 p-3">
+      <div class="absolute inset-x-0 bottom-32 z-20 px-3">
         {#if card.kind === 'match'}
           <div class="rounded-2xl bg-emerald-950/95 border border-emerald-600 p-4">
             <div class="flex items-start gap-3">
