@@ -69,7 +69,8 @@ loc_tree AS (
 )
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
-    p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.created_at,
+    p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.image_url,
+    p.created_at,
     c.display_name   AS category_name,
     ie.id            AS inventory_entry_id,
     ie.quantity_on_hand,

@@ -1723,7 +1723,8 @@ loc_tree AS (
 )
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description, p.short_description,
-    p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.created_at,
+    p.category, p.category_id, p.category_source, p.package, p.lifecycle_status, p.image_url,
+    p.created_at,
     c.display_name   AS category_name,
     ie.id            AS inventory_entry_id,
     ie.quantity_on_hand,
@@ -1796,6 +1797,7 @@ type ListPartsWithInventoryRow struct {
 	CategorySource       string              `json:"category_source"`
 	Package              *string             `json:"package"`
 	LifecycleStatus      PartLifecycleStatus `json:"lifecycle_status"`
+	ImageUrl             *string             `json:"image_url"`
 	CreatedAt            pgtype.Timestamptz  `json:"created_at"`
 	CategoryName         *string             `json:"category_name"`
 	InventoryEntryID     pgtype.UUID         `json:"inventory_entry_id"`
@@ -1845,6 +1847,7 @@ func (q *Queries) ListPartsWithInventory(ctx context.Context, arg ListPartsWithI
 			&i.CategorySource,
 			&i.Package,
 			&i.LifecycleStatus,
+			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.CategoryName,
 			&i.InventoryEntryID,

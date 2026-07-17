@@ -16,7 +16,7 @@
   import type { StorageLocationFilter } from '$lib/components/storage/StorageLocationFilterPicker.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import LifecycleBadge from '$lib/components/parts/LifecycleBadge.svelte';
-  import PartRef from '$lib/components/parts/PartRef.svelte';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
   import StockBadge from '$lib/components/inventory/StockBadge.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { DataTable, RemoteDataSource } from '$lib/components/table/index.js';
@@ -62,9 +62,11 @@
   }));
 
   const baseColumns: ColumnSpec<PartSummary>[] = [
-    { key: 'mpn',              header: 'MPN',          type: 'text',    sortable: false },
-    { key: 'manufacturer',     header: 'Manufacturer', type: 'text',    sortable: false },
-    { key: 'description',      header: 'Description',  type: 'text',    sortable: false },
+    { key: 'mpn',              header: 'Part',         type: 'text',    sortable: false },
+    // Folded into the Part cell visually; kept as export-only columns so the
+    // CSV still carries the discrete fields.
+    { key: 'manufacturer',     header: 'Manufacturer', type: 'text',    sortable: false, exportOnly: true },
+    { key: 'description',      header: 'Description',  type: 'text',    sortable: false, exportOnly: true },
     { key: 'category_name',    header: 'Category',     type: 'text',    sortable: false },
     { key: 'lifecycle_status', header: 'Status',       type: 'enum',    sortable: false,
       filterable: true,
@@ -430,11 +432,14 @@
 {/snippet}
 
 {#snippet renderMpn(_value: unknown, row: PartSummary)}
-  <PartRef
+  <PartCell
     partId={row.id}
     mpn={row.mpn}
     {teamId}
-    fallback={row.short_description ?? row.description}
+    manufacturer={row.manufacturer}
+    description={row.short_description ?? row.description}
+    lifecycle={row.lifecycle_status}
+    imageUrl={row.image_url}
   />
 {/snippet}
 
@@ -457,10 +462,6 @@
   {:else}
     <span class="text-xs text-muted-foreground">Not tracked</span>
   {/if}
-{/snippet}
-
-{#snippet renderDescription(_value: unknown, row: PartSummary)}
-  {row.short_description ?? row.description ?? ''}
 {/snippet}
 
 {#snippet columnParamFilter(col: ColumnSpec<PartSummary>)}
@@ -614,7 +615,6 @@
   renderers={{
     mpn: renderMpn,
     category_name: renderCategory,
-    description: renderDescription,
     lifecycle_status: renderLifecycle,
     quantity_on_hand: renderQty,
     stock_status: renderStock,

@@ -59,6 +59,7 @@ export interface PartSummary {
   category_source: string;
   package: string | null;
   lifecycle_status: LifecycleStatus | null;
+  image_url: string | null;
   created_at: string;
   // Inventory fields — present when team_id is passed to GET /parts
   inventory_entry_id: string | null;

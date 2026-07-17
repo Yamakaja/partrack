@@ -285,6 +285,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		CategorySource       string         `json:"category_source"`
 		Package              *string        `json:"package"`
 		LifecycleStatus      string         `json:"lifecycle_status"`
+		ImageURL             *string        `json:"image_url"`
 		InventoryEntryID     *string        `json:"inventory_entry_id"`
 		QuantityOnHand       *int32         `json:"quantity_on_hand"`
 		MinimumStockQuantity *int32         `json:"minimum_stock_quantity"`
@@ -307,6 +308,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			CategorySource:       p.CategorySource,
 			Package:              p.Package,
 			LifecycleStatus:      string(p.LifecycleStatus),
+			ImageURL:             p.ImageUrl,
 			QuantityOnHand:       p.QuantityOnHand,
 			MinimumStockQuantity: p.MinimumStockQuantity,
 			ReorderQuantity:      p.ReorderQuantity,
