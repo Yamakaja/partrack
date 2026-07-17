@@ -310,3 +310,84 @@ func TestListInventory_BelowMinStock(t *testing.T) {
 		t.Errorf("expected 1 below-min-stock item, got %d", len(items))
 	}
 }
+
+func TestBulkAssignStorage(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+
+	userID := testutil.CreateUser(t, testDB, "inv-bulk-assign@example.com", "pw", "Inv")
+	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Inv Team")
+	token := testutil.CreateSession(t, testDB, userID)
+	partA := testutil.CreatePart(t, testDB, "global", "INV-BULK-A", nil)
+	partB := testutil.CreatePart(t, testDB, "global", "INV-BULK-B", nil)
+	entryA := testutil.CreateInventoryEntry(t, testDB, teamID, partA)
+
+	locBody, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/storage-locations", teamID),
+		map[string]any{"label": "Drawer 9"}, token)
+	if status != http.StatusCreated {
+		t.Fatalf("create location: expected 201, got %d: %v", status, locBody)
+	}
+	locID := locBody["id"].(string)
+
+	// partA is tracked (existing entry moves), partB is not (zero-qty entry created).
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/inventory/bulk-assign-storage", teamID),
+		map[string]any{"part_ids": []string{partA, partB}, "storage_location_id": locID}, token)
+	if status != http.StatusOK {
+		t.Fatalf("bulk assign: expected 200, got %d: %v", status, body)
+	}
+	if n := body["assigned"].(float64); n != 2 {
+		t.Errorf("expected assigned=2, got %v", n)
+	}
+	if n := body["created"].(float64); n != 1 {
+		t.Errorf("expected created=1, got %v", n)
+	}
+
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/inventory/%s", teamID, entryA), nil, token)
+	if got, _ := body["storage_location_id"].(string); got != locID {
+		t.Errorf("entry A: expected storage_location_id=%s, got %v", locID, body["storage_location_id"])
+	}
+
+	// The created entry for partB exists with zero stock and the location.
+	var qty int32
+	var gotLoc string
+	err := testDB.QueryRow(t.Context(),
+		`SELECT quantity_on_hand, storage_location_id FROM inventory_entries WHERE team_id = $1 AND part_id = $2`,
+		teamID, partB).Scan(&qty, &gotLoc)
+	if err != nil {
+		t.Fatalf("expected inventory entry for part B: %v", err)
+	}
+	if qty != 0 {
+		t.Errorf("created entry: expected quantity_on_hand=0, got %d", qty)
+	}
+	if gotLoc != locID {
+		t.Errorf("created entry: expected location %s, got %s", locID, gotLoc)
+	}
+
+	// Guards: empty batch, foreign location, foreign team-scoped part.
+	if _, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/inventory/bulk-assign-storage", teamID),
+		map[string]any{"part_ids": []string{}, "storage_location_id": locID}, token); status != http.StatusBadRequest {
+		t.Errorf("empty part_ids: expected 400, got %d", status)
+	}
+
+	otherOwner := testutil.CreateUser(t, testDB, "inv-bulk-other@example.com", "pw", "O")
+	otherTeam := testutil.CreateTeam(t, testDB, otherOwner, "member", "Other Team")
+	foreignPart := testutil.CreatePart(t, testDB, "team", "INV-BULK-FOREIGN", &otherTeam)
+	if _, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/inventory/bulk-assign-storage", teamID),
+		map[string]any{"part_ids": []string{foreignPart}, "storage_location_id": locID}, token); status != http.StatusForbidden {
+		t.Errorf("foreign part: expected 403, got %d", status)
+	}
+
+	otherToken := testutil.CreateSession(t, testDB, otherOwner)
+	otherLoc, _ := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/storage-locations", otherTeam),
+		map[string]any{"label": "Foreign Bin"}, otherToken)
+	if _, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/inventory/bulk-assign-storage", teamID),
+		map[string]any{"part_ids": []string{partA}, "storage_location_id": otherLoc["id"].(string)}, token); status != http.StatusNotFound {
+		t.Errorf("foreign location: expected 404, got %d", status)
+	}
+}

@@ -11,6 +11,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bulkAssignStorageLocation = `-- name: BulkAssignStorageLocation :execrows
+INSERT INTO inventory_entries (team_id, part_id, storage_location_id, storage_coordinate)
+SELECT $1::uuid, p.part_id,
+       $2::uuid, $3::integer[]
+FROM unnest($4::uuid[]) AS p(part_id)
+ON CONFLICT (team_id, part_id) DO UPDATE
+SET storage_location_id = EXCLUDED.storage_location_id,
+    storage_coordinate  = EXCLUDED.storage_coordinate
+`
+
+type BulkAssignStorageLocationParams struct {
+	TeamID            pgtype.UUID   `json:"team_id"`
+	StorageLocationID pgtype.UUID   `json:"storage_location_id"`
+	StorageCoordinate []int32       `json:"storage_coordinate"`
+	PartIds           []pgtype.UUID `json:"part_ids"`
+}
+
+// Bulk storage assignment (list-driven verb): move tracked parts, create
+// zero-quantity entries for parts the team doesn't track yet. The same
+// location/coordinate applies to every part in the batch.
+func (q *Queries) BulkAssignStorageLocation(ctx context.Context, arg BulkAssignStorageLocationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, bulkAssignStorageLocation,
+		arg.TeamID,
+		arg.StorageLocationID,
+		arg.StorageCoordinate,
+		arg.PartIds,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countAdjustments = `-- name: CountAdjustments :one
 SELECT COUNT(*) FROM stock_adjustments WHERE inventory_entry_id = $1
 `
@@ -51,6 +84,23 @@ func (q *Queries) CountInventory(ctx context.Context, arg CountInventoryParams) 
 		arg.StorageLocationID,
 		arg.BelowMinStock,
 	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countInventoryEntriesForParts = `-- name: CountInventoryEntriesForParts :one
+SELECT COUNT(*) FROM inventory_entries
+WHERE team_id = $1 AND part_id = ANY($2::uuid[])
+`
+
+type CountInventoryEntriesForPartsParams struct {
+	TeamID  pgtype.UUID   `json:"team_id"`
+	PartIds []pgtype.UUID `json:"part_ids"`
+}
+
+func (q *Queries) CountInventoryEntriesForParts(ctx context.Context, arg CountInventoryEntriesForPartsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countInventoryEntriesForParts, arg.TeamID, arg.PartIds)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

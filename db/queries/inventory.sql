@@ -145,6 +145,22 @@ SELECT id, quantity_on_hand, storage_location_id, storage_coordinate
 FROM inventory_entries
 WHERE team_id = $1 AND part_id = $2;
 
+-- Bulk storage assignment (list-driven verb): move tracked parts, create
+-- zero-quantity entries for parts the team doesn't track yet. The same
+-- location/coordinate applies to every part in the batch.
+-- name: BulkAssignStorageLocation :execrows
+INSERT INTO inventory_entries (team_id, part_id, storage_location_id, storage_coordinate)
+SELECT sqlc.arg('team_id')::uuid, p.part_id,
+       sqlc.arg('storage_location_id')::uuid, sqlc.narg('storage_coordinate')::integer[]
+FROM unnest(sqlc.arg('part_ids')::uuid[]) AS p(part_id)
+ON CONFLICT (team_id, part_id) DO UPDATE
+SET storage_location_id = EXCLUDED.storage_location_id,
+    storage_coordinate  = EXCLUDED.storage_coordinate;
+
+-- name: CountInventoryEntriesForParts :one
+SELECT COUNT(*) FROM inventory_entries
+WHERE team_id = $1 AND part_id = ANY(sqlc.arg('part_ids')::uuid[]);
+
 -- name: GetPreferredListingDistributorByPartID :one
 -- Returns the distributor_id of the team's preferred listing for a part.
 -- Returns no rows if the inventory entry has no preferred listing set.

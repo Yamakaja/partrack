@@ -165,6 +165,7 @@ Higher roles inherit all permissions of lower roles.
 | GET | `/inventory/{entryId}` | viewer | Entry details |
 | GET | `/inventory/{entryId}/adjustments` | viewer | Stock adjustment ledger; query: `limit`, `offset`. Each entry includes `source_type` (`order_line_item`, `build`, `general_checkout`, or null for manual) and `source_id`. |
 | POST | `/inventory` | member | `{part_id, preferred_listing_id?, storage_location_id?, min_stock_qty?, reorder_qty?}` → 201. Returns 409 if entry already exists. |
+| POST | `/inventory/bulk-assign-storage` | member | `{part_ids, storage_location_id, storage_coordinate?}` → `{assigned, created}`. Assigns one location (+ optional coordinate) to every part in the batch; parts without an inventory entry get a zero-quantity one. Location must belong to the team (404); every part must be team-visible (403). Drives the list panel's "Assign storage…" verb. |
 | PATCH | `/inventory/{entryId}` | member | `{preferred_listing_id?, storage_location_id?, storage_coordinate?, min_stock_qty?, reorder_qty?}`. Three-state: absent=keep, null=clear, value=set. `storage_coordinate` is a flat `number[]` interpreted against the referenced location's `grid_config`. |
 | POST | `/inventory/{entryId}/adjustments` | member | `{delta, reason?}` → 201 `{id, inventory_entry_id, delta, adjusted_at, reason, created_by, quantity_on_hand}`. Delta must be non-zero. Returns 422 `INSUFFICIENT_STOCK` if would go negative. Positive adjustments trigger build readiness re-evaluation. |
 
@@ -368,7 +369,8 @@ all of the owner's connections, nobody else's).
 | PATCH | `/collections/{collectionId}` | member | `{name?, archived?, collect_capture_qty?}` → updated list |
 | DELETE | `/collections/{collectionId}` | member | Hard delete; 204 (archive via PATCH is the soft path) |
 | POST | `/collections/{collectionId}/items` | member | `{part_id, quantity?, note?}` → 201. Upsert-merge: an incoming quantity **sums** onto the row (NULL counts as 0); a bare add leaves the stored quantity untouched. Quantity must be > 0 when present (NULL = "no quantity recorded"). |
-| POST | `/collections/{collectionId}/items/bulk` | member | `{items: [{part_id, quantity?, note?}]}` → `{added}`. Same merge rule, one tx + one event. Used by "Add from cart". |
+| POST | `/collections/{collectionId}/items/bulk` | member | `{items: [{part_id, quantity?, note?}]}` → `{added}`. Same merge rule, one tx + one event. Used by the panel's "Add from …" source verbs (cart, build, order, revision, storage location, low stock, other list). |
+| DELETE | `/collections/{collectionId}/items` | member | Clear all rows (the "Clear items" verb) → `{removed}`. The collection itself survives. |
 | PATCH | `/collections/{collectionId}/items/{itemId}` | member | `{quantity?, note?}` — set-if-present: explicit `null` clears the field, absent leaves it untouched |
 | DELETE | `/collections/{collectionId}/items/{itemId}` | member | Remove row; 204 |
 

@@ -511,6 +511,31 @@ func (h *Handler) UpdateCollectionItem(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ClearCollectionItems handles DELETE /api/v1/teams/{teamId}/collections/{collectionId}/items
+// Empties the list in one shot (the "Clear items" verb); the collection itself
+// survives, unlike DeleteCollection.
+func (h *Handler) ClearCollectionItems(w http.ResponseWriter, r *http.Request) {
+	userID, teamID, ok := collectionScope(w, r)
+	if !ok {
+		return
+	}
+	c, ok := h.requireCollectionOwned(w, r, userID, teamID)
+	if !ok {
+		return
+	}
+	n, err := h.Queries.ClearPartCollectionItems(r.Context(), c.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := h.Queries.TouchPartCollection(r.Context(), c.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	h.publishCollectionChanged(r, teamID, c.ID.String())
+	writeJSON(w, http.StatusOK, map[string]any{"removed": n})
+}
+
 // DeleteCollectionItem handles DELETE /api/v1/teams/{teamId}/collections/{collectionId}/items/{itemId}
 func (h *Handler) DeleteCollectionItem(w http.ResponseWriter, r *http.Request) {
 	userID, teamID, ok := collectionScope(w, r)

@@ -54,3 +54,14 @@ export function createAdjustment(teamId: string, entryId: string, body: { delta:
 export function replenishPreview(teamId: string) {
   return request<{ items: ReplenishPreviewItem[] }>('GET', `/api/v1/teams/${teamId}/inventory/replenish-preview`);
 }
+
+/** Assign one storage location (and optional coordinate) to a batch of parts.
+ *  Parts without an inventory entry get a zero-quantity one. */
+export function bulkAssignStorage(
+  teamId: string,
+  body: { part_ids: string[]; storage_location_id: string; storage_coordinate?: number[] },
+) {
+  return request<{ assigned: number; created: number }>(
+    'POST', `/api/v1/teams/${teamId}/inventory/bulk-assign-storage`, body,
+  );
+}

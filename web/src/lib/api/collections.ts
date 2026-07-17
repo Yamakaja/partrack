@@ -100,3 +100,7 @@ export function updateCollectionItem(
 export function removeCollectionItem(teamId: string, collectionId: string, itemId: string) {
   return request<void>('DELETE', `/api/v1/teams/${teamId}/collections/${collectionId}/items/${itemId}`);
 }
+
+export function clearCollectionItems(teamId: string, collectionId: string) {
+  return request<{ removed: number }>('DELETE', `/api/v1/teams/${teamId}/collections/${collectionId}/items`);
+}

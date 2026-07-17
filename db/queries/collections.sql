@@ -68,6 +68,11 @@ RETURNING id, collection_id, part_id, quantity, note;
 DELETE FROM part_collection_items
 WHERE id = $1 AND collection_id = $2;
 
+-- Empty the list in one statement (the "Clear items" verb); the collection row survives.
+-- name: ClearPartCollectionItems :execrows
+DELETE FROM part_collection_items
+WHERE collection_id = $1;
+
 -- Phone list view: rows with team stock + storage location — the "where do
 -- these parts live?" lens. The phone resolves location labels from its cached
 -- storage tree, so ids + coordinates suffice.

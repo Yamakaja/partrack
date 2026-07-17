@@ -290,6 +290,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					// Inventory
 					r.Post("/inventory", h.CreateInventoryEntry)
+					r.Post("/inventory/bulk-assign-storage", h.BulkAssignStorage)
 					r.Patch("/inventory/{entryId}", h.UpdateInventoryEntry)
 					r.Post("/inventory/{entryId}/adjustments", h.CreateAdjustment)
 
@@ -350,6 +351,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Delete("/collections/{collectionId}", h.DeleteCollection)
 					r.Post("/collections/{collectionId}/items", h.AddCollectionItem)
 					r.Post("/collections/{collectionId}/items/bulk", h.BulkAddCollectionItems)
+					r.Delete("/collections/{collectionId}/items", h.ClearCollectionItems)
 					r.Patch("/collections/{collectionId}/items/{itemId}", h.UpdateCollectionItem)
 					r.Delete("/collections/{collectionId}/items/{itemId}", h.DeleteCollectionItem)
 

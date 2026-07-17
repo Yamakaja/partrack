@@ -659,6 +659,113 @@ func (h *Handler) ReplenishPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+// BulkAssignStorage handles POST /api/v1/teams/{teamId}/inventory/bulk-assign-storage
+// Body: {part_ids, storage_location_id, storage_coordinate?}. Assigns one
+// location (and optional grid coordinate) to every part in the batch — the
+// list-driven "Assign storage" verb. Parts without an inventory entry get a
+// zero-quantity entry (the team's profile for the part), matching the
+// "entry ≠ has stock" model.
+func (h *Handler) BulkAssignStorage(w http.ResponseWriter, r *http.Request) {
+	var teamID pgtype.UUID
+	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid team ID", "BAD_REQUEST")
+		return
+	}
+
+	var req struct {
+		PartIDs           []string `json:"part_ids"`
+		StorageLocationID string   `json:"storage_location_id"`
+		StorageCoordinate []int32  `json:"storage_coordinate"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	if len(req.PartIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "part_ids is required and must not be empty", "BAD_REQUEST")
+		return
+	}
+	for _, c := range req.StorageCoordinate {
+		if c < 0 {
+			writeError(w, http.StatusBadRequest, "storage_coordinate values must be non-negative", "BAD_REQUEST")
+			return
+		}
+	}
+
+	var locationID pgtype.UUID
+	if err := locationID.Scan(req.StorageLocationID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid storage_location_id", "BAD_REQUEST")
+		return
+	}
+	if _, err := h.Queries.GetStorageLocation(r.Context(), dbgen.GetStorageLocationParams{
+		ID: locationID, TeamID: teamID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "storage location not found", "NOT_FOUND")
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	// Parse, dedupe, and authorize every part before writing anything.
+	seen := make(map[string]struct{}, len(req.PartIDs))
+	partIDs := make([]pgtype.UUID, 0, len(req.PartIDs))
+	for _, idStr := range req.PartIDs {
+		if _, dup := seen[idStr]; dup {
+			continue
+		}
+		seen[idStr] = struct{}{}
+		var partID pgtype.UUID
+		if err := partID.Scan(idStr); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid part_id: "+idStr, "BAD_REQUEST")
+			return
+		}
+		if _, ok := h.requirePartInTeamOrGlobal(w, r, partID, teamID); !ok {
+			return
+		}
+		partIDs = append(partIDs, partID)
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	existing, err := qtx.CountInventoryEntriesForParts(r.Context(), dbgen.CountInventoryEntriesForPartsParams{
+		TeamID: teamID, PartIds: partIDs,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	n, err := qtx.BulkAssignStorageLocation(r.Context(), dbgen.BulkAssignStorageLocationParams{
+		TeamID:            teamID,
+		PartIds:           partIDs,
+		StorageLocationID: locationID,
+		StorageCoordinate: req.StorageCoordinate,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{
+		"storage_location_id": locationID.String(),
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"assigned": n,
+		"created":  int64(len(partIDs)) - existing,
+	})
+}
+
 // inventoryEntryResponse converts an InventoryEntry to a JSON-serializable map.
 func inventoryEntryResponse(e dbgen.InventoryEntry) map[string]any {
 	var storLocID *string

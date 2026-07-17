@@ -357,3 +357,45 @@ func TestBulkAddCartItems(t *testing.T) {
 		t.Errorf("zero quantity: expected 400, got %d", status)
 	}
 }
+
+func TestCollections_ClearItems(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	_, teamID, token := collectionsTestSetup(t, "coll-clear@example.com")
+	collID := createCollectionViaAPI(t, teamID, token, "Clear me")
+	partA := testutil.CreatePart(t, testDB, "global", "COLL-CLEAR-01", nil)
+	partB := testutil.CreatePart(t, testDB, "global", "COLL-CLEAR-02", nil)
+
+	itemsPath := fmt.Sprintf("/api/v1/teams/%s/collections/%s/items", teamID, collID)
+	for _, p := range []string{partA, partB} {
+		if body, status := testutil.Do(t, testEnv.Server, http.MethodPost, itemsPath,
+			map[string]any{"part_id": p, "quantity": 5}, token); status != http.StatusCreated {
+			t.Fatalf("add item: expected 201, got %d: %v", status, body)
+		}
+	}
+
+	// A teammate cannot clear a list they don't own (owner filter → 404).
+	otherID := testutil.CreateUser(t, testDB, "coll-clear-other@example.com", "pw", "Other")
+	testutil.AddMember(t, testDB, teamID, otherID, "member")
+	otherToken := testutil.CreateSession(t, testDB, otherID)
+	if _, status := testutil.Do(t, testEnv.Server, http.MethodDelete, itemsPath, nil, otherToken); status != http.StatusNotFound {
+		t.Errorf("clear as non-owner: expected 404, got %d", status)
+	}
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodDelete, itemsPath, nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("clear: expected 200, got %d: %v", status, body)
+	}
+	if n := body["removed"].(float64); n != 2 {
+		t.Errorf("expected removed=2, got %v", n)
+	}
+
+	// The list itself survives, empty.
+	body, status = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s", teamID, collID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("get after clear: expected 200, got %d", status)
+	}
+	if items := body["items"].([]any); len(items) != 0 {
+		t.Errorf("expected empty items after clear, got %d", len(items))
+	}
+}

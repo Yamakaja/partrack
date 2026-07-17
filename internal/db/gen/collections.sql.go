@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearPartCollectionItems = `-- name: ClearPartCollectionItems :execrows
+DELETE FROM part_collection_items
+WHERE collection_id = $1
+`
+
+// Empty the list in one statement (the "Clear items" verb); the collection row survives.
+func (q *Queries) ClearPartCollectionItems(ctx context.Context, collectionID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, clearPartCollectionItems, collectionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createPartCollection = `-- name: CreatePartCollection :one
 
 INSERT INTO part_collections (user_id, team_id, name)
