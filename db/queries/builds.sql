@@ -29,6 +29,18 @@ ORDER BY
   b.created_at DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
+-- name: ListBuildsForScanPicker :many
+-- Phone filter-source picker: every build (read-only targets, so even
+-- assembled ones are legitimate), active statuses first, newest first.
+SELECT b.id, b.quantity, b.status, b.created_at,
+       pr.name AS project_name, br.label AS revision_label
+FROM builds b
+JOIN projects pr ON pr.id = b.project_id
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+WHERE b.team_id = $1
+ORDER BY (b.status NOT IN ('assembled', 'cancelled')) DESC, b.created_at DESC
+LIMIT 50;
+
 -- name: CountBuilds :one
 SELECT COUNT(*) FROM builds
 WHERE team_id = @team_id

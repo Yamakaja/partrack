@@ -1122,6 +1122,55 @@ func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]ListB
 	return items, nil
 }
 
+const listBuildsForScanPicker = `-- name: ListBuildsForScanPicker :many
+SELECT b.id, b.quantity, b.status, b.created_at,
+       pr.name AS project_name, br.label AS revision_label
+FROM builds b
+JOIN projects pr ON pr.id = b.project_id
+JOIN bom_revisions br ON br.id = b.bom_revision_id
+WHERE b.team_id = $1
+ORDER BY (b.status NOT IN ('assembled', 'cancelled')) DESC, b.created_at DESC
+LIMIT 50
+`
+
+type ListBuildsForScanPickerRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	Quantity      int32              `json:"quantity"`
+	Status        string             `json:"status"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ProjectName   string             `json:"project_name"`
+	RevisionLabel string             `json:"revision_label"`
+}
+
+// Phone filter-source picker: every build (read-only targets, so even
+// assembled ones are legitimate), active statuses first, newest first.
+func (q *Queries) ListBuildsForScanPicker(ctx context.Context, teamID pgtype.UUID) ([]ListBuildsForScanPickerRow, error) {
+	rows, err := q.db.Query(ctx, listBuildsForScanPicker, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBuildsForScanPickerRow
+	for rows.Next() {
+		var i ListBuildsForScanPickerRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Quantity,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ProjectName,
+			&i.RevisionLabel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setBuildExcludedDesignators = `-- name: SetBuildExcludedDesignators :exec
 UPDATE builds SET excluded_designators = $1 WHERE id = $2 AND team_id = $3
 `

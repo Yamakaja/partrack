@@ -42,4 +42,17 @@ Start it from either end: the **Collect** tile on the phone menu (pick a list or
 - **Unknown bags don't land on the list.** A bag that isn't in your catalog shows a card offering **Send to resolve queue** — it joins the normal [bulk-scan resolution](scanning.md) flow for later review on the desktop. Once imported, scan it again.
 - **Collecting never touches stock.** Unlike a regular bag scan, Collect creates no inventory entries and writes no adjustments — the list is the only thing that changes.
 
-Filtering a pile *against* a list ("is this bag part of the set?") is planned as the next iteration of lists.
+## Filtering a pile with the phone
+
+**Filter Parts** is Collect's inverse: instead of scanning bags *into* a set, you scan them *against* one. A delivery of 120 bags arrives and 40 belong to a build — instead of cross-checking a list by hand, hold each bag up to the phone and read the verdict:
+
+- ✅ **In the set** — with the quantity needed, reference designators (build targets), the order line, or your list note.
+- **≈ Approved substitute** — the bag isn't the exact part, but it's an approved substitute for one that is (build targets); it counts toward coverage.
+- ✗ **Not in the set** — put it on the other pile.
+- **? Unknown** — the barcode couldn't be read or the part isn't in the catalog.
+
+Filter against **a list**, **a build** (its full demand: overrides, excluded designators, substitute selections, × build quantity), or one or more **orders** (matched by the exact ordered SKUs first). Start from the phone's **Filter Parts** tile, or push a list to the phone with the **Filter** button in the list panel.
+
+The tally counts *coverage* — how many of the target's parts you've seen — and finishing shows the real product of a session: the **"never scanned"** list, the parts that should have been in the pile but weren't. Filtering is completely read-only: nothing is written to lists, stock, or orders; only a one-line summary lands in your activity feed.
+
+Browsing a list on the phone (the **Lists** tile) also shows each part's stock on hand and storage location — handy when the question is "where do these live?" rather than "what's in this pile?".

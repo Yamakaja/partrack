@@ -68,6 +68,20 @@ RETURNING id, collection_id, part_id, quantity, note;
 DELETE FROM part_collection_items
 WHERE id = $1 AND collection_id = $2;
 
+-- Phone list view: rows with team stock + storage location — the "where do
+-- these parts live?" lens. The phone resolves location labels from its cached
+-- storage tree, so ids + coordinates suffice.
+-- name: ListPartCollectionItemsWithStock :many
+SELECT pci.id, pci.part_id, pci.quantity, pci.note,
+       p.mpn, COALESCE(p.short_description, p.description, '') AS part_description,
+       ie.quantity_on_hand, ie.storage_location_id, ie.storage_coordinate
+FROM part_collection_items pci
+JOIN parts p ON p.id = pci.part_id
+LEFT JOIN inventory_entries ie
+       ON ie.part_id = pci.part_id AND ie.team_id = sqlc.arg('team_id')
+WHERE pci.collection_id = sqlc.arg('collection_id')
+ORDER BY pci.id;
+
 -- Running tally for one collection (scan Collect responses + summaries).
 -- name: GetPartCollectionTally :one
 SELECT COUNT(pci.id)::int                                     AS item_count,

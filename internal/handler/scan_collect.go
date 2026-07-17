@@ -276,6 +276,64 @@ func (h *Handler) UpdateScanCollection(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListScanCollectionItems handles GET /api/v1/scan/collections/{collectionId}/items —
+// the phone's read-only list view: rows with on-hand stock and storage
+// location (the "where do these parts live?" lens).
+func (h *Handler) ListScanCollectionItems(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.scanSessionFromScanToken(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if sess == nil {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	c, ok := h.scanCollectionOwned(w, r, sess, chi.URLParam(r, "collectionId"))
+	if !ok {
+		return
+	}
+	rows, err := h.Queries.ListPartCollectionItemsWithStock(r.Context(), dbgen.ListPartCollectionItemsWithStockParams{
+		TeamID:       sess.TeamID,
+		CollectionID: c.ID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	type location struct {
+		ID         string  `json:"id"`
+		Coordinate []int32 `json:"coordinate"`
+	}
+	type item struct {
+		ID              string    `json:"id"`
+		PartID          string    `json:"part_id"`
+		Quantity        *int32    `json:"quantity"`
+		Note            *string   `json:"note"`
+		Mpn             *string   `json:"mpn"`
+		Description     string    `json:"description"`
+		QuantityOnHand  *int32    `json:"quantity_on_hand"`
+		StorageLocation *location `json:"storage_location"`
+	}
+	items := make([]item, 0, len(rows))
+	for _, row := range rows {
+		it := item{
+			ID:             row.ID.String(),
+			PartID:         row.PartID.String(),
+			Quantity:       row.Quantity,
+			Note:           row.Note,
+			Mpn:            row.Mpn,
+			Description:    row.PartDescription,
+			QuantityOnHand: row.QuantityOnHand,
+		}
+		if row.StorageLocationID.Valid {
+			it.StorageLocation = &location{ID: row.StorageLocationID.String(), Coordinate: row.StorageCoordinate}
+		}
+		items = append(items, it)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": c.Name, "items": items})
+}
+
 // CollectScan handles POST /api/v1/scan/collect — one scan of the Collect loop.
 //
 // Body: {collection_id, barcode?, part_id?, quantity?}

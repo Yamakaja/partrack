@@ -295,15 +295,19 @@
     }
   }
 
-  // Hand the active list to the paired phone as a Collect target.
-  async function collectOnPhone() {
+  // Hand the active list to the paired phone: as a Collect target (scan bags
+  // into the list) or a Filter target (scan bags against it).
+  async function sendToPhone(mode: 'collect' | 'filter') {
     const sess = scanSessionStore.current;
     if (!activeId || !sess) return;
     try {
       await request('PATCH', `/api/v1/teams/${teamId}/scan-sessions/${sess.id}/context`, {
         collection_id: activeId,
+        mode,
       });
-      pushToast('success', 'Sent to the scanner — start scanning bags');
+      pushToast('success', mode === 'collect'
+        ? 'Sent to the scanner — start scanning bags'
+        : 'Filter sent to the scanner — scan the pile');
     } catch (err) {
       toastError(err);
     }
@@ -477,11 +481,19 @@
           {/if}
           {#if scannerConnected}
             <button
-              onclick={collectOnPhone}
+              onclick={() => sendToPhone('collect')}
               title="Scan bags into this list with the phone"
               class="flex items-center gap-1 rounded-md border border-warning/40 bg-warning/5 px-2 py-1 text-xs font-medium text-warning hover:bg-warning/10"
             >
-              <ScanBarcode class="h-3 w-3" /> Collect on phone
+              <ScanBarcode class="h-3 w-3" /> Collect
+            </button>
+            <button
+              onclick={() => sendToPhone('filter')}
+              disabled={items.length === 0}
+              title="Scan a pile against this list — is each bag on it?"
+              class="flex items-center gap-1 rounded-md border border-warning/40 bg-warning/5 px-2 py-1 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
+            >
+              <ScanBarcode class="h-3 w-3" /> Filter
             </button>
           {/if}
           <button

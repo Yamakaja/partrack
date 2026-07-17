@@ -264,6 +264,54 @@ func (q *Queries) ListSubstitutesForLineItem(ctx context.Context, arg ListSubsti
 	return items, nil
 }
 
+const listSubstitutesForRevisionResolved = `-- name: ListSubstitutesForRevisionResolved :many
+SELECT s.bom_line_item_id, s.part_id,
+       p.mpn, COALESCE(p.short_description, p.description, '') AS description,
+       bli.reference_designators, bli.resolved_part_id
+FROM bom_line_item_substitutes s
+JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
+JOIN parts p ON p.id = s.part_id
+WHERE bli.bom_revision_id = $1 AND bli.resolved_part_id IS NOT NULL
+`
+
+type ListSubstitutesForRevisionResolvedRow struct {
+	BomLineItemID        pgtype.UUID `json:"bom_line_item_id"`
+	PartID               pgtype.UUID `json:"part_id"`
+	Mpn                  *string     `json:"mpn"`
+	Description          string      `json:"description"`
+	ReferenceDesignators string      `json:"reference_designators"`
+	ResolvedPartID       pgtype.UUID `json:"resolved_part_id"`
+}
+
+// All approved substitutes of a revision's resolved line items, with the
+// primary line's identity — the scanner filter's "substitute" verdict set.
+func (q *Queries) ListSubstitutesForRevisionResolved(ctx context.Context, bomRevisionID pgtype.UUID) ([]ListSubstitutesForRevisionResolvedRow, error) {
+	rows, err := q.db.Query(ctx, listSubstitutesForRevisionResolved, bomRevisionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubstitutesForRevisionResolvedRow
+	for rows.Next() {
+		var i ListSubstitutesForRevisionResolvedRow
+		if err := rows.Scan(
+			&i.BomLineItemID,
+			&i.PartID,
+			&i.Mpn,
+			&i.Description,
+			&i.ReferenceDesignators,
+			&i.ResolvedPartID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeSubstitute = `-- name: RemoveSubstitute :exec
 DELETE FROM bom_line_item_substitutes
 WHERE bom_line_item_id = $1 AND part_id = $2

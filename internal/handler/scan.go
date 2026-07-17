@@ -420,9 +420,19 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		OrderID      string `json:"order_id"`
 		CollectionID string `json:"collection_id"`
+		// mode selects the phone flow for collection contexts:
+		// "collect" (default) or "filter".
+		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.OrderID == "" && body.CollectionID == "") {
 		writeError(w, http.StatusBadRequest, "order_id or collection_id is required", "BAD_REQUEST")
+		return
+	}
+	if body.Mode == "" {
+		body.Mode = "collect"
+	}
+	if body.Mode != "collect" && body.Mode != "filter" {
+		writeError(w, http.StatusBadRequest, "mode must be collect or filter", "BAD_REQUEST")
 		return
 	}
 
@@ -455,9 +465,13 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		contextType := "collect"
+		if body.Mode == "filter" {
+			contextType = "filter_list"
+		}
 		msg, _ := json.Marshal(map[string]any{
 			"type":                    "scan_context_changed",
-			"context_type":            "collect",
+			"context_type":            contextType,
 			"context_collection_id":   coll.ID.String(),
 			"context_collection_name": coll.Name,
 		})

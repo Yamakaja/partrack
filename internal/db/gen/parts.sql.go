@@ -839,6 +839,46 @@ func (q *Queries) GetPartWithInventory(ctx context.Context, arg GetPartWithInven
 	return i, err
 }
 
+const getPartsBrief = `-- name: GetPartsBrief :many
+SELECT id, mpn, manufacturer,
+       COALESCE(short_description, description, '') AS description
+FROM parts
+WHERE id = ANY($1::uuid[])
+`
+
+type GetPartsBriefRow struct {
+	ID           pgtype.UUID `json:"id"`
+	Mpn          *string     `json:"mpn"`
+	Manufacturer *string     `json:"manufacturer"`
+	Description  string      `json:"description"`
+}
+
+// Display identity for a set of part ids (scanner filter target sets).
+func (q *Queries) GetPartsBrief(ctx context.Context, ids []pgtype.UUID) ([]GetPartsBriefRow, error) {
+	rows, err := q.db.Query(ctx, getPartsBrief, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPartsBriefRow
+	for rows.Next() {
+		var i GetPartsBriefRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mpn,
+			&i.Manufacturer,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPartsForManifest = `-- name: GetPartsForManifest :many
 SELECT id, mpn, manufacturer, lifecycle_status
 FROM parts

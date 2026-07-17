@@ -3,21 +3,29 @@
   import ScannerCamera from './ScannerCamera.svelte';
   import {
     listScanCollections, createScanCollection, patchScanCollection, collectScan,
+    listScanCollectionItems,
     startBulkSession, addBulkScanItem, closeBulkSession,
     ScanExpiredError,
-    type ScanCollection, type CollectPart, type CollectTally,
+    type ScanCollection, type CollectPart, type CollectTally, type ScanCollectionItem,
   } from '$lib/api/scanner.js';
+  import type { StorageLocation } from '$lib/types/inventory.js';
+  import { fullLocationLabel } from './locationUtils.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
 
-  // Collect mode: scan a pile of bags INTO a list. Strictly list-writes only —
-  // no inventory is touched (stock only ever moves at receive/checkout).
+  // The phone's Lists surface: browse a list (rows + stock + storage location —
+  // the "where do these live?" lens) and collect into it. Collect is strictly
+  // list-writes only — no inventory is touched (stock only ever moves at
+  // receive/checkout).
   let {
+    locations = [],
     initialCollectionId = null,
     initialCollectionName = null,
     onBack,
     onExpired,
   }: {
-    /** Pre-selected list (desktop "Collect on phone" push). */
+    /** Cached storage tree (for location labels). */
+    locations?: StorageLocation[];
+    /** Pre-selected list (desktop "Collect on phone" push) — skips the browse step. */
     initialCollectionId?: string | null;
     initialCollectionName?: string | null;
     onBack: () => void;
@@ -26,10 +34,12 @@
 
   type Selected = { id: string; name: string; captureQty: boolean | null };
 
-  let screen = $state<'picker' | 'scanning'>('picker');
+  let screen = $state<'picker' | 'detail' | 'scanning'>('picker');
   let lists = $state<ScanCollection[]>([]);
   let loadingLists = $state(true);
   let selected = $state<Selected | null>(null);
+  let detailItems = $state<ScanCollectionItem[]>([]);
+  let detailLoading = $state(false);
 
   // Capture-quantities decision dialog (first collect into a list).
   let showCaptureDialog = $state(false);
@@ -75,11 +85,12 @@
     try {
       const res = await listScanCollections();
       lists = res.collections;
-      // Desktop push preselects; wait for the fetch so we know the toggle.
+      // Desktop push preselects and goes straight to scanning; wait for the
+      // fetch so we know the capture toggle.
       if (initialCollectionId && !selected) {
         const match = lists.find((l) => l.id === initialCollectionId);
         if (match) {
-          pick(match);
+          startCollect(match);
         } else if (initialCollectionName) {
           pushToast('warning', `List “${initialCollectionName}” not found`);
         }
@@ -92,12 +103,41 @@
     }
   }
 
-  function pick(l: ScanCollection) {
+  // Browse: tap a list → detail view (rows + stock + locations).
+  async function pick(l: ScanCollection) {
+    selected = { id: l.id, name: l.name, captureQty: l.collect_capture_qty };
+    tally = { item_count: l.item_count, total_quantity: l.total_quantity, unquantified_count: 0 };
+    card = null;
+    unknownCount = 0;
+    screen = 'detail';
+    detailLoading = true;
+    detailItems = [];
+    try {
+      detailItems = (await listScanCollectionItems(l.id)).items;
+    } catch (e) {
+      if (e instanceof ScanExpiredError) { onExpired(); return; }
+      pushToast('error', 'Could not load the list');
+    } finally {
+      detailLoading = false;
+    }
+  }
+
+  // Start the scan loop (from the detail button or a desktop push).
+  function startCollect(l: ScanCollection) {
     selected = { id: l.id, name: l.name, captureQty: l.collect_capture_qty };
     tally = { item_count: l.item_count, total_quantity: l.total_quantity, unquantified_count: 0 };
     card = null;
     unknownCount = 0;
     if (l.collect_capture_qty === null) {
+      showCaptureDialog = true;
+    } else {
+      screen = 'scanning';
+    }
+  }
+
+  function startCollectFromDetail() {
+    if (!selected) return;
+    if (selected.captureQty === null) {
       showCaptureDialog = true;
     } else {
       screen = 'scanning';
@@ -114,6 +154,26 @@
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       pushToast('error', 'Could not create list');
+    }
+  }
+
+  function itemLocationLabel(it: ScanCollectionItem): string | null {
+    if (!it.storage_location) return null;
+    return fullLocationLabel(it.storage_location, locations) || null;
+  }
+
+  // Leaving the scan loop lands on the (refreshed) detail view.
+  async function backToDetail() {
+    card = null;
+    screen = 'detail';
+    detailLoading = true;
+    void refreshLists();
+    try {
+      if (selected) detailItems = (await listScanCollectionItems(selected.id)).items;
+    } catch {
+      // list view is best-effort here; scan writes already succeeded
+    } finally {
+      detailLoading = false;
     }
   }
 
@@ -275,10 +335,73 @@
     </div>
   </div>
 
+<!-- ── LIST DETAIL (browse: stock + locations) ─────────────────────────────── -->
+{:else if screen === 'detail' && selected}
+  <div class="flex flex-1 flex-col">
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
+      <button onclick={() => { screen = 'picker'; void refreshLists(); }} aria-label="Back" class="text-zinc-400 active:text-white">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
+      <div class="min-w-0">
+        <p class="font-medium truncate">{selected.name}</p>
+        {#if tally}
+          <p class="text-xs text-zinc-400">
+            {tally.item_count} part{tally.item_count === 1 ? '' : 's'}{tally.total_quantity > 0 ? ` · ${tally.total_quantity.toLocaleString()} pcs` : ''}
+          </p>
+        {/if}
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-4 space-y-1.5">
+      {#if detailLoading}
+        <p class="text-sm text-zinc-500 text-center py-6">Loading…</p>
+      {:else}
+        {#each detailItems as it (it.id)}
+          {@const loc = itemLocationLabel(it)}
+          <div class="rounded-lg bg-zinc-900 px-3 py-2.5">
+            <div class="flex items-baseline justify-between gap-3">
+              <p class="min-w-0 truncate font-mono text-sm font-medium">{it.mpn ?? it.description ?? '—'}</p>
+              <span class="shrink-0 text-xs tabular-nums {it.quantity == null ? 'text-amber-400' : 'text-zinc-300'}">
+                {it.quantity != null ? `× ${it.quantity.toLocaleString()}` : 'no qty'}
+              </span>
+            </div>
+            {#if it.mpn && it.description}
+              <p class="text-xs text-zinc-500 truncate">{it.description}</p>
+            {/if}
+            <div class="mt-1 flex items-baseline justify-between gap-3 text-[11px]">
+              <span class="min-w-0 truncate text-zinc-400">
+                {#if loc}📍 {loc}{:else}<span class="text-zinc-600">no location</span>{/if}
+              </span>
+              <span class="shrink-0 tabular-nums {it.quantity_on_hand != null && it.quantity_on_hand > 0 ? 'text-zinc-400' : 'text-zinc-600'}">
+                {it.quantity_on_hand != null ? `${it.quantity_on_hand.toLocaleString()} on hand` : 'not tracked'}
+              </span>
+            </div>
+            {#if it.note}
+              <p class="mt-0.5 text-[11px] italic text-zinc-500 truncate">{it.note}</p>
+            {/if}
+          </div>
+        {:else}
+          <p class="text-sm text-zinc-500 text-center py-6">Empty list — start collecting below.</p>
+        {/each}
+      {/if}
+    </div>
+
+    <div class="p-4 border-t border-zinc-800">
+      <button
+        onclick={startCollectFromDetail}
+        class="w-full rounded-lg bg-white py-3 text-base font-semibold text-black active:bg-zinc-200"
+      >
+        Collect into this list
+      </button>
+    </div>
+  </div>
+
 <!-- ── SCANNING ────────────────────────────────────────────────────────────── -->
 {:else if selected}
   <div class="relative flex flex-1 flex-col overflow-hidden">
-    <ScannerCamera onBack={() => { screen = 'picker'; card = null; void refreshLists(); }} onScan={handleScan}>
+    <ScannerCamera onBack={backToDetail} onScan={handleScan}>
       {#snippet topRightControls()}
         {#if tally}
           <div class="rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white">

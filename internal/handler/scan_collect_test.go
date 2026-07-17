@@ -187,6 +187,49 @@ func TestCollectScan_ForeignCollection(t *testing.T) {
 	}
 }
 
+func TestListScanCollectionItems(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	userID, teamID, scanToken, collID := collectSetup(t, "collect-view@example.com")
+
+	partID := testutil.CreatePart(t, testDB, "global", "COLLECT-VIEW-A", nil)
+	entryID := testutil.CreateInventoryEntry(t, testDB, teamID, partID)
+	testutil.SetStockQty(t, testDB, entryID, 42)
+
+	desktopToken := testutil.CreateSession(t, testDB, userID)
+	_, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s/items", teamID, collID),
+		map[string]any{"part_id": partID, "quantity": 7, "note": "shelf pile"}, desktopToken)
+	if status != http.StatusCreated {
+		t.Fatalf("add item: expected 201, got %d", status)
+	}
+
+	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
+		"/api/v1/scan/collections/"+collID+"/items", nil, scanToken)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %v", status, body)
+	}
+	if body["name"].(string) != "Pile" {
+		t.Errorf("expected list name, got %v", body["name"])
+	}
+	items := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	it := items[0].(map[string]any)
+	if it["mpn"].(string) != "COLLECT-VIEW-A" {
+		t.Errorf("expected mpn, got %v", it["mpn"])
+	}
+	if q := it["quantity"].(float64); q != 7 {
+		t.Errorf("expected quantity 7, got %v", q)
+	}
+	if q := it["quantity_on_hand"].(float64); q != 42 {
+		t.Errorf("expected on-hand 42, got %v", q)
+	}
+	if it["storage_location"] != nil {
+		t.Errorf("expected nil storage_location, got %v", it["storage_location"])
+	}
+}
+
 func TestPushScanContext_Collect(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 	userID, teamID, _, collID := collectSetup(t, "collect-push@example.com")

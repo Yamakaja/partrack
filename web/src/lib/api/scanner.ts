@@ -506,6 +506,77 @@ export function collectScan(body: {
   return scanRequest('POST', '/api/v1/scan/collect', body);
 }
 
+export interface ScanCollectionItem {
+  id: string;
+  part_id: string;
+  quantity: number | null;
+  note: string | null;
+  mpn: string | null;
+  description: string;
+  quantity_on_hand: number | null;
+  storage_location: { id: string; coordinate: number[] | null } | null;
+}
+
+export function listScanCollectionItems(
+  collectionId: string,
+): Promise<{ name: string; items: ScanCollectionItem[] }> {
+  return scanRequest('GET', `/api/v1/scan/collections/${collectionId}/items`);
+}
+
+// ── Filter mode (phone side) ──────────────────────────────────────────────────
+
+export type CheckSource =
+  | { type: 'collection'; collection_id: string }
+  | { type: 'build'; build_id: string }
+  | { type: 'order'; order_ids: string[] };
+
+export interface CheckTargetEntry {
+  part_id: string;
+  mpn: string | null;
+  description?: string | null;
+  qty_needed?: number;
+  note?: string;
+  designators?: string;
+  substitute?: boolean;
+  substitute_for?: string;
+  substitute_for_part_id?: string;
+  order_ref?: string;
+}
+
+export interface CheckScanResponse {
+  verdict: 'match' | 'substitute' | 'miss' | 'unknown';
+  part: CollectPart | null;
+  entry?: CheckTargetEntry;
+}
+
+export interface ScanBuildPick {
+  id: string;
+  ref: string;
+  status: string;
+  quantity: number;
+  created_at: string;
+}
+
+export function checkTarget(source: CheckSource): Promise<{ ref: string; entries: CheckTargetEntry[] }> {
+  return scanRequest('POST', '/api/v1/scan/check/target', { source });
+}
+
+export function checkScan(
+  barcode: string,
+  source: CheckSource,
+  progress?: { done: number; total: number },
+): Promise<CheckScanResponse> {
+  return scanRequest('POST', '/api/v1/scan/check', { barcode, source, progress });
+}
+
+export function checkFinish(ref: string, seen: number, total: number): Promise<void> {
+  return scanRequest('POST', '/api/v1/scan/check/finish', { ref, seen, total });
+}
+
+export function listScanBuilds(): Promise<{ builds: ScanBuildPick[] }> {
+  return scanRequest('GET', '/api/v1/scan/builds');
+}
+
 // ── Bulk scan (phone side) ─────────────────────────────────────────────────────
 
 export interface StartBulkSessionResponse {

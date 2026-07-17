@@ -9,6 +9,7 @@
     onPartSelect,
     onStorageAssignment,
     onCollect,
+    onFilter,
   }: {
     contextOrderRef: string | null;
     onReceiveOrder: () => void;
@@ -17,6 +18,7 @@
     onPartSelect: (entry: ScanHistoryEntry) => void;
     onStorageAssignment: () => void;
     onCollect: () => void;
+    onFilter: () => void;
   } = $props();
 
   function relativeTime(ts: number): string {
@@ -105,8 +107,25 @@
         </svg>
       </div>
       <div>
-        <p class="font-medium">Collect</p>
-        <p class="text-xs text-zinc-400">Scan parts into a list</p>
+        <p class="font-medium">Lists</p>
+        <p class="text-xs text-zinc-400">Browse your lists &amp; collect parts into them</p>
+      </div>
+    </button>
+
+    <!-- Filter a pile against a target set -->
+    <button
+      onclick={onFilter}
+      class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
+    >
+      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/20 text-rose-400">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+        </svg>
+      </div>
+      <div>
+        <p class="font-medium">Filter Parts</p>
+        <p class="text-xs text-zinc-400">Scan a pile — does it belong to a list, build, or order?</p>
       </div>
     </button>
 

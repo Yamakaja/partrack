@@ -1,3 +1,14 @@
+-- name: ListSubstitutesForRevisionResolved :many
+-- All approved substitutes of a revision's resolved line items, with the
+-- primary line's identity — the scanner filter's "substitute" verdict set.
+SELECT s.bom_line_item_id, s.part_id,
+       p.mpn, COALESCE(p.short_description, p.description, '') AS description,
+       bli.reference_designators, bli.resolved_part_id
+FROM bom_line_item_substitutes s
+JOIN bom_line_items bli ON bli.id = s.bom_line_item_id
+JOIN parts p ON p.id = s.part_id
+WHERE bli.bom_revision_id = $1 AND bli.resolved_part_id IS NOT NULL;
+
 -- name: ListSubstitutesForLineItem :many
 -- Returns substitutes ordered by priority (0 = highest)
 SELECT s.part_id, p.mpn AS part_mpn, s.priority,

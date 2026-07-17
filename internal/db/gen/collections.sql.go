@@ -183,6 +183,68 @@ func (q *Queries) ListPartCollectionItems(ctx context.Context, collectionID pgty
 	return items, nil
 }
 
+const listPartCollectionItemsWithStock = `-- name: ListPartCollectionItemsWithStock :many
+SELECT pci.id, pci.part_id, pci.quantity, pci.note,
+       p.mpn, COALESCE(p.short_description, p.description, '') AS part_description,
+       ie.quantity_on_hand, ie.storage_location_id, ie.storage_coordinate
+FROM part_collection_items pci
+JOIN parts p ON p.id = pci.part_id
+LEFT JOIN inventory_entries ie
+       ON ie.part_id = pci.part_id AND ie.team_id = $1
+WHERE pci.collection_id = $2
+ORDER BY pci.id
+`
+
+type ListPartCollectionItemsWithStockParams struct {
+	TeamID       pgtype.UUID `json:"team_id"`
+	CollectionID pgtype.UUID `json:"collection_id"`
+}
+
+type ListPartCollectionItemsWithStockRow struct {
+	ID                pgtype.UUID `json:"id"`
+	PartID            pgtype.UUID `json:"part_id"`
+	Quantity          *int32      `json:"quantity"`
+	Note              *string     `json:"note"`
+	Mpn               *string     `json:"mpn"`
+	PartDescription   string      `json:"part_description"`
+	QuantityOnHand    *int32      `json:"quantity_on_hand"`
+	StorageLocationID pgtype.UUID `json:"storage_location_id"`
+	StorageCoordinate []int32     `json:"storage_coordinate"`
+}
+
+// Phone list view: rows with team stock + storage location — the "where do
+// these parts live?" lens. The phone resolves location labels from its cached
+// storage tree, so ids + coordinates suffice.
+func (q *Queries) ListPartCollectionItemsWithStock(ctx context.Context, arg ListPartCollectionItemsWithStockParams) ([]ListPartCollectionItemsWithStockRow, error) {
+	rows, err := q.db.Query(ctx, listPartCollectionItemsWithStock, arg.TeamID, arg.CollectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPartCollectionItemsWithStockRow
+	for rows.Next() {
+		var i ListPartCollectionItemsWithStockRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PartID,
+			&i.Quantity,
+			&i.Note,
+			&i.Mpn,
+			&i.PartDescription,
+			&i.QuantityOnHand,
+			&i.StorageLocationID,
+			&i.StorageCoordinate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPartCollections = `-- name: ListPartCollections :many
 SELECT pc.id, pc.name, pc.archived, pc.collect_capture_qty, pc.created_at, pc.updated_at,
        COUNT(pci.id)::int                                        AS item_count,
