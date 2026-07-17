@@ -68,6 +68,14 @@ RETURNING id, collection_id, part_id, quantity, note;
 DELETE FROM part_collection_items
 WHERE id = $1 AND collection_id = $2;
 
+-- Running tally for one collection (scan Collect responses + summaries).
+-- name: GetPartCollectionTally :one
+SELECT COUNT(pci.id)::int                                     AS item_count,
+       COALESCE(SUM(pci.quantity), 0)::bigint                 AS total_quantity,
+       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int AS unquantified_count
+FROM part_collection_items pci
+WHERE pci.collection_id = $1;
+
 -- Panel rows: the PartCell render contract (mpn, manufacturer, description,
 -- lifecycle) joined in; everything richer comes from the part hover card's
 -- lazy fetch. uuidv7 PK order = insertion order.

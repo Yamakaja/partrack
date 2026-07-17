@@ -73,6 +73,11 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 			r.Patch("/scan/bulk/sessions/{sessionId}/items/{itemId}", h.PatchBulkScanItem)
 			r.Post("/scan/bulk/sessions/{sessionId}/close", h.CloseBulkScanSessionHandler)
 			r.Post("/scan/bulk/sessions/{sessionId}/navigate", h.NavigateBulkSession)
+			// Collect mode (phone side) — scan bags into a part collection
+			r.Get("/scan/collections", h.ListScanCollections)
+			r.Post("/scan/collections", h.CreateScanCollection)
+			r.Patch("/scan/collections/{collectionId}", h.UpdateScanCollection)
+			r.Post("/scan/collect", h.CollectScan)
 			r.Get("/scan/kitting/{kittingSessionId}", h.GetKittingSessionHandler)
 			r.Get("/scan/kitting/{kittingSessionId}/items", h.GetKittingItemsHandler)
 			r.Post("/scan/kitting/{kittingSessionId}/confirm", h.KittingConfirm)
@@ -347,6 +352,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/scan-sessions", h.CreateScanSession)
 					r.Get("/scan-sessions/active", h.GetActiveScanSession)
 					r.Post("/scan-sessions/{sessionId}/pairing-ticket", h.RefreshPairingTicket)
+					// Context push is member+: sessions are per-user, and list
+					// (Collect) contexts are member-level — the old purchaser
+					// gate was inconsistent with StartKitting below.
+					r.Patch("/scan-sessions/{sessionId}/context", h.PushScanContext)
 
 					// Build kitting (member+)
 					r.Post("/scan-sessions/{sessionId}/kitting", h.StartKitting)
@@ -365,9 +374,8 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireTeamRole("purchaser"))
 
-					// Scan session management (purchaser can delete + push context)
+					// Scan session management (purchaser can delete)
 					r.Delete("/scan-sessions/{sessionId}", h.DeleteScanSession)
-					r.Patch("/scan-sessions/{sessionId}/context", h.PushScanContext)
 
 					// Cart
 					r.Get("/cart/count", h.GetCartCount)

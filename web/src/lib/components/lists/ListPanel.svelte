@@ -3,8 +3,10 @@
   import { Popover } from 'bits-ui';
   import {
     ChevronDown, ChevronUp, ClipboardList, Ellipsis, Pencil, Plus, ShoppingCart,
-    ArrowDownToLine, PackageMinus,
+    ArrowDownToLine, PackageMinus, ScanBarcode,
   } from 'lucide-svelte';
+  import { request } from '$lib/api/client.js';
+  import { scanSessionStore } from '$lib/stores/scanSession.svelte.js';
   import { currentRoute, matchRoute, navigate } from '$lib/router/index.svelte.js';
   import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
   import {
@@ -76,6 +78,7 @@
   const pageOrderId = $derived(matchRoute('/teams/:teamId/orders/:orderId', path)?.orderId ?? null);
   const role = $derived(activeTeamStore.current?.role ?? 'viewer');
   const isPurchaser = $derived(role === 'purchaser' || role === 'admin');
+  const scannerConnected = $derived(scanSessionStore.current?.liveConnected ?? false);
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['collections', teamId] });
@@ -292,6 +295,20 @@
     }
   }
 
+  // Hand the active list to the paired phone as a Collect target.
+  async function collectOnPhone() {
+    const sess = scanSessionStore.current;
+    if (!activeId || !sess) return;
+    try {
+      await request('PATCH', `/api/v1/teams/${teamId}/scan-sessions/${sess.id}/context`, {
+        collection_id: activeId,
+      });
+      pushToast('success', 'Sent to the scanner — start scanning bags');
+    } catch (err) {
+      toastError(err);
+    }
+  }
+
   async function handleCheckoutComplete(opts: { archive: boolean }) {
     qc.invalidateQueries({ queryKey: ['checkouts', teamId] });
     qc.invalidateQueries({ queryKey: ['inventory', teamId] });
@@ -456,6 +473,15 @@
               class="flex items-center gap-1 rounded-md border border-info/40 bg-info/5 px-2 py-1 text-xs font-medium text-info hover:bg-info/10 disabled:opacity-50"
             >
               <ArrowDownToLine class="h-3 w-3" /> Add from order
+            </button>
+          {/if}
+          {#if scannerConnected}
+            <button
+              onclick={collectOnPhone}
+              title="Scan bags into this list with the phone"
+              class="flex items-center gap-1 rounded-md border border-warning/40 bg-warning/5 px-2 py-1 text-xs font-medium text-warning hover:bg-warning/10"
+            >
+              <ScanBarcode class="h-3 w-3" /> Collect on phone
             </button>
           {/if}
           <button

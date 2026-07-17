@@ -439,6 +439,73 @@ export function kittingAbandon(kittingSessionId: string): Promise<void> {
   return scanRequest('POST', `/api/v1/scan/kitting/${kittingSessionId}/abandon`);
 }
 
+// ── Collect mode (phone side) ─────────────────────────────────────────────────
+
+export interface ScanCollection {
+  id: string;
+  name: string;
+  collect_capture_qty: boolean | null;
+  item_count: number;
+  total_quantity: number;
+  updated_at: string;
+}
+
+export interface CollectTally {
+  item_count: number;
+  total_quantity: number;
+  unquantified_count: number;
+}
+
+export interface CollectPart {
+  id: string;
+  mpn: string | null;
+  manufacturer: string | null;
+  description: string | null;
+}
+
+export type CollectScanResponse =
+  | {
+      status: 'added';
+      part: CollectPart;
+      quantity_added: number | null;
+      item_quantity: number | null;
+      tally: CollectTally;
+    }
+  | { status: 'quantity_required'; part: CollectPart }
+  | {
+      status: 'unknown';
+      reason: 'unparsed' | 'not_in_catalog';
+      raw?: string;
+      parsed_mpn?: string;
+      parsed_sku?: string;
+      parsed_manufacturer?: string;
+      parsed_distributor?: string;
+      parsed_qty?: number;
+    };
+
+export function listScanCollections(): Promise<{ collections: ScanCollection[] }> {
+  return scanRequest('GET', '/api/v1/scan/collections');
+}
+
+export function createScanCollection(name = ''): Promise<{ id: string; name: string; collect_capture_qty: boolean | null }> {
+  return scanRequest('POST', '/api/v1/scan/collections', { name });
+}
+
+export function patchScanCollection(collectionId: string, collectCaptureQty: boolean): Promise<void> {
+  return scanRequest('PATCH', `/api/v1/scan/collections/${collectionId}`, {
+    collect_capture_qty: collectCaptureQty,
+  });
+}
+
+export function collectScan(body: {
+  collection_id: string;
+  barcode?: string;
+  part_id?: string;
+  quantity?: number;
+}): Promise<CollectScanResponse> {
+  return scanRequest('POST', '/api/v1/scan/collect', body);
+}
+
 // ── Bulk scan (phone side) ─────────────────────────────────────────────────────
 
 export interface StartBulkSessionResponse {

@@ -32,4 +32,14 @@ Operations never modify the list itself — it's a reference, not a queue.
 
 **Manage lists…** in the switcher dropdown opens a page with all your lists, including **archived** ones. Archive is the everyday way to put a finished list away (archived lists keep their contents and can be unarchived); **Delete** removes a list permanently. Neither touches parts or stock.
 
-Scanner integration — scanning a pile of bags *into* a list, and filtering a pile *against* one — is planned as the next iteration of lists.
+## Collecting with the phone
+
+**Collect** turns the [phone scanner](scanning.md) into the fastest way to fill a list: point it at a pile of bags and each scan lands on the list — with your desktop panel tallying live as you go.
+
+Start it from either end: the **Collect** tile on the phone menu (pick a list or create one on the spot), or the **Collect on phone** button in the list panel's action bar when your scanner is connected.
+
+- **Quantities are a per-list choice.** The first time you collect into a list, the phone asks whether to capture piece counts; the answer is remembered for that list. With counts on, barcodes that carry a quantity (DigiKey and LCSC bags encode one) use it automatically — repeat scans of the same part add up. A barcode without a count brings up a quick number pad; type a count or **Skip** to record the part without one. partrack never invents a quantity.
+- **Unknown bags don't land on the list.** A bag that isn't in your catalog shows a card offering **Send to resolve queue** — it joins the normal [bulk-scan resolution](scanning.md) flow for later review on the desktop. Once imported, scan it again.
+- **Collecting never touches stock.** Unlike a regular bag scan, Collect creates no inventory entries and writes no adjustments — the list is the only thing that changes.
+
+Filtering a pile *against* a list ("is this bag part of the set?") is planned as the next iteration of lists.

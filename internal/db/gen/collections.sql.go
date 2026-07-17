@@ -108,6 +108,28 @@ func (q *Queries) GetPartCollection(ctx context.Context, arg GetPartCollectionPa
 	return i, err
 }
 
+const getPartCollectionTally = `-- name: GetPartCollectionTally :one
+SELECT COUNT(pci.id)::int                                     AS item_count,
+       COALESCE(SUM(pci.quantity), 0)::bigint                 AS total_quantity,
+       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int AS unquantified_count
+FROM part_collection_items pci
+WHERE pci.collection_id = $1
+`
+
+type GetPartCollectionTallyRow struct {
+	ItemCount         int32 `json:"item_count"`
+	TotalQuantity     int64 `json:"total_quantity"`
+	UnquantifiedCount int32 `json:"unquantified_count"`
+}
+
+// Running tally for one collection (scan Collect responses + summaries).
+func (q *Queries) GetPartCollectionTally(ctx context.Context, collectionID pgtype.UUID) (GetPartCollectionTallyRow, error) {
+	row := q.db.QueryRow(ctx, getPartCollectionTally, collectionID)
+	var i GetPartCollectionTallyRow
+	err := row.Scan(&i.ItemCount, &i.TotalQuantity, &i.UnquantifiedCount)
+	return i, err
+}
+
 const listPartCollectionItems = `-- name: ListPartCollectionItems :many
 SELECT pci.id, pci.part_id, pci.quantity, pci.note,
        p.mpn, p.manufacturer, p.lifecycle_status,

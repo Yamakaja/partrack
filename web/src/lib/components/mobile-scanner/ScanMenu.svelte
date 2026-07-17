@@ -8,6 +8,7 @@
     onFindPart,
     onPartSelect,
     onStorageAssignment,
+    onCollect,
   }: {
     contextOrderRef: string | null;
     onReceiveOrder: () => void;
@@ -15,6 +16,7 @@
     onFindPart: () => void;
     onPartSelect: (entry: ScanHistoryEntry) => void;
     onStorageAssignment: () => void;
+    onCollect: () => void;
   } = $props();
 
   function relativeTime(ts: number): string {
@@ -88,6 +90,23 @@
       <div>
         <p class="font-medium">Find Part</p>
         <p class="text-xs text-zinc-400">Search catalog and check stock</p>
+      </div>
+    </button>
+
+    <!-- Collect into a list -->
+    <button
+      onclick={onCollect}
+      class="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
+    >
+      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-teal-500/20 text-teal-400">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        </svg>
+      </div>
+      <div>
+        <p class="font-medium">Collect</p>
+        <p class="text-xs text-zinc-400">Scan parts into a list</p>
       </div>
     </button>
 

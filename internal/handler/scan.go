@@ -390,7 +390,8 @@ func (h *Handler) GetActiveScanSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // PushScanContext handles PATCH /api/v1/teams/{teamId}/scan-sessions/{sessionId}/context.
-// Desktop pushes an order context to the phone.
+// Desktop pushes a context to the phone: an order (receive flow) or a
+// collection (Collect flow).
 func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 	var teamID pgtype.UUID
 	if err := teamID.Scan(chi.URLParam(r, "teamId")); err != nil {
@@ -403,10 +404,11 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Confirm the scan session belongs to this team before pushing context to it.
-	if _, err := h.Queries.GetScanSession(r.Context(), dbgen.GetScanSessionParams{
+	sess, err := h.Queries.GetScanSession(r.Context(), dbgen.GetScanSessionParams{
 		ID:     sessionID,
 		TeamID: teamID,
-	}); err != nil {
+	})
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
 			return
@@ -416,10 +418,51 @@ func (h *Handler) PushScanContext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		OrderID string `json:"order_id"`
+		OrderID      string `json:"order_id"`
+		CollectionID string `json:"collection_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.OrderID == "" {
-		writeError(w, http.StatusBadRequest, "order_id is required", "BAD_REQUEST")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.OrderID == "" && body.CollectionID == "") {
+		writeError(w, http.StatusBadRequest, "order_id or collection_id is required", "BAD_REQUEST")
+		return
+	}
+
+	// Collection context: collections are private, so the push must target the
+	// owner's OWN phone (the phone couldn't read a foreign list anyway).
+	if body.CollectionID != "" {
+		var userID pgtype.UUID
+		if err := userID.Scan(userIDFromContext(r)); err != nil {
+			writeError(w, http.StatusUnauthorized, "not authenticated", "UNAUTHORIZED")
+			return
+		}
+		if sess.UserID != userID {
+			writeError(w, http.StatusNotFound, "scan session not found", "NOT_FOUND")
+			return
+		}
+		var collectionID pgtype.UUID
+		if err := collectionID.Scan(body.CollectionID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid collection_id", "BAD_REQUEST")
+			return
+		}
+		coll, err := h.Queries.GetPartCollection(r.Context(), dbgen.GetPartCollectionParams{
+			ID: collectionID, UserID: userID, TeamID: teamID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "collection not found", "NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+
+		msg, _ := json.Marshal(map[string]any{
+			"type":                    "scan_context_changed",
+			"context_type":            "collect",
+			"context_collection_id":   coll.ID.String(),
+			"context_collection_name": coll.Name,
+		})
+		h.ScanHub.Send(sessionID.String(), msg)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "context_collection_name": coll.Name})
 		return
 	}
 	var orderID pgtype.UUID

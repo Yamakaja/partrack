@@ -15,6 +15,7 @@
   import LocationInventory from '$lib/components/mobile-scanner/LocationInventory.svelte';
   import StorageAssignment from '$lib/components/mobile-scanner/StorageAssignment.svelte';
   import BuildKitting from '$lib/components/mobile-scanner/BuildKitting.svelte';
+  import CollectParts from '$lib/components/mobile-scanner/CollectParts.svelte';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -90,7 +91,8 @@
   // tappable banner so the operator can switch when ready.
   type PendingContext =
     | { kind: 'kitting'; kittingSessionId: string; buildRef: string }
-    | { kind: 'order'; orderId: string; orderRef: string };
+    | { kind: 'order'; orderId: string; orderRef: string }
+    | { kind: 'collect'; collectionId: string; collectionName: string };
   let pendingContext = $state<PendingContext | null>(null);
 
   function applyContext(ctx: PendingContext) {
@@ -98,6 +100,8 @@
     navStack = [{ screen: 'menu' }];
     if (ctx.kind === 'kitting') {
       goTo({ screen: 'build_kitting', kittingSessionId: ctx.kittingSessionId, buildRef: ctx.buildRef });
+    } else if (ctx.kind === 'collect') {
+      goTo({ screen: 'collect', collectionId: ctx.collectionId, collectionName: ctx.collectionName });
     } else {
       contextOrderId = ctx.orderId;
       contextOrderRef = ctx.orderRef;
@@ -114,6 +118,13 @@
       current.kittingSessionId === ctx.kittingSessionId
     ) {
       return; // already in this kitting session
+    }
+    if (
+      ctx.kind === 'collect' &&
+      current.screen === 'collect' &&
+      current.collectionId === ctx.collectionId
+    ) {
+      return; // already collecting into this list
     }
     if (current.screen === 'menu') applyContext(ctx);
     else pendingContext = ctx;
@@ -181,6 +192,10 @@
             const ksId = msg.context_kitting_session_id as string | undefined;
             const ref = (msg.context_build_ref as string) ?? '';
             if (ksId) receiveContext({ kind: 'kitting', kittingSessionId: ksId, buildRef: ref });
+          } else if (msg.context_type === 'collect') {
+            const collectionId = msg.context_collection_id as string | undefined;
+            const collectionName = (msg.context_collection_name as string) ?? '';
+            if (collectionId) receiveContext({ kind: 'collect', collectionId, collectionName });
           } else {
             const orderId = (msg.context_order_id as string) ?? null;
             const orderRef = (msg.context_order_ref as string) ?? null;
@@ -364,15 +379,23 @@
           class="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-70"
           onclick={() => pendingContext && applyContext(pendingContext)}
         >
-          <span class="text-lg">{pendingContext.kind === 'kitting' ? '🧰' : '📦'}</span>
+          <span class="text-lg">
+            {pendingContext.kind === 'kitting' ? '🧰' : pendingContext.kind === 'collect' ? '📋' : '📦'}
+          </span>
           <span class="min-w-0">
             <span class="block text-xs text-zinc-400">
-              {pendingContext.kind === 'kitting' ? 'Kitting ready — tap to open' : 'Order ready — tap to receive'}
+              {pendingContext.kind === 'kitting'
+                ? 'Kitting ready — tap to open'
+                : pendingContext.kind === 'collect'
+                  ? 'Collect ready — tap to scan'
+                  : 'Order ready — tap to receive'}
             </span>
             <span class="block truncate text-sm font-medium">
               {pendingContext.kind === 'kitting'
                 ? (pendingContext.buildRef || 'Build')
-                : (pendingContext.orderRef || 'Order')}
+                : pendingContext.kind === 'collect'
+                  ? (pendingContext.collectionName || 'List')
+                  : (pendingContext.orderRef || 'Order')}
             </span>
           </span>
         </button>
@@ -414,6 +437,7 @@
       onFindPart={() => goTo({ screen: 'find_part', initialQuery: '' })}
       onPartSelect={handleHistoryPartSelect}
       onStorageAssignment={() => goTo({ screen: 'storage_assignment' })}
+      onCollect={() => goTo({ screen: 'collect' })}
     />
 
   <!-- ── RECEIVE ORDER ─────────────────────────────────────────────────────── -->
@@ -516,6 +540,15 @@
       {locations}
       kittingSessionId={current.kittingSessionId}
       buildRef={current.buildRef}
+      onBack={goBack}
+      onExpired={handleExpired}
+    />
+
+  <!-- ── COLLECT ───────────────────────────────────────────────────────────── -->
+  {:else if current.screen === 'collect'}
+    <CollectParts
+      initialCollectionId={current.collectionId ?? null}
+      initialCollectionName={current.collectionName ?? null}
       onBack={goBack}
       onExpired={handleExpired}
     />
