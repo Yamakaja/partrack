@@ -40,6 +40,10 @@ type collectionItemResponse struct {
 	Description     string  `json:"description"`
 	LifecycleStatus string  `json:"lifecycle_status"`
 	ImageURL        *string `json:"image_url"`
+	// Available (free) stock = on hand − soft reservations. Null when the part
+	// has no inventory entry for the team (not tracked). Drives the row's stock
+	// dot, compared against the item's own quantity when present.
+	AvailableQty *int32 `json:"available_qty"`
 }
 
 func collectionToResponse(c dbgen.PartCollection) collectionResponse {
@@ -189,14 +193,42 @@ func (h *Handler) GetCollection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	items, err := h.Queries.ListPartCollectionItems(r.Context(), c.ID)
+	items, err := h.Queries.ListPartCollectionItems(r.Context(), dbgen.ListPartCollectionItemsParams{
+		CollectionID: c.ID, TeamID: teamID,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
+
+	// Available (free) stock per part = on hand − soft reservations for the
+	// team's non-terminal builds (same basis as the stock check).
+	reservedByPart := make(map[string]int32)
+	if len(items) > 0 {
+		partIDs := make([]pgtype.UUID, 0, len(items))
+		for _, it := range items {
+			partIDs = append(partIDs, it.PartID)
+		}
+		rows, err := h.Queries.GetReservedQtysForParts(r.Context(), dbgen.GetReservedQtysForPartsParams{
+			PartIds: partIDs, TeamID: teamID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+		for _, row := range rows {
+			reservedByPart[row.PartID.String()] = row.TotalReserved
+		}
+	}
+
 	itemsResp := make([]collectionItemResponse, 0, len(items))
 	for _, it := range items {
-		itemsResp = append(itemsResp, collectionItemToResponse(it))
+		resp := collectionItemToResponse(it)
+		if it.QuantityOnHand != nil {
+			avail := *it.QuantityOnHand - reservedByPart[it.PartID.String()]
+			resp.AvailableQty = &avail
+		}
+		itemsResp = append(itemsResp, resp)
 	}
 	resp := collectionToResponse(c)
 	writeJSON(w, http.StatusOK, map[string]any{

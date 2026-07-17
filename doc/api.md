@@ -364,7 +364,7 @@ all of the owner's connections, nobody else's).
 |--------|------|------|-------------|
 | GET | `/collections` | member | Own lists, recently-used first → `{collections: [{id, name, archived, collect_capture_qty, created_at, updated_at, item_count, total_quantity, unquantified_count}]}`. Query: `archived=true` includes archived. |
 | POST | `/collections` | member | `{name?}` → 201. Blank name is auto-named ("Untitled list — Jul 17"). |
-| GET | `/collections/{collectionId}` | member | List + items in insertion order → `{..., items: [{id, part_id, quantity, note, mpn, manufacturer, description, lifecycle_status, image_url}]}` |
+| GET | `/collections/{collectionId}` | member | List + items in insertion order → `{..., items: [{id, part_id, quantity, note, mpn, manufacturer, description, lifecycle_status, image_url, available_qty}]}`. `available_qty` = on-hand − soft reservations (null when the part isn't tracked); drives the row's stock dot. |
 | PATCH | `/collections/{collectionId}` | member | `{name?, archived?, collect_capture_qty?}` → updated list |
 | DELETE | `/collections/{collectionId}` | member | Hard delete; 204 (archive via PATCH is the soft path) |
 | POST | `/collections/{collectionId}/items` | member | `{part_id, quantity?, note?}` → 201. Upsert-merge: an incoming quantity **sums** onto the row (NULL counts as 0); a bare add leaves the stored quantity untouched. Quantity must be > 0 when present (NULL = "no quantity recorded"). |

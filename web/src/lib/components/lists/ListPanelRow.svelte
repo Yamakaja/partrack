@@ -77,6 +77,9 @@
       description={item.description}
       lifecycle={item.lifecycle_status}
       imageUrl={item.image_url}
+      availableQty={item.available_qty}
+      neededQty={item.quantity}
+      stockRingClass="ring-card"
     />
     <div class="text-right">
       {#if editingQty}

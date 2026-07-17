@@ -96,8 +96,11 @@ WHERE pci.collection_id = $1;
 -- name: ListPartCollectionItems :many
 SELECT pci.id, pci.part_id, pci.quantity, pci.note,
        p.mpn, p.manufacturer, p.lifecycle_status, p.image_url,
-       COALESCE(p.short_description, p.description, '') AS part_description
+       COALESCE(p.short_description, p.description, '') AS part_description,
+       ie.quantity_on_hand
 FROM part_collection_items pci
 JOIN parts p ON p.id = pci.part_id
-WHERE pci.collection_id = $1
+LEFT JOIN inventory_entries ie
+       ON ie.part_id = pci.part_id AND ie.team_id = sqlc.arg('team_id')
+WHERE pci.collection_id = sqlc.arg('collection_id')
 ORDER BY pci.id;

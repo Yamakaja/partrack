@@ -24,6 +24,8 @@ export interface CollectionItem {
   description: string;
   lifecycle_status: string;
   image_url: string | null;
+  /** Available (free) stock = on hand − reservations; null when not tracked. */
+  available_qty: number | null;
 }
 
 export interface CollectionDetail {

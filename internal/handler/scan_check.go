@@ -109,7 +109,9 @@ func (h *Handler) resolveCheckTarget(ctx context.Context, r *http.Request, sess 
 			}
 			return nil, err
 		}
-		items, err := h.Queries.ListPartCollectionItems(ctx, c.ID)
+		items, err := h.Queries.ListPartCollectionItems(ctx, dbgen.ListPartCollectionItemsParams{
+			CollectionID: c.ID, TeamID: sess.TeamID,
+		})
 		if err != nil {
 			return nil, err
 		}

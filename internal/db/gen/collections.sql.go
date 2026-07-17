@@ -133,12 +133,20 @@ func (q *Queries) GetPartCollectionTally(ctx context.Context, collectionID pgtyp
 const listPartCollectionItems = `-- name: ListPartCollectionItems :many
 SELECT pci.id, pci.part_id, pci.quantity, pci.note,
        p.mpn, p.manufacturer, p.lifecycle_status, p.image_url,
-       COALESCE(p.short_description, p.description, '') AS part_description
+       COALESCE(p.short_description, p.description, '') AS part_description,
+       ie.quantity_on_hand
 FROM part_collection_items pci
 JOIN parts p ON p.id = pci.part_id
-WHERE pci.collection_id = $1
+LEFT JOIN inventory_entries ie
+       ON ie.part_id = pci.part_id AND ie.team_id = $1
+WHERE pci.collection_id = $2
 ORDER BY pci.id
 `
+
+type ListPartCollectionItemsParams struct {
+	TeamID       pgtype.UUID `json:"team_id"`
+	CollectionID pgtype.UUID `json:"collection_id"`
+}
 
 type ListPartCollectionItemsRow struct {
 	ID              pgtype.UUID         `json:"id"`
@@ -150,13 +158,14 @@ type ListPartCollectionItemsRow struct {
 	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
 	ImageUrl        *string             `json:"image_url"`
 	PartDescription string              `json:"part_description"`
+	QuantityOnHand  *int32              `json:"quantity_on_hand"`
 }
 
 // Panel rows: the PartCell render contract (mpn, manufacturer, description,
 // lifecycle) joined in; everything richer comes from the part hover card's
 // lazy fetch. uuidv7 PK order = insertion order.
-func (q *Queries) ListPartCollectionItems(ctx context.Context, collectionID pgtype.UUID) ([]ListPartCollectionItemsRow, error) {
-	rows, err := q.db.Query(ctx, listPartCollectionItems, collectionID)
+func (q *Queries) ListPartCollectionItems(ctx context.Context, arg ListPartCollectionItemsParams) ([]ListPartCollectionItemsRow, error) {
+	rows, err := q.db.Query(ctx, listPartCollectionItems, arg.TeamID, arg.CollectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +183,7 @@ func (q *Queries) ListPartCollectionItems(ctx context.Context, collectionID pgty
 			&i.LifecycleStatus,
 			&i.ImageUrl,
 			&i.PartDescription,
+			&i.QuantityOnHand,
 		); err != nil {
 			return nil, err
 		}
