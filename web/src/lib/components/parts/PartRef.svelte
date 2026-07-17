@@ -2,6 +2,7 @@
   import { LinkPreview } from 'bits-ui';
   import { linkAction } from '$lib/router/index.svelte.js';
   import { cn } from '$lib/utils/cn.js';
+  import { closeOnScrollOutside } from '$lib/utils/closeOnScroll.js';
   import type { PartFlag } from '$lib/api/notes.js';
   import type { LifecycleStatus } from '$lib/types/parts.js';
   import FlagBadge from '$lib/components/notes/FlagBadge.svelte';
@@ -41,6 +42,13 @@
   // Card component (and its query observers) is only mounted after the first
   // hover — tables can render hundreds of refs, and idle rows must stay free.
   let everOpened = $state(false);
+
+  // The card is anchored to its trigger, so scrolling would drag it across
+  // the page — close it instead (scrolls inside the card keep it open).
+  $effect(() => {
+    if (!open) return;
+    return closeOnScrollOutside('[data-link-preview-content]', () => (open = false));
+  });
 
   const generic = $derived(mpn == null);
   const label = $derived(mpn ?? fallback ?? 'generic part');

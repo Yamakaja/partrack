@@ -1,6 +1,7 @@
 <script lang="ts">
   import { LinkPreview } from 'bits-ui';
   import { linkAction } from '$lib/router/index.svelte.js';
+  import { closeOnScrollOutside } from '$lib/utils/closeOnScroll.js';
   import { kindIcon } from './objectKinds.js';
   import PartHoverCard from '$lib/components/parts/PartHoverCard.svelte';
 
@@ -32,6 +33,13 @@
 
   let open = $state(false);
   let everOpened = $state(false);
+
+  // The card is anchored to its trigger, so scrolling would drag it across
+  // the page — close it instead (scrolls inside the card keep it open).
+  $effect(() => {
+    if (!open) return;
+    return closeOnScrollOutside('[data-link-preview-content]', () => (open = false));
+  });
 
   const chipClass =
     'inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 align-baseline text-sm font-medium text-primary no-underline hover:bg-primary/20';
