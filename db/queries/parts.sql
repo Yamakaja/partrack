@@ -444,6 +444,53 @@ WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_i
   AND (sqlc.narg('storage_cells')::text IS NULL
        OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array(sqlc.narg('storage_cells'), '|')));
 
+-- name: GetPartIDsForPartSearch :many
+-- Returns the ids of every part matching the same filter set as ListPartsWithInventory
+-- (q, mpn, category, package, lifecycle, scope, stock, storage, param_*). Used by the
+-- parts-table "add search results to list" verb so it is scoped to the user's current
+-- search across all pages rather than the visible page. No distributor join, so parts
+-- without a listing are included.
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = sqlc.narg('category_id')
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+),
+loc_tree AS (
+  SELECT id FROM storage_locations WHERE id = sqlc.narg('storage_location_id')::uuid
+  UNION ALL
+  SELECT sl.id FROM storage_locations sl JOIN loc_tree lt ON sl.parent_id = lt.id
+)
+SELECT p.id
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = sqlc.narg('team_id')
+WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = sqlc.narg('team_id')))
+  AND p.deleted_at IS NULL
+  AND (sqlc.narg('q')::text IS NULL
+       OR p.mpn ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.description ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.short_description ILIKE '%' || sqlc.narg('q') || '%'
+       OR p.manufacturer ILIKE '%' || sqlc.narg('q') || '%'
+       OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || sqlc.narg('q') || '%'))
+  AND (sqlc.narg('mpn_exact')::text IS NULL OR p.mpn = sqlc.narg('mpn_exact'))
+  AND (sqlc.narg('category_id')::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
+  AND (sqlc.narg('package')::text IS NULL OR p.package = sqlc.narg('package'))
+  AND (sqlc.narg('lifecycle_status')::text IS NULL
+       OR p.lifecycle_status = ANY(string_to_array(sqlc.narg('lifecycle_status'), ',')::part_lifecycle_status[]))
+  AND (sqlc.narg('filter_scope')::part_scope IS NULL OR p.scope = sqlc.narg('filter_scope'))
+  AND (
+      sqlc.narg('stock_status')::text IS NULL
+      OR ('in_stock'     = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand > 0)
+      OR ('low_stock'    = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ('out_of_stock' = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ('not_tracked'  = ANY(string_to_array(sqlc.narg('stock_status'), ',')) AND ie.id IS NULL)
+  )
+  AND (sqlc.narg('part_id_filter')::text IS NULL
+       OR p.id = ANY(string_to_array(sqlc.narg('part_id_filter'), ',')::uuid[]))
+  AND (sqlc.narg('storage_location_id')::uuid IS NULL
+       OR ie.storage_location_id IN (SELECT id FROM loc_tree))
+  AND (sqlc.narg('storage_cells')::text IS NULL
+       OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array(sqlc.narg('storage_cells'), '|')));
+
 -- name: GetPartsForReenrichmentInSearch :many
 -- Returns one (part_id, sku, distributor_id) per part matching the same filter set
 -- as ListPartsWithInventory that has at least one API-integrated distributor listing.

@@ -358,6 +358,76 @@ func TestBulkAddCartItems(t *testing.T) {
 	}
 }
 
+func TestCollections_AddSearchResults(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	_, teamID, token := collectionsTestSetup(t, "coll-search@example.com")
+	collID := createCollectionViaAPI(t, teamID, token, "From search")
+
+	// Two resistors + one capacitor; the search below matches only the resistors.
+	testutil.CreatePart(t, testDB, "global", "SEARCHADD-RES-1", nil)
+	testutil.CreatePart(t, testDB, "global", "SEARCHADD-RES-2", nil)
+	testutil.CreatePart(t, testDB, "global", "SEARCHADD-CAP-1", nil)
+
+	fromSearch := fmt.Sprintf("/api/v1/teams/%s/collections/%s/items/from-search", teamID, collID)
+
+	// Scoped to the "RES" search → exactly the two resistors, added as bare membership.
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fromSearch+"?q=SEARCHADD-RES", nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("from-search: expected 200, got %d: %v", status, body)
+	}
+	if added := body["added"].(float64); added != 2 {
+		t.Fatalf("expected added=2, got %v", added)
+	}
+
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s", teamID, collID), nil, token)
+	items := body["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items after RES search, got %d", len(items))
+	}
+	for _, it := range items {
+		if q := it.(map[string]any)["quantity"]; q != nil {
+			t.Errorf("expected bare membership (null quantity), got %v", q)
+		}
+	}
+
+	// Widening the search to all three parts is idempotent for the two already
+	// present and adds only the capacitor → three items total.
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		fromSearch+"?q=SEARCHADD", nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("second from-search: expected 200, got %d: %v", status, body)
+	}
+	if added := body["added"].(float64); added != 3 {
+		t.Errorf("expected added=3, got %v", added)
+	}
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s", teamID, collID), nil, token)
+	if got := len(body["items"].([]any)); got != 3 {
+		t.Errorf("expected 3 items after widening, got %d", got)
+	}
+
+	// A search that matches nothing adds nothing (not an error).
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPost,
+		fromSearch+"?q=NOSUCHPARTZZZ", nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("empty-match from-search: expected 200, got %d: %v", status, body)
+	}
+	if added := body["added"].(float64); added != 0 {
+		t.Errorf("expected added=0 for no matches, got %v", added)
+	}
+
+	// A teammate who doesn't own the list can't add to it (owner filter → 404).
+	otherID := testutil.CreateUser(t, testDB, "coll-search-other@example.com", "pw", "Other")
+	testutil.AddMember(t, testDB, teamID, otherID, "member")
+	otherToken := testutil.CreateSession(t, testDB, otherID)
+	if _, status := testutil.Do(t, testEnv.Server, http.MethodPost,
+		fromSearch+"?q=SEARCHADD", nil, otherToken); status != http.StatusNotFound {
+		t.Errorf("from-search as non-owner: expected 404, got %d", status)
+	}
+}
+
 func TestCollections_ClearItems(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 	_, teamID, token := collectionsTestSetup(t, "coll-clear@example.com")

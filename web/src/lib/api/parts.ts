@@ -48,12 +48,19 @@ export function listParts(params: ListPartsParams = {}) {
   return request<PaginatedResponse<PartSummary>>('GET', `/api/v1/parts?${partsQuery(params).toString()}`);
 }
 
+// Serializes just the search/filter portion of a parts query (dropping team_id
+// and pagination) into a query string. Shared by every whole-search action —
+// bulk listing/parameter refresh and "add search results to list" — so they all
+// resolve to the same part set the table shows.
+export function partsSearchQuery(params: ListPartsParams): string {
+  return partsQuery({ ...params, team_id: undefined, limit: undefined, offset: undefined }).toString();
+}
+
 // Enqueues a stock/price refresh for every refreshable listing belonging to a
 // part that matches the given filters. Returns the job id + total listing count
 // for progress tracking, or undefined (HTTP 204) when nothing is refreshable.
 export function refreshSearchListings(teamId: string, params: ListPartsParams) {
-  const p = partsQuery({ ...params, team_id: undefined, limit: undefined, offset: undefined });
-  const q = p.toString();
+  const q = partsSearchQuery(params);
   return request<{ job_id: string; listing_count: number } | undefined>(
     'POST', `/api/v1/teams/${teamId}/parts/refresh-listings${q ? `?${q}` : ''}`,
   );
@@ -183,8 +190,7 @@ export function refreshAllListings(partId: string, teamId: string) {
 // matching the given filters that has an API-integrated listing. Returns the job id
 // + part count for progress tracking, or undefined (HTTP 204) when nothing is enrichable.
 export function refreshSearchParameters(teamId: string, params: ListPartsParams) {
-  const p = partsQuery({ ...params, team_id: undefined, limit: undefined, offset: undefined });
-  const q = p.toString();
+  const q = partsSearchQuery(params);
   return request<{ job_id: string; part_count: number } | undefined>(
     'POST', `/api/v1/teams/${teamId}/parts/refresh-parameters${q ? `?${q}` : ''}`,
   );

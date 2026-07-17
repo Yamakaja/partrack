@@ -732,6 +732,100 @@ func (q *Queries) GetPartByMPN(ctx context.Context, arg GetPartByMPNParams) (Get
 	return i, err
 }
 
+const getPartIDsForPartSearch = `-- name: GetPartIDsForPartSearch :many
+WITH RECURSIVE cat_tree AS (
+  SELECT id FROM categories WHERE id = $4
+  UNION ALL
+  SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+),
+loc_tree AS (
+  SELECT id FROM storage_locations WHERE id = $10::uuid
+  UNION ALL
+  SELECT sl.id FROM storage_locations sl JOIN loc_tree lt ON sl.parent_id = lt.id
+)
+SELECT p.id
+FROM parts p
+LEFT JOIN inventory_entries ie ON ie.part_id = p.id AND ie.team_id = $1
+WHERE (p.scope = 'global' OR (p.scope = 'team' AND p.team_id = $1))
+  AND p.deleted_at IS NULL
+  AND ($2::text IS NULL
+       OR p.mpn ILIKE '%' || $2 || '%'
+       OR p.description ILIKE '%' || $2 || '%'
+       OR p.short_description ILIKE '%' || $2 || '%'
+       OR p.manufacturer ILIKE '%' || $2 || '%'
+       OR EXISTS (SELECT 1 FROM part_aliases pa WHERE pa.part_id = p.id AND pa.alias ILIKE '%' || $2 || '%'))
+  AND ($3::text IS NULL OR p.mpn = $3)
+  AND ($4::int IS NULL OR p.category_id IN (SELECT id FROM cat_tree))
+  AND ($5::text IS NULL OR p.package = $5)
+  AND ($6::text IS NULL
+       OR p.lifecycle_status = ANY(string_to_array($6, ',')::part_lifecycle_status[]))
+  AND ($7::part_scope IS NULL OR p.scope = $7)
+  AND (
+      $8::text IS NULL
+      OR ('in_stock'     = ANY(string_to_array($8, ',')) AND ie.quantity_on_hand > 0)
+      OR ('low_stock'    = ANY(string_to_array($8, ',')) AND ie.quantity_on_hand >= 0 AND ie.minimum_stock_quantity IS NOT NULL AND ie.quantity_on_hand < ie.minimum_stock_quantity)
+      OR ('out_of_stock' = ANY(string_to_array($8, ',')) AND ie.id IS NOT NULL AND ie.quantity_on_hand = 0)
+      OR ('not_tracked'  = ANY(string_to_array($8, ',')) AND ie.id IS NULL)
+  )
+  AND ($9::text IS NULL
+       OR p.id = ANY(string_to_array($9, ',')::uuid[]))
+  AND ($10::uuid IS NULL
+       OR ie.storage_location_id IN (SELECT id FROM loc_tree))
+  AND ($11::text IS NULL
+       OR array_to_string(ie.storage_coordinate, ',') = ANY(string_to_array($11, '|')))
+`
+
+type GetPartIDsForPartSearchParams struct {
+	TeamID            pgtype.UUID   `json:"team_id"`
+	Q                 *string       `json:"q"`
+	MpnExact          *string       `json:"mpn_exact"`
+	CategoryID        *int32        `json:"category_id"`
+	Package           *string       `json:"package"`
+	LifecycleStatus   *string       `json:"lifecycle_status"`
+	FilterScope       NullPartScope `json:"filter_scope"`
+	StockStatus       *string       `json:"stock_status"`
+	PartIDFilter      *string       `json:"part_id_filter"`
+	StorageLocationID pgtype.UUID   `json:"storage_location_id"`
+	StorageCells      *string       `json:"storage_cells"`
+}
+
+// Returns the ids of every part matching the same filter set as ListPartsWithInventory
+// (q, mpn, category, package, lifecycle, scope, stock, storage, param_*). Used by the
+// parts-table "add search results to list" verb so it is scoped to the user's current
+// search across all pages rather than the visible page. No distributor join, so parts
+// without a listing are included.
+func (q *Queries) GetPartIDsForPartSearch(ctx context.Context, arg GetPartIDsForPartSearchParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getPartIDsForPartSearch,
+		arg.TeamID,
+		arg.Q,
+		arg.MpnExact,
+		arg.CategoryID,
+		arg.Package,
+		arg.LifecycleStatus,
+		arg.FilterScope,
+		arg.StockStatus,
+		arg.PartIDFilter,
+		arg.StorageLocationID,
+		arg.StorageCells,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPartWithInventory = `-- name: GetPartWithInventory :one
 SELECT
     p.id, p.scope, p.team_id, p.mpn, p.manufacturer, p.description,

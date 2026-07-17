@@ -104,3 +104,13 @@ export function removeCollectionItem(teamId: string, collectionId: string, itemI
 export function clearCollectionItems(teamId: string, collectionId: string) {
   return request<{ removed: number }>('DELETE', `/api/v1/teams/${teamId}/collections/${collectionId}/items`);
 }
+
+// Adds every part matching the current parts-search filters (across all pages)
+// to the collection as bare membership. `query` is the same serialized filter
+// string the parts table builds for its bulk refresh actions.
+export function addSearchResultsToCollection(teamId: string, collectionId: string, query: string) {
+  return request<{ added: number; matched: number }>(
+    'POST',
+    `/api/v1/teams/${teamId}/collections/${collectionId}/items/from-search${query ? `?${query}` : ''}`,
+  );
+}

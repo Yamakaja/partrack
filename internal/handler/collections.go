@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -441,6 +442,99 @@ func (h *Handler) BulkAddCollectionItems(w http.ResponseWriter, r *http.Request)
 	}
 	h.publishCollectionChanged(r, teamID, c.ID.String())
 	writeJSON(w, http.StatusOK, map[string]any{"added": len(parsed)})
+}
+
+// maxSearchAddToCollection caps how many parts a single search-scoped "add to
+// list" can insert, mirroring maxSearchRefreshListings — a personal list is a
+// working set, not a dump of the whole catalog.
+const maxSearchAddToCollection = 2000
+
+// AddSearchResultsToCollection handles
+// POST /api/v1/teams/{teamId}/collections/{collectionId}/items/from-search
+// Adds every part matching the current parts-search filter set (same query
+// params as ListParts: q, mpn, category, package, lifecycle, scope, stock,
+// storage, param_*) to the collection as bare membership (no quantity). Scoped
+// to the user's whole search across all pages, not just the visible page.
+// Returns {added, matched}, or 400 if the match set exceeds the cap.
+func (h *Handler) AddSearchResultsToCollection(w http.ResponseWriter, r *http.Request) {
+	userID, teamID, ok := collectionScope(w, r)
+	if !ok {
+		return
+	}
+	c, ok := h.requireCollectionOwned(w, r, userID, teamID)
+	if !ok {
+		return
+	}
+
+	f, matchedNone, ok := h.resolvePartFilters(w, r, teamID)
+	if !ok {
+		return
+	}
+	if matchedNone {
+		writeJSON(w, http.StatusOK, map[string]any{"added": 0, "matched": 0})
+		return
+	}
+
+	partIDs, err := h.Queries.GetPartIDsForPartSearch(r.Context(), dbgen.GetPartIDsForPartSearchParams{
+		TeamID:            f.TeamID,
+		Q:                 f.Q,
+		MpnExact:          f.MpnExact,
+		CategoryID:        f.CategoryID,
+		Package:           f.Package,
+		LifecycleStatus:   f.LifecycleStatus,
+		FilterScope:       f.FilterScope,
+		StockStatus:       f.StockStatus,
+		StorageLocationID: f.StorageLocationID,
+		StorageCells:      f.StorageCells,
+		PartIDFilter:      f.PartIDFilter,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if len(partIDs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"added": 0, "matched": 0})
+		return
+	}
+	if len(partIDs) > maxSearchAddToCollection {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("too many parts to add (%d, max %d) — narrow your search", len(partIDs), maxSearchAddToCollection),
+			"TOO_MANY_PARTS")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+	qtx := h.Queries.WithTx(tx)
+
+	// Bare membership — quantities are set on the list itself, matching the
+	// hover-card "add to list" and BulkAddCollectionItems. Upsert so re-running
+	// the same search is idempotent rather than erroring on duplicates.
+	for _, pid := range partIDs {
+		if _, err := qtx.UpsertPartCollectionItem(r.Context(), dbgen.UpsertPartCollectionItemParams{
+			CollectionID: c.ID,
+			PartID:       pid,
+			Quantity:     nil,
+			Note:         nil,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+			return
+		}
+	}
+	if err := qtx.TouchPartCollection(r.Context(), c.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	h.publishCollectionChanged(r, teamID, c.ID.String())
+	writeJSON(w, http.StatusOK, map[string]any{"added": len(partIDs), "matched": len(partIDs)})
 }
 
 // UpdateCollectionItem handles PATCH /api/v1/teams/{teamId}/collections/{collectionId}/items/{itemId}
