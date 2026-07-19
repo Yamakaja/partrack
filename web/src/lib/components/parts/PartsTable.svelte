@@ -1,13 +1,11 @@
 <script lang="ts">
-  import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+  import { createQuery } from '@tanstack/svelte-query';
   import { untrack } from 'svelte';
   import { Popover } from 'bits-ui';
-  import { X, Hash, ListFilter, ListPlus, RefreshCw, Sparkles } from 'lucide-svelte';
+  import { X, Hash, ListFilter, RefreshCw, Sparkles } from 'lucide-svelte';
   import { currentRoute } from '$lib/router/index.svelte.js';
   import { listParts, refreshSearchListings, refreshSearchParameters, getCategoryParameters, partsSearchQuery, type ParamFilter, type ListPartsParams } from '$lib/api/parts.js';
-  import { listCollections, createCollection, addSearchResultsToCollection } from '$lib/api/collections.js';
-  import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
-  import { listPanelStore, setActiveList } from '$lib/stores/listPanel.svelte.js';
+  import { partsSearchStore } from '$lib/stores/partsSearch.svelte.js';
   import { trackListingRefresh, trackPartEnrich } from '$lib/api/batchJob.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Dialog } from '$lib/components/ui/dialog/index.js';
@@ -38,8 +36,6 @@
     initialStockFilter?: string;
     syncUrl?: boolean;
   } = $props();
-
-  const qc = useQueryClient();
 
   const hashParams = new URLSearchParams(untrack(() => syncUrl) ? window.location.hash.slice(1) : '');
 
@@ -189,54 +185,21 @@
     }
   }
 
-  // "Add to list": push every part in the current search — all pages, resolved
-  // server-side from the same filters — into the panel's active list. Lists are
-  // a personal working set, so this is gated on any non-viewer role rather than
-  // the purchaser role the distributor refreshes imply.
-  const canUseLists = $derived(
-    activeTeamStore.current?.teamId === teamId &&
-      (activeTeamStore.current?.role ?? 'viewer') !== 'viewer',
-  );
-  const collectionsQuery = createQuery(() => ({
-    queryKey: ['collections', teamId],
-    queryFn: () => listCollections(teamId),
-    enabled: canUseLists,
-    staleTime: 30_000,
-  }));
-  const activeList = $derived(
-    collectionsQuery.data?.collections.find((c) => c.id === listPanelStore.activeListId) ?? null,
-  );
-
-  let addToListConfirmOpen = $state(false);
-  let addingToList = $state(false);
-
-  async function doAddToList() {
-    addingToList = true;
-    try {
-      let listId = listPanelStore.activeListId;
-      let name = activeList?.name;
-      if (!listId) {
-        const created = await createCollection(teamId);
-        setActiveList(created.id);
-        listId = created.id;
-        name = created.name;
-      }
-      const res = await addSearchResultsToCollection(
-        teamId, listId, partsSearchQuery(buildListPartsParams(source.filters, searchValue)),
-      );
-      qc.invalidateQueries({ queryKey: ['collections', teamId] });
-      qc.invalidateQueries({ queryKey: ['collection', teamId, listId] });
-      if (res.added === 0) {
-        pushToast('info', 'Nothing added', 'No parts matched the current search.');
-      } else {
-        pushToast('success', `Added ${res.added} part${res.added === 1 ? '' : 's'} to “${name ?? 'list'}”`);
-      }
-    } catch (err: any) {
-      pushToast('error', 'Could not add to list', err.message);
-    } finally {
-      addingToList = false;
-    }
-  }
+  // Publish the current search (serialized filters + total) so the floating list
+  // panel's "From the parts search" verb can add the same whole set the table
+  // shows. Only the URL-synced instance is the real Parts page — embedded pickers
+  // (syncUrl=false) leave the store untouched.
+  $effect(() => {
+    if (!syncUrl) return;
+    partsSearchStore.active = true;
+    partsSearchStore.query = partsSearchQuery(buildListPartsParams(source.filters, searchValue));
+    partsSearchStore.total = source.totalRows;
+  });
+  // Clear the flag once, when the real parts view unmounts.
+  $effect(() => {
+    if (!syncUrl) return;
+    return () => { partsSearchStore.active = false; };
+  });
 
   const source = new RemoteDataSource<PartSummary>(
     baseColumns,
@@ -708,18 +671,6 @@
     />
   {/snippet}
   {#snippet toolbarRight()}
-    {#if canUseLists}
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (addToListConfirmOpen = true)}
-        disabled={addingToList || source.totalRows === 0}
-        title="Add every part in the current search to the active list"
-      >
-        <ListPlus class={cn('h-4 w-4 mr-1', addingToList && 'animate-pulse')} />
-        {addingToList ? 'Adding…' : 'Add to List'}
-      </Button>
-    {/if}
     <Button
       variant="outline"
       size="sm"
@@ -777,28 +728,6 @@
         distributor integration are skipped.
       </p>
       <p>Each part makes a live distributor API call and counts against your rate limits.</p>
-    </div>
-  {/snippet}
-</Dialog>
-
-<Dialog
-  bind:open={addToListConfirmOpen}
-  title="Add search results to list?"
-  confirmLabel="Add"
-  onConfirm={doAddToList}
->
-  {#snippet children()}
-    <div class="text-sm text-muted-foreground space-y-2">
-      <p>
-        Adds all
-        <span class="font-medium text-foreground">{source.totalRows.toLocaleString()}</span>
-        part{source.totalRows === 1 ? '' : 's'} in the current search to
-        {#if activeList}
-          <span class="font-medium text-foreground">“{activeList.name}”</span>
-        {:else}
-          a new list
-        {/if}. Parts already on the list are left as-is; quantities aren't set.
-      </p>
     </div>
   {/snippet}
 </Dialog>

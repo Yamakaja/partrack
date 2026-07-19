@@ -21,7 +21,6 @@
   import AdjustmentHistory from '$lib/components/inventory/AdjustmentHistory.svelte';
   import ParameterTable from '$lib/components/parts/ParameterTable.svelte';
   import ListingTable from '$lib/components/parts/ListingTable.svelte';
-  import AddToListButton from '$lib/components/lists/AddToListButton.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
@@ -375,7 +374,6 @@
         <Button variant="outline" size="sm" onclick={openEditPart}>
           <Pencil class="h-4 w-4 mr-1" /> Edit Part
         </Button>
-        <AddToListButton {teamId} {partId} />
         <PartFlagControl {teamId} {partId} canEdit={canEditNotes} />
         {#if isPurchaser}
           <Button variant="outline" size="sm" onclick={() => openAddToCartDialog()}>

@@ -4,7 +4,7 @@
   import {
     ChevronDown, ChevronUp, ClipboardList, Ellipsis, Pencil, Plus, ShoppingCart,
     ArrowDownToLine, PackageMinus, ScanBarcode, Copy, Eraser, Download, MapPin,
-    Hammer, Package, FileText, Box, TrendingDown, Layers,
+    Hammer, Package, FileText, Box, TrendingDown, Layers, Cpu, Search,
   } from 'lucide-svelte';
   import { request } from '$lib/api/client.js';
   import { scanSessionStore } from '$lib/stores/scanSession.svelte.js';
@@ -17,8 +17,9 @@
   import {
     listCollections, createCollection, getCollection, updateCollection, deleteCollection,
     addCollectionItem, bulkAddCollectionItems, updateCollectionItem, removeCollectionItem,
-    clearCollectionItems,
+    clearCollectionItems, addSearchResultsToCollection,
   } from '$lib/api/collections.js';
+  import { partsSearchStore } from '$lib/stores/partsSearch.svelte.js';
   import { getCart, bulkAddCartItems } from '$lib/api/cart.js';
   import { getBuildPreview, listBuilds } from '$lib/api/builds.js';
   import { getOrder, listOrders } from '$lib/api/orders.js';
@@ -94,6 +95,7 @@
   const pageOrderId = $derived(matchRoute('/teams/:teamId/orders/:orderId', path)?.orderId ?? null);
   const pageRevision = $derived(matchRoute('/teams/:teamId/projects/:projectId/revisions/:revId', path));
   const pageLocationId = $derived(matchRoute('/teams/:teamId/storage/:locationId', path)?.locationId ?? null);
+  const pagePartId = $derived(matchRoute('/teams/:teamId/parts/:partId', path)?.partId ?? null);
   const role = $derived(activeTeamStore.current?.role ?? 'viewer');
   const isPurchaser = $derived(role === 'purchaser' || role === 'admin');
   const scannerConnected = $derived(scanSessionStore.current?.liveConnected ?? false);
@@ -418,6 +420,43 @@
     }
   }
 
+  // The single part open in the detail view — the durable "star this part"
+  // affordance that used to be a topbar button.
+  async function addFromPart() {
+    if (!activeId || !pagePartId || verbBusy) return;
+    verbBusy = true;
+    try {
+      await addCollectionItem(teamId, activeId, { part_id: pagePartId });
+      invalidate();
+      pushToast('success', 'Added this part to the list');
+    } catch (err) {
+      toastError(err);
+    } finally {
+      verbBusy = false;
+    }
+  }
+
+  // Every part matching the parts list's current search — all pages, resolved
+  // server-side from the same filters the table shows (published via
+  // partsSearchStore). Bare membership; capped at 2000 server-side.
+  async function addFromPartsSearch() {
+    if (!activeId || !partsSearchStore.active || verbBusy) return;
+    verbBusy = true;
+    try {
+      const res = await addSearchResultsToCollection(teamId, activeId, partsSearchStore.query);
+      invalidate();
+      if (res.added === 0) {
+        pushToast('info', 'No parts matched the current search.');
+      } else {
+        pushToast('success', `Added ${res.added} part${res.added === 1 ? '' : 's'} from the parts search`);
+      }
+    } catch (err) {
+      toastError(err);
+    } finally {
+      verbBusy = false;
+    }
+  }
+
   // ── Off-page source pickers ───────────────────────────────────────────────
   let pickerOpen = $state(false);
   let pickerTitle = $state('');
@@ -622,6 +661,22 @@
       run: () => void addFromLocation(),
     },
     {
+      id: 'add-from-part', label: 'From this part', short: 'Add this part', icon: Cpu,
+      reason: pagePartId ? null : 'Open a part first',
+      run: () => void addFromPart(),
+    },
+    {
+      id: 'add-from-parts-search',
+      label: partsSearchStore.active && partsSearchStore.total > 0
+        ? `From the parts search (${partsSearchStore.total})`
+        : 'From the parts search',
+      short: 'Add search', icon: Search,
+      reason: !partsSearchStore.active
+        ? 'Open the parts list first'
+        : partsSearchStore.total === 0 ? 'No matching parts' : null,
+      run: () => void addFromPartsSearch(),
+    },
+    {
       id: 'add-low-stock', label: 'Low-stock parts', short: 'Add low stock', icon: TrendingDown,
       reason: null,
       run: () => void addLowStock(),
@@ -680,6 +735,8 @@
     else if (pageOrderId) ids.push('add-from-order');
     else if (pageRevision) ids.push('add-from-revision');
     else if (pageLocationId) ids.push('add-from-location');
+    else if (pagePartId) ids.push('add-from-part');
+    else if (partsSearchStore.active) ids.push('add-from-parts-search');
     if (scannerConnected) {
       for (const id of ['collect', 'filter']) {
         if (ids.length >= 2) break;
