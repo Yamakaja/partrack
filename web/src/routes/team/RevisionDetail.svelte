@@ -22,8 +22,27 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
-  import PartRef from '$lib/components/parts/PartRef.svelte';
-  import { ClipboardCheck, Pencil, Shuffle } from 'lucide-svelte';
+  import PartCell from '$lib/components/parts/PartCell.svelte';
+  import { listParameterDefinitions } from '$lib/api/parameters.js';
+  import {
+    designedSpec,
+    needsAttention,
+    resolutionMechanism,
+    stockState,
+    trustSignal,
+  } from '$lib/utils/interpretation.js';
+  import { compareDesignators } from '$lib/utils/designators.js';
+  import type { ParameterDefinition } from '$lib/types/parts.js';
+  import {
+    ArrowRight,
+    ClipboardCheck,
+    CornerDownRight,
+    Pencil,
+    Shuffle,
+    Sparkles,
+    TriangleAlert,
+    Check,
+  } from 'lucide-svelte';
   import { formatDate } from '$lib/utils/date.js';
 
   let {
@@ -247,46 +266,58 @@
   let projectName = $derived(projectQuery.data?.name ?? 'Project');
   let revisionLabel = $derived(revisionQuery.data?.label ?? 'Revision');
 
-  // DataTable setup
-  type BOMRow = BOMLineItem & { status: string };
+  // ── DataTable setup ───────────────────────────────────────────────────────────
+  // The table reads as a derivation: what the design asked for → how we got from
+  // there to a part → what that part is → whether we can build it. The raw import
+  // columns it replaced (name / manufacturer / MPN / description / SKU / distributor)
+  // are empty on any BOM exported from a PCB tool, where the identity lives in the
+  // value + footprint fields instead; they moved to the row's detail panel.
 
-  function itemStatus(item: BOMLineItem): string {
-    if (item.ignored) return 'Ignored';
-    if (!item.resolved_part_id) {
-      if (item.resolution_state === 'importing') return 'Importing';
-      if (item.resolution_state === 'import_ambiguous' || item.resolution_state === 'ambiguous') return 'Needs Review';
-      if (item.resolution_state === 'import_no_result') return 'No Result';
-      return 'Unresolved';
-    }
-    if (item.resolution_state === 'auto_mpn_fuzzy') return 'Auto (MPN ?)';
-    if (item.resolution_state === 'auto_sku') return 'Auto (SKU)';
-    if (item.resolution_state === 'auto_mpn') return 'Auto (MPN)';
-    if (item.resolution_state === 'auto_generic') return 'Auto (Generic)';
-    if (item.resolution_state === 'auto_prior_revision') return 'Auto (Prior)';
-    if (item.resolution_state === 'auto_import') return 'Imported';
-    if (item.resolution_state === 'manual') return 'Manual';
-    return 'Resolved';
-  }
+  // Parameter vocabulary, for turning parsed constraints into readable pills.
+  // Global reference data, so one request serves every category on the page.
+  let paramDefsQuery = createQuery(() => ({
+    queryKey: ['parameter-definitions'],
+    queryFn: () => listParameterDefinitions(),
+    staleTime: 30 * 60_000,
+  }));
+  let paramDefBySlug = $derived(
+    new Map<string, ParameterDefinition>((paramDefsQuery.data ?? []).map((d) => [d.slug, d])),
+  );
+  let lookupParam = $derived((slug: string) => paramDefBySlug.get(slug));
 
-  let rows = $derived(allItems.map(i => ({ ...i, status: itemStatus(i) })));
+  type BOMRow = BOMLineItem & {
+    /** Flattened spec text — gives sort, filter and CSV export something to bite on. */
+    designed: string;
+    mechanism: string;
+    stock: number | null;
+    attention: boolean;
+  };
+
+  // Schematic order (R9 before R10, all the Rs together). The query returns rows in
+  // insertion order, which reads as random once the table is scanned as a list.
+  let rows = $derived(
+    allItems
+      .map((i) => {
+        const spec = designedSpec(i, lookupParam);
+        const designed = [...spec.pills.map((p) => p.value), spec.pkg].filter(Boolean).join(' · ');
+        return {
+          ...i,
+          designed,
+          mechanism: resolutionMechanism(i).label,
+          stock: i.quantity_on_hand,
+          attention: needsAttention(i),
+        };
+      })
+      .sort((a, b) => compareDesignators(a.reference_designators, b.reference_designators)),
+  );
 
   const columns: ColumnSpec<BOMRow>[] = [
-    { key: 'part_name',             header: 'Name',             type: 'text',    filterable: true },
-    { key: 'manufacturer',          header: 'Manufacturer',     type: 'text',    filterable: true },
-    { key: 'mpn',                   header: 'MPN',              type: 'text',    filterable: true },
-    { key: 'raw_description',       header: 'Description',      type: 'text' },
-    { key: 'reference_designators', header: 'Ref. Designators', type: 'text' },
-    { key: 'distributor_name',      header: 'Distributor',      type: 'text',    filterable: true },
-    { key: 'sku',                   header: 'SKU',              type: 'text' },
-    { key: 'quantity',              header: 'Qty',              type: 'numeric', align: 'right', sortable: true },
-    {
-      key: 'status',
-      header: 'Status',
-      type: 'enum',
-      filterable: true,
-      filterValues: ['Unresolved', 'Importing', 'Needs Review', 'Auto (MPN ?)', 'No Result', 'Auto (SKU)', 'Auto (MPN)', 'Auto (Generic)', 'Auto (Prior)', 'Imported', 'Manual', 'Resolved', 'Ignored'],
-    },
-    { key: 'substitutes', header: 'Substitutes', type: 'text' },
+    { key: 'reference_designators', header: 'Refs',        type: 'text' },
+    { key: 'designed',             header: 'Designed',     type: 'text' },
+    { key: 'mechanism',            header: 'How',          type: 'enum',    filterable: true },
+    { key: 'resolved_part_mpn',    header: 'Resolved to',  type: 'text' },
+    { key: 'stock',                header: 'Stock',        type: 'numeric', align: 'right', sortable: true },
+    { key: 'substitutes',          header: 'Substitutes',  type: 'text' },
   ];
 
   const source = new LocalDataSource<BOMRow>(() => rows, columns);
@@ -420,7 +451,15 @@
           getRowKey={(row) => row.id}
           onRowClick={(row) => startReviewForItem(row.id)}
           rowClass={(row) => row.ignored ? 'opacity-50' : ''}
-          renderers={{ status: renderStatus, distributor_name: renderDistributor, reference_designators: renderRefDes, substitutes: renderSubstitutes }}
+          detailPanel={renderDetail}
+          renderers={{
+            reference_designators: renderRefDes,
+            designed: renderDesigned,
+            mechanism: renderMechanism,
+            resolved_part_mpn: renderResolved,
+            stock: renderStock,
+            substitutes: renderSubstitutes,
+          }}
           emptyMessage="No line items match the current filter"
         />
       {/if}
@@ -428,49 +467,172 @@
   </div>
 </div>
 
-{#snippet renderStatus(value: unknown, row: BOMRow)}
-  {@const statusVariant = (() => {
-    switch (value as string) {
-      case 'Ignored':      return 'secondary' as const;
-      case 'Ambiguous':
-      case 'Needs Review':
-      case 'Auto (MPN ?)':  return 'warning' as const;
-      case 'Unresolved':   return 'outline' as const;
-      default:             return 'success' as const;
-    }
-  })()}
-  <div class="inline-flex items-center gap-1.5">
-    <Badge variant={statusVariant}>{value as string}</Badge>
-    {#if row.resolved_part_id}
-      <PartRef
-        partId={row.resolved_part_id}
-        mpn={row.resolved_part_mpn}
-        {teamId}
-        flag={row.resolved_part_flag}
-        fallback={row.value ?? row.part_name}
-        class="text-muted-foreground"
-      />
+{#snippet renderRefDes(value: unknown, row: BOMRow)}
+  {@const all = (value as string ?? '').split(',').map((s) => s.trim()).filter(Boolean)}
+  <div class="font-mono text-xs leading-snug" title={all.join(', ')}>
+    {all.slice(0, 3).join(' ')}{#if all.length > 3}<span class="text-muted-foreground"> +{all.length - 3}</span>{/if}
+  </div>
+  <div class="font-mono text-xs text-muted-foreground">{row.quantity}×</div>
+{/snippet}
+
+{#snippet renderDesigned(_value: unknown, row: BOMRow)}
+  {@const spec = designedSpec(row, lookupParam)}
+  {@const trust = trustSignal(row)}
+  <div class="flex flex-wrap items-center gap-1">
+    {#each spec.pills as pill}
+      <span class="inline-flex items-baseline gap-1 rounded bg-secondary px-1.5 py-0.5 font-mono text-xs max-w-[24ch] truncate">
+        {#if pill.label}<span class="text-muted-foreground">{pill.label}</span>{/if}
+        {pill.value}
+      </span>
+    {/each}
+    {#if spec.pkg}
+      <span
+        class="rounded border border-dashed border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground max-w-[20ch] truncate"
+        title={spec.pkg}
+      >{spec.pkg}</span>
+    {/if}
+    {#if trust}
+      <span
+        class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium
+               {trust.tone === 'success' ? 'bg-success-subtle text-success'
+                 : trust.tone === 'info' ? 'bg-info-subtle text-info'
+                 : 'bg-warning-subtle text-warning'}"
+        title={trust.detail}
+      >
+        {#if trust.tone === 'success'}<Check class="h-3 w-3" />
+        {:else if trust.tone === 'info'}<Sparkles class="h-3 w-3" />
+        {:else}<TriangleAlert class="h-3 w-3" />{/if}
+        {trust.label}
+      </span>
+    {/if}
+  </div>
+  {#if row.value && !spec.echoesValue}
+    <div class="mt-0.5 font-mono text-[11px] text-muted-foreground">{row.value}</div>
+  {/if}
+{/snippet}
+
+{#snippet renderMechanism(_value: unknown, row: BOMRow)}
+  {@const m = resolutionMechanism(row)}
+  <div class="flex flex-col gap-0.5">
+    <span class="inline-flex items-center gap-1.5 text-xs">
+      <span
+        class="h-1.5 w-1.5 shrink-0 rounded-full
+               {m.tone === 'success' ? 'bg-success'
+                 : m.tone === 'info' ? 'bg-info'
+                 : m.tone === 'warning' ? 'bg-warning'
+                 : m.tone === 'attention' ? 'bg-attention'
+                 : 'bg-danger'}"
+      ></span>
+      {m.label}
+    </span>
+    {#if m.inheritedFrom}
+      <span
+        class="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground"
+        title="This revision reused the decision made in {m.inheritedFrom}."
+      >
+        <CornerDownRight class="h-3 w-3 opacity-70" />
+        reused since {m.inheritedFrom}
+      </span>
     {/if}
   </div>
 {/snippet}
 
-{#snippet renderDistributor(value: unknown, row: BOMRow)}
-  {#if value}
-    <div class="flex items-center gap-1">
-      <span>{value as string}</span>
-      <span
-        class="text-xs"
-        title={row.has_linked_distributor ? 'Distributor linked' : 'Distributor not linked'}
-      >{row.has_linked_distributor ? '✓' : '✕'}</span>
-    </div>
+{#snippet renderResolved(_value: unknown, row: BOMRow)}
+  {#if row.resolved_part_id}
+    <PartCell
+      partId={row.resolved_part_id}
+      mpn={row.resolved_part_mpn}
+      {teamId}
+      manufacturer={row.resolved_part_manufacturer}
+      description={row.resolved_part_description}
+      lifecycle={row.resolved_part_lifecycle_status}
+      imageUrl={row.resolved_part_image_url}
+      flag={row.resolved_part_flag}
+    />
+  {:else}
+    <button
+      type="button"
+      class="inline-flex items-center gap-1 text-xs font-medium text-attention hover:underline"
+      onclick={(e: MouseEvent) => { e.stopPropagation(); startReviewForItem(row.id); }}
+    >
+      Resolve <ArrowRight class="h-3 w-3" />
+    </button>
   {/if}
 {/snippet}
 
-{#snippet renderRefDes(value: unknown, _row: BOMRow)}
-  {@const s = value as string ?? ''}
-  <span class="font-mono text-xs text-muted-foreground">
-    {s.length > 80 ? s.slice(0, 80) + '…' : (s || '—')}
-  </span>
+{#snippet renderStock(_value: unknown, row: BOMRow)}
+  {@const state = stockState(row)}
+  {#if state === null}
+    <span class="font-mono text-xs text-muted-foreground">—</span>
+  {:else if state === 'untracked'}
+    <span class="font-mono text-xs text-muted-foreground" title="No inventory entry for this part">not tracked</span>
+  {:else}
+    <span
+      class="font-mono text-xs whitespace-nowrap
+             {state === 'out' ? 'font-medium text-danger'
+               : state === 'short' ? 'font-medium text-warning'
+               : 'text-muted-foreground'}"
+      title={state === 'out' ? 'Out of stock'
+        : state === 'short' ? `Only ${row.quantity_on_hand} of ${row.quantity} available`
+        : `${row.quantity_on_hand} in stock`}
+    >{row.quantity_on_hand} / {row.quantity}</span>
+  {/if}
+{/snippet}
+
+{#snippet renderDetail(row: BOMRow)}
+  {@const interp = row.interpretation}
+  <div class="grid gap-x-6 gap-y-3 p-1 sm:grid-cols-2 lg:grid-cols-4">
+    {@render detailField('Raw value', row.value)}
+    {@render detailField('Footprint', row.footprint)}
+    {@render detailField('Class / category', [interp?.class, interp?.category].filter(Boolean).join(' · '))}
+    {@render detailField('Route', interp?.route)}
+    {@render detailField('Interpretation source', row.interpretation_source)}
+    {@render detailField(
+      'Reported confidence',
+      interp ? `${Math.round(interp.confidence * 100)}%${interp.flags?.includes('llm') || row.interpretation_source === 'llm' ? ' (self-reported)' : ''}` : null,
+    )}
+    {@render detailField('Flags', interp?.flags?.join(', '))}
+    {@render detailField('Resolution state', row.resolution_state)}
+    {@render detailField(
+      'Inherited from',
+      row.origin_revision_label ? `${row.origin_revision_label} (${row.origin_resolution_state})` : null,
+    )}
+    {@render detailField('Distributor', row.distributor_name)}
+    {@render detailField('SKU', row.sku)}
+    {@render detailField('Import MPN', row.mpn)}
+    {@render detailField('Import manufacturer', row.manufacturer)}
+    {@render detailField('Import name', row.part_name)}
+    {@render detailField('Import description', row.raw_description)}
+    {@render detailField('Resolved package', row.resolved_part_package)}
+    {#if interp?.params?.length}
+      <div class="sm:col-span-2 lg:col-span-4">
+        <div class="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Parsed parameters</div>
+        <div class="mt-1 flex flex-wrap gap-1">
+          {#each interp.params as p}
+            <span class="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs">
+              {paramDefBySlug.get(p.slug)?.display_name ?? p.slug}: {p.raw}
+              {#if p.value_si != null}<span class="text-muted-foreground">({p.value_si})</span>{/if}
+            </span>
+          {/each}
+        </div>
+      </div>
+    {/if}
+    {#if row.resolve_item?.error_message}
+      <div class="sm:col-span-2 lg:col-span-4">
+        <div class="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Resolve error</div>
+        <div class="mt-1 font-mono text-xs text-danger">{row.resolve_item.error_message}</div>
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet detailField(label: string, value: string | null | undefined)}
+  <div>
+    <div class="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div class="mt-0.5 font-mono text-xs break-words {value ? '' : 'text-muted-foreground'}">
+      {value || 'not set'}
+    </div>
+  </div>
 {/snippet}
 
 {#snippet renderSubstitutes(_value: unknown, row: BOMRow)}

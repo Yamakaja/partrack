@@ -77,7 +77,22 @@ export interface BOMLineItem {
   resolved_part_mpn: string | null;
   /** Team opinion flag on the resolved part; omitted when 'none'. */
   resolved_part_flag?: import('$lib/api/notes.js').PartFlag;
+  resolved_part_manufacturer: string | null;
+  resolved_part_description: string | null;
+  resolved_part_package: string | null;
+  resolved_part_lifecycle_status: import('$lib/types/parts.js').LifecycleStatus | null;
+  resolved_part_image_url: string | null;
+  /** Team stock for the resolved part. Null = no inventory entry ("not tracked"). */
+  quantity_on_hand: number | null;
   resolution_state: string | null;
+  /**
+   * For an inherited resolution (resolution_state 'auto_prior_revision'), the
+   * decision that actually chose the part, collapsed to one hop at import time.
+   * Rendering the inherited state directly would say "matched to last revision"
+   * on most rows of a maturing project without naming the decision behind it.
+   */
+  origin_resolution_state?: string | null;
+  origin_revision_label?: string | null;
   ignored: boolean;
   value?: string | null;
   footprint?: string | null;

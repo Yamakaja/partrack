@@ -415,57 +415,86 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type lineItemResp struct {
-		ID                   string           `json:"id"`
-		ReferenceDesignators string           `json:"reference_designators"`
-		Quantity             int32            `json:"quantity"`
-		PartName             *string          `json:"part_name"`
-		RawDescription       *string          `json:"raw_description"`
-		Manufacturer         *string          `json:"manufacturer"`
-		MPN                  *string          `json:"mpn"`
-		SKU                  *string          `json:"sku"`
-		DistributorName      string           `json:"distributor_name"`
-		HasLinkedDistributor bool             `json:"has_linked_distributor"`
-		ResolvedPartID       *string          `json:"resolved_part_id"`
-		ResolvedPartMpn      *string          `json:"resolved_part_mpn"`
-		ResolvedPartFlag     *string          `json:"resolved_part_flag,omitempty"`
-		ResolutionState      *string          `json:"resolution_state"`
-		Ignored              bool             `json:"ignored"`
-		Value                *string          `json:"value,omitempty"`
-		Footprint            *string          `json:"footprint,omitempty"`
-		Interpretation       json.RawMessage  `json:"interpretation,omitempty"`
-		InterpretationSource string           `json:"interpretation_source,omitempty"`
-		Substitutes          []subEntry       `json:"substitutes"`
-		ResolveItem          *resolveItemResp `json:"resolve_item,omitempty"`
+		ID                   string  `json:"id"`
+		ReferenceDesignators string  `json:"reference_designators"`
+		Quantity             int32   `json:"quantity"`
+		PartName             *string `json:"part_name"`
+		RawDescription       *string `json:"raw_description"`
+		Manufacturer         *string `json:"manufacturer"`
+		MPN                  *string `json:"mpn"`
+		SKU                  *string `json:"sku"`
+		DistributorName      string  `json:"distributor_name"`
+		HasLinkedDistributor bool    `json:"has_linked_distributor"`
+		ResolvedPartID       *string `json:"resolved_part_id"`
+		ResolvedPartMpn      *string `json:"resolved_part_mpn"`
+		ResolvedPartFlag     *string `json:"resolved_part_flag,omitempty"`
+		ResolvedPartMfr      *string `json:"resolved_part_manufacturer"`
+		ResolvedPartDesc     *string `json:"resolved_part_description"`
+		ResolvedPartPackage  *string `json:"resolved_part_package"`
+		ResolvedPartLifecyle *string `json:"resolved_part_lifecycle_status"`
+		ResolvedPartImageURL *string `json:"resolved_part_image_url"`
+		QuantityOnHand       *int32  `json:"quantity_on_hand"`
+		ResolutionState      *string `json:"resolution_state"`
+		// Where an inherited resolution actually came from — the decision that chose
+		// the part, already collapsed to one hop by the import worker. Null unless
+		// resolution_state is auto_prior_revision.
+		OriginResolutionState *string          `json:"origin_resolution_state,omitempty"`
+		OriginRevisionLabel   *string          `json:"origin_revision_label,omitempty"`
+		Ignored               bool             `json:"ignored"`
+		Value                 *string          `json:"value,omitempty"`
+		Footprint             *string          `json:"footprint,omitempty"`
+		Interpretation        json.RawMessage  `json:"interpretation,omitempty"`
+		InterpretationSource  string           `json:"interpretation_source,omitempty"`
+		Substitutes           []subEntry       `json:"substitutes"`
+		ResolveItem           *resolveItemResp `json:"resolve_item,omitempty"`
 	}
 
 	itemsResp := make([]lineItemResp, len(lineItems))
 	for i, li := range lineItems {
 		id := li.ID.String()
 		itemsResp[i] = lineItemResp{
-			ID:                   id,
-			ReferenceDesignators: li.ReferenceDesignators,
-			Quantity:             li.Quantity,
-			PartName:             li.PartName,
-			RawDescription:       li.RawDescription,
-			Manufacturer:         li.Manufacturer,
-			MPN:                  li.Mpn,
-			SKU:                  li.Sku,
-			DistributorName:      li.DistributorName,
-			HasLinkedDistributor: li.ResolvedDistributorID.Valid,
-			ResolvedPartID:       uuidPtrString(li.ResolvedPartID),
-			ResolvedPartMpn:      li.ResolvedPartMpn,
-			ResolutionState:      li.ResolutionState,
-			Ignored:              li.Ignored,
-			Value:                li.Value,
-			Footprint:            li.Footprint,
-			Interpretation:       li.Interpretation,
-			InterpretationSource: li.InterpretationSource,
-			Substitutes:          subsByItem[id],
+			ID:                    id,
+			ReferenceDesignators:  li.ReferenceDesignators,
+			Quantity:              li.Quantity,
+			PartName:              li.PartName,
+			RawDescription:        li.RawDescription,
+			Manufacturer:          li.Manufacturer,
+			MPN:                   li.Mpn,
+			SKU:                   li.Sku,
+			DistributorName:       li.DistributorName,
+			HasLinkedDistributor:  li.ResolvedDistributorID.Valid,
+			ResolvedPartID:        uuidPtrString(li.ResolvedPartID),
+			ResolvedPartMpn:       li.ResolvedPartMpn,
+			ResolvedPartMfr:       li.ResolvedPartManufacturer,
+			ResolvedPartPackage:   li.ResolvedPartPackage,
+			ResolvedPartImageURL:  li.ResolvedPartImageUrl,
+			ResolutionState:       li.ResolutionState,
+			OriginResolutionState: li.OriginResolutionState,
+			OriginRevisionLabel:   li.OriginRevisionLabel,
+			Ignored:               li.Ignored,
+			Value:                 li.Value,
+			Footprint:             li.Footprint,
+			Interpretation:        li.Interpretation,
+			InterpretationSource:  li.InterpretationSource,
+			Substitutes:           subsByItem[id],
 		}
 		if li.ResolvedPartFlag.Valid && li.ResolvedPartFlag.PartFlag != dbgen.PartFlagNone {
 			f := string(li.ResolvedPartFlag.PartFlag)
 			itemsResp[i].ResolvedPartFlag = &f
 		}
+		// COALESCEd to '' by the query, which for an unresolved line means "no part"
+		// rather than "a part with no description" — keep those distinguishable.
+		if li.ResolvedPartDescription != "" {
+			d := li.ResolvedPartDescription
+			itemsResp[i].ResolvedPartDesc = &d
+		}
+		if li.ResolvedPartLifecycleStatus.Valid {
+			l := string(li.ResolvedPartLifecycleStatus.PartLifecycleStatus)
+			itemsResp[i].ResolvedPartLifecyle = &l
+		}
+		// Null when the team has no inventory entry for the part at all, which the UI
+		// renders as "not tracked" — distinct from a tracked zero.
+		itemsResp[i].QuantityOnHand = li.QuantityOnHand
 		if li.ResolveItemID.Valid {
 			ri := &resolveItemResp{
 				ID:           li.ResolveItemID.String(),

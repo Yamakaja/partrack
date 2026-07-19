@@ -107,6 +107,18 @@ func (q *Queue) handleBOMImport(job Job) {
 
 	strPtr := func(s string) *string { return &s }
 
+	// collapseOrigin folds a prior-revision reuse into a single hop. If the line we
+	// are reusing had itself inherited its part, we adopt its origin rather than
+	// pointing at it — otherwise a project that re-imports an unchanged BOM builds a
+	// chain of "matched to last revision" that says nothing about the decision that
+	// actually chose the part. Otherwise the source line's own state is the origin.
+	collapseOrigin := func(srcRevID pgtype.UUID, srcState, srcOriginState *string, srcOriginRevID pgtype.UUID) (*string, pgtype.UUID) {
+		if srcState != nil && *srcState == "auto_prior_revision" && srcOriginState != nil {
+			return srcOriginState, srcOriginRevID
+		}
+		return srcState, srcRevID
+	}
+
 	noMatchCount := 0
 	lastPublish := time.Now()
 
@@ -120,6 +132,10 @@ func (q *Queue) handleBOMImport(job Job) {
 
 		var resolvedPartID pgtype.UUID
 		var resolutionState *string
+		// Set only by the prior-revision tier: the decision this reuse ultimately
+		// descends from, already collapsed to one hop (see collapseOrigin).
+		var originState *string
+		var originRevID pgtype.UUID
 
 		// 1. SKU-based resolution: only if a resolved distributor ID was explicitly chosen.
 		if item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
@@ -172,35 +188,38 @@ func (q *Queue) handleBOMImport(job Job) {
 			// 4a. MPN-based: prefer MPN+manufacturer for precision, fall back to MPN-only.
 			if item.Mpn != nil && *item.Mpn != "" {
 				if item.Manufacturer != nil && *item.Manufacturer != "" {
-					if id, err := queries.GetPriorRevisionPartByMPNAndManufacturer(ctx, dbgen.GetPriorRevisionPartByMPNAndManufacturerParams{
+					if r, err := queries.GetPriorRevisionPartByMPNAndManufacturer(ctx, dbgen.GetPriorRevisionPartByMPNAndManufacturerParams{
 						ProjectID:         projectID,
 						CurrentRevisionID: revID,
 						Mpn:               item.Mpn,
 						Manufacturer:      item.Manufacturer,
 					}); err == nil {
-						priorPartID = id
+						priorPartID = r.ResolvedPartID
+						originState, originRevID = collapseOrigin(r.BomRevisionID, r.ResolutionState, r.OriginResolutionState, r.OriginRevisionID)
 					}
 				}
 				if !priorPartID.Valid {
-					if id, err := queries.GetPriorRevisionPartByMPN(ctx, dbgen.GetPriorRevisionPartByMPNParams{
+					if r, err := queries.GetPriorRevisionPartByMPN(ctx, dbgen.GetPriorRevisionPartByMPNParams{
 						ProjectID:         projectID,
 						CurrentRevisionID: revID,
 						Mpn:               item.Mpn,
 					}); err == nil {
-						priorPartID = id
+						priorPartID = r.ResolvedPartID
+						originState, originRevID = collapseOrigin(r.BomRevisionID, r.ResolutionState, r.OriginResolutionState, r.OriginRevisionID)
 					}
 				}
 			}
 
 			// 4b. SKU+distributor fallback: covers items with no MPN.
 			if !priorPartID.Valid && item.Sku != nil && *item.Sku != "" && item.ResolvedDistributorID.Valid {
-				if id, err := queries.GetPriorRevisionPartBySKU(ctx, dbgen.GetPriorRevisionPartBySKUParams{
+				if r, err := queries.GetPriorRevisionPartBySKU(ctx, dbgen.GetPriorRevisionPartBySKUParams{
 					ProjectID:         projectID,
 					CurrentRevisionID: revID,
 					Sku:               item.Sku,
 					DistributorID:     item.ResolvedDistributorID,
 				}); err == nil {
-					priorPartID = id
+					priorPartID = r.ResolvedPartID
+					originState, originRevID = collapseOrigin(r.BomRevisionID, r.ResolutionState, r.OriginResolutionState, r.OriginRevisionID)
 				}
 			}
 
@@ -209,20 +228,24 @@ func (q *Queue) handleBOMImport(job Job) {
 			// carries forward manual resolutions of generic/parametric parts that have no
 			// MPN or SKU to key on (the common case the MPN/SKU tiers above can't cover).
 			if !priorPartID.Valid {
-				if id, err := queries.GetPriorRevisionPartByLineSignature(ctx, dbgen.GetPriorRevisionPartByLineSignatureParams{
+				if r, err := queries.GetPriorRevisionPartByLineSignature(ctx, dbgen.GetPriorRevisionPartByLineSignatureParams{
 					ProjectID:            projectID,
 					CurrentRevisionID:    revID,
 					ReferenceDesignators: item.ReferenceDesignators,
 					Value:                item.Value,
 					Footprint:            item.Footprint,
 				}); err == nil {
-					priorPartID = id
+					priorPartID = r.ResolvedPartID
+					originState, originRevID = collapseOrigin(r.BomRevisionID, r.ResolutionState, r.OriginResolutionState, r.OriginRevisionID)
 				}
 			}
 
 			if priorPartID.Valid {
 				resolvedPartID = priorPartID
 				resolutionState = strPtr("auto_prior_revision")
+			} else {
+				// No tier hit — don't carry provenance from a lookup that missed.
+				originState, originRevID = nil, pgtype.UUID{}
 			}
 		}
 
@@ -313,10 +336,12 @@ func (q *Queue) handleBOMImport(job Job) {
 			}
 		} else {
 			if _, err := queries.UpdateBOMLineItem(ctx, dbgen.UpdateBOMLineItemParams{
-				ResolvedPartID:  resolvedPartID,
-				ResolutionState: resolutionState,
-				ID:              item.ID,
-				BomRevisionID:   revID,
+				ResolvedPartID:        resolvedPartID,
+				ResolutionState:       resolutionState,
+				OriginResolutionState: originState,
+				OriginRevisionID:      originRevID,
+				ID:                    item.ID,
+				BomRevisionID:         revID,
 			}); err != nil {
 				continue // non-fatal; skip progress update for this item
 			}

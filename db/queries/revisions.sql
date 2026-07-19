@@ -81,7 +81,15 @@ SELECT
     bli.resolution_state, bli.ignored,
     bli.value, bli.footprint, bli.interpretation, bli.interpretation_source,
     p.mpn AS resolved_part_mpn,
+    p.manufacturer AS resolved_part_manufacturer,
+    p.lifecycle_status AS resolved_part_lifecycle_status,
+    p.image_url AS resolved_part_image_url,
+    p.canonical_package AS resolved_part_package,
+    COALESCE(p.short_description, p.description, '') AS resolved_part_description,
     pn.flag AS resolved_part_flag,
+    ie.quantity_on_hand AS quantity_on_hand,
+    bli.origin_resolution_state,
+    obr.label AS origin_revision_label,
     bli.resolve_item_id,
     pri.status          AS resolve_status,
     pri.task_type       AS resolve_task_type,
@@ -92,6 +100,8 @@ LEFT JOIN parts p ON p.id = bli.resolved_part_id
 LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 LEFT JOIN part_resolve_items pri ON pri.id = bli.resolve_item_id
 LEFT JOIN part_notes pn ON pn.part_id = bli.resolved_part_id AND pn.team_id = sqlc.arg('team_id')
+LEFT JOIN inventory_entries ie ON ie.part_id = bli.resolved_part_id AND ie.team_id = sqlc.arg('team_id')
+LEFT JOIN bom_revisions obr ON obr.id = bli.origin_revision_id
 WHERE bli.bom_revision_id = sqlc.arg('bom_revision_id')
 ORDER BY bli.id;
 
@@ -132,9 +142,13 @@ FROM bom_line_items
 WHERE id = $1 AND bom_revision_id = $2;
 
 -- name: UpdateBOMLineItem :one
+-- origin_* are NULL for every tier but prior-revision reuse: elsewhere the row's own
+-- resolution_state is the origin, and a manual re-resolve must clear a stale one.
 UPDATE bom_line_items
-SET resolved_part_id = sqlc.narg('resolved_part_id'),
-    resolution_state = sqlc.narg('resolution_state')
+SET resolved_part_id        = sqlc.narg('resolved_part_id'),
+    resolution_state        = sqlc.narg('resolution_state'),
+    origin_resolution_state = sqlc.narg('origin_resolution_state'),
+    origin_revision_id      = sqlc.narg('origin_revision_id')
 WHERE id = sqlc.arg('id') AND bom_revision_id = sqlc.arg('bom_revision_id')
 RETURNING id, reference_designators, quantity, raw_description,
           resolved_part_id, resolution_state;
@@ -171,8 +185,15 @@ RETURNING id, reference_designators, quantity, raw_description,
 -- name: GetRevisionProjectID :one
 SELECT project_id FROM bom_revisions WHERE id = $1;
 
+-- The four prior-revision tiers below all return the source line's provenance
+-- alongside the part: its own resolution_state and revision, plus the origin_* it
+-- had already collapsed. The import worker folds these into the new line so an
+-- inheritance chain stays one hop deep no matter how many revisions it spans
+-- (see collapseOrigin in internal/worker/job_bom_import.go).
+
 -- name: GetPriorRevisionPartByMPNAndManufacturer :one
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = @project_id
@@ -187,7 +208,8 @@ LIMIT 1;
 -- MPN-only prior-revision reuse: used when the line has no manufacturer to
 -- disambiguate with (or the MPN+manufacturer lookup found nothing). Reuses the most
 -- recent prior resolution for the same MPN in this project.
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = @project_id
@@ -198,7 +220,8 @@ ORDER BY br.imported_at DESC
 LIMIT 1;
 
 -- name: GetPriorRevisionPartBySKU :one
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id              = @project_id
@@ -215,7 +238,8 @@ LIMIT 1;
 -- previously-resolved line is the "same" line in a re-imported (identical) BOM. This
 -- carries forward manual resolutions of generic/parametric parts that have no MPN or
 -- SKU to match on. NULL value/footprint match NULL (IS NOT DISTINCT FROM).
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id             = @project_id

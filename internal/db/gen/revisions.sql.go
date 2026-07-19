@@ -251,7 +251,8 @@ func (q *Queries) GetInventoryQuantitiesForRevision(ctx context.Context, arg Get
 }
 
 const getPriorRevisionPartByLineSignature = `-- name: GetPriorRevisionPartByLineSignature :one
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id             = $1
@@ -272,12 +273,20 @@ type GetPriorRevisionPartByLineSignatureParams struct {
 	Footprint            *string     `json:"footprint"`
 }
 
+type GetPriorRevisionPartByLineSignatureRow struct {
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	OriginResolutionState *string     `json:"origin_resolution_state"`
+	OriginRevisionID      pgtype.UUID `json:"origin_revision_id"`
+}
+
 // Prior-revision reuse keyed on the line's identity rather than a catalog MPN/SKU:
 // a line with the same reference designators AND the same raw value + footprint as a
 // previously-resolved line is the "same" line in a re-imported (identical) BOM. This
 // carries forward manual resolutions of generic/parametric parts that have no MPN or
 // SKU to match on. NULL value/footprint match NULL (IS NOT DISTINCT FROM).
-func (q *Queries) GetPriorRevisionPartByLineSignature(ctx context.Context, arg GetPriorRevisionPartByLineSignatureParams) (pgtype.UUID, error) {
+func (q *Queries) GetPriorRevisionPartByLineSignature(ctx context.Context, arg GetPriorRevisionPartByLineSignatureParams) (GetPriorRevisionPartByLineSignatureRow, error) {
 	row := q.db.QueryRow(ctx, getPriorRevisionPartByLineSignature,
 		arg.ProjectID,
 		arg.CurrentRevisionID,
@@ -285,13 +294,20 @@ func (q *Queries) GetPriorRevisionPartByLineSignature(ctx context.Context, arg G
 		arg.Value,
 		arg.Footprint,
 	)
-	var resolved_part_id pgtype.UUID
-	err := row.Scan(&resolved_part_id)
-	return resolved_part_id, err
+	var i GetPriorRevisionPartByLineSignatureRow
+	err := row.Scan(
+		&i.ResolvedPartID,
+		&i.BomRevisionID,
+		&i.ResolutionState,
+		&i.OriginResolutionState,
+		&i.OriginRevisionID,
+	)
+	return i, err
 }
 
 const getPriorRevisionPartByMPN = `-- name: GetPriorRevisionPartByMPN :one
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = $1
@@ -308,18 +324,34 @@ type GetPriorRevisionPartByMPNParams struct {
 	Mpn               *string     `json:"mpn"`
 }
 
+type GetPriorRevisionPartByMPNRow struct {
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	OriginResolutionState *string     `json:"origin_resolution_state"`
+	OriginRevisionID      pgtype.UUID `json:"origin_revision_id"`
+}
+
 // MPN-only prior-revision reuse: used when the line has no manufacturer to
 // disambiguate with (or the MPN+manufacturer lookup found nothing). Reuses the most
 // recent prior resolution for the same MPN in this project.
-func (q *Queries) GetPriorRevisionPartByMPN(ctx context.Context, arg GetPriorRevisionPartByMPNParams) (pgtype.UUID, error) {
+func (q *Queries) GetPriorRevisionPartByMPN(ctx context.Context, arg GetPriorRevisionPartByMPNParams) (GetPriorRevisionPartByMPNRow, error) {
 	row := q.db.QueryRow(ctx, getPriorRevisionPartByMPN, arg.ProjectID, arg.CurrentRevisionID, arg.Mpn)
-	var resolved_part_id pgtype.UUID
-	err := row.Scan(&resolved_part_id)
-	return resolved_part_id, err
+	var i GetPriorRevisionPartByMPNRow
+	err := row.Scan(
+		&i.ResolvedPartID,
+		&i.BomRevisionID,
+		&i.ResolutionState,
+		&i.OriginResolutionState,
+		&i.OriginRevisionID,
+	)
+	return i, err
 }
 
 const getPriorRevisionPartByMPNAndManufacturer = `-- name: GetPriorRevisionPartByMPNAndManufacturer :one
-SELECT bli.resolved_part_id
+
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = $1
@@ -338,20 +370,40 @@ type GetPriorRevisionPartByMPNAndManufacturerParams struct {
 	Manufacturer      *string     `json:"manufacturer"`
 }
 
-func (q *Queries) GetPriorRevisionPartByMPNAndManufacturer(ctx context.Context, arg GetPriorRevisionPartByMPNAndManufacturerParams) (pgtype.UUID, error) {
+type GetPriorRevisionPartByMPNAndManufacturerRow struct {
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	OriginResolutionState *string     `json:"origin_resolution_state"`
+	OriginRevisionID      pgtype.UUID `json:"origin_revision_id"`
+}
+
+// The four prior-revision tiers below all return the source line's provenance
+// alongside the part: its own resolution_state and revision, plus the origin_* it
+// had already collapsed. The import worker folds these into the new line so an
+// inheritance chain stays one hop deep no matter how many revisions it spans
+// (see collapseOrigin in internal/worker/job_bom_import.go).
+func (q *Queries) GetPriorRevisionPartByMPNAndManufacturer(ctx context.Context, arg GetPriorRevisionPartByMPNAndManufacturerParams) (GetPriorRevisionPartByMPNAndManufacturerRow, error) {
 	row := q.db.QueryRow(ctx, getPriorRevisionPartByMPNAndManufacturer,
 		arg.ProjectID,
 		arg.CurrentRevisionID,
 		arg.Mpn,
 		arg.Manufacturer,
 	)
-	var resolved_part_id pgtype.UUID
-	err := row.Scan(&resolved_part_id)
-	return resolved_part_id, err
+	var i GetPriorRevisionPartByMPNAndManufacturerRow
+	err := row.Scan(
+		&i.ResolvedPartID,
+		&i.BomRevisionID,
+		&i.ResolutionState,
+		&i.OriginResolutionState,
+		&i.OriginRevisionID,
+	)
+	return i, err
 }
 
 const getPriorRevisionPartBySKU = `-- name: GetPriorRevisionPartBySKU :one
-SELECT bli.resolved_part_id
+SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
+       bli.origin_resolution_state, bli.origin_revision_id
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id              = $1
@@ -370,16 +422,30 @@ type GetPriorRevisionPartBySKUParams struct {
 	DistributorID     pgtype.UUID `json:"distributor_id"`
 }
 
-func (q *Queries) GetPriorRevisionPartBySKU(ctx context.Context, arg GetPriorRevisionPartBySKUParams) (pgtype.UUID, error) {
+type GetPriorRevisionPartBySKURow struct {
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	OriginResolutionState *string     `json:"origin_resolution_state"`
+	OriginRevisionID      pgtype.UUID `json:"origin_revision_id"`
+}
+
+func (q *Queries) GetPriorRevisionPartBySKU(ctx context.Context, arg GetPriorRevisionPartBySKUParams) (GetPriorRevisionPartBySKURow, error) {
 	row := q.db.QueryRow(ctx, getPriorRevisionPartBySKU,
 		arg.ProjectID,
 		arg.CurrentRevisionID,
 		arg.Sku,
 		arg.DistributorID,
 	)
-	var resolved_part_id pgtype.UUID
-	err := row.Scan(&resolved_part_id)
-	return resolved_part_id, err
+	var i GetPriorRevisionPartBySKURow
+	err := row.Scan(
+		&i.ResolvedPartID,
+		&i.BomRevisionID,
+		&i.ResolutionState,
+		&i.OriginResolutionState,
+		&i.OriginRevisionID,
+	)
+	return i, err
 }
 
 const getRevision = `-- name: GetRevision :one
@@ -641,7 +707,15 @@ SELECT
     bli.resolution_state, bli.ignored,
     bli.value, bli.footprint, bli.interpretation, bli.interpretation_source,
     p.mpn AS resolved_part_mpn,
+    p.manufacturer AS resolved_part_manufacturer,
+    p.lifecycle_status AS resolved_part_lifecycle_status,
+    p.image_url AS resolved_part_image_url,
+    p.canonical_package AS resolved_part_package,
+    COALESCE(p.short_description, p.description, '') AS resolved_part_description,
     pn.flag AS resolved_part_flag,
+    ie.quantity_on_hand AS quantity_on_hand,
+    bli.origin_resolution_state,
+    obr.label AS origin_revision_label,
     bli.resolve_item_id,
     pri.status          AS resolve_status,
     pri.task_type       AS resolve_task_type,
@@ -652,6 +726,8 @@ LEFT JOIN parts p ON p.id = bli.resolved_part_id
 LEFT JOIN distributors d ON d.id = bli.resolved_distributor_id
 LEFT JOIN part_resolve_items pri ON pri.id = bli.resolve_item_id
 LEFT JOIN part_notes pn ON pn.part_id = bli.resolved_part_id AND pn.team_id = $1
+LEFT JOIN inventory_entries ie ON ie.part_id = bli.resolved_part_id AND ie.team_id = $1
+LEFT JOIN bom_revisions obr ON obr.id = bli.origin_revision_id
 WHERE bli.bom_revision_id = $2
 ORDER BY bli.id
 `
@@ -662,30 +738,38 @@ type ListBOMLineItemsWithResolveDataParams struct {
 }
 
 type ListBOMLineItemsWithResolveDataRow struct {
-	ID                    pgtype.UUID  `json:"id"`
-	ReferenceDesignators  string       `json:"reference_designators"`
-	Quantity              int32        `json:"quantity"`
-	RawDescription        *string      `json:"raw_description"`
-	ResolvedPartID        pgtype.UUID  `json:"resolved_part_id"`
-	PartName              *string      `json:"part_name"`
-	Manufacturer          *string      `json:"manufacturer"`
-	Mpn                   *string      `json:"mpn"`
-	Sku                   *string      `json:"sku"`
-	DistributorName       string       `json:"distributor_name"`
-	ResolvedDistributorID pgtype.UUID  `json:"resolved_distributor_id"`
-	ResolutionState       *string      `json:"resolution_state"`
-	Ignored               bool         `json:"ignored"`
-	Value                 *string      `json:"value"`
-	Footprint             *string      `json:"footprint"`
-	Interpretation        []byte       `json:"interpretation"`
-	InterpretationSource  string       `json:"interpretation_source"`
-	ResolvedPartMpn       *string      `json:"resolved_part_mpn"`
-	ResolvedPartFlag      NullPartFlag `json:"resolved_part_flag"`
-	ResolveItemID         pgtype.UUID  `json:"resolve_item_id"`
-	ResolveStatus         *string      `json:"resolve_status"`
-	ResolveTaskType       *string      `json:"resolve_task_type"`
-	ResolveEnrichmentData []byte       `json:"resolve_enrichment_data"`
-	ResolveErrorMessage   *string      `json:"resolve_error_message"`
+	ID                          pgtype.UUID             `json:"id"`
+	ReferenceDesignators        string                  `json:"reference_designators"`
+	Quantity                    int32                   `json:"quantity"`
+	RawDescription              *string                 `json:"raw_description"`
+	ResolvedPartID              pgtype.UUID             `json:"resolved_part_id"`
+	PartName                    *string                 `json:"part_name"`
+	Manufacturer                *string                 `json:"manufacturer"`
+	Mpn                         *string                 `json:"mpn"`
+	Sku                         *string                 `json:"sku"`
+	DistributorName             string                  `json:"distributor_name"`
+	ResolvedDistributorID       pgtype.UUID             `json:"resolved_distributor_id"`
+	ResolutionState             *string                 `json:"resolution_state"`
+	Ignored                     bool                    `json:"ignored"`
+	Value                       *string                 `json:"value"`
+	Footprint                   *string                 `json:"footprint"`
+	Interpretation              []byte                  `json:"interpretation"`
+	InterpretationSource        string                  `json:"interpretation_source"`
+	ResolvedPartMpn             *string                 `json:"resolved_part_mpn"`
+	ResolvedPartManufacturer    *string                 `json:"resolved_part_manufacturer"`
+	ResolvedPartLifecycleStatus NullPartLifecycleStatus `json:"resolved_part_lifecycle_status"`
+	ResolvedPartImageUrl        *string                 `json:"resolved_part_image_url"`
+	ResolvedPartPackage         *string                 `json:"resolved_part_package"`
+	ResolvedPartDescription     string                  `json:"resolved_part_description"`
+	ResolvedPartFlag            NullPartFlag            `json:"resolved_part_flag"`
+	QuantityOnHand              *int32                  `json:"quantity_on_hand"`
+	OriginResolutionState       *string                 `json:"origin_resolution_state"`
+	OriginRevisionLabel         *string                 `json:"origin_revision_label"`
+	ResolveItemID               pgtype.UUID             `json:"resolve_item_id"`
+	ResolveStatus               *string                 `json:"resolve_status"`
+	ResolveTaskType             *string                 `json:"resolve_task_type"`
+	ResolveEnrichmentData       []byte                  `json:"resolve_enrichment_data"`
+	ResolveErrorMessage         *string                 `json:"resolve_error_message"`
 }
 
 // Like ListBOMLineItems but also joins the linked part_resolve_item so the
@@ -719,7 +803,15 @@ func (q *Queries) ListBOMLineItemsWithResolveData(ctx context.Context, arg ListB
 			&i.Interpretation,
 			&i.InterpretationSource,
 			&i.ResolvedPartMpn,
+			&i.ResolvedPartManufacturer,
+			&i.ResolvedPartLifecycleStatus,
+			&i.ResolvedPartImageUrl,
+			&i.ResolvedPartPackage,
+			&i.ResolvedPartDescription,
 			&i.ResolvedPartFlag,
+			&i.QuantityOnHand,
+			&i.OriginResolutionState,
+			&i.OriginRevisionLabel,
 			&i.ResolveItemID,
 			&i.ResolveStatus,
 			&i.ResolveTaskType,
@@ -849,18 +941,22 @@ func (q *Queries) SetBOMLineItemResolveItem(ctx context.Context, arg SetBOMLineI
 
 const updateBOMLineItem = `-- name: UpdateBOMLineItem :one
 UPDATE bom_line_items
-SET resolved_part_id = $1,
-    resolution_state = $2
-WHERE id = $3 AND bom_revision_id = $4
+SET resolved_part_id        = $1,
+    resolution_state        = $2,
+    origin_resolution_state = $3,
+    origin_revision_id      = $4
+WHERE id = $5 AND bom_revision_id = $6
 RETURNING id, reference_designators, quantity, raw_description,
           resolved_part_id, resolution_state
 `
 
 type UpdateBOMLineItemParams struct {
-	ResolvedPartID  pgtype.UUID `json:"resolved_part_id"`
-	ResolutionState *string     `json:"resolution_state"`
-	ID              pgtype.UUID `json:"id"`
-	BomRevisionID   pgtype.UUID `json:"bom_revision_id"`
+	ResolvedPartID        pgtype.UUID `json:"resolved_part_id"`
+	ResolutionState       *string     `json:"resolution_state"`
+	OriginResolutionState *string     `json:"origin_resolution_state"`
+	OriginRevisionID      pgtype.UUID `json:"origin_revision_id"`
+	ID                    pgtype.UUID `json:"id"`
+	BomRevisionID         pgtype.UUID `json:"bom_revision_id"`
 }
 
 type UpdateBOMLineItemRow struct {
@@ -872,10 +968,14 @@ type UpdateBOMLineItemRow struct {
 	ResolutionState      *string     `json:"resolution_state"`
 }
 
+// origin_* are NULL for every tier but prior-revision reuse: elsewhere the row's own
+// resolution_state is the origin, and a manual re-resolve must clear a stale one.
 func (q *Queries) UpdateBOMLineItem(ctx context.Context, arg UpdateBOMLineItemParams) (UpdateBOMLineItemRow, error) {
 	row := q.db.QueryRow(ctx, updateBOMLineItem,
 		arg.ResolvedPartID,
 		arg.ResolutionState,
+		arg.OriginResolutionState,
+		arg.OriginRevisionID,
 		arg.ID,
 		arg.BomRevisionID,
 	)

@@ -94,6 +94,8 @@ func (h *Handler) UpdateBOMItem(w http.ResponseWriter, r *http.Request) {
 	}
 	// If body.ResolvedPartID is nil or empty, resolvedPartID stays zero (NULL) and
 	// resolutionState stays nil (NULL), which clears any prior resolution.
+	// origin_* are likewise left unset, so they write NULL: a manual resolution is
+	// its own origin, and any provenance inherited by a previous import is dropped.
 
 	row, err := h.Queries.UpdateBOMLineItem(r.Context(), dbgen.UpdateBOMLineItemParams{
 		ResolvedPartID:  resolvedPartID,

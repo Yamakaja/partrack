@@ -487,6 +487,8 @@ type BomLineItem struct {
 	Footprint             *string     `json:"footprint"`
 	Interpretation        []byte      `json:"interpretation"`
 	InterpretationSource  string      `json:"interpretation_source"`
+	OriginResolutionState *string     `json:"origin_resolution_state"`
+	OriginRevisionID      pgtype.UUID `json:"origin_revision_id"`
 }
 
 type BomLineItemSubstitute struct {
