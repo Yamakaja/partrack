@@ -16,26 +16,28 @@
 
   // ── Filter state ─────────────────────────────────────────────────────────
 
-  type Filter = 'all' | 'parts' | 'orders' | 'stock' | 'storage' | 'kitting';
+  type Filter = 'all' | 'parts' | 'stock' | 'orders' | 'builds' | 'projects';
   type Cursor = { cursorTime: string; cursorId: string };
 
-  // Maps a filter chip to the activity actions it selects.
+  // Maps a filter chip to the activity actions it selects. Each chip spans both
+  // feeds — the web action and its scanner equivalent are the same thing to a
+  // reader, and the panel is no longer scanner-only.
   const filterActions: Record<Filter, string[]> = {
     all: [],
-    parts: ['scan.part_imported', 'scan.part_not_found', 'scan.bag_scanned'],
-    orders: ['scan.order_received'],
-    stock: ['scan.stock_adjusted'],
-    storage: ['scan.storage_assigned'],
-    kitting: ['scan.kitting_confirmed', 'scan.kitting_shortfall'],
+    parts: ['part.created', 'scan.part_imported', 'scan.part_not_found', 'scan.bag_scanned'],
+    stock: ['inventory.adjusted', 'checkout.created', 'scan.stock_adjusted', 'scan.storage_assigned'],
+    orders: ['order.item_received', 'order.cancelled', 'order.external_linked', 'cart.converted', 'scan.order_received'],
+    builds: ['build.submitted', 'build.assembled', 'build.cancelled', 'scan.kitting_confirmed', 'scan.kitting_shortfall'],
+    projects: ['project.created', 'bom.imported'],
   };
 
   const filterLabels: Record<Filter, string> = {
     all: 'All',
     parts: 'Parts',
-    orders: 'Orders',
     stock: 'Stock',
-    storage: 'Storage',
-    kitting: 'Kitting',
+    orders: 'Orders',
+    builds: 'Builds',
+    projects: 'Projects',
   };
 
   let activeFilter = $state<Filter>('all');

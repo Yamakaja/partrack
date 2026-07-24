@@ -70,7 +70,7 @@
   <main class="flex flex-1 flex-col overflow-hidden overflow-y-auto">
     {@render children()}
   </main>
-  {#if scanSessionStore.current && teamId}
+  {#if teamId}
     <ActivityFeedPanel {teamId} />
   {/if}
 </div>
