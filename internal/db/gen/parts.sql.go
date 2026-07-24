@@ -974,7 +974,7 @@ func (q *Queries) GetPartsBrief(ctx context.Context, ids []pgtype.UUID) ([]GetPa
 }
 
 const getPartsForManifest = `-- name: GetPartsForManifest :many
-SELECT id, mpn, manufacturer, lifecycle_status
+SELECT id, mpn, manufacturer, short_description, lifecycle_status
 FROM parts
 WHERE id = ANY($1::uuid[])
   AND (scope = 'global' OR (scope = 'team' AND team_id = $2))
@@ -986,10 +986,11 @@ type GetPartsForManifestParams struct {
 }
 
 type GetPartsForManifestRow struct {
-	ID              pgtype.UUID         `json:"id"`
-	Mpn             *string             `json:"mpn"`
-	Manufacturer    *string             `json:"manufacturer"`
-	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
+	ID               pgtype.UUID         `json:"id"`
+	Mpn              *string             `json:"mpn"`
+	Manufacturer     *string             `json:"manufacturer"`
+	ShortDescription *string             `json:"short_description"`
+	LifecycleStatus  PartLifecycleStatus `json:"lifecycle_status"`
 }
 
 // Batch resolution for note `:part{#uuid}` chips: returns the display fields for
@@ -1008,6 +1009,7 @@ func (q *Queries) GetPartsForManifest(ctx context.Context, arg GetPartsForManife
 			&i.ID,
 			&i.Mpn,
 			&i.Manufacturer,
+			&i.ShortDescription,
 			&i.LifecycleStatus,
 		); err != nil {
 			return nil, err

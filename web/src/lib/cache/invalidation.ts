@@ -11,9 +11,24 @@ import { subscribeSSEType } from '$lib/api/sse.js';
 import { navigate } from '$lib/router/index.svelte.js';
 import { pushToast } from '$lib/stores/toasts.svelte.js';
 import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
+import * as objectRefs from '$lib/objectref/resolver.svelte.js';
 
 let qc: QueryClient | null = null;
 let unsubscribers: Array<() => void> = [];
+
+/**
+ * Entity-change events that carry the id of an object a ref may be displaying,
+ * with the payload key holding it. An object-ref label is a snapshot of a
+ * mutable thing — an order gains a purchase order number, a project is renamed —
+ * so the cached summary is dropped and re-resolved on next render.
+ */
+const OBJECT_REF_EVENTS: Array<[type: string, idKey: string]> = [
+  ['part_changed', 'part_id'],
+  ['order_changed', 'order_id'],
+  ['project_changed', 'project_id'],
+  ['build_changed', 'build_id'],
+  ['revision_changed', 'revision_id'],
+];
 
 export function initCacheInvalidation(client: QueryClient) {
   qc = client;
@@ -25,6 +40,13 @@ export function activateTeamInvalidation(teamId: string) {
   if (!qc) return;
 
   unsubscribers = [
+    ...OBJECT_REF_EVENTS.map(([type, idKey]) =>
+      subscribeSSEType(teamId, type, (ev) => {
+        const id = ev.data[idKey] as string | undefined;
+        if (id) objectRefs.invalidate(teamId, id);
+      }),
+    ),
+
     subscribeSSEType(teamId, 'part_changed', (ev) => {
       const partId = ev.data.part_id as string | undefined;
       if (partId) {

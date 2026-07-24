@@ -10,6 +10,7 @@ import (
 	"github.com/Yamakaja/partrack/internal/activity"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/genspec"
+	"github.com/Yamakaja/partrack/internal/objectref"
 	"github.com/Yamakaja/partrack/internal/partmatch"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -398,7 +399,7 @@ func (q *Queue) handleBOMImport(job Job) {
 		projectName, _ := queries.GetProjectNameForLabel(ctx, projectID)
 		label := projectName
 		if rev, err := queries.GetRevision(ctx, dbgen.GetRevisionParams{ID: revID, ProjectID: projectID}); err == nil {
-			label = activity.RevisionLabel(projectName, rev.Label)
+			label = objectref.RevisionLabel(projectName, rev.Label)
 		}
 		resolved := resolvedSKU + resolvedMPN + resolvedPrior + resolvedGeneric
 		q.activity.Record(activity.Event{

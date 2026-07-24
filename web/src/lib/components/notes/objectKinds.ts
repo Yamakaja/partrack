@@ -1,14 +1,13 @@
 import { Cpu, FolderKanban, GitBranch, ShoppingCart, Hammer, Box } from 'lucide-svelte';
+import type { ObjectKind } from '$lib/types/objectRef.js';
 
 // All lucide-svelte icons share this component type.
 type LucideIcon = typeof Cpu;
 
-// The linkable partrack object types. The kind doubles as the remark directive
-// name in markdown (`:project[label]{#uuid}`), so these strings are the wire
-// contract shared by editor, viewer, and backend manifest.
-export type ObjectKind = 'part' | 'project' | 'revision' | 'order' | 'build' | 'storage';
-
-export const OBJECT_KINDS: ObjectKind[] = ['part', 'project', 'revision', 'order', 'build', 'storage'];
+// The kind union and its wire contract live in $lib/types/objectRef (mirroring
+// internal/objectref); this module adds only how a kind is *presented*.
+export type { ObjectKind };
+export { OBJECT_KINDS } from '$lib/types/objectRef.js';
 
 export interface KindMeta {
   label: string;

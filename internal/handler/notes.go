@@ -146,105 +146,25 @@ func (h *Handler) resolveNoteManifest(ctx context.Context, teamID pgtype.UUID, b
 }
 
 // resolveObjectRefs fills objects with normalized entries for every resolvable
-// object-link in body. The href routes are owned here so per-kind URL shape
-// (e.g. revisions nest under their project) lives in one place.
+// object-link in body. Identity and routing come from the shared batch resolver
+// (see object_refs.go), so a note chip names an order exactly as the activity
+// feed and the object-refs endpoint do.
 func (h *Handler) resolveObjectRefs(ctx context.Context, teamID pgtype.UUID, body string, objects map[string]noteManifestObject) error {
-	byKind := objRefsByKind(body)
-	tid := teamID.String()
-
-	for kind, ids := range byKind {
-		pg := toPgUUIDs(ids)
-		switch kind {
-		case "part":
-			rows, err := h.Queries.GetPartsForManifest(ctx, dbgen.GetPartsForManifestParams{Ids: pg, TeamID: teamID})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				id := r.ID.String()
-				label := "part"
-				if r.Mpn != nil && *r.Mpn != "" {
-					label = *r.Mpn
-				}
-				objects[id] = noteManifestObject{
-					Kind:   "part",
-					Label:  label,
-					Href:   "/teams/" + tid + "/parts/" + id,
-					Status: strPtr(string(r.LifecycleStatus)),
-				}
-			}
-		case "project":
-			rows, err := h.Queries.GetProjectsByIDs(ctx, dbgen.GetProjectsByIDsParams{Ids: pg, TeamID: teamID})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				id := r.ID.String()
-				objects[id] = noteManifestObject{
-					Kind:   "project",
-					Label:  r.Name,
-					Href:   "/teams/" + tid + "/projects/" + id,
-					Status: strPtr(string(r.Status)),
-				}
-			}
-		case "revision":
-			rows, err := h.Queries.GetBOMRevisionsByIDs(ctx, dbgen.GetBOMRevisionsByIDsParams{Ids: pg, TeamID: teamID})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				id := r.ID.String()
-				objects[id] = noteManifestObject{
-					Kind:  "revision",
-					Label: r.ProjectName + " — " + r.Label,
-					Href:  "/teams/" + tid + "/projects/" + r.ProjectID.String() + "/revisions/" + id,
-				}
-			}
-		case "order":
-			rows, err := h.Queries.GetOrdersByIDs(ctx, dbgen.GetOrdersByIDsParams{Ids: pg, TeamID: teamID})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				id := r.ID.String()
-				label := firstNonEmpty(derefStr(r.PurchaseOrderNumber), derefStr(r.ExternalReference))
-				if label == "" {
-					label = r.DistributorName + " order"
-				}
-				objects[id] = noteManifestObject{
-					Kind:   "order",
-					Label:  label,
-					Href:   "/teams/" + tid + "/orders/" + id,
-					Status: strPtr(string(r.Status)),
-				}
-			}
-		case "build":
-			rows, err := h.Queries.GetBuildsByIDs(ctx, dbgen.GetBuildsByIDsParams{Ids: pg, TeamID: teamID})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				id := r.ID.String()
-				objects[id] = noteManifestObject{
-					Kind:   "build",
-					Label:  r.ProjectName + " " + r.RevisionLabel,
-					Href:   "/teams/" + tid + "/builds/" + id,
-					Status: strPtr(r.Status),
-				}
-			}
-		case "storage":
-			rows, err := h.Queries.GetStorageLocationsByIDs(ctx, dbgen.GetStorageLocationsByIDsParams{Ids: pg, TeamID: teamID})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				id := r.ID.String()
-				objects[id] = noteManifestObject{
-					Kind:  "storage",
-					Label: r.Label,
-					Href:  "/teams/" + tid + "/storage/" + id,
-				}
-			}
+	summaries, err := h.resolveObjectSummaries(ctx, teamID, objRefsByKind(body))
+	if err != nil {
+		return err
+	}
+	for id, s := range summaries {
+		// A revision whose project is unknown has no route; the chip renders as
+		// unresolved rather than linking nowhere.
+		if s.Href == "" {
+			continue
+		}
+		objects[id] = noteManifestObject{
+			Kind:   string(s.Kind),
+			Label:  s.Label,
+			Href:   s.Href,
+			Status: strPtr(s.Status),
 		}
 	}
 	return nil

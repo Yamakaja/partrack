@@ -179,7 +179,7 @@ WHERE id = ANY(sqlc.arg('ids')::uuid[]);
 -- Batch resolution for note `:part{#uuid}` chips: returns the display fields for
 -- each referenced part, scoped to parts the team can see (global or its own) so
 -- a note can't resolve another team's private parts.
-SELECT id, mpn, manufacturer, lifecycle_status
+SELECT id, mpn, manufacturer, short_description, lifecycle_status
 FROM parts
 WHERE id = ANY(sqlc.arg('ids')::uuid[])
   AND (scope = 'global' OR (scope = 'team' AND team_id = sqlc.arg('team_id')));

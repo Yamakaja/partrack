@@ -266,7 +266,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// 18. Activity log (viewer+; ?scope=team gated to purchaser+ in handler)
 					r.Get("/activity-log", h.ListActivity)
 
-					// 19. Kitting session read (viewer+)
+					// 19. Batch object-ref resolution (viewer+); ?part=id,id&order=id…
+					r.Get("/object-refs", h.ListObjectRefs)
+
+					// 20. Kitting session read (viewer+)
 					r.Get("/kitting/{kittingSessionId}", h.GetKittingSessionDesktop)
 					r.Get("/kitting/{kittingSessionId}/items", h.GetKittingItemsDesktop)
 				})

@@ -1,4 +1,4 @@
-package activity
+package objectref
 
 import "testing"
 
