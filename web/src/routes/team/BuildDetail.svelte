@@ -16,6 +16,7 @@
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import PartRef from '$lib/components/parts/PartRef.svelte';
   import PartCell from '$lib/components/parts/PartCell.svelte';
+  import ObjectRef from '$lib/components/objectref/ObjectRef.svelte';
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -882,17 +883,14 @@
       </section>
 
       <!-- Linked Orders section -->
-      {#if build.linked_order_ids && build.linked_order_ids.length > 0}
+      {#if build.order_ids && build.order_ids.length > 0}
         <section class="space-y-2">
           <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Linked Orders</h3>
-          <div class="flex flex-wrap gap-2">
-            {#each build.linked_order_ids as orderId (orderId)}
-              <Button
-                variant="outline" size="sm"
-                onclick={() => navigate(`/teams/${teamId}/orders/${orderId}`)}
-              >
-                Order {orderId.slice(0, 8)}…
-              </Button>
+          <!-- No labels are carried with the ids, so every ref here resolves
+               through the shared batcher — one request for the whole list. -->
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {#each build.order_ids as orderId (orderId)}
+              <ObjectRef kind="order" id={orderId} {teamId} />
             {/each}
           </div>
         </section>

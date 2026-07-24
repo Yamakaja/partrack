@@ -47,7 +47,7 @@ export function getBuild(teamId: string, buildId: string) {
   return request<Build & {
     items: BuildConsumedItem[];
     allocations: BuildPartAllocation[];
-    linked_order_ids: string[];
+    order_ids: string[];
   }>('GET', `/api/v1/teams/${teamId}/builds/${buildId}`);
 }
 

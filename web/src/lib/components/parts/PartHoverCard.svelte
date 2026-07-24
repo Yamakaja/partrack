@@ -15,17 +15,21 @@
   import type { Part, Parameter, StorageLocationRef } from '$lib/types/parts.js';
   import type { Category } from '$lib/types/categories.js';
 
-  // The floating content of a PartRef. Must be rendered inside a LinkPreview.Root;
+  // The floating content of a part reference. Must be rendered inside a LinkPreview.Root;
   // `open` mirrors the root's state so the part is only fetched once the card opens.
   let {
-    partId,
+    id,
     teamId,
     open,
   }: {
-    partId: string;
+    id: string;
     teamId?: string;
     open: boolean;
   } = $props();
+
+  // Every object card takes the same {id, teamId, open} contract; the part
+  // internals below predate it and still read `partId`.
+  const partId = $derived(id);
 
   const partQuery = createQuery(() => ({
     queryKey: ['part', partId, teamId],

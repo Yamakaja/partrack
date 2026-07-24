@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { LinkPreview } from 'bits-ui';
-  import { linkAction } from '$lib/router/index.svelte.js';
-  import { closeOnScrollOutside } from '$lib/utils/closeOnScroll.js';
-  import { kindIcon } from './objectKinds.js';
-  import PartHoverCard from '$lib/components/parts/PartHoverCard.svelte';
+  import { kindIcon } from '$lib/objectref/registry.js';
+  import type { ObjectKind } from '$lib/types/objectRef.js';
+  import ObjectRef from '$lib/components/objectref/ObjectRef.svelte';
 
-  // Props arrive from the hast properties baked in by remarkManifest.
+  // Read-only note chip. Props arrive from the hast properties baked in by
+  // remarkManifest, so label and href are already resolved server-side.
+  //
+  // The chip is ObjectRef's `chip` variant, which means every kind now gets the
+  // hover card its type has — previously only parts did, because the card was
+  // wired here by hand.
   let {
     kind = 'part',
     label = '',
@@ -22,59 +25,30 @@
   let Icon = $derived(kindIcon(kind));
   let isResolved = $derived(exists === 'true' && !!href);
 
-  // Part chips get the shared hover card. The part/team ids aren't separate
-  // props — recover them from the manifest href (server contract:
-  // /teams/{teamId}/parts/{partId}, see handler/notes.go).
-  const partRef = $derived.by(() => {
-    if (kind !== 'part' || !href) return null;
-    const m = href.match(/^\/teams\/([^/]+)\/parts\/([^/]+)$/);
-    return m ? { teamId: m[1], partId: m[2] } : null;
+  // The manifest carries a route, not ids. Recover the team and object id from
+  // it so the card can fetch (server contract: see handler/notes.go).
+  const ids = $derived.by(() => {
+    if (!href) return null;
+    const m = href.match(/^\/teams\/([^/]+)\/(?:parts|projects|orders|builds|storage)\/([^/]+)$/);
+    if (m) return { teamId: m[1], id: m[2] };
+    // Revisions nest under their project: /teams/{t}/projects/{p}/revisions/{r}
+    const rev = href.match(/^\/teams\/([^/]+)\/projects\/[^/]+\/revisions\/([^/]+)$/);
+    return rev ? { teamId: rev[1], id: rev[2] } : null;
   });
-
-  let open = $state(false);
-  let everOpened = $state(false);
-
-  // The card is anchored to its trigger, so scrolling would drag it across
-  // the page — close it instead (scrolls inside the card keep it open).
-  $effect(() => {
-    if (!open) return;
-    return closeOnScrollOutside('[data-link-preview-content]', () => (open = false));
-  });
-
-  const chipClass =
-    'inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 align-baseline text-sm font-medium text-primary no-underline hover:bg-primary/20';
 </script>
 
-{#snippet chip(extraProps: Record<string, unknown>)}
-  <a {...extraProps} use:linkAction href={href!} title={label} class={chipClass}>
-    <Icon class="h-3 w-3 shrink-0" />
+{#if isResolved && href && ids}
+  <ObjectRef
+    kind={kind as ObjectKind}
+    id={ids.id}
+    teamId={ids.teamId}
     {label}
-  </a>
-{/snippet}
-
-{#if isResolved && href}
-  {#if partRef}
-    <LinkPreview.Root
-      {open}
-      onOpenChange={(v) => {
-        open = v;
-        if (v) everOpened = true;
-      }}
-      openDelay={300}
-      closeDelay={150}
-    >
-      <LinkPreview.Trigger>
-        {#snippet child({ props })}
-          {@render chip(props)}
-        {/snippet}
-      </LinkPreview.Trigger>
-      {#if everOpened}
-        <PartHoverCard partId={partRef.partId} teamId={partRef.teamId} {open} />
-      {/if}
-    </LinkPreview.Root>
-  {:else}
-    {@render chip({})}
-  {/if}
+    {href}
+    variant="chip"
+  />
+{:else if isResolved && href}
+  <!-- Route we can't parse ids out of: still a link, just no preview. -->
+  <ObjectRef kind={kind as ObjectKind} id="" {label} {href} variant="chip" hover={false} />
 {:else}
   <span
     title="Not found or no longer accessible"
