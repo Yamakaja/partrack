@@ -509,7 +509,7 @@ func (h *Handler) CreateAdjustment(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "inventory.adjusted",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "part", ID: invEntry.PartID.String()},
+		Subject: &activity.Ref{Type: "part", ID: invEntry.PartID.String(), Label: h.partLabel(r.Context(), invEntry.PartID)},
 		Values:  map[string]any{"delta": req.Delta},
 		Summary: fmt.Sprintf("Adjusted stock (%+d)", req.Delta),
 	})

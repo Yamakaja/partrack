@@ -395,9 +395,10 @@ func (q *Queue) handleBOMImport(job Job) {
 	// Team-feed rollup: one bom.imported milestone carrying the resolution stats,
 	// instead of N per-part rows (per-part creation audit lives on parts.created_by).
 	if q.activity != nil {
-		label := ""
+		projectName, _ := queries.GetProjectNameForLabel(ctx, projectID)
+		label := projectName
 		if rev, err := queries.GetRevision(ctx, dbgen.GetRevisionParams{ID: revID, ProjectID: projectID}); err == nil {
-			label = rev.Label
+			label = activity.RevisionLabel(projectName, rev.Label)
 		}
 		resolved := resolvedSKU + resolvedMPN + resolvedPrior + resolvedGeneric
 		q.activity.Record(activity.Event{
@@ -410,7 +411,7 @@ func (q *Queue) handleBOMImport(job Job) {
 				Type:   "revision",
 				ID:     revID.String(),
 				Label:  label,
-				Parent: &activity.Ref{Type: "project", ID: projectID.String()},
+				Parent: &activity.Ref{Type: "project", ID: projectID.String(), Label: projectName},
 			},
 			Values: map[string]any{
 				"total": len(items), "resolved": resolved, "resolved_sku": resolvedSKU,

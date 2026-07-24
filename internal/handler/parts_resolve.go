@@ -232,7 +232,7 @@ func (h *Handler) CommitPartResolveItem(w http.ResponseWriter, r *http.Request) 
 			TeamID:  teamID,
 			Action:  "inventory.adjusted",
 			Feed:    activity.FeedTeam,
-			Subject: &activity.Ref{Type: "part", ID: partID.String()},
+			Subject: &activity.Ref{Type: "part", ID: partID.String(), Label: h.partLabel(r.Context(), partID)},
 			Values:  map[string]any{"delta": *body.InitialQty},
 			Summary: fmt.Sprintf("Adjusted stock (%+d)", *body.InitialQty),
 		})

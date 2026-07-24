@@ -1075,7 +1075,7 @@ func (h *Handler) SubmitBuild(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "build.submitted",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "build", ID: buildID.String()},
+		Subject: &activity.Ref{Type: "build", ID: buildID.String(), Label: h.buildLabel(r.Context(), buildID, teamID)},
 		Values:  map[string]any{"quantity": build.Quantity},
 		Summary: fmt.Sprintf("Submitted a build of %d board(s)", build.Quantity),
 	})
@@ -1498,7 +1498,7 @@ func (h *Handler) CheckoutBuild(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "build.assembled",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "build", ID: buildID.String()},
+		Subject: &activity.Ref{Type: "build", ID: buildID.String(), Label: h.buildLabel(r.Context(), buildID, teamID)},
 		Values:  map[string]any{"parts_deducted": len(deductions)},
 		Summary: fmt.Sprintf("Assembled a build (%d part(s) deducted)", len(deductions)),
 	})
@@ -1676,7 +1676,7 @@ func (h *Handler) CancelBuild(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "build.cancelled",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "build", ID: buildID.String()},
+		Subject: &activity.Ref{Type: "build", ID: buildID.String(), Label: h.buildLabel(r.Context(), buildID, teamID)},
 		Summary: "Cancelled a build",
 	})
 	if wasPending {

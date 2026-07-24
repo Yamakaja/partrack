@@ -453,7 +453,7 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "order.cancelled",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "order", ID: orderID.String()},
+		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: h.orderLabel(r.Context(), orderID, teamID)},
 		Summary: "Cancelled an order",
 	})
 	if len(revertedBuildIDs) > 0 {
@@ -596,7 +596,7 @@ func (h *Handler) LinkOrderReference(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "order.external_linked",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: derefStr(row.ExternalReference)},
+		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: h.orderLabel(r.Context(), orderID, teamID)},
 		Summary: linkSummary,
 	})
 
@@ -845,8 +845,10 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 		TeamID:  teamID,
 		Action:  "order.item_received",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "order", ID: orderID.String()},
-		Refs:    map[string]activity.Ref{"part": {Type: "part", ID: li.PartID.String()}},
+		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: h.orderLabel(r.Context(), orderID, teamID)},
+		Refs: map[string]activity.Ref{
+			"part": {Type: "part", ID: li.PartID.String(), Label: h.partLabel(r.Context(), li.PartID)},
+		},
 		Values:  map[string]any{"qty": body.QuantityReceived},
 		Summary: fmt.Sprintf("Received %d unit(s) on an order", body.QuantityReceived),
 	})

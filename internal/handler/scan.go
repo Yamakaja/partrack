@@ -947,7 +947,7 @@ func (h *Handler) CreateScanStockAdjustment(w http.ResponseWriter, r *http.Reque
 	h.scanActivity(sess, activity.Event{
 		Action:  "scan.stock_adjusted",
 		Feed:    activity.FeedPersonal,
-		Subject: &activity.Ref{Type: "part", ID: entry.PartID.String()},
+		Subject: &activity.Ref{Type: "part", ID: entry.PartID.String(), Label: h.partLabel(r.Context(), entry.PartID)},
 		Values:  map[string]any{"delta": body.Delta, "reason": body.Reason, "inventory_entry_id": entryID.String()},
 		Summary: fmt.Sprintf("Stock adjusted (%+d)", body.Delta),
 	})
@@ -2372,7 +2372,7 @@ func (h *Handler) PatchScanInventoryEntry(w http.ResponseWriter, r *http.Request
 	h.scanActivity(sess, activity.Event{
 		Action:  "scan.storage_assigned",
 		Feed:    activity.FeedPersonal,
-		Subject: &activity.Ref{Type: "part", ID: entry.PartID.String()},
+		Subject: &activity.Ref{Type: "part", ID: entry.PartID.String(), Label: h.partLabel(r.Context(), entry.PartID)},
 		Values:  meta,
 		Summary: "Assigned storage location",
 	})
@@ -2919,7 +2919,7 @@ func (h *Handler) KittingConfirm(w http.ResponseWriter, r *http.Request) {
 	h.scanActivity(sess, activity.Event{
 		Action:  "scan.kitting_confirmed",
 		Feed:    activity.FeedPersonal,
-		Subject: &activity.Ref{Type: "part", ID: partID.String()},
+		Subject: &activity.Ref{Type: "part", ID: partID.String(), Label: h.partLabel(r.Context(), partID)},
 		Values:  map[string]any{"qty": qty, "kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String()},
 		Summary: fmt.Sprintf("Kitted %d×", qty),
 	})
@@ -3026,7 +3026,7 @@ func (h *Handler) KittingShortfall(w http.ResponseWriter, r *http.Request) {
 	h.scanActivity(sess, activity.Event{
 		Action:  "scan.kitting_shortfall",
 		Feed:    activity.FeedPersonal,
-		Subject: &activity.Ref{Type: "part", ID: partID.String()},
+		Subject: &activity.Ref{Type: "part", ID: partID.String(), Label: h.partLabel(r.Context(), partID)},
 		Values:  map[string]any{"qty": qty, "kitting_session_id": ks.ID.String(), "build_id": ks.BuildID.String(), "quantity_needed": item.QuantityNeeded},
 		Summary: fmt.Sprintf("Kitting shortfall (%d available)", qty),
 	})
