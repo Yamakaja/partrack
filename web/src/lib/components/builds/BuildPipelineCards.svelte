@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { statusBadge } from '$lib/objectref/registry.js';
   import Skeleton from '$lib/components/ui/skeleton/Skeleton.svelte';
   import { navigate } from '$lib/router/index.svelte.js';
   import type { Build, BuildStatus } from '$lib/types/orders.js';
@@ -14,17 +15,6 @@
     currentUserId?: string;
   } = $props();
 
-  function statusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
-    switch (status) {
-      case 'draft':     return 'secondary';
-      case 'pending':   return 'default';
-      case 'ordered':   return 'warning';
-      case 'ready':     return 'success';
-      case 'assembled': return 'secondary';
-      case 'cancelled': return 'destructive';
-      default:          return 'secondary';
-    }
-  }
 
   function sortUserFirst(builds: Build[]): Build[] {
     return [...builds].sort((a, b) => {
@@ -58,7 +48,7 @@
             {card.label}
           </span>
           {#if card.builds.length > 0}
-            <Badge variant={statusVariant(card.status)} class="text-xs px-1.5 py-0 h-4">
+            <Badge variant={statusBadge('build', card.status)?.variant as never} class="text-xs px-1.5 py-0 h-4">
               {card.builds.length}
             </Badge>
           {/if}

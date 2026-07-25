@@ -14,12 +14,13 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Select } from '$lib/components/ui/select/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { statusBadge } from '$lib/objectref/registry.js';
   import { Dialog } from 'bits-ui';
   import { navigate } from '$lib/router/index.svelte.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { authStore } from '$lib/stores/auth.svelte.js';
   import { Plus, Filter } from 'lucide-svelte';
-  import type { Build, BuildStatus } from '$lib/types/orders.js';
+  import type { Build } from '$lib/types/orders.js';
   import BuildPipelineCards from '$lib/components/builds/BuildPipelineCards.svelte';
   import type { User } from '$lib/types/auth.js';
 
@@ -153,34 +154,13 @@
     return !isNaN(q) && q >= 1;
   });
 
-  function statusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
-    switch (status) {
-      case 'draft':     return 'secondary';
-      case 'pending':   return 'default';
-      case 'ordered':   return 'warning';
-      case 'ready':     return 'success';
-      case 'assembled': return 'secondary';
-      case 'cancelled': return 'destructive';
-      default:          return 'secondary';
-    }
-  }
 
-  function statusLabel(status: BuildStatus): string {
-    switch (status) {
-      case 'draft':     return 'Draft';
-      case 'pending':   return 'Pending';
-      case 'ordered':   return 'Ordered';
-      case 'ready':     return 'Ready';
-      case 'assembled': return 'Assembled';
-      case 'cancelled': return 'Cancelled';
-      default:          return status;
-    }
-  }
 </script>
 
 <!-- Custom cell renderers (top-level snippets, referenced in DataTable renderers prop) -->
 {#snippet renderStatus(value: unknown, _row: Build)}
-  <Badge variant={statusVariant(value as BuildStatus)}>{statusLabel(value as BuildStatus)}</Badge>
+  {@const sb = statusBadge('build', value as string)}
+  <Badge variant={sb?.variant as never}>{sb?.label}</Badge>
 {/snippet}
 
 {#snippet renderDate(value: unknown, _row: Build)}

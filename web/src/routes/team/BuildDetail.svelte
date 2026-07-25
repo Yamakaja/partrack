@@ -20,6 +20,7 @@
   import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '$lib/components/ui/table/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { statusBadge } from '$lib/objectref/registry.js';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
   import { Dialog, Popover } from 'bits-ui';
@@ -28,7 +29,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { AlertTriangle, CheckCircle, Loader2, RefreshCw, Send, XCircle } from 'lucide-svelte';
-  import type { BuildStatus, BuildConsumedItem, BuildPartAllocation } from '$lib/types/orders.js';
+  import type { BuildConsumedItem, BuildPartAllocation } from '$lib/types/orders.js';
 
   let { teamId, buildId }: { teamId: string; buildId: string } = $props();
 
@@ -224,29 +225,7 @@
     }
   }
 
-  function statusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
-    switch (status) {
-      case 'draft': return 'secondary';
-      case 'pending': return 'default';
-      case 'ordered': return 'warning';
-      case 'ready': return 'success';
-      case 'assembled': return 'secondary';
-      case 'cancelled': return 'destructive';
-      default: return 'secondary';
-    }
-  }
 
-  function statusLabel(status: BuildStatus): string {
-    switch (status) {
-      case 'draft': return 'Draft';
-      case 'pending': return 'Pending';
-      case 'ordered': return 'Ordered';
-      case 'ready': return 'Ready to Assemble';
-      case 'assembled': return 'Assembled';
-      case 'cancelled': return 'Cancelled';
-      default: return status;
-    }
-  }
 
   // Ready for checkout: every item is sufficient, overridden, or fully excluded
   let allReadyForCheckout = $derived(
@@ -602,7 +581,8 @@
       breadcrumbs={[{ label: 'Builds', href: `/teams/${teamId}/builds` }]}
     >
       {#snippet badges()}
-        <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
+        {@const sb = statusBadge('build', build.status)}
+        <Badge variant={sb?.variant as never}>{sb?.label}</Badge>
       {/snippet}
       {#snippet actions()}
         {#if canSendToScanner && kittingStatus !== 'in_progress'}
@@ -677,7 +657,8 @@
       <!-- Metadata card -->
       <MetadataCard title={build.project_name} description={build.notes ?? undefined}>
         {#snippet badges()}
-          <Badge variant={statusVariant(build.status)}>{statusLabel(build.status)}</Badge>
+          {@const sb2 = statusBadge('build', build.status)}
+          <Badge variant={sb2?.variant as never}>{sb2?.label}</Badge>
         {/snippet}
         <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
           <div class="flex flex-col gap-0.5">

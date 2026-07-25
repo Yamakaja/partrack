@@ -9,7 +9,7 @@
   import { navigate } from '$lib/router/index.svelte.js';
   import { DataTable, LocalDataSource } from '$lib/components/table/index.js';
   import type { ColumnSpec } from '$lib/components/table/index.js';
-  import type { OrderStatus } from '$lib/types/orders.js';
+  import { statusBadge } from '$lib/objectref/registry.js';
   import ImportOrderDialog from '$lib/components/orders/ImportOrderDialog.svelte';
 
   let { teamId }: { teamId: string } = $props();
@@ -24,31 +24,6 @@
 
   type OrderRow = NonNullable<typeof ordersQuery.data>['items'][number];
 
-  function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
-    switch (status) {
-      case 'draft': return 'secondary';
-      case 'exported': return 'default';
-      case 'submitted': return 'default';
-      case 'placed': return 'default';
-      case 'partially_received': return 'warning';
-      case 'received': return 'success';
-      case 'cancelled': return 'secondary';
-      default: return 'secondary';
-    }
-  }
-
-  function statusLabel(status: OrderStatus): string {
-    switch (status) {
-      case 'draft': return 'Draft';
-      case 'exported': return 'Exported';
-      case 'submitted': return 'Submitted';
-      case 'placed': return 'Placed';
-      case 'partially_received': return 'Partially Received';
-      case 'received': return 'Received';
-      case 'cancelled': return 'Cancelled';
-      default: return status;
-    }
-  }
 
   const columns: ColumnSpec<OrderRow>[] = [
     {
@@ -79,7 +54,7 @@
         received: 'Received',
         cancelled: 'Cancelled',
       },
-      exportValue: (row) => statusLabel(row.status),
+      exportValue: (row) => statusBadge('order', row.status)?.label ?? row.status,
     },
     {
       key: 'line_item_count',
@@ -120,8 +95,9 @@
 {/snippet}
 
 {#snippet renderStatus(value: unknown, _row: OrderRow)}
-  <Badge variant={statusVariant(value as OrderStatus)}>
-    {statusLabel(value as OrderStatus)}
+  {@const sb = statusBadge('order', value as string)}
+  <Badge variant={sb?.variant as never}>
+    {sb?.label}
   </Badge>
 {/snippet}
 

@@ -14,11 +14,12 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { statusBadge } from '$lib/objectref/registry.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
   import { Pencil, Copy, Package, ScanLine } from 'lucide-svelte';
   import ScanModal from '$lib/components/scanner/ScanModal.svelte';
   import { getTrackingUrl } from '$lib/utils/tracking.js';
-  import type { OrderStatus, OrderLineItem, DigiKeyStatusLineItem, BuildStatus } from '$lib/types/orders.js';
+  import type { OrderLineItem, DigiKeyStatusLineItem } from '$lib/types/orders.js';
 
   /** Compare packaging strings, normalizing whitespace/parens for equivalence. */
   function packagingMatches(orderPkg: string | null, dkPack: string | undefined): boolean {
@@ -47,29 +48,7 @@
     queryFn: () => getOrderLinkedBuilds(teamId, orderId),
   }));
 
-  function buildStatusVariant(status: BuildStatus): 'secondary' | 'default' | 'warning' | 'success' | 'destructive' {
-    switch (status) {
-      case 'draft':     return 'secondary';
-      case 'pending':   return 'default';
-      case 'ordered':   return 'warning';
-      case 'ready':     return 'success';
-      case 'assembled': return 'secondary';
-      case 'cancelled': return 'destructive';
-      default:          return 'secondary';
-    }
-  }
 
-  function buildStatusLabel(status: BuildStatus): string {
-    switch (status) {
-      case 'draft':     return 'Draft';
-      case 'pending':   return 'Pending';
-      case 'ordered':   return 'Ordered';
-      case 'ready':     return 'Ready';
-      case 'assembled': return 'Assembled';
-      case 'cancelled': return 'Cancelled';
-      default:          return status;
-    }
-  }
 
   let receivingMode = $state(false);
   let receiveQtys = $state<Record<string, string>>({});
@@ -137,31 +116,7 @@
     if (e.key === 'Escape') { editingNotes = false; }
   }
 
-  function statusVariant(status: OrderStatus): 'secondary' | 'default' | 'warning' | 'success' {
-    switch (status) {
-      case 'draft': return 'secondary';
-      case 'exported': return 'default';
-      case 'submitted': return 'default';
-      case 'placed': return 'default';
-      case 'partially_received': return 'warning';
-      case 'received': return 'success';
-      case 'cancelled': return 'secondary';
-      default: return 'secondary';
-    }
-  }
 
-  function statusLabel(status: OrderStatus): string {
-    switch (status) {
-      case 'draft': return 'Draft';
-      case 'exported': return 'Exported';
-      case 'submitted': return 'Submitted';
-      case 'placed': return 'Placed';
-      case 'partially_received': return 'Partially Received';
-      case 'received': return 'Received';
-      case 'cancelled': return 'Cancelled';
-      default: return status;
-    }
-  }
 
   function getReceiveQty(item: OrderLineItem): string {
     if (receiveQtys[item.id] !== undefined) return receiveQtys[item.id];
@@ -402,7 +357,8 @@
     <div class="flex-1 overflow-auto p-6 space-y-4">
       <MetadataCard title={order.id.slice(0, 8)}>
         {#snippet badges()}
-          <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
+          {@const sb = statusBadge('order', order.status)}
+          <Badge variant={sb?.variant as never}>{sb?.label}</Badge>
         {/snippet}
         <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm sm:grid-cols-3">
           <div>
@@ -506,6 +462,7 @@
           <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Linked Builds</h3>
           <div class="rounded-md border divide-y">
             {#each linkedBuildsQuery.data as build}
+              {@const bsb = statusBadge('build', build.status)}
               <button
                 class="w-full text-left px-4 py-3 flex items-center gap-4 hover:bg-muted/50 transition-colors"
                 onclick={() => navigate(`/teams/${teamId}/builds/${build.id}`)}
@@ -517,7 +474,7 @@
                 <div class="text-xs text-muted-foreground tabular-nums shrink-0">
                   {build.fulfilled_line_items}/{build.total_line_items} parts
                 </div>
-                <Badge variant={buildStatusVariant(build.status)}>{buildStatusLabel(build.status)}</Badge>
+                <Badge variant={bsb?.variant as never}>{bsb?.label}</Badge>
               </button>
             {/each}
           </div>

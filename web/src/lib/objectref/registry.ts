@@ -59,7 +59,7 @@ const STATUSES: Partial<Record<ObjectKind, Record<string, StatusMeta>>> = {
   project: {
     active: { label: 'Active', tone: 'success', dot: false },
     archived: { label: 'Archived', tone: 'muted', dot: true },
-    completed: { label: 'Completed', tone: 'info', dot: false },
+    completed: { label: 'Completed', tone: 'success', dot: false },
   },
   order: {
     draft: { label: 'Draft', tone: 'muted', dot: false },
@@ -83,6 +83,22 @@ const STATUSES: Partial<Record<ObjectKind, Record<string, StatusMeta>>> = {
 export function statusMeta(kind: ObjectKind | string, status: string | null | undefined): StatusMeta | null {
   if (!status) return null;
   return STATUSES[kind as ObjectKind]?.[status] ?? null;
+}
+
+export interface StatusBadge {
+  label: string;
+  variant: string;
+}
+
+/**
+ * Badge-ready status presentation. Falls back to the raw status on an unknown
+ * value so a new server-side status shows up rather than vanishing.
+ */
+export function statusBadge(kind: ObjectKind | string, status: string | null | undefined): StatusBadge | null {
+  if (!status) return null;
+  const meta = statusMeta(kind, status);
+  if (!meta) return { label: status.replace(/_/g, ' '), variant: 'secondary' };
+  return { label: meta.label, variant: TONE_BADGE[meta.tone] };
 }
 
 /** Tailwind background class for a tone, for dots and bars. */
