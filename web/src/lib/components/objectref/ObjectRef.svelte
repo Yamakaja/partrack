@@ -86,6 +86,13 @@
   const placeholder = $derived(!text);
   const display = $derived(text || KIND_META[kind].label.toLowerCase());
 
+  // A revision's card needs its project. The id alone can't supply it, but the
+  // route can — every revision href nests under /projects/{id}/.
+  const parentId = $derived.by(() => {
+    if (kind !== 'revision' || !url) return null;
+    return url.match(/\/projects\/([^/]+)\/revisions\//)?.[1] ?? null;
+  });
+
   const isMono = $derived(mono ?? KIND_META[kind].mono);
   // A kind normally identified by a code, shown by name instead, is a stand-in
   // for the real identity — set in italics so it doesn't read as an MPN.
@@ -151,7 +158,7 @@
     {/snippet}
   </LinkPreview.Trigger>
   {#if hover && everOpened}
-    <ObjectHoverCard {kind} {id} {teamId} {open} />
+    <ObjectHoverCard {kind} {id} {teamId} {parentId} {open} />
   {/if}
 </LinkPreview.Root>
 {#if trailing}{@render trailing()}{/if}

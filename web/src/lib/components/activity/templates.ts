@@ -87,7 +87,10 @@ export function routeForRef(ref: { type: string; id: string; parent?: { type: st
 
 export type Segment =
   | { kind: 'text'; text: string }
-  | { kind: 'ref'; label: string; url: string | null };
+  // refType/id are carried so the row can render a real ObjectRef (link + hover
+  // card) rather than a bare anchor. url stays because a revision's route can't
+  // be derived from its id alone.
+  | { kind: 'ref'; refType: string; id: string; label: string; url: string | null };
 
 // Tokenizes an entry's template and resolves each slot against its payload.
 export function renderSegments(item: ActivityEntry, teamId: string): Segment[] {
@@ -122,12 +125,24 @@ function resolveSlot(
   if (name === 'subject') {
     if (!item.subject) return null;
     const label = item.subject.label || typeLabel[item.subject.type] || 'item';
-    return { kind: 'ref', label, url: routeForRef(item.subject, teamId) };
+    return {
+      kind: 'ref',
+      refType: item.subject.type,
+      id: item.subject.id,
+      label,
+      url: routeForRef(item.subject, teamId),
+    };
   }
   if (name.startsWith('refs.')) {
     const r = payload.refs?.[name.slice(5)];
     if (!r) return null;
-    return { kind: 'ref', label: r.label, url: routeForRef(r, teamId) };
+    return {
+      kind: 'ref',
+      refType: r.type,
+      id: r.id,
+      label: r.label || typeLabel[r.type] || 'item',
+      url: routeForRef(r, teamId),
+    };
   }
   if (name.startsWith('values.')) {
     const v = payload.values?.[name.slice(7)];

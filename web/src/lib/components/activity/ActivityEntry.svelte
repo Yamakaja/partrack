@@ -3,6 +3,9 @@
   import { renderSegments, actionIcon } from './templates.js';
   import { linkAction } from '$lib/router/index.svelte.js';
   import { formatRelative } from '$lib/utils/date.js';
+  import { OBJECT_KINDS, type ObjectKind } from '$lib/types/objectRef.js';
+  import ObjectRef from '$lib/components/objectref/ObjectRef.svelte';
+  import UserRef from '$lib/components/objectref/UserRef.svelte';
 
   let {
     item,
@@ -18,6 +21,12 @@
 
   const isNotFound = $derived(item.action === 'scan.part_not_found');
   const segments = $derived(renderSegments(item, teamId));
+
+  // A ref only becomes an ObjectRef if it names a kind the registry knows —
+  // a future backend event type degrades to plain text rather than breaking.
+  function isKnownKind(t: string): t is ObjectKind {
+    return (OBJECT_KINDS as string[]).includes(t);
+  }
 </script>
 
 <div
@@ -40,9 +49,16 @@
   <div class="flex-1 min-w-0">
     <div class="flex items-start justify-between gap-2">
       <span class="text-xs {isNotFound ? 'text-warning' : 'text-foreground'}">
-        {#if showActor && item.actor_label}<span class="font-medium">{item.actor_label}</span>{' '}{/if}
+        {#if showActor && item.actor_label}<UserRef name={item.actor_label} class="mr-1" />{/if}
         {#each segments as seg}
           {#if seg.kind === 'text'}{seg.text}
+          {:else if isKnownKind(seg.refType) && seg.id}<ObjectRef
+              kind={seg.refType}
+              id={seg.id}
+              {teamId}
+              label={seg.label}
+              href={seg.url}
+            />
           {:else if seg.url}<a href={seg.url} use:linkAction class="font-medium hover:underline">{seg.label}</a>
           {:else}<span class="font-medium">{seg.label}</span>{/if}
         {/each}
