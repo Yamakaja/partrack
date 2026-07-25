@@ -6,6 +6,7 @@
   import { authStore } from '$lib/stores/auth.svelte.js';
   import { paletteStore } from '$lib/stores/palette.svelte.js';
   import { globalSearch, type SearchResults } from '$lib/api/search.js';
+  import { kindIcon, orderLabel, revisionLabel, statusBadge } from '$lib/objectref/registry.js';
   import { listCategories, listPartCategories } from '$lib/api/categories.js';
   import type { Category } from '$lib/types/categories.js';
 
@@ -189,19 +190,18 @@
         type: 'project',
         id: p.id,
         primary: p.name,
-        secondary: p.status,
-        badge: p.status !== 'active' ? p.status : undefined,
+        secondary: statusBadge('project', p.status)?.label ?? p.status,
+        badge: p.status !== 'active' ? statusBadge('project', p.status)?.label : undefined,
         url: `/teams/${teamId}/projects/${p.id}`,
       });
     }
     for (const o of results.orders) {
-      const label = o.purchase_order_number ?? o.external_reference ?? o.id;
       items.push({
         type: 'order',
         id: o.id,
-        primary: `#${label}`,
-        secondary: o.distributor_name,
-        badge: o.status,
+        primary: orderLabel(o.distributor_name, o.purchase_order_number, o.external_reference, o.id),
+        secondary: statusBadge('order', o.status)?.label ?? o.status,
+        badge: statusBadge('order', o.status)?.label,
         url: `/teams/${teamId}/orders/${o.id}`,
       });
     }
@@ -209,9 +209,9 @@
       items.push({
         type: 'build',
         id: b.id,
-        primary: `${b.project_name} ${b.revision_label} ×${b.quantity}`,
-        secondary: b.status,
-        badge: b.status !== 'assembled' ? b.status : undefined,
+        primary: `${revisionLabel(b.project_name, b.revision_label)} ×${b.quantity}`,
+        secondary: statusBadge('build', b.status)?.label ?? b.status,
+        badge: b.status !== 'assembled' ? statusBadge('build', b.status)?.label : undefined,
         url: `/teams/${teamId}/builds/${b.id}`,
       });
     }
@@ -360,15 +360,13 @@
 
   // ── Icon helper ───────────────────────────────────────────────────────────
 
-  const icons: Record<ResultItem['type'], any> = {
-    part: Cpu,
-    project: FileText,
-    order: ShoppingCart,
-    build: Wrench,
-    storage: Package,
-    page: LayoutDashboard,
-    category: Tag,
-  };
+  // Object kinds take their icon from the shared registry so a part looks the
+  // same here as in a table or a note; `page` and `category` are palette-only.
+  function iconFor(type: ResultItem['type']) {
+    if (type === 'page') return LayoutDashboard;
+    if (type === 'category') return Tag;
+    return kindIcon(type);
+  }
 </script>
 
 <Dialog.Root
@@ -416,7 +414,7 @@
               </div>
               {#each section.items as item, i}
                 {@const globalIdx = section.startIndex + i}
-                {@const Icon = item.icon ?? icons[item.type]}
+                {@const Icon = item.icon ?? iconFor(item.type)}
                 <button
                   type="button"
                   class="w-full flex items-center gap-3 px-4 py-2 text-left transition-colors
