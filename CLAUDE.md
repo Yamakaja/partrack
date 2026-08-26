@@ -44,7 +44,16 @@ PARTRACK_TEST_DB_URL=postgres://partrack:partrack@test-postgres/partrack-test go
 
 - Tests require a live Postgres instance; use `-p 1` to run packages serially and avoid deadlocks from concurrent table truncation.
 - The test DB URL is `postgres://partrack:partrack@test-postgres/partrack-test`.
-- Postgres must have the `pg_uuidv7` extension; `docker/Dockerfile.postgres` builds it. `docker/docker-compose.ci.yml` brings up that image plus `test-backend` (Go tests) and `test-frontend` (svelte-check) services.
+- **PostgreSQL 18 or newer is required.** The schema defaults every primary key to `uuidv7()`, which is a **core function since PG 18** — it is *not* what the `pg_uuidv7` extension provides. That extension (`fboulnois/pg_uuidv7`, what `docker/Dockerfile.postgres` and the Arch AUR package build) exposes `uuid_generate_v7()`, a different name that the schema never calls. Migration `000001` still runs `CREATE EXTENSION IF NOT EXISTS pg_uuidv7`, so the extension must be installed for migrations to succeed, but it is otherwise vestigial. On PG 17 with the extension correctly installed, migration `000001` still fails at the first table with `function uuidv7() does not exist`.
+- `docker/docker-compose.ci.yml` brings up the Postgres image plus `test-backend` (Go tests) and `test-frontend` (svelte-check) services.
+- **Running Postgres natively** (faster than a VM on macOS, since this suite is truncation-heavy and serial): install PG 18, build the extension against it, then point the tests at localhost.
+  ```bash
+  brew install postgresql@18 && brew services start postgresql@18
+  git clone https://github.com/fboulnois/pg_uuidv7 && cd pg_uuidv7
+  make install PG_CONFIG="$(brew --prefix postgresql@18)/bin/pg_config"
+  createuser -s partrack && createdb -O partrack 'partrack-test'
+  PARTRACK_TEST_DB_URL='postgres://partrack:partrack@localhost/partrack-test' go test -p 1 ./...
+  ```
 
 ## CI
 
