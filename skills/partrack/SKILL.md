@@ -167,7 +167,8 @@ BOM import is the friction point in partrack, and most of what goes wrong is
 decided before the server sees anything: how the file parses, which column means
 what, and how each line's value reads. `pt bom check <file>` rehearses exactly
 that stage **locally** — no server, no login, nothing imported — and prints what
-partrack will make of the file.
+partrack will make of the file. Add `--resolve` and the server also forecasts
+what each line would resolve to.
 
 When someone asks for help with a BOM, run it first and read the output back to
 them. It is the cheapest possible review, and it is the only way to see the
@@ -211,11 +212,33 @@ cells beside what partrack understood. Look for:
   `capacitance=100 nF dielectric=X7R voltage_rating=16 V`. A value that produced
   no params will not match anything parametrically.
 
-**State the limit plainly.** `pt bom check` predicts the *parse*, not the
-*outcome*. Whether a line resolves to a part depends on their catalog, and the
-tiers that decide it are not reproducible client-side without being subtly
-wrong — so never tell someone their BOM "will import cleanly". Say the parse is
-clean, and that resolution is decided at import.
+**Then forecast what will resolve.** `--resolve` asks the server to walk the real
+resolution tier ladder against their catalog and report the outcome per line. It
+writes nothing — no revision, no line items, no distributor lookups.
+
+```sh
+pt bom check board.csv --resolve --project "Rev C Mainboard"
+pt --format json bom check board.csv --resolve | jq '.forecast.summary'
+```
+
+**Always pass `--project` when one exists.** The prior-revision tier and the
+project's remembered interpretations are project-scoped; without it a re-imported
+BOM reports lines as unresolved that the real import would carry forward, and you
+will hand back a needlessly alarming answer.
+
+| Outcome | What to tell them |
+|---|---|
+| `auto_sku` / `auto_mpn` / `auto_generic` / `auto_prior_revision` | Lands by itself. Nothing to do. |
+| `auto_mpn_fuzzy` | Lands, but the MPN matched as a substring (BOM `AZ431A` → catalog `AZ431AN-ATRG1`). It is surfaced for a one-click confirm at review — worth eyeballing that it picked the right variant. |
+| `ambiguous` | Several catalog parts match; someone has to pick. The candidates come back with their stock, so recommend on what they actually hold. |
+| `importing` | Not in their library. The distributor pipeline will try to fetch it — which needs that distributor configured and enabled for the team. |
+| `unresolved` (empty string) | Nothing matched and there is nothing to look up. Usually an unmapped value column, a parametric spec with no matching part, or a row that needs a generic part creating. |
+
+**Two limits to state, not paper over.** An `importing` line's real outcome
+depends on a distributor API call the preview does not make. And the forecast is
+against the catalog as it stands: parts created during the import can change what
+later lines match. So report "N of M lines resolve on this forecast", never "your
+BOM will import cleanly".
 
 The import itself is still done in the web UI; `pt` cannot post a revision yet.
 

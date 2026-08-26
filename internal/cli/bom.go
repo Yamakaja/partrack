@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	"github.com/Yamakaja/partrack/internal/bomfile"
 	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/paramparse"
@@ -34,6 +36,8 @@ var bomCheckFlags struct {
 	distributor  string
 	problemsOnly bool
 	limit        int
+	resolve      bool
+	project      string
 }
 
 var bomCheckCmd = &cobra.Command{
@@ -56,10 +60,16 @@ distributor to resolve them against.
   pt bom check board.csv --problems
   pt bom check board.csv --map "Comment=value" --map "Designator=designators"
   pt bom check board.csv --delimiter ';' --skip 3
-  pt bom check board.csv --format json | jq '.rows[] | select(.route == "unknown")'`,
+  pt bom check board.csv --format json | jq '.rows[] | select(.route == "unknown")'
+
+Add --resolve to ask the server what the import would actually resolve each line
+to. That part needs a login and a team, and consults your catalog:
+
+  pt bom check board.csv --resolve
+  pt bom check board.csv --resolve --project "Rev C Mainboard"`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBOMCheck(args[0])
+		return runBOMCheck(cmd.Context(), args[0])
 	},
 }
 
@@ -118,7 +128,7 @@ func (r bomRow) attention() bool {
 	return r.Route == genspec.RouteUnknown || r.Escalate || len(r.Flags) > 0
 }
 
-func runBOMCheck(path string) error {
+func runBOMCheck(ctx context.Context, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return exitErrf(ExitNotFound, "%v", err)
@@ -153,6 +163,20 @@ func runBOMCheck(path string) error {
 
 	rows := buildBOMRows(build)
 
+	// The forecast is a separate, server-side question: everything above is a
+	// parse, this is what the catalog makes of it.
+	var forecast *apitypes.BOMResolvePreview
+	var projectName string
+	if bomCheckFlags.resolve {
+		if len(build.Items) == 0 {
+			return exitErrf(ExitUsage, "no importable rows to resolve")
+		}
+		var err error
+		if forecast, projectName, err = resolveForecast(ctx, build.Items, bomCheckFlags.project); err != nil {
+			return err
+		}
+	}
+
 	if ap.format == FormatJSON {
 		return writeJSON(ap.out, map[string]any{
 			"file":        path,
@@ -167,9 +191,15 @@ func runBOMCheck(path string) error {
 			"rows":        selectRows(rows),
 			// The payload an import would post, so a caller can diff it or keep it.
 			"items": build.Items,
+			// Absent unless --resolve was given; never an empty object, so a
+			// caller can tell "not asked" from "asked and nothing resolves".
+			"forecast": forecast,
 		})
 	}
 	printBOMCheck(path, sheet, roles, build, rows)
+	if forecast != nil {
+		printForecast(forecast, projectName, rows)
+	}
 	return nil
 }
 
@@ -498,6 +528,8 @@ func init() {
 	f.StringVar(&bomCheckFlags.distributor, "distributor", "", "assume this distributor for SKU rows with no distributor column")
 	f.BoolVar(&bomCheckFlags.problemsOnly, "problems", false, "list only the rows that need attention")
 	f.IntVar(&bomCheckFlags.limit, "limit", 0, "maximum rows to list (0 for all)")
+	f.BoolVar(&bomCheckFlags.resolve, "resolve", false, "also ask the server what each line would resolve to")
+	f.StringVar(&bomCheckFlags.project, "project", "", "project to resolve against, by name or id (enables prior-revision reuse)")
 
 	bomCmd.AddCommand(bomCheckCmd)
 }

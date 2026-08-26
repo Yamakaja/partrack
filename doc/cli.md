@@ -238,12 +238,45 @@ Two structural warnings are worth acting on before you import:
 - **Designator count vs quantity.** `R1,R2` with quantity 5 is a BOM error the
   importer will faithfully carry through.
 
-What it deliberately does **not** do is predict whether a line resolves to a
-part. That depends on your catalog, and the tiers that decide it —
-canonical-package matching, the value epsilon, prior revisions — are not
-reproducible client-side without getting them subtly wrong. A confident wrong
-forecast would defeat the purpose. See [bom-import.md](bom-import.md) for the
-full flow.
+#### Forecasting what will resolve
+
+Everything above is the parse. `--resolve` adds the other half: what each line
+would actually resolve to, against your catalog.
+
+```sh
+pt bom check board.csv --resolve
+pt bom check board.csv --resolve --project "Rev C Mainboard"
+```
+
+This part needs a login and a team. The forecast is not computed locally — the
+server walks the **real** resolution tier ladder (`internal/bomresolve`, the same
+code the import job runs) and reports the outcome per line. It writes nothing:
+no revision, no line items, no distributor lookups, no inventory entries.
+
+```
+OUTCOME         LINES  MEANING
+auto_mpn        3      resolves — exact MPN in your catalog
+auto_generic    3      resolves — one catalog part satisfies the parametric spec
+auto_mpn_fuzzy  2      resolves, but flagged — MPN matched as a substring
+ambiguous       3      needs you to pick — several parts match
+importing       3      not in your library — will be looked up at the distributor
+unresolved      2      unresolved — nothing matched and there is nothing to look up
+
+8 of 16 lines resolve without you.
+```
+
+Lines that need attention are then listed individually, with the candidates an
+ambiguous line was choosing between (and their stock, so a pick can be made on
+what you actually have).
+
+**Pass `--project` when you have one.** The prior-revision tier and the project's
+remembered interpretations are both project-scoped, so without it a re-imported
+BOM reports lines as unresolved that the real import would carry forward.
+
+Two limits are inherent rather than fixable: a line marked `importing` depends on
+a distributor API call the preview does not make, and the forecast is against the
+catalog as it stands — parts created during an import can change what later lines
+match. See [bom-import.md](bom-import.md) for the full flow.
 
 ### Columns
 
