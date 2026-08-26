@@ -456,3 +456,81 @@ type BOMInterpretItem struct {
 	Sku       string            `json:"sku"`
 	Row       map[string]string `json:"row,omitempty"`
 }
+
+// BOMResolvePreviewRequest is the body of POST /teams/{teamId}/bom/resolve-preview:
+// the mapped rows of a BOM that has not been imported, asked what the import
+// would do with them.
+//
+// The items are the same shape the import itself accepts, so a client checks and
+// imports the identical payload rather than building it twice.
+type BOMResolvePreviewRequest struct {
+	// ProjectID scopes the prior-revision tier. Without it that tier is skipped,
+	// and lines an earlier revision already resolved will look unresolved.
+	ProjectID string          `json:"project_id,omitempty"`
+	Items     []BOMImportItem `json:"items"`
+}
+
+// BOMResolveCandidate is one catalog part a line could resolve to.
+type BOMResolveCandidate struct {
+	PartID         string  `json:"part_id"`
+	Mpn            *string `json:"mpn"`
+	Manufacturer   *string `json:"manufacturer"`
+	Package        *string `json:"package"`
+	Description    *string `json:"description"`
+	Scope          string  `json:"scope"`
+	QuantityOnHand *int32  `json:"quantity_on_hand"`
+}
+
+// BOMResolvePreviewItem is what the tier ladder concluded about one line,
+// without writing anything.
+type BOMResolvePreviewItem struct {
+	Index                int    `json:"index"`
+	ReferenceDesignators string `json:"reference_designators"`
+
+	// State is the resolution_state the import would record: auto_sku, auto_mpn,
+	// auto_mpn_fuzzy, auto_prior_revision, auto_generic, ambiguous, importing,
+	// or "" when nothing matched and there is nothing to look up.
+	State string `json:"state"`
+	// Tier names the rung that decided, so an outcome can be explained rather
+	// than just reported.
+	Tier string `json:"tier,omitempty"`
+
+	// Part is the part the line would resolve to, when it resolves.
+	Part *BOMResolveCandidate `json:"part,omitempty"`
+	// Candidates are the parts the ladder was choosing between. Present when the
+	// line is ambiguous — this is the set a human would be asked to pick from.
+	Candidates []BOMResolveCandidate `json:"candidates,omitempty"`
+
+	// Route and Category come from the interpretation the decision used, so a
+	// line that resolved parametrically can be checked against how it was read.
+	Route    string `json:"route,omitempty"`
+	Category string `json:"category,omitempty"`
+	// InterpretationSource is "supplied" (the client sent one), "reused" (the
+	// project's remembered correction), or "auto" (a fresh parse).
+	InterpretationSource string `json:"interpretation_source"`
+}
+
+// BOMResolvePreview is the response: one entry per line, plus a count per state
+// so the headline question — how much of this BOM lands automatically — can be
+// answered without tallying.
+type BOMResolvePreview struct {
+	Items   []BOMResolvePreviewItem `json:"items"`
+	Summary map[string]int          `json:"summary"`
+}
+
+// ProjectListItem is one row of GET /teams/{teamId}/projects. The CLI reads it
+// to turn a project name into an id.
+type ProjectListItem struct {
+	ID                        string  `json:"id"`
+	Name                      string  `json:"name"`
+	Description               *string `json:"description"`
+	Status                    string  `json:"status"`
+	ActiveBomRevisionID       *string `json:"active_bom_revision_id"`
+	ActiveBomRevisionLabel    *string `json:"active_bom_revision_label"`
+	PreferredDistributorID    *string `json:"preferred_distributor_id"`
+	SourceURL                 *string `json:"source_url"`
+	ProjectManagerID          *string `json:"project_manager_id"`
+	ProjectManagerDisplayName *string `json:"project_manager_display_name"`
+	CreatedByDisplayName      string  `json:"created_by_display_name"`
+	CreatedAt                 string  `json:"created_at"`
+}

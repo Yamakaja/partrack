@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -21,20 +22,7 @@ type revisionSummary struct {
 	AmbiguousCount  int64 `json:"ambiguous_count"`
 }
 
-type projectListItem struct {
-	ID                        string  `json:"id"`
-	Name                      string  `json:"name"`
-	Description               *string `json:"description"`
-	Status                    string  `json:"status"`
-	ActiveBomRevisionID       *string `json:"active_bom_revision_id"`
-	ActiveBomRevisionLabel    *string `json:"active_bom_revision_label"`
-	PreferredDistributorID    *string `json:"preferred_distributor_id"`
-	SourceURL                 *string `json:"source_url"`
-	ProjectManagerID          *string `json:"project_manager_id"`
-	ProjectManagerDisplayName *string `json:"project_manager_display_name"`
-	CreatedByDisplayName      string  `json:"created_by_display_name"`
-	CreatedAt                 string  `json:"created_at"`
-}
+type projectListItem = apitypes.ProjectListItem
 
 type projectDetail struct {
 	ID                        string           `json:"id"`

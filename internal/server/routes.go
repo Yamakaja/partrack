@@ -226,6 +226,13 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// the remembered BOM-line corrections that future imports will reuse.
 					r.Get("/projects/{projectId}/interpretation-memory", h.ListInterpretationMemory)
 
+					// What would importing this BOM do? Walks the real resolution tier
+					// ladder (internal/bomresolve, shared with the import job) against
+					// the catalog and reports the outcome per line. A POST because the
+					// BOM travels in the body; it is read-only and writes nothing,
+					// hence viewer rather than member.
+					r.Post("/bom/resolve-preview", h.ResolvePreview)
+
 					// 13. Orders
 					r.Get("/orders", h.ListOrders)
 					r.Get("/orders/{orderId}", h.GetOrder)
