@@ -393,6 +393,14 @@ Once the user accepts, the confirmed interpretations are frozen and Stage 3 runs
 
 ## 7. Stage 3 — Satisfaction
 
+> **Implementation note.** The tier ladder described below lives in
+> `internal/bomresolve` as a pure decision — it reads the catalog and returns
+> what it concluded, and never writes. `JobBOMImport` applies the decision;
+> `POST /teams/{teamId}/bom/resolve-preview` renders it, which is how a BOM can
+> be checked before it is imported (`pt bom check --resolve`). Both walk the same
+> rungs in the same order, so a forecast cannot drift from the importer.
+
+
 Fulfil each confirmed interpretation against the catalog. Because interpretation
 is already validated, this is mostly deterministic.
 

@@ -197,7 +197,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = @project_id
-  AND br.id               != @current_revision_id
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND (sqlc.narg('current_revision_id')::uuid IS NULL
+       OR br.id != sqlc.narg('current_revision_id'))
   AND bli.mpn              = @mpn
   AND bli.manufacturer ILIKE @manufacturer
   AND bli.resolved_part_id IS NOT NULL
@@ -213,7 +216,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = @project_id
-  AND br.id               != @current_revision_id
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND (sqlc.narg('current_revision_id')::uuid IS NULL
+       OR br.id != sqlc.narg('current_revision_id'))
   AND bli.mpn              = @mpn
   AND bli.resolved_part_id IS NOT NULL
 ORDER BY br.imported_at DESC
@@ -225,7 +231,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id              = @project_id
-  AND br.id                     != @current_revision_id
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND (sqlc.narg('current_revision_id')::uuid IS NULL
+       OR br.id != sqlc.narg('current_revision_id'))
   AND bli.sku                    = @sku
   AND bli.resolved_distributor_id = @distributor_id
   AND bli.resolved_part_id IS NOT NULL
@@ -243,7 +252,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id             = @project_id
-  AND br.id                    != @current_revision_id
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND (sqlc.narg('current_revision_id')::uuid IS NULL
+       OR br.id != sqlc.narg('current_revision_id'))
   AND bli.reference_designators = @reference_designators
   AND bli.value     IS NOT DISTINCT FROM sqlc.narg('value')
   AND bli.footprint IS NOT DISTINCT FROM sqlc.narg('footprint')

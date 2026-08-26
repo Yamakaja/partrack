@@ -256,7 +256,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id             = $1
-  AND br.id                    != $2
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND ($2::uuid IS NULL
+       OR br.id != $2)
   AND bli.reference_designators = $3
   AND bli.value     IS NOT DISTINCT FROM $4
   AND bli.footprint IS NOT DISTINCT FROM $5
@@ -311,7 +314,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = $1
-  AND br.id               != $2
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND ($2::uuid IS NULL
+       OR br.id != $2)
   AND bli.mpn              = $3
   AND bli.resolved_part_id IS NOT NULL
 ORDER BY br.imported_at DESC
@@ -355,7 +361,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id        = $1
-  AND br.id               != $2
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND ($2::uuid IS NULL
+       OR br.id != $2)
   AND bli.mpn              = $3
   AND bli.manufacturer ILIKE $4
   AND bli.resolved_part_id IS NOT NULL
@@ -407,7 +416,10 @@ SELECT bli.resolved_part_id, bli.bom_revision_id, bli.resolution_state,
 FROM bom_line_items bli
 JOIN bom_revisions br ON br.id = bli.bom_revision_id
 WHERE br.project_id              = $1
-  AND br.id                     != $2
+  -- NULL current_revision_id excludes nothing: a resolve preview has no revision
+  -- of its own yet, and must still see what earlier revisions resolved.
+  AND ($2::uuid IS NULL
+       OR br.id != $2)
   AND bli.sku                    = $3
   AND bli.resolved_distributor_id = $4
   AND bli.resolved_part_id IS NOT NULL

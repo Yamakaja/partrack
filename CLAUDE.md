@@ -80,6 +80,7 @@ internal/
   timing/            # Server-Timing middleware + per-request DB/handler spans
   apitypes/          # shared REST wire types: handlers marshal them, clients decode them
   bomfile/           # BOM file parsing + column mapping (the Go port of the import wizard's stage 1)
+  bomresolve/        # the BOM resolution tier ladder, shared by the import job and the resolve-preview endpoint
   cli/               # `pt` command tree (cobra): config, API client, part/category/param resolution, renderers
   scanner/           # distributor barcode/datamatrix parsing
   paramparse/        # SI-aware parameter value parsing
@@ -96,6 +97,7 @@ sqlc.yaml            # sqlc code-gen config (input: db/queries, output: internal
 
 ## Key Patterns
 
+- **sqlc is pinned to v1.30.0** (`go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0`). Newer versions change generated types — 1.31 renders nullable enums as `*OrderStatus` instead of `NullOrderStatus` — so regenerating with the wrong one rewrites files you did not touch. `sqlc generate` on a clean tree must produce no diff.
 - All handler methods live on `handler.Handler` (holds DB pool, Config, Worker queue). Add DB queries by writing SQL in `db/queries/`, running `sqlc generate` (regenerates `internal/db/gen/`), then calling the generated types from handlers. After regenerating, always run `go build ./...` to confirm — LSP diagnostics may lag.
 - Authentication middleware (`middleware.Authenticate`) injects `*middleware.User` into the request context. Retrieve it with `middleware.UserFromContext(ctx)`.
 - Team role enforcement: `middleware.RequireTeamRole("member")` etc. — injects `*middleware.TeamMembership` into ctx.
