@@ -11,7 +11,9 @@ already have. For sourcing parts they do **not** have, that is a distributor
 catalog question — the DigiKey research skill (`dks`) covers it, and the two
 are complements.
 
-`pt` is read-only. It cannot check parts out, adjust stock, or edit anything.
+`pt` does not write to partrack yet: it cannot check parts out, adjust stock,
+or import a BOM. It can *read* a BOM file locally and tell you what the import
+will make of it — see **Cross-checking a BOM** below.
 
 ## Credentials
 
@@ -159,11 +161,70 @@ pt --format json search --fields mpn,stock | jq -r '.items[]
   | select(.stock == null) | .mpn'      # not tracked — not "out of stock"
 ```
 
+## Cross-checking a BOM before it is imported
+
+BOM import is the friction point in partrack, and most of what goes wrong is
+decided before the server sees anything: how the file parses, which column means
+what, and how each line's value reads. `pt bom check <file>` rehearses exactly
+that stage **locally** — no server, no login, nothing imported — and prints what
+partrack will make of the file.
+
+When someone asks for help with a BOM, run it first and read the output back to
+them. It is the cheapest possible review, and it is the only way to see the
+things the import wizard does silently.
+
+```sh
+pt bom check board.csv
+pt bom check board.csv --problems                  # only rows needing attention
+pt --format json bom check board.csv | jq '.findings[]'
+```
+
+**Work the findings in severity order.** `error` means the import will not do
+what they intend; `warning` means it proceeds but something is likely misread.
+
+| What you'll see | What it means | What to tell them |
+|---|---|---|
+| `row_dropped` | The row never reaches partrack at all. The wizard discards any row with no reference designators or a non-positive quantity, **silently**. | Give the line a designator and a quantity ≥ 1, or confirm they meant to omit it. This is the single most common "partrack lost my parts" cause. |
+| `quantity_coerced` | Quantity is parsed with JavaScript's `parseInt`, so `1,000` imports as **1** and `3 pcs` as `3`. | Strip the separators and units from the quantity column. |
+| `sku_without_distributor` | The import resolves a SKU only against a known distributor. With no distributor column, **no SKU row resolves by SKU**. | Add a distributor column, or pick one distributor in the wizard's distributor step. Model it with `--distributor <name>`. |
+| `duplicate_role` / `missing_role` | Two columns claim one role (only the first is used), or designators/quantity are unmapped (everything drops). | Fix with `--map "<header>=<role>"` to confirm, then set the same mapping in the wizard. |
+| `designator_count` | `R1,R2` with quantity 5. | A BOM error the importer carries through faithfully. Theirs to fix. |
+| `unmapped_column` / a `—` role | A column partrack ignores. Altium's value column is called **Comment** and does not auto-map. | `--map "Comment=value"` — without it, every passive loses its value and cannot match parametrically. |
+
+**Then read the interpretation table.** This is the actual cross-check: the raw
+cells beside what partrack understood. Look for:
+
+- **`route: unknown`** — nothing reliable extracted; the line will need manual
+  review at import. Common causes: a value that is a symbol name
+  (`Conn_01x04_Pin`, `LED`), or an empty value column.
+- **`!`** marks rows the review gate will surface first; **`~`** marks rows whose
+  value did not parse cleanly. `~` rows carry `residue:<tokens>` — the tokens the
+  parser could not attribute, which is usually the clue. `9k10%` leaves
+  `residue:9k10%` because the missing space defeats the split.
+- **`class_footprint_conflict`** — the reference designator and the footprint
+  disagree about what the part is (an `FB` in an `L_` footprint). One of them is
+  wrong, and the designator wins.
+- **The package column.** Verify the metric trap resolved the way they expect:
+  `R_0603_1608Metric` must read as **0603** (imperial), not 1608. A bare `0402`
+  with no structural cue is genuinely ambiguous and defaults to imperial.
+- **The params column.** `10k` → `resistance=10 kΩ`, `100nF X7R 16V` →
+  `capacitance=100 nF dielectric=X7R voltage_rating=16 V`. A value that produced
+  no params will not match anything parametrically.
+
+**State the limit plainly.** `pt bom check` predicts the *parse*, not the
+*outcome*. Whether a line resolves to a part depends on their catalog, and the
+tiers that decide it are not reproducible client-side without being subtly
+wrong — so never tell someone their BOM "will import cleanly". Say the parse is
+clean, and that resolution is decided at import.
+
+The import itself is still done in the web UI; `pt` cannot post a revision yet.
+
 ## Limits worth stating rather than working around
 
 - **No "where used".** Nothing answers "which projects consume this part";
   the server has no such query.
 - **Distributor stock and price are not in search results.** They cost one
   call per part, so they appear in `pt show`, not `pt search`.
-- **No writes.** Checkouts, deposits, cart and order operations are not
-  implemented. Direct the user to the web UI for those.
+- **No writes.** Checkouts, deposits, cart operations and BOM import are not
+  implemented. Direct the user to the web UI for those. (`pt bom check` is a
+  local read of a file, not a write to partrack.)

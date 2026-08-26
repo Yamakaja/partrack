@@ -79,6 +79,7 @@ internal/
   activity/          # durable activity/audit log recorder (also fans out live feed via SSE)
   timing/            # Server-Timing middleware + per-request DB/handler spans
   apitypes/          # shared REST wire types: handlers marshal them, clients decode them
+  bomfile/           # BOM file parsing + column mapping (the Go port of the import wizard's stage 1)
   cli/               # `pt` command tree (cobra): config, API client, part/category/param resolution, renderers
   scanner/           # distributor barcode/datamatrix parsing
   paramparse/        # SI-aware parameter value parsing

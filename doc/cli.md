@@ -93,6 +93,7 @@ pt stock RC0402FR-0710KL
 | `pt show <part>` | full dossier: identity, inventory, parameters, listings, note, reservations |
 | `pt stock <part>` | on-hand vs reserved vs free, thresholds, location, ledger |
 | `pt where [part]` | locate a part, list a location's contents, or print the storage tree |
+| `pt bom check <file>` | how partrack will read a BOM file, before importing it (local, no server) |
 | `pt teams` | the teams you belong to |
 | `pt auth` / `pt config` | credentials and settings |
 
@@ -194,6 +195,56 @@ rating is 85 °C, not parts rated up to 85 °C. `pt` warns on stderr whenever yo
 filter one. They are also omitted from `pt filters` entirely (the catalog
 endpoint excludes them), so the command names them explicitly instead.
 
+### Checking a BOM before importing
+
+BOM import is where most friction lives, and most of it is decided before the
+server is involved — in how the file parses and which column means what.
+`pt bom check` runs that stage locally and prints what partrack will make of it:
+
+```sh
+pt bom check board.csv
+pt bom check board.csv --problems              # only the rows needing attention
+pt bom check board.csv --map "Comment=value"   # Altium calls the value column Comment
+pt bom check board.csv --delimiter ';' --skip 3 --comment '#'
+```
+
+It needs no server, no team and no login, and it imports nothing. What it shows:
+
+- **The column mapping** it inferred, so a `Comment` column silently ignored is
+  visible before it costs you a review cycle. Override with `--map`, by header
+  name or by 1-based position.
+- **Every row the import would drop.** The wizard discards any row with no
+  reference designators or a non-positive quantity, silently — a blank quantity
+  cell removes the line from your BOM with nothing said. Each one is reported
+  with its line number and the reason.
+- **Quantities the importer coerces.** The wizard parses quantity with
+  JavaScript's `parseInt`, so `1,000` imports as **1**. `pt` reproduces that
+  (predicting the import, not improving on it) and flags it.
+- **How each line is interpreted** — route, category, package and the parameters
+  extracted from the value, next to the raw cells they came from. This is the
+  cross-check: what you wrote beside what partrack understood.
+
+Rows are ordered attention-first, the way the review gate orders them. `!` marks
+a row the gate will surface; `~` marks one whose value did not parse cleanly, and
+those carry their unattributed tokens as `residue:…`, which is usually the clue
+to what was misread.
+
+Two structural warnings are worth acting on before you import:
+
+- **SKUs with no distributor.** The import resolves a SKU only against a known
+  distributor, so a BOM with a SKU column and no distributor column resolves
+  none of them — they fall through to the MPN and parametric tiers.
+  `--distributor <name>` models choosing one.
+- **Designator count vs quantity.** `R1,R2` with quantity 5 is a BOM error the
+  importer will faithfully carry through.
+
+What it deliberately does **not** do is predict whether a line resolves to a
+part. That depends on your catalog, and the tiers that decide it —
+canonical-package matching, the value epsilon, prior revisions — are not
+reproducible client-side without getting them subtly wrong. A confident wrong
+forecast would defeat the purpose. See [bom-import.md](bom-import.md) for the
+full flow.
+
 ### Columns
 
 `--fields` picks and orders columns for both plain and JSON output. The default
@@ -261,5 +312,7 @@ range parameters comparing only the lower bound). Symlink it into
 - **Distributor stock and price are not in the search response.** Your own
   inventory rides along free with `GET /parts`; distributor availability costs
   one call per part, so it appears in `pt show`, not in `pt search`.
-- **Writes are not implemented yet.** `pt` is read-only; checkouts, deposits and
-  cart operations are the next increment.
+- **Writes are not implemented yet.** Checkouts, deposits, cart operations and
+  `pt bom import` are the next increment. This is a matter of what has been
+  built, not a design constraint: the client speaks every verb, and
+  `pt bom check` already produces the exact payload an import would post.

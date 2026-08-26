@@ -150,6 +150,7 @@ func init() {
 	pf.StringVar(&gf.cacheDir, "cache-dir", "", "override the cache directory")
 
 	rootCmd.AddCommand(
+		bomCmd,
 		authCmd,
 		configCmd,
 		teamsCmd,
