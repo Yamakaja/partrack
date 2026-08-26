@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -20,16 +21,10 @@ import (
 // maxInterpretPreviewItems bounds a single preview request.
 const maxInterpretPreviewItems = 5000
 
-// interpretReqItem is one mapped BOM row to interpret. Row is the original
-// header→cell map, given to the LLM so it sees what the parser discards.
-type interpretReqItem struct {
-	Refdes    string            `json:"refdes"`
-	Footprint string            `json:"footprint"`
-	Value     string            `json:"value"`
-	Mpn       string            `json:"mpn"`
-	Sku       string            `json:"sku"`
-	Row       map[string]string `json:"row"`
-}
+// interpretReqItem is one mapped BOM row to interpret. The shape lives in
+// apitypes: a client maps CSV columns into it (internal/bomfile) and this
+// handler decodes it, so the two share one declaration.
+type interpretReqItem = apitypes.BOMInterpretItem
 
 // previewItem is one interpretation plus its provenance. source is "auto" (fresh
 // parse), "reused" (team interpretation memory), or "llm" (LLM fallback). The

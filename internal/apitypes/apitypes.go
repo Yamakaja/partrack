@@ -399,3 +399,60 @@ type Note struct {
 	UpdatedAt *string      `json:"updated_at,omitempty"`
 	UpdatedBy *string      `json:"updated_by,omitempty"`
 }
+
+// ---------------------------------------------------------------------------
+// BOM import
+//
+// These are request shapes rather than responses: the payloads a client sends
+// to import a BOM revision and to preview how its rows will be read. They live
+// here for the same reason the response types do — the CLI builds them locally
+// (see internal/bomfile) and the handler decodes them, so a single declaration
+// keeps the producer and the consumer honest.
+
+// BOMImportItem is one mapped BOM row in the body of
+// POST /teams/{teamId}/projects/{projectId}/revisions.
+//
+// It is the output of column mapping: the raw cells sorted into the roles the
+// importer understands. Every optional field is a pointer because "absent" and
+// "empty" are different to the resolution tiers — an empty MPN column is not
+// the same as no MPN column.
+type BOMImportItem struct {
+	ReferenceDesignators string  `json:"reference_designators"`
+	Quantity             int32   `json:"quantity"`
+	RawDescription       *string `json:"raw_description"`
+	Manufacturer         *string `json:"manufacturer"`
+	MPN                  *string `json:"mpn"`
+	Name                 *string `json:"name"`
+	SKU                  *string `json:"sku"`
+	DistributorName      *string `json:"distributor_name"`
+
+	// ResolvedDistributorID is what turns a SKU into a resolvable identity: the
+	// import's SKU tier requires it, so a BOM carrying SKUs with no distributor
+	// mapped has every SKU row fall through to the later tiers.
+	ResolvedDistributorID *string `json:"resolved_distributor_id"`
+
+	Value     *string `json:"value"`
+	Footprint *string `json:"footprint"`
+
+	// Interpretation, when set, overrides the parse the server would do and is
+	// persisted as a user (or llm) correction. Left raw so a client can pass one
+	// through without depending on the genspec types.
+	Interpretation       json.RawMessage `json:"interpretation,omitempty"`
+	InterpretationSource *string         `json:"interpretation_source,omitempty"`
+}
+
+// BOMInterpretItem is one row in the body of POST /bom/interpret-preview — the
+// stateless "how will you read this?" endpoint.
+//
+// It is deliberately narrower than BOMImportItem: interpretation only looks at
+// the fields that carry meaning for the parser. Row is the original
+// header→cell map, passed so the LLM fallback can see the columns the mapping
+// discarded.
+type BOMInterpretItem struct {
+	Refdes    string            `json:"refdes"`
+	Footprint string            `json:"footprint"`
+	Value     string            `json:"value"`
+	Mpn       string            `json:"mpn"`
+	Sku       string            `json:"sku"`
+	Row       map[string]string `json:"row,omitempty"`
+}

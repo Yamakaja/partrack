@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -132,22 +133,10 @@ func (h *Handler) ImportRevision(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(v, &setActive) //nolint:errcheck
 	}
 
-	type itemInput struct {
-		ReferenceDesignators  string          `json:"reference_designators"`
-		Quantity              int32           `json:"quantity"`
-		RawDescription        *string         `json:"raw_description"`
-		Manufacturer          *string         `json:"manufacturer"`
-		MPN                   *string         `json:"mpn"`
-		Name                  *string         `json:"name"`
-		SKU                   *string         `json:"sku"`
-		DistributorName       *string         `json:"distributor_name"`
-		ResolvedDistributorID *string         `json:"resolved_distributor_id"`
-		Value                 *string         `json:"value"`
-		Footprint             *string         `json:"footprint"`
-		Interpretation        json.RawMessage `json:"interpretation"`
-		InterpretationSource  *string         `json:"interpretation_source"`
-	}
-	var items []itemInput
+	// The item shape is declared in apitypes because a client builds this payload
+	// locally (internal/bomfile maps CSV columns into it) — one declaration, so
+	// the producer and this decoder cannot drift.
+	var items []apitypes.BOMImportItem
 	if v, ok := rawBody["items"]; ok {
 		if err := json.Unmarshal(v, &items); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid items", "BAD_REQUEST")
