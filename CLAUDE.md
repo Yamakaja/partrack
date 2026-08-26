@@ -14,7 +14,8 @@ partrack is **feature-complete for an initial deployment** and moving toward pro
 
 ```bash
 go build ./...                    # compile all packages
-go build -o partrack ./cmd/partrack  # build the binary
+go build -o partrack ./cmd/partrack  # build the server binary
+go build -o pt ./cmd/pt              # build the `pt` CLI (doc/cli.md)
 go run ./cmd/partrack             # run directly (requires config.yaml or env vars)
 go mod tidy                       # sync dependencies
 
@@ -66,6 +67,7 @@ Stack: Svelte 5 + Vite + Tailwind CSS v4 + bits-ui v2 + TanStack Query v6. The d
 
 ```
 cmd/partrack/        # main entrypoint (graceful shutdown) + bootstrap.go (first-run admin)
+cmd/pt/              # `pt` CLI entrypoint (see internal/cli and doc/cli.md)
 internal/
   config/            # Config struct; YAML + env override loading
   db/                # pgxpool setup (pool.go) + migrate runner (migrate.go); gen/ holds sqlc output
@@ -77,6 +79,7 @@ internal/
   activity/          # durable activity/audit log recorder (also fans out live feed via SSE)
   timing/            # Server-Timing middleware + per-request DB/handler spans
   apitypes/          # shared REST wire types: handlers marshal them, clients decode them
+  cli/               # `pt` command tree (cobra): config, API client, part/category/param resolution, renderers
   scanner/           # distributor barcode/datamatrix parsing
   paramparse/        # SI-aware parameter value parsing
   substitute/        # substitute selection logic
@@ -120,6 +123,7 @@ Read these in order when onboarding to the project:
 | [userstory.md](userstory.md) | User stories organised into 6 epics. Defines what the system must do. |
 | [datamodel.md](datamodel.md) | Conceptual data model — entities, relationships, and design decisions. Start here before touching any schema or data layer. |
 | [architecture.md](architecture.md) | Living architecture document. Updated as design sessions progress. |
+| [cli.md](cli.md) | `pt` CLI reference — commands, the `--param` grammar, part addressing, exit codes. Read before changing `internal/cli`. |
 | [api.md](api.md) | Full REST API endpoint reference — methods, paths, roles, request/response shapes. Please update the API to implement your changes in the most efficient way, we are not trying to keep the API stable right now |
 
 ## What partrack Does
