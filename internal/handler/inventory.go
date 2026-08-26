@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -371,20 +372,9 @@ func (h *Handler) ListAdjustments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type item struct {
-		ID                   string  `json:"id"`
-		Delta                int32   `json:"delta"`
-		AdjustedAt           string  `json:"adjusted_at"`
-		Reason               *string `json:"reason"`
-		CreatedBy            string  `json:"created_by"`
-		CreatedByDisplayName string  `json:"created_by_display_name"`
-		SourceType           *string `json:"source_type"`
-		SourceID             *string `json:"source_id"`
-		SourceOrderID        *string `json:"source_order_id"`
-	}
-	items := make([]item, len(rows))
+	items := make([]apitypes.StockAdjustment, len(rows))
 	for i, row := range rows {
-		it := item{
+		it := apitypes.StockAdjustment{
 			ID:                   row.ID.String(),
 			Delta:                row.Delta,
 			AdjustedAt:           row.AdjustedAt.Time.UTC().Format(time.RFC3339),
@@ -415,8 +405,8 @@ func (h *Handler) ListAdjustments(w http.ResponseWriter, r *http.Request) {
 		}
 		items[i] = it
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"total": total, "limit": limit, "offset": offset, "items": items,
+	writeJSON(w, http.StatusOK, apitypes.List[apitypes.StockAdjustment]{
+		Total: total, Limit: limit, Offset: offset, Items: items,
 	})
 }
 

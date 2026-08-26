@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	"github.com/Yamakaja/partrack/internal/config"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -108,14 +109,9 @@ func hashToken(raw string) string {
 }
 
 // userResponse is the common user shape returned in API responses.
-type userResponse struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	IsActive    bool   `json:"is_active"`
-	IsAdmin     bool   `json:"is_admin"`
-	CreatedAt   string `json:"created_at"`
-}
+// userResponse is the shared wire shape; the alias keeps the existing
+// conversion helpers below unchanged.
+type userResponse = apitypes.User
 
 func meRowToUserResponse(r dbgen.GetUserWithMembershipsRow) userResponse {
 	return userResponse{
@@ -568,22 +564,16 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type membershipItem struct {
-		TeamID   string `json:"team_id"`
-		TeamName string `json:"team_name"`
-		Role     string `json:"role"`
-	}
-
-	var items []membershipItem
+	var items []apitypes.Membership
 	if ctxUser.IsAdmin {
 		teams, err := h.Queries.ListAllTeams(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		items = make([]membershipItem, len(teams))
+		items = make([]apitypes.Membership, len(teams))
 		for i, t := range teams {
-			items[i] = membershipItem{
+			items[i] = apitypes.Membership{
 				TeamID:   t.ID.String(),
 				TeamName: t.Name,
 				Role:     "admin",
@@ -595,9 +585,9 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		items = make([]membershipItem, len(memberships))
+		items = make([]apitypes.Membership, len(memberships))
 		for i, m := range memberships {
-			items[i] = membershipItem{
+			items[i] = apitypes.Membership{
 				TeamID:   m.TeamID.String(),
 				TeamName: m.TeamName,
 				Role:     string(m.Role),
@@ -605,9 +595,9 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user":        meRowToUserResponse(user),
-		"memberships": items,
+	writeJSON(w, http.StatusOK, apitypes.Me{
+		User:        meRowToUserResponse(user),
+		Memberships: items,
 	})
 }
 
@@ -738,14 +728,9 @@ func (h *Handler) CompletePasswordReset(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	type membershipItem struct {
-		TeamID   string `json:"team_id"`
-		TeamName string `json:"team_name"`
-		Role     string `json:"role"`
-	}
-	items := make([]membershipItem, len(memberships))
+	items := make([]apitypes.Membership, len(memberships))
 	for i, m := range memberships {
-		items[i] = membershipItem{TeamID: m.TeamID.String(), TeamName: m.TeamName, Role: string(m.Role)}
+		items[i] = apitypes.Membership{TeamID: m.TeamID.String(), TeamName: m.TeamName, Role: string(m.Role)}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": meRowToUserResponse(user), "memberships": items})
+	writeJSON(w, http.StatusOK, apitypes.Me{User: meRowToUserResponse(user), Memberships: items})
 }

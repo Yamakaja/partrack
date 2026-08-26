@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -34,35 +35,16 @@ var (
 	objRefRe = regexp.MustCompile(`:(part|project|revision|order|build|storage)\[[^\]]*\]\{#(` + uuidPat + `)`)
 )
 
-type noteManifestAttachment struct {
-	URL         string `json:"url"`
-	ContentType string `json:"content_type"`
-	Width       *int32 `json:"width,omitempty"`
-	Height      *int32 `json:"height,omitempty"`
-}
+type noteManifestAttachment = apitypes.NoteManifestAttachment
 
 // noteManifestObject is a normalized, render-ready reference to any linkable
 // partrack object — the server computes the label, href, and (optional) status
 // so the frontend chip stays kind-agnostic.
-type noteManifestObject struct {
-	Kind   string  `json:"kind"`
-	Label  string  `json:"label"`
-	Href   string  `json:"href"`
-	Status *string `json:"status,omitempty"`
-}
+type noteManifestObject = apitypes.NoteManifestObject
 
-type noteManifest struct {
-	Attachments map[string]noteManifestAttachment `json:"attachments"`
-	Objects     map[string]noteManifestObject     `json:"objects"`
-}
+type noteManifest = apitypes.NoteManifest
 
-type noteResponse struct {
-	Body      string       `json:"body"`
-	Manifest  noteManifest `json:"manifest"`
-	Flag      *string      `json:"flag,omitempty"` // part notes only (team opinion flag)
-	UpdatedAt *string      `json:"updated_at,omitempty"`
-	UpdatedBy *string      `json:"updated_by,omitempty"`
-}
+type noteResponse = apitypes.Note
 
 // uniqueRefs returns the distinct (lowercased) capture-group-1 matches of re in
 // body, preserving first-seen order.

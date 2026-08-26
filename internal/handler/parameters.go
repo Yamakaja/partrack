@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/paramparse"
@@ -110,21 +111,9 @@ func (h *Handler) GetCategoryParameters(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	type catParam struct {
-		ID          int32    `json:"id"`
-		Slug        string   `json:"slug"`
-		DisplayName string   `json:"display_name"`
-		Unit        *string  `json:"unit"`
-		UnitSymbol  *string  `json:"unit_symbol"`
-		ValueType   string   `json:"value_type"`
-		MinNumeric  *float64 `json:"min_numeric"`
-		MaxNumeric  *float64 `json:"max_numeric"`
-		EnumValues  []string `json:"enum_values"`
-	}
-
-	out := make([]catParam, 0, len(rows))
+	out := make([]apitypes.CategoryParameter, 0, len(rows))
 	for _, row := range rows {
-		p := catParam{
+		p := apitypes.CategoryParameter{
 			ID:          row.ID,
 			Slug:        row.Slug,
 			DisplayName: row.DisplayName,
@@ -182,17 +171,9 @@ func (h *Handler) ListParameterDefinitions(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	type paramDef struct {
-		ID          int32   `json:"id"`
-		Slug        string  `json:"slug"`
-		DisplayName string  `json:"display_name"`
-		Unit        *string `json:"unit"`
-		UnitSymbol  *string `json:"unit_symbol"`
-		ValueType   string  `json:"value_type"`
-	}
-	out := make([]paramDef, len(defs))
+	out := make([]apitypes.ParameterDefinition, len(defs))
 	for i, d := range defs {
-		out[i] = paramDef{
+		out[i] = apitypes.ParameterDefinition{
 			ID:          int32(d.ID),
 			Slug:        d.Slug,
 			DisplayName: d.DisplayName,

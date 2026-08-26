@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -942,20 +943,9 @@ func (h *Handler) GetPartAllocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type allocationResp struct {
-		BuildID          string `json:"build_id"`
-		ProjectID        string `json:"project_id"`
-		ProjectName      string `json:"project_name"`
-		BuildStatus      string `json:"build_status"`
-		BuildQuantity    int32  `json:"build_quantity"`
-		QuantityNeeded   int32  `json:"quantity_needed"`
-		QuantityReserved int32  `json:"quantity_reserved"`
-		QuantityReceived int32  `json:"quantity_received"`
-	}
-
-	items := make([]allocationResp, 0, len(rows))
+	items := make([]apitypes.PartAllocation, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, allocationResp{
+		items = append(items, apitypes.PartAllocation{
 			BuildID:          row.BuildID.String(),
 			ProjectID:        row.ProjectID.String(),
 			ProjectName:      row.ProjectName,
@@ -967,7 +957,7 @@ func (h *Handler) GetPartAllocations(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, apitypes.PartAllocationList{Items: items})
 }
 
 // SubmitBuild handles POST /api/v1/teams/{teamId}/builds/{buildId}/submit

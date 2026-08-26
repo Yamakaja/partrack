@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -50,14 +51,7 @@ func validateGridConfig(raw []byte) error {
 }
 
 // storageLocationItem is the JSON shape of a storage location in API responses.
-type storageLocationItem struct {
-	ID          string          `json:"id"`
-	TeamID      string          `json:"team_id"`
-	ParentID    *string         `json:"parent_id"`
-	Label       string          `json:"label"`
-	Description *string         `json:"description"`
-	GridConfig  json.RawMessage `json:"grid_config"`
-}
+type storageLocationItem = apitypes.StorageLocation
 
 func storageLocationFromRow(id, teamID, parentID pgtype.UUID, label string, description *string, gridConfig []byte) storageLocationItem {
 	item := storageLocationItem{
@@ -96,7 +90,7 @@ func (h *Handler) ListStorageLocations(w http.ResponseWriter, r *http.Request) {
 	for i, loc := range locations {
 		items[i] = storageLocationFromRow(loc.ID, loc.TeamID, loc.ParentID, loc.Label, loc.Description, loc.GridConfig)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, apitypes.StorageLocationList{Items: items})
 }
 
 // GetStorageLocation handles GET /api/v1/teams/{teamId}/storage-locations/{locationId}
@@ -343,27 +337,9 @@ func (h *Handler) ListInventoryByLocation(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	type item struct {
-		ID                   string  `json:"id"`
-		TeamID               string  `json:"team_id"`
-		PartID               string  `json:"part_id"`
-		PartMpn              *string `json:"part_mpn"`
-		PartManufacturer     *string `json:"part_manufacturer"`
-		PartLifecycleStatus  string  `json:"part_lifecycle_status"`
-		PartImageURL         *string `json:"part_image_url"`
-		PartDescription      *string `json:"part_description"`
-		QuantityOnHand       int32   `json:"quantity_on_hand"`
-		StorageLocationID    *string `json:"storage_location_id"`
-		StorageCoordinate    []int32 `json:"storage_coordinate"`
-		StorageLocationLabel *string `json:"storage_location_label"`
-		PreferredListingID   *string `json:"preferred_listing_id"`
-		MinimumStockQuantity *int32  `json:"minimum_stock_quantity"`
-		ReorderQuantity      *int32  `json:"reorder_quantity"`
-	}
-
-	items := make([]item, len(rows))
+	items := make([]apitypes.LocationInventoryItem, len(rows))
 	for i, row := range rows {
-		it := item{
+		it := apitypes.LocationInventoryItem{
 			ID:                   row.ID.String(),
 			TeamID:               row.TeamID.String(),
 			PartID:               row.PartID.String(),
@@ -389,8 +365,8 @@ func (h *Handler) ListInventoryByLocation(w http.ResponseWriter, r *http.Request
 		items[i] = it
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items": items,
-		"total": total,
+	writeJSON(w, http.StatusOK, apitypes.LocationInventoryList{
+		Items: items,
+		Total: total,
 	})
 }

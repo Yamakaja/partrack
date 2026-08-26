@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -25,24 +26,13 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type categoryItem struct {
-		ID            int32    `json:"id"`
-		Slug          string   `json:"slug"`
-		DisplayName   string   `json:"display_name"`
-		ParentID      *int32   `json:"parent_id"`
-		SortOrder     int32    `json:"sort_order"`
-		ValueParam    *string  `json:"value_param"`
-		PrimaryParams []string `json:"primary_params"`
-		GenericCode   *string  `json:"generic_code"`
-	}
-
-	items := make([]categoryItem, len(rows))
+	items := make([]apitypes.Category, len(rows))
 	for i, c := range rows {
 		var params []string
 		if err := json.Unmarshal(c.PrimaryParams, &params); err != nil {
 			params = []string{}
 		}
-		items[i] = categoryItem{
+		items[i] = apitypes.Category{
 			ID:            c.ID,
 			Slug:          c.Slug,
 			DisplayName:   c.DisplayName,
@@ -54,7 +44,7 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"categories": items})
+	writeJSON(w, http.StatusOK, apitypes.CategoryList{Categories: items})
 }
 
 // AdminUpdateCategoryParams handles PATCH /api/v1/admin/categories/{id}/params
@@ -219,16 +209,9 @@ func (h *Handler) CategoryParameterSchema(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	type paramSchema struct {
-		Slug        string   `json:"slug"`
-		DisplayName string   `json:"display_name"`
-		UnitSymbol  string   `json:"unit_symbol"`
-		ValueType   string   `json:"value_type"`
-		Options     []string `json:"options"`
-	}
-	out := make([]paramSchema, 0, len(primary))
+	out := make([]apitypes.CategorySchemaParam, 0, len(primary))
 	for _, slug := range primary {
-		ps := paramSchema{Slug: slug, Options: optsBySlug[slug]}
+		ps := apitypes.CategorySchemaParam{Slug: slug, Options: optsBySlug[slug]}
 		if ps.Options == nil {
 			ps.Options = []string{}
 		}
@@ -249,10 +232,10 @@ func (h *Handler) CategoryParameterSchema(w http.ResponseWriter, r *http.Request
 	if cat.ValueParam != nil {
 		valueParam = *cat.ValueParam
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"category_id": cat.ID,
-		"slug":        cat.Slug,
-		"value_param": valueParam,
-		"params":      out,
+	writeJSON(w, http.StatusOK, apitypes.CategoryParameterSchema{
+		CategoryID: cat.ID,
+		Slug:       cat.Slug,
+		ValueParam: valueParam,
+		Params:     out,
 	})
 }

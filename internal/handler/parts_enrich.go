@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/Yamakaja/partrack/internal/worker"
@@ -260,15 +261,11 @@ func (h *Handler) ListPartCategories(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	type catCount struct {
-		ID    int32 `json:"id"`
-		Count int32 `json:"count"`
-	}
-	cats := make([]catCount, 0, len(rows))
+	cats := make([]apitypes.CategoryPartCount, 0, len(rows))
 	for _, row := range rows {
 		if row.CategoryID != nil {
-			cats = append(cats, catCount{ID: *row.CategoryID, Count: row.Count})
+			cats = append(cats, apitypes.CategoryPartCount{ID: *row.CategoryID, Count: row.Count})
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"categories": cats})
+	writeJSON(w, http.StatusOK, apitypes.CategoryPartCounts{Categories: cats})
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Yamakaja/partrack/internal/activity"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/genspec"
 	"github.com/Yamakaja/partrack/internal/middleware"
@@ -226,8 +227,8 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if matchedNone {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"total": int64(0), "limit": limit, "offset": offset, "items": []any{},
+		writeJSON(w, http.StatusOK, apitypes.List[apitypes.PartListItem]{
+			Total: 0, Limit: limit, Offset: offset, Items: []apitypes.PartListItem{},
 		})
 		return
 	}
@@ -272,30 +273,9 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type item struct {
-		ID                   string         `json:"id"`
-		Scope                string         `json:"scope"`
-		Mpn                  *string        `json:"mpn"`
-		Manufacturer         *string        `json:"manufacturer"`
-		Description          *string        `json:"description"`
-		ShortDescription     *string        `json:"short_description"`
-		Category             *string        `json:"category"`
-		CategoryID           *int32         `json:"category_id"`
-		CategoryName         *string        `json:"category_name"`
-		CategorySource       string         `json:"category_source"`
-		Package              *string        `json:"package"`
-		LifecycleStatus      string         `json:"lifecycle_status"`
-		ImageURL             *string        `json:"image_url"`
-		InventoryEntryID     *string        `json:"inventory_entry_id"`
-		QuantityOnHand       *int32         `json:"quantity_on_hand"`
-		MinimumStockQuantity *int32         `json:"minimum_stock_quantity"`
-		ReorderQuantity      *int32         `json:"reorder_quantity"`
-		StorageLocationLabel *string        `json:"storage_location_label"`
-		Parameters           map[string]any `json:"parameters,omitempty"`
-	}
-	items := make([]item, len(parts))
+	items := make([]apitypes.PartListItem, len(parts))
 	for i, p := range parts {
-		it := item{
+		it := apitypes.PartListItem{
 			ID:                   p.ID.String(),
 			Scope:                string(p.Scope),
 			Mpn:                  p.Mpn,
@@ -313,6 +293,7 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 			MinimumStockQuantity: p.MinimumStockQuantity,
 			ReorderQuantity:      p.ReorderQuantity,
 			StorageLocationLabel: p.StorageLocationLabel,
+			StorageCoordinate:    p.StorageCoordinate,
 		}
 		if p.InventoryEntryID.Valid {
 			s := p.InventoryEntryID.String()
@@ -335,14 +316,14 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		// Build map: partID → slug → original display value. The table shows the
 		// unaltered source text (e.g. "100 Ohm @ 1 MHz"); normalization to
 		// numeric_value/numeric_value_max is used only for server-side filtering.
-		paramMap := make(map[string]map[string]any, len(parts))
+		paramMap := make(map[string]map[string]string, len(parts))
 		for _, row := range paramRows {
 			if row.Value == "" {
 				continue
 			}
 			partID := row.PartID.String()
 			if _, ok := paramMap[partID]; !ok {
-				paramMap[partID] = make(map[string]any)
+				paramMap[partID] = make(map[string]string)
 			}
 			paramMap[partID][row.Slug] = row.Value
 		}
@@ -353,8 +334,8 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"total": total, "limit": limit, "offset": offset, "items": items,
+	writeJSON(w, http.StatusOK, apitypes.List[apitypes.PartListItem]{
+		Total: total, Limit: limit, Offset: offset, Items: items,
 	})
 }
 
@@ -509,21 +490,13 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inventory fields, populated when team_id is present.
-	type storageLocationObj struct {
-		ID           string          `json:"id"`
-		Label        string          `json:"label"`
-		AncestorPath *string         `json:"ancestor_path"`
-		GridConfig   json.RawMessage `json:"grid_config"`
-		Coordinate   []int32         `json:"coordinate"`
-	}
-
 	var (
 		inventoryEntryID     *string
 		quantityOnHand       *int32
 		minimumStockQuantity *int32
 		reorderQuantity      *int32
 		preferredListingID   *string
-		storageLocation      *storageLocationObj
+		storageLocation      *apitypes.PartStorageLocation
 		categoryName         *string
 		categoryParentID     *int32
 	)
@@ -581,7 +554,7 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 			if row.StorageLocationLabel != nil {
 				label = *row.StorageLocationLabel
 			}
-			sl := &storageLocationObj{
+			sl := &apitypes.PartStorageLocation{
 				ID:         row.StorageLocationID.String(),
 				Label:      label,
 				GridConfig: json.RawMessage(row.StorageLocationGridConfig),
@@ -638,30 +611,10 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 	aliases := make([]string, len(aliasRows))
 	copy(aliases, aliasRows)
 
-	type paramBase struct {
-		ID                   string   `json:"id"`
-		Name                 string   `json:"name"`
-		Value                string   `json:"value"`
-		Unit                 *string  `json:"unit"`
-		ParameterID          *int32   `json:"parameter_id"`
-		ParameterSlug        *string  `json:"parameter_slug"`
-		ParameterDisplayName *string  `json:"parameter_display_name"`
-		ParameterUnitSymbol  *string  `json:"parameter_unit_symbol"`
-		NumericValue         *float64 `json:"numeric_value"`
-		NumericValueMax      *float64 `json:"numeric_value_max"`
-	}
-	type userParam struct {
-		paramBase
-	}
-	type distParam struct {
-		paramBase
-		SourceDistributorID   string  `json:"source_distributor_id"`
-		SourceDistributorName *string `json:"source_distributor_name"`
-	}
-	userParams := []userParam{}
-	distParams := []distParam{}
+	userParams := []apitypes.UserParameter{}
+	distParams := []apitypes.DistributorParameter{}
 	for _, p := range params {
-		base := paramBase{
+		base := apitypes.PartParameter{
 			ID:                   p.ID.String(),
 			Name:                 p.Name,
 			Value:                p.Value,
@@ -674,37 +627,24 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 			NumericValueMax:      p.NumericValueMax,
 		}
 		if p.SourceType == dbgen.ParameterSourceTypeUser {
-			userParams = append(userParams, userParam{paramBase: base})
+			userParams = append(userParams, apitypes.UserParameter{PartParameter: base})
 		} else {
-			distParams = append(distParams, distParam{
-				paramBase:             base,
+			distParams = append(distParams, apitypes.DistributorParameter{
+				PartParameter:         base,
 				SourceDistributorID:   p.SourceDistributorID.String(),
 				SourceDistributorName: p.SourceDistributorName,
 			})
 		}
 	}
 
-	type listingItem struct {
-		ID              string          `json:"id"`
-		DistributorID   string          `json:"distributor_id"`
-		DistributorName string          `json:"distributor_name"`
-		Sku             string          `json:"sku"`
-		PackagingType   string          `json:"packaging_type"`
-		UnitPrice       *string         `json:"unit_price"`
-		StockAvailable  *int32          `json:"stock_available"`
-		Moq             int32           `json:"moq"`
-		FixedOrderCost  *string         `json:"fixed_order_cost"`
-		PriceBreaks     json.RawMessage `json:"price_breaks"`
-		LastRefreshedAt *string         `json:"last_refreshed_at"`
-	}
-	listingItems := make([]listingItem, len(listings))
+	listingItems := make([]apitypes.Listing, len(listings))
 	for i, l := range listings {
 		var lastRef *string
 		if l.LastRefreshedAt.Valid {
 			s := l.LastRefreshedAt.Time.UTC().Format(time.RFC3339)
 			lastRef = &s
 		}
-		listingItems[i] = listingItem{
+		listingItems[i] = apitypes.Listing{
 			ID:              l.ID.String(),
 			DistributorID:   l.DistributorID.String(),
 			DistributorName: l.DistributorName,
@@ -721,40 +661,40 @@ func (h *Handler) GetPart(w http.ResponseWriter, r *http.Request) {
 
 	base := toPartFullResponse(partBase)
 	base.CategoryName = categoryName
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                            base.ID,
-		"scope":                         base.Scope,
-		"team_id":                       base.TeamID,
-		"mpn":                           base.Mpn,
-		"manufacturer":                  base.Manufacturer,
-		"description":                   base.Description,
-		"short_description":             base.ShortDescription,
-		"category":                      base.Category,
-		"category_id":                   base.CategoryID,
-		"category_name":                 base.CategoryName,
-		"category_source":               base.CategorySource,
-		"category_parent_id":            categoryParentID,
-		"package":                       base.Package,
-		"datasheet_url":                 base.DatasheetURL,
-		"product_url":                   base.ProductURL,
-		"image_url":                     base.ImageURL,
-		"lifecycle_status":              base.LifecycleStatus,
-		"enrichment_source_id":          base.EnrichmentSourceID,
-		"enriched_at":                   base.EnrichedAt,
-		"preferred_parameter_source_id": base.PreferredParameterSourceID,
-		"created_at":                    base.CreatedAt,
-		"aliases":                       aliases,
-		"inventory_entry_id":            inventoryEntryID,
-		"quantity_on_hand":              quantityOnHand,
-		"minimum_stock_quantity":        minimumStockQuantity,
-		"reorder_quantity":              reorderQuantity,
-		"preferred_listing_id":          preferredListingID,
-		"storage_location":              storageLocation,
-		"parameters": map[string]any{
-			"user_specified":      userParams,
-			"distributor_sourced": distParams,
+	writeJSON(w, http.StatusOK, apitypes.PartDetail{
+		ID:                         base.ID,
+		Scope:                      base.Scope,
+		TeamID:                     base.TeamID,
+		Mpn:                        base.Mpn,
+		Manufacturer:               base.Manufacturer,
+		Description:                base.Description,
+		ShortDescription:           base.ShortDescription,
+		Category:                   base.Category,
+		CategoryID:                 base.CategoryID,
+		CategoryName:               base.CategoryName,
+		CategorySource:             base.CategorySource,
+		CategoryParentID:           categoryParentID,
+		Package:                    base.Package,
+		DatasheetURL:               base.DatasheetURL,
+		ProductURL:                 base.ProductURL,
+		ImageURL:                   base.ImageURL,
+		LifecycleStatus:            base.LifecycleStatus,
+		EnrichmentSourceID:         base.EnrichmentSourceID,
+		EnrichedAt:                 base.EnrichedAt,
+		PreferredParameterSourceID: base.PreferredParameterSourceID,
+		CreatedAt:                  base.CreatedAt,
+		Aliases:                    aliases,
+		InventoryEntryID:           inventoryEntryID,
+		QuantityOnHand:             quantityOnHand,
+		MinimumStockQuantity:       minimumStockQuantity,
+		ReorderQuantity:            reorderQuantity,
+		PreferredListingID:         preferredListingID,
+		StorageLocation:            storageLocation,
+		Parameters: apitypes.PartParameters{
+			UserSpecified:      userParams,
+			DistributorSourced: distParams,
 		},
-		"listings": listingItems,
+		Listings: listingItems,
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -44,24 +45,16 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type teamItem struct {
-		ID          string  `json:"id"`
-		Name        string  `json:"name"`
-		Description *string `json:"description"`
-		CreatedAt   string  `json:"created_at"`
-		Role        string  `json:"role"`
-	}
-
-	var items []teamItem
+	var items []apitypes.Team
 	if user.IsAdmin {
 		teams, err := h.Queries.ListAllTeams(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		items = make([]teamItem, len(teams))
+		items = make([]apitypes.Team, len(teams))
 		for i, t := range teams {
-			items[i] = teamItem{
+			items[i] = apitypes.Team{
 				ID:          t.ID.String(),
 				Name:        t.Name,
 				Description: t.Description,
@@ -75,9 +68,9 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		items = make([]teamItem, len(teams))
+		items = make([]apitypes.Team, len(teams))
 		for i, t := range teams {
-			items[i] = teamItem{
+			items[i] = apitypes.Team{
 				ID:          t.ID.String(),
 				Name:        t.Name,
 				Description: t.Description,
@@ -87,8 +80,8 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"total": len(items), "limit": len(items), "offset": 0, "items": items,
+	writeJSON(w, http.StatusOK, apitypes.List[apitypes.Team]{
+		Total: int64(len(items)), Limit: int32(len(items)), Offset: 0, Items: items,
 	})
 }
 
