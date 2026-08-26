@@ -35,6 +35,16 @@ type Info struct {
 func Get() Info {
 	v, c, d := Version, Commit, Date
 
+	// The dirty marker belongs only to the fallback path. A release build passes
+	// the commit via ldflags from `git rev-parse`, deliberately without --dirty,
+	// because the Docker build context omits tracked files (.dockerignore drops
+	// config.yaml, doc/, *.md) and carries untracked deployment files — so the
+	// toolchain's vcs.modified is true for every containerised build, whatever
+	// the real repository state. Honouring it there marked every deployed binary
+	// "-dirty" and made the version endpoint useless for the one question it is
+	// asked: is this a clean build of a known commit?
+	fromLdflags := c != ""
+
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		var dirty bool
 		for _, s := range bi.Settings {
@@ -54,7 +64,7 @@ func Get() Info {
 				dirty = s.Value == "true"
 			}
 		}
-		if dirty && c != "" {
+		if dirty && c != "" && !fromLdflags {
 			c += "-dirty"
 		}
 	}
