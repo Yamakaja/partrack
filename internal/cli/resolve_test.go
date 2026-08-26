@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +154,24 @@ func TestSaveResultsMergesIntoRecent(t *testing.T) {
 	// The older part must still be addressable by prefix.
 	if id, err := a.resolvePrefix("aaaa"); err != nil || id == "" {
 		t.Errorf("older part is no longer resolvable by prefix: (%q, %v)", id, err)
+	}
+}
+
+// An empty search still clears the result set — @N must never resolve into a
+// stale one — but the resulting error must not tell someone who just searched
+// to go and search.
+func TestEmptyResultSetIsDistinguishedFromNoSearch(t *testing.T) {
+	a := newTestApp(t)
+	if _, err := a.resolveResultRef("@1"); err == nil {
+		t.Fatal("expected an error")
+	} else if !strings.Contains(err.Error(), "run `pt search` first") {
+		t.Errorf("before any search: %v", err)
+	}
+
+	a.saveResults("team-1", nil)
+	if _, err := a.resolveResultRef("@1"); err == nil {
+		t.Fatal("expected an error")
+	} else if !strings.Contains(err.Error(), "matched no parts") {
+		t.Errorf("after an empty search: %v", err)
 	}
 }

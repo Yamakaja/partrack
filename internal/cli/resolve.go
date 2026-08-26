@@ -145,6 +145,12 @@ func (a *app) resolveResultRef(ref string) (string, error) {
 	}
 	s := a.loadState()
 	if len(s.Results) == 0 {
+		// A search that matched nothing still clears the result set, since @N
+		// must never point into a stale one. Saying "run pt search first" to
+		// someone who just did is worse than useless, so the two are separated.
+		if !s.SavedAt.IsZero() {
+			return "", exitErrf(ExitNotFound, "the last search matched no parts, so %s refers to nothing", ref)
+		}
 		return "", exitErrf(ExitNotFound, "no saved result set — run `pt search` first")
 	}
 	if n > len(s.Results) {

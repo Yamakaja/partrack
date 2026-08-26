@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // globalFlags holds the persistent flag values shared by every subcommand.
@@ -81,10 +82,31 @@ var rootCmd = &cobra.Command{
 func usageArgs(fn cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if err := fn(cmd, args); err != nil {
+			if hint := detachedFlagHint(cmd); hint != "" {
+				return exitErr(ExitUsage, fmt.Errorf("%w — %s", err, hint))
+			}
 			return exitErr(ExitUsage, err)
 		}
 		return nil
 	}
+}
+
+// detachedFlagHint explains the one way an argument count goes wrong by
+// accident. A flag whose value is optional (--history, --params) only accepts
+// an attached value, so `--history 20` takes the flag's default and leaves
+// "20" behind as a stray positional. The bare count mismatch cobra reports for
+// that is true but useless.
+func detachedFlagHint(cmd *cobra.Command) string {
+	var name string
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		if name == "" && f.NoOptDefVal != "" {
+			name = f.Name
+		}
+	})
+	if name == "" {
+		return ""
+	}
+	return fmt.Sprintf("--%s takes its value attached, as --%s=<value>", name, name)
 }
 
 // requireClient lazily builds the API client. Commands that touch the network

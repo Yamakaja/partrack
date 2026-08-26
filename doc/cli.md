@@ -96,6 +96,11 @@ pt stock RC0402FR-0710KL
 | `pt teams` | the teams you belong to |
 | `pt auth` / `pt config` | credentials and settings |
 
+Two flags take an **optional** value and so require it attached:
+`--history=20` (`pt stock`) and `--params=tolerance,power` (`pt search`).
+Bare `--history` / `--params` use their defaults; detached, the value is left
+behind as a stray argument and the command exits 2 saying so.
+
 ### Searching
 
 The free-text query is a **substring match** over MPN, description, manufacturer
@@ -228,6 +233,14 @@ API quota, and a cached stock figure would defeat the point of asking. Use
 
 This is the deliberate opposite of `dks`, which caches aggressively because
 DigiKey rations requests.
+
+## Driving `pt` from an agent
+
+`skills/partrack/SKILL.md` is a Claude skill covering the command surface, the
+conventions above, and the three data-model facts that otherwise produce
+confident wrong answers (unmapped parameters, inherited class profiles, and
+range parameters comparing only the lower bound). Symlink it into
+`~/.claude/skills/partrack` to install it.
 
 ## Exit codes
 

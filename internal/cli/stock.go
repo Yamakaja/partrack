@@ -24,7 +24,7 @@ Stock on hand is the running total of an immutable ledger; --history prints the
 adjustments behind it, each with the event that caused it.
 
   pt stock STM32F103C8T6
-  pt stock @1 --history 20`,
+  pt stock @1 --history=20`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runStock(cmd.Context(), args[0])

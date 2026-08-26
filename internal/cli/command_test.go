@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/Yamakaja/partrack/internal/apitypes"
 )
@@ -514,5 +517,41 @@ func TestMissingTokenIsAnAuthError(t *testing.T) {
 	}
 	if ee, ok := err.(*ExitError); !ok || ee.Code != ExitAuth {
 		t.Errorf("want ExitAuth, got %v", err)
+	}
+}
+
+// A flag whose value is optional only accepts it attached, so `--history 20`
+// takes the flag's default and leaves "20" as a stray positional. Cobra's bare
+// "accepts 1 arg(s), received 2" is true and useless; the error must name the
+// fix, because this is the shape a script gets wrong.
+func TestDetachedFlagValueIsExplained(t *testing.T) {
+	cmd := &cobra.Command{
+		Use:  "stock <part>",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(*cobra.Command, []string) error { return nil },
+	}
+	cmd.Flags().Int("history", 0, "")
+	cmd.Flags().Lookup("history").NoOptDefVal = "20"
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"@1", "--history", "20"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected a usage error")
+	}
+	ee, ok := err.(*ExitError)
+	if !ok || ee.Code != ExitUsage {
+		t.Fatalf("want ExitUsage, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "--history=<value>") {
+		t.Errorf("error does not explain the fix: %v", err)
+	}
+
+	// The attached form is correct and must not be second-guessed.
+	cmd.SetArgs([]string{"@1", "--history=20"})
+	if err := cmd.Execute(); err != nil {
+		t.Errorf("--history=20 should be accepted: %v", err)
 	}
 }
