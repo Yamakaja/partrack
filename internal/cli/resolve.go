@@ -122,13 +122,13 @@ func (a *app) resolvePart(ctx context.Context, ref string) (string, error) {
 	}
 
 	if strings.HasPrefix(ref, "@") {
-		return a.resolveResultRef(ref)
+		return a.resolveResultRef(ref, kindPart)
 	}
 	if uuidRe.MatchString(ref) {
 		return strings.ToLower(ref), nil
 	}
 	if hexPrefixRe.MatchString(ref) {
-		if id, err := a.resolvePrefix(ref); err != nil || id != "" {
+		if id, err := a.resolvePrefix(ref, kindPart); err != nil || id != "" {
 			return id, err
 		}
 		// Not a known prefix — fall through and try it as an MPN, since plenty
@@ -137,24 +137,41 @@ func (a *app) resolvePart(ctx context.Context, ref string) (string, error) {
 	return a.resolveByText(ctx, ref)
 }
 
-// resolveResultRef handles the @N form against the saved result set.
-func (a *app) resolveResultRef(ref string) (string, error) {
+// resolveResultRef handles the @N form against the saved result set. The kind
+// is checked, so `pt orders show @1` right after a `pt search` says what went
+// wrong instead of fetching an order by a part's id.
+func (a *app) resolveResultRef(ref, kind string) (string, error) {
 	n, err := strconv.Atoi(ref[1:])
 	if err != nil || n < 1 {
-		return "", exitErrf(ExitUsage, "bad reference %q: expected @1, @2, … from the last search", ref)
+		return "", exitErrf(ExitUsage, "bad reference %q: expected @1, @2, … from the last listing", ref)
 	}
 	s := a.loadState()
+	if len(s.Results) > 0 && s.ResultKind != kind {
+		return "", exitErrf(ExitUsage,
+			"the last listing was %ss, so %s is not a %s — run `%s` first",
+			s.ResultKind, ref, kind, listCommandFor(kind))
+	}
 	if len(s.Results) == 0 {
 		// A search that matched nothing still clears the result set, since @N
 		// must never point into a stale one. Saying "run pt search first" to
 		// someone who just did is worse than useless, so the two are separated.
 		if !s.SavedAt.IsZero() {
-			return "", exitErrf(ExitNotFound, "the last search matched no parts, so %s refers to nothing", ref)
+			return "", exitErrf(ExitNotFound, "the last listing matched nothing, so %s refers to nothing", ref)
 		}
-		return "", exitErrf(ExitNotFound, "no saved result set — run `pt search` first")
+		return "", exitErrf(ExitNotFound, "no saved result set — run `%s` first", listCommandFor(kind))
 	}
 	if n > len(s.Results) {
-		return "", exitErrf(ExitNotFound, "%s is out of range — the last search returned %d rows", ref, len(s.Results))
+		return "", exitErrf(ExitNotFound, "%s is out of range — the last listing returned %d rows", ref, len(s.Results))
+	}
+	if s.Results[n-1].ID == "" {
+		// A listing can hold rows that resolved to nothing — an unresolved BOM
+		// line keeps its slot so the numbering matches what was printed.
+		label := s.Results[n-1].Label
+		if label == "" {
+			label = "that row"
+		}
+		return "", exitErrf(ExitNotFound,
+			"%s (%s) did not resolve to a %s, so there is nothing to look up", ref, label, kind)
 	}
 	return s.Results[n-1].ID, nil
 }
@@ -162,15 +179,15 @@ func (a *app) resolveResultRef(ref string) (string, error) {
 // resolvePrefix matches an abbreviated id against recently seen parts. It
 // returns an empty id (and no error) when nothing matches, so the caller can
 // fall back to treating the input as an MPN.
-func (a *app) resolvePrefix(ref string) (string, error) {
+func (a *app) resolvePrefix(ref, kind string) (string, error) {
 	if len(ref) < minPrefixLen {
 		return "", nil
 	}
 	lower := strings.ToLower(ref)
 	s := a.loadState()
-	var matches []PartIdent
+	var matches []Ref
 	for _, p := range s.Recent {
-		if strings.HasPrefix(strings.ToLower(p.ID), lower) {
+		if p.Kind == kind && strings.HasPrefix(strings.ToLower(p.ID), lower) {
 			matches = append(matches, p)
 		}
 	}
@@ -205,7 +222,7 @@ func (a *app) resolveByText(ctx context.Context, ref string) (string, error) {
 		return "", err
 	}
 	if len(exact.Items) == 1 {
-		a.rememberPart(teamID, partIdent(exact.Items[0]))
+		a.remember(teamID, partIdent(exact.Items[0]))
 		return exact.Items[0].ID, nil
 	}
 	if len(exact.Items) > 1 {
@@ -229,7 +246,7 @@ func (a *app) resolveByText(ctx context.Context, ref string) (string, error) {
 		// A substring hit is a guess, so say which part was chosen — on stderr,
 		// where it cannot corrupt piped output.
 		fmt.Fprintf(os.Stderr, "pt: %q → %s\n", ref, strOr(item.Mpn, item.ID))
-		a.rememberPart(teamID, partIdent(item))
+		a.remember(teamID, partIdent(item))
 		return item.ID, nil
 	default:
 		return "", ambiguousItems(ref, fuzzy.Items, fuzzy.Total)
@@ -254,13 +271,28 @@ func ambiguousItems(ref string, items []PartListItem, total int64) error {
 }
 
 // ambiguousIdents is the same for locally cached identities.
-func ambiguousIdents(ref string, idents []PartIdent) error {
+func ambiguousIdents(ref string, idents []Ref) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "id prefix %q matches %d known parts:", ref, len(idents))
+	fmt.Fprintf(&b, "id prefix %q matches %d known %ss:", ref, len(idents), idents[0].Kind)
 	for _, p := range idents {
-		fmt.Fprintf(&b, "\n  %-8s %s", shortID(p.ID), p.Mpn)
+		fmt.Fprintf(&b, "\n  %-8s %s", shortID(p.ID), p.Label)
 	}
 	return exitErrf(ExitAmbiguous, "%s", b.String())
+}
+
+// listCommandFor names the command that refreshes the @N set for a kind, so an
+// addressing failure ends with the fix rather than the diagnosis. It returns ""
+// for a kind with no listing command, and callers drop the hint rather than
+// naming a command that does not exist.
+func listCommandFor(kind string) string {
+	switch kind {
+	case kindPart:
+		return "pt search"
+	case kindProject, kindOrder, kindBuild, kindCheckout:
+		return "pt " + kind + "s list"
+	default:
+		return ""
+	}
 }
 
 // shortID abbreviates a UUID to the prefix length the tool advertises.
@@ -283,7 +315,7 @@ func (a *app) fetchPart(ctx context.Context, partID, teamID string) (*PartDetail
 	if err := client.Get(ctx, "/parts/"+partID, q, &detail); err != nil {
 		return nil, err
 	}
-	a.rememberPart(teamID, detailIdent(&detail))
+	a.remember(teamID, detailIdent(&detail))
 	return &detail, nil
 }
 

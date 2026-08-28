@@ -11,26 +11,34 @@ import (
 // both plain and JSON output, so `pt search --fields mpn,stock --format json`
 // emits exactly those keys and nothing else — cheaper to consume than piping the
 // full row through jq.
-type column struct {
+//
+// The machinery is generic over the row type because every list view wants it:
+// parts, orders, builds, cart items and checkouts each declare their own column
+// set and share the resolution, rendering and JSON-projection code below.
+type column[T any] struct {
 	Key     string // canonical name, also the JSON key
 	Header  string // plain-text header
 	Aliases []string
-	Value   func(PartListItem) string
+	Value   func(T) string
 
 	// JSON overrides the encoded value when the display string is the wrong
 	// type — a quantity must arrive as a number and an absent value as null,
 	// not as the em-dash placeholder. Nil falls back to Value, mapping the
 	// placeholder to null.
-	JSON func(PartListItem) any
+	JSON func(T) any
+
+	// Wide marks a column whose content is long enough to wreck a terminal
+	// table, so list views clamp it unless --wide is given.
+	Wide bool
 }
 
-var partColumns = []column{
+var partColumns = []column[PartListItem]{
 	{Key: "id", Header: "ID", Value: func(p PartListItem) string { return shortID(p.ID) }},
 	{Key: "uuid", Header: "UUID", Value: func(p PartListItem) string { return p.ID }},
 	{Key: "mpn", Header: "MPN", Value: func(p PartListItem) string { return str(p.Mpn) }},
 	{Key: "mfr", Header: "MFR", Aliases: []string{"manufacturer"},
 		Value: func(p PartListItem) string { return str(p.Manufacturer) }},
-	{Key: "desc", Header: "DESC", Aliases: []string{"description"}, Value: func(p PartListItem) string {
+	{Key: "desc", Header: "DESC", Aliases: []string{"description"}, Wide: true, Value: func(p PartListItem) string {
 		// The short description is the curated one; fall back to the full text.
 		if p.ShortDescription != nil && *p.ShortDescription != "" {
 			return *p.ShortDescription
@@ -101,16 +109,16 @@ func formatLocation(label *string, coord []int32) string {
 }
 
 // resolveFields maps a user field list onto columns, preserving the given order.
-func resolveFields(spec []string) ([]column, error) {
-	var out []column
+func resolveFields[T any](spec []string, all []column[T]) ([]column[T], error) {
+	var out []column[T]
 	for _, raw := range spec {
 		name := strings.ToLower(strings.TrimSpace(raw))
 		if name == "" {
 			continue
 		}
-		col, ok := lookupColumn(name)
+		col, ok := lookupColumn(name, all)
 		if !ok {
-			return nil, exitErrf(ExitUsage, "unknown field %q — available: %s", raw, availableFields())
+			return nil, exitErrf(ExitUsage, "unknown field %q — available: %s", raw, availableFields(all))
 		}
 		out = append(out, col)
 	}
@@ -120,8 +128,8 @@ func resolveFields(spec []string) ([]column, error) {
 	return out, nil
 }
 
-func lookupColumn(name string) (column, bool) {
-	for _, c := range partColumns {
+func lookupColumn[T any](name string, all []column[T]) (column[T], bool) {
+	for _, c := range all {
 		if c.Key == name {
 			return c, true
 		}
@@ -131,15 +139,25 @@ func lookupColumn(name string) (column, bool) {
 			}
 		}
 	}
-	return column{}, false
+	var zero column[T]
+	return zero, false
 }
 
-func availableFields() string {
-	keys := make([]string, len(partColumns))
-	for i, c := range partColumns {
+func availableFields[T any](all []column[T]) string {
+	keys := make([]string, len(all))
+	for i, c := range all {
 		keys[i] = c.Key
 	}
 	return strings.Join(keys, ", ")
+}
+
+// pickFieldsFrom returns the user's --fields selection, or the command's default
+// when the flag was not given.
+func pickFieldsFrom(given, def []string) []string {
+	if len(given) == 0 {
+		return def
+	}
+	return splitList(given)
 }
 
 // splitList splits a comma-separated flag value, trimming and dropping empties.
@@ -193,16 +211,23 @@ func headerFor(slug string) string {
 	return strings.ToUpper(strings.ReplaceAll(slug, "_", " "))
 }
 
-// rowFor builds one plain-text row from the selected columns and param columns.
-func rowFor(p PartListItem, cols []column, params []string, descWidth int) []string {
-	cells := make([]string, 0, len(cols)+len(params))
+// rowFor builds one plain-text row from the selected columns. Columns marked
+// Wide are clamped to width, which is 0 when the caller passed --wide.
+func rowFor[T any](v T, cols []column[T], width int) []string {
+	cells := make([]string, 0, len(cols))
 	for _, c := range cols {
-		v := c.Value(p)
-		if c.Key == "desc" && descWidth > 0 {
-			v = truncate(v, descWidth)
+		s := c.Value(v)
+		if c.Wide && width > 0 {
+			s = truncate(s, width)
 		}
-		cells = append(cells, v)
+		cells = append(cells, s)
 	}
+	return cells
+}
+
+// partRowFor is rowFor plus the --params spec columns, which only parts have.
+func partRowFor(p PartListItem, cols []column[PartListItem], params []string, descWidth int) []string {
+	cells := rowFor(p, cols, descWidth)
 	for _, slug := range params {
 		v, ok := p.Parameters[slug]
 		if !ok || v == "" {
@@ -225,19 +250,25 @@ func intOrNil(v *int32) any {
 // jsonRow builds the JSON object for one row under --fields, keeping only the
 // selected keys. Absent values encode as null rather than the display dash, so
 // `jq '.items[] | select(.stock == null)'` means what it reads like.
-func jsonRow(p PartListItem, cols []column, params []string) map[string]any {
-	obj := make(map[string]any, len(cols)+len(params))
+func jsonRow[T any](v T, cols []column[T]) map[string]any {
+	obj := make(map[string]any, len(cols))
 	for _, c := range cols {
 		if c.JSON != nil {
-			obj[c.Key] = c.JSON(p)
+			obj[c.Key] = c.JSON(v)
 			continue
 		}
-		if v := c.Value(p); v != dash {
-			obj[c.Key] = v
+		if s := c.Value(v); s != dash {
+			obj[c.Key] = s
 		} else {
 			obj[c.Key] = nil
 		}
 	}
+	return obj
+}
+
+// partJSONRow is jsonRow plus the --params spec keys.
+func partJSONRow(p PartListItem, cols []column[PartListItem], params []string) map[string]any {
+	obj := jsonRow(p, cols)
 	for _, slug := range params {
 		if v, ok := p.Parameters[slug]; ok {
 			obj[slug] = v
@@ -248,14 +279,15 @@ func jsonRow(p PartListItem, cols []column, params []string) map[string]any {
 	return obj
 }
 
-// numberedHeader prefixes a header row with the @N index column.
-func numberedHeader(cols []column, params []string) []string {
-	header := make([]string, 0, len(cols)+len(params)+1)
+// numberedHeader prefixes a header row with the @N index column. extra names
+// any trailing columns the caller appends itself (the --params spec columns).
+func numberedHeader[T any](cols []column[T], extra []string) []string {
+	header := make([]string, 0, len(cols)+len(extra)+1)
 	header = append(header, "#")
 	for _, c := range cols {
 		header = append(header, c.Header)
 	}
-	for _, slug := range params {
+	for _, slug := range extra {
 		header = append(header, headerFor(slug))
 	}
 	return header

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 
@@ -24,7 +25,43 @@ type stubServer struct {
 	*httptest.Server
 	// lastQuery records the query of the most recent /parts list request.
 	lastQuery url.Values
-	authSeen  string
+	// queries records the query of the most recent request to each path. Several
+	// commands are exercised in one test binary, so a single lastQuery would be
+	// whichever request happened to land last.
+	queries  map[string]url.Values
+	authSeen string
+	// mux is exposed so a test can register the endpoints its command needs
+	// without every test paying for the whole API surface.
+	mux *http.ServeMux
+}
+
+// record stores a request's query under its path.
+func (s *stubServer) record(r *http.Request) {
+	if s.queries == nil {
+		s.queries = map[string]url.Values{}
+	}
+	s.queries[r.URL.Path] = r.URL.Query()
+}
+
+// queryFor returns the query the stub saw for a path, failing the test when that
+// path was never requested — an assertion against a query that was never sent
+// would otherwise pass by comparing empty to empty.
+func (s *stubServer) queryFor(t *testing.T, path string) url.Values {
+	t.Helper()
+	q, ok := s.queries["/api/v1"+path]
+	if !ok {
+		t.Fatalf("no request was made to %s; saw %v", path, s.paths())
+	}
+	return q
+}
+
+func (s *stubServer) paths() []string {
+	out := make([]string, 0, len(s.queries))
+	for p := range s.queries {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func newStubServer(t *testing.T) *stubServer {
@@ -57,6 +94,7 @@ func newStubServer(t *testing.T) *stubServer {
 	})
 	mux.HandleFunc("/api/v1/parts", func(w http.ResponseWriter, r *http.Request) {
 		s.lastQuery = r.URL.Query()
+		s.record(r)
 		qty, min := int32(4200), int32(500)
 		writeStub(w, PartListResponse{
 			Total: 2, Limit: 50, Offset: 0,
@@ -83,6 +121,7 @@ func newStubServer(t *testing.T) *stubServer {
 	mux.HandleFunc("/api/v1/parts/11111111-1111-1111-1111-111111111111",
 		func(w http.ResponseWriter, r *http.Request) {
 			s.lastQuery = r.URL.Query()
+			s.record(r)
 			qty := int32(4200)
 			detail := PartDetail{
 				ID: "11111111-1111-1111-1111-111111111111", Scope: "global",
@@ -146,6 +185,7 @@ func newStubServer(t *testing.T) *stubServer {
 			})
 		})
 
+	s.mux = mux
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -328,12 +368,12 @@ func TestJSONRowUsesNativeTypes(t *testing.T) {
 	}
 	untracked := PartListItem{ID: "id-2", LifecycleStatus: "active"}
 
-	cols, err := resolveFields([]string{"mpn", "stock", "min", "reorder", "tracked", "loc"})
+	cols, err := resolveFields([]string{"mpn", "stock", "min", "reorder", "tracked", "loc"}, partColumns)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	row := jsonRow(tracked, cols, nil)
+	row := jsonRow(tracked, cols)
 	if v, ok := row["stock"].(int32); !ok || v != 0 {
 		t.Errorf("stock = %#v, want int32(0) — zero stock is not absent stock", row["stock"])
 	}
@@ -344,7 +384,7 @@ func TestJSONRowUsesNativeTypes(t *testing.T) {
 		t.Errorf("absent min = %#v, want null", row["min"])
 	}
 
-	row = jsonRow(untracked, cols, nil)
+	row = jsonRow(untracked, cols)
 	for _, key := range []string{"stock", "min", "reorder", "loc", "mpn"} {
 		if row[key] != nil {
 			t.Errorf("%s = %#v, want null for an untracked part", key, row[key])

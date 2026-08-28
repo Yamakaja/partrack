@@ -108,7 +108,7 @@ func runWhereLocation(ctx context.Context, teamID, ref string) error {
 	// The listing includes descendant locations, so a row's label is only worth
 	// repeating when it sits somewhere other than the location asked for.
 	rows := make([][]string, len(resp.Items))
-	idents := make([]PartIdent, len(resp.Items))
+	idents := make([]Ref, len(resp.Items))
 	for i, it := range resp.Items {
 		rows[i] = numberedRow(i+1, []string{
 			str(it.PartMPN),
@@ -117,13 +117,9 @@ func runWhereLocation(ctx context.Context, teamID, ref string) error {
 			strconv.FormatInt(int64(it.QuantityOnHand), 10),
 			cellWithin(locLabel, it.LocationLabel, it.StorageCoordinate),
 		})
-		idents[i] = PartIdent{
-			ID:           it.PartID,
-			Mpn:          strOr(it.PartMPN, ""),
-			Manufacturer: strOr(it.PartManufacturer, ""),
-		}
+		idents[i] = identOf(it.PartID, it.PartMPN, it.PartManufacturer)
 	}
-	ap.saveResults(teamID, idents)
+	ap.saveResults(teamID, kindPart, idents)
 	writeTable(ap.out, []string{"#", "MPN", "MFR", "DESC", "STOCK", "CELL"}, rows)
 	if int64(len(resp.Items)) < resp.Total {
 		fmt.Fprintf(ap.out, "%d of %d entries\n", len(resp.Items), resp.Total)

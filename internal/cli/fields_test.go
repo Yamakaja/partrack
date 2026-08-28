@@ -8,7 +8,7 @@ import (
 func sp(s string) *string { return &s }
 
 func TestResolveFieldsOrderAndAliases(t *testing.T) {
-	cols, err := resolveFields([]string{"stock", "mpn", "manufacturer"})
+	cols, err := resolveFields([]string{"stock", "mpn", "manufacturer"}, partColumns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestResolveFieldsOrderAndAliases(t *testing.T) {
 		}
 	}
 
-	if _, err := resolveFields([]string{"nonsense"}); err == nil {
+	if _, err := resolveFields([]string{"nonsense"}, partColumns); err == nil {
 		t.Error("expected an error for an unknown field")
 	}
 }
@@ -48,7 +48,7 @@ func TestSplitParamSpecsKeepsCommas(t *testing.T) {
 // An untracked part has no inventory entry, which is a different statement from
 // holding zero — the two must not render alike.
 func TestStockColumnDistinguishesUntrackedFromZero(t *testing.T) {
-	col, _ := lookupColumn("stock")
+	col, _ := lookupColumn("stock", partColumns)
 	zero := int32(0)
 
 	untracked := PartListItem{}

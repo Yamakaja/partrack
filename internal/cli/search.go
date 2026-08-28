@@ -171,7 +171,7 @@ func runSearch(ctx context.Context, query string) error {
 		}
 	}
 
-	cols, err := resolveFields(pickFields(searchFlags.fields))
+	cols, err := resolveFields(pickFieldsFrom(searchFlags.fields, defaultPartFields), partColumns)
 	if err != nil {
 		return err
 	}
@@ -193,16 +193,16 @@ func runSearch(ctx context.Context, query string) error {
 
 	// Record the result set before rendering, so @N works even if the caller
 	// pipes stdout into something that closes early.
-	idents := make([]PartIdent, len(items))
+	idents := make([]Ref, len(items))
 	for i, it := range items {
 		idents[i] = partIdent(it)
 	}
-	ap.saveResults(teamID, idents)
+	ap.saveResults(teamID, kindPart, idents)
 
 	if ap.format == FormatJSON {
 		rows := make([]map[string]any, len(items))
 		for i, it := range items {
-			row := jsonRow(it, cols, paramCols)
+			row := partJSONRow(it, cols, paramCols)
 			row["n"] = i + 1
 			row["uuid"] = it.ID
 			rows[i] = row
@@ -225,7 +225,7 @@ func runSearch(ctx context.Context, query string) error {
 	}
 	rows := make([][]string, len(items))
 	for i, it := range items {
-		rows[i] = numberedRow(i+1, rowFor(it, cols, paramCols, descWidth))
+		rows[i] = numberedRow(i+1, partRowFor(it, cols, paramCols, descWidth))
 	}
 	writeTable(ap.out, numberedHeader(cols, paramCols), rows)
 	fmt.Fprintln(ap.out, searchFooter(len(items), resp.Total, category, filters))
@@ -258,14 +258,6 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
-}
-
-// pickFields returns the requested field list, or the default set.
-func pickFields(flag []string) []string {
-	if fields := splitList(flag); len(fields) > 0 {
-		return fields
-	}
-	return defaultPartFields
 }
 
 // splitParamSpecs splits repeated --param flags. Unlike other list flags it does
@@ -320,9 +312,9 @@ func normalizeLifecycle(vals []string) string {
 func sortItems(items []PartListItem, spec string) error {
 	key, dir, _ := strings.Cut(spec, ":")
 	descending := strings.EqualFold(dir, "desc")
-	col, ok := lookupColumn(strings.ToLower(strings.TrimSpace(key)))
+	col, ok := lookupColumn(strings.ToLower(strings.TrimSpace(key)), partColumns)
 	if !ok {
-		return exitErrf(ExitUsage, "unknown sort field %q — available: %s", key, availableFields())
+		return exitErrf(ExitUsage, "unknown sort field %q — available: %s", key, availableFields(partColumns))
 	}
 
 	// Numeric columns must not sort lexically: 9 belongs after 100.

@@ -23,27 +23,51 @@ type (
 	Category            = apitypes.Category
 	ParamDef            = apitypes.ParameterDefinition
 	Note                = apitypes.Note
+
+	ProjectListItem  = apitypes.ProjectListItem
+	ProjectDetail    = apitypes.ProjectDetail
+	RevisionListItem = apitypes.RevisionListItem
+	RevisionDetail   = apitypes.RevisionDetail
+	BOMLineItem      = apitypes.BOMLineItem
+	StockCheck       = apitypes.StockCheck
+	StockCheckItem   = apitypes.StockCheckItem
+	OrderListItem    = apitypes.OrderListItem
+	OrderDetail      = apitypes.OrderDetail
+	OrderLineItem    = apitypes.OrderLineItem
+	LinkedBuild      = apitypes.LinkedBuild
+	BuildListItem    = apitypes.BuildListItem
+	BuildDetail      = apitypes.BuildDetail
+	BuildPreviewItem = apitypes.BuildPreviewItem
+	PipelineBuild    = apitypes.PipelineBuild
+	CartItem         = apitypes.CartItem
+	CartListing      = apitypes.CartListing
+	CheckoutListItem = apitypes.CheckoutListItem
+	CheckoutDetail   = apitypes.CheckoutDetail
 )
+
+// List is the standard {total, limit, offset, items} envelope.
+type List[T any] = apitypes.List[T]
 
 // PartListResponse is the standard list envelope around part rows.
 type PartListResponse = apitypes.List[PartListItem]
 
-// ident extracts the addressing subset for the @N / prefix state file.
-func identOf(id string, mpn, manufacturer *string) PartIdent {
-	return PartIdent{
+// identOf extracts the addressing subset for the @N / prefix state file.
+func identOf(id string, mpn, manufacturer *string) Ref {
+	return Ref{
+		Kind:         kindPart,
 		ID:           id,
-		Mpn:          strOr(mpn, ""),
+		Label:        strOr(mpn, ""),
 		Manufacturer: strOr(manufacturer, ""),
 	}
 }
 
 // partIdent is the addressing subset of a list row.
-func partIdent(p PartListItem) PartIdent {
+func partIdent(p PartListItem) Ref {
 	return identOf(p.ID, p.Mpn, p.Manufacturer)
 }
 
 // detailIdent is the addressing subset of a part detail.
-func detailIdent(p *PartDetail) PartIdent {
+func detailIdent(p *PartDetail) Ref {
 	return identOf(p.ID, p.Mpn, p.Manufacturer)
 }
 
