@@ -1,6 +1,6 @@
 ---
 name: partrack
-description: Research the user's own electronics parts inventory (partrack) from the command line — what parts are on hand, where they are stored, their specs, datasheets, distributor listings and notes, plus parametric search of the catalog. Use when asked what is in stock, whether a design can be built from inventory, where a part lives, or for the specs of a part the user already owns.
+description: Research the user's own electronics parts inventory (partrack) from the command line — what parts are on hand, where they are stored, their specs, datasheets, distributor listings and notes, parametric search of the catalog, plus the workflow around it: projects and their BOM revisions, stock checks for a build, the cart, orders, builds and checkouts. Use when asked what is in stock, whether a design can be built from inventory, what is on order, what a build is waiting for, where a part lives, or for the specs of a part the user already owns.
 ---
 
 # Parts inventory research (`pt`)
@@ -11,9 +11,11 @@ already have. For sourcing parts they do **not** have, that is a distributor
 catalog question — the DigiKey research skill (`dks`) covers it, and the two
 are complements.
 
-`pt` does not write to partrack yet: it cannot check parts out, adjust stock,
-or import a BOM. It can *read* a BOM file locally and tell you what the import
-will make of it — see **Cross-checking a BOM** below.
+`pt` reads; it does not write. It cannot check parts out, adjust stock, add to
+the cart or import a BOM. It *can* read a BOM file locally and tell you what the
+import will make of it — see **Cross-checking a BOM** below — and it can read
+everything the server already holds: the catalog and stock room, projects and
+their imported BOM revisions, the cart, orders, builds and checkouts.
 
 ## Credentials
 
@@ -62,11 +64,21 @@ The free-text query is a plain substring match over MPN, description,
 manufacturer and aliases. It is **not** value-aware: `pt search "10k 0402"`
 finds nothing useful. Values belong in `--param`, package in `--package`.
 
-## Addressing a part
+## Addressing an object
 
 Every part-taking command accepts, in this order: `@3` (row 3 of the last
-search), a full id, an id prefix, an exact MPN, or a substring. `@N` is the
-natural way to chain — search, then act on a row.
+listing), a full id, an id prefix, an exact MPN, or a substring. `@N` is the
+natural way to chain — list, then act on a row.
+
+Projects, orders, builds and checkouts address the same way. The text form
+matches the project name, an order's external reference or distributor, or a
+build's project name or revision label; a checkout has no name, so use `@N` or
+an id prefix.
+
+**`@N` belongs to the kind of the last listing.** After `pt orders list`, `@1`
+is an order and `pt show @1` fails with exit 2 rather than fetching some
+unrelated part. Two commands deliberately leave `@N` on parts, because their
+rows *are* parts: `pt cart show` and `pt bom show`.
 
 ```sh
 pt search -c Resistors --param resistance=10k
@@ -161,6 +173,66 @@ pt --format json search --fields mpn,stock | jq -r '.items[]
   | select(.stock == null) | .mpn'      # not tracked — not "out of stock"
 ```
 
+## Answering questions about the workflow
+
+The chain is: a project owns BOM revisions → a stock check says what building N
+boards would take → shortfalls go to the cart → the cart becomes orders →
+receiving an order feeds a build. Every step is readable.
+
+```sh
+# What projects are there, and is the active BOM ready to build?
+pt projects list
+pt projects show "Power Supply v2"        # incl. the active revision's resolution counts
+
+# Which BOM lines still need a human?
+pt bom show "Power Supply v2" --unresolved
+
+# Can we build 10 of these from stock?
+pt bom stock "Power Supply v2" --quantity 10 --short
+pt --format json bom stock @1 --quantity 10 | jq '.fully_buildable'
+
+# What is on order, and what is it for?
+pt orders list --status open
+pt orders show @1                         # line items + the builds it was raised for
+
+# What are we assembling, and what is reserved?
+pt builds pipeline                        # active builds by stage
+pt builds show @1                         # allocations, orders, substitute choices
+pt builds show @1 --preview               # what it will actually consume, line by line
+
+# What is staged to buy, and why?
+pt cart show --demands
+pt --format json cart show | jq '[.items[].line] | add'   # cart total
+
+# Who took what off the shelf?
+pt checkouts list
+pt checkouts show @1
+```
+
+Four things worth knowing before you report an answer:
+
+**Build quantity is ephemeral.** It is a parameter of the stock-check question,
+never a property of the project, which is why `--quantity` is required and has
+no default. A stock check is a snapshot against current stock, not a commitment.
+
+**`fully_buildable` and per-line shortfall answer different questions.**
+`fully_buildable` is how many complete boards current stock covers; a line can
+be short while others have plenty. Report the one that was asked for.
+
+**`quantity_free` is on-hand minus other builds' reservations.** A part can show
+healthy stock and still be unusable because a pending build has it reserved.
+`pt bom stock` breaks this out per line as `on hand` / `reserved` / `free`.
+
+**A cart listing marked `auto` was chosen by the sourcing policy, not a person.**
+`pt cart show --fields mpn,qty,dist,unit,line,chosen,reason` shows which rule
+applied. An item with no listing at all cannot be ordered, and `pt` says so
+under the table — do not silently treat it as free.
+
+Two order endpoints are not exposed because they are not reads: exporting an
+order mutates it, and `pt orders show --distributor-status` calls the
+distributor and caches the result. Do not reach for the latter unless the user
+asked for live distributor state.
+
 ## Cross-checking a BOM before it is imported
 
 BOM import is the friction point in partrack, and most of what goes wrong is
@@ -244,10 +316,17 @@ The import itself is still done in the web UI; `pt` cannot post a revision yet.
 
 ## Limits worth stating rather than working around
 
-- **No "where used".** Nothing answers "which projects consume this part";
-  the server has no such query.
-- **Distributor stock and price are not in search results.** They cost one
-  call per part, so they appear in `pt show`, not `pt search`.
 - **No writes.** Checkouts, deposits, cart operations and BOM import are not
   implemented. Direct the user to the web UI for those. (`pt bom check` is a
   local read of a file, not a write to partrack.)
+- **No "where used".** Nothing answers "which projects consume this part"; the
+  server has no such query. You can get close from the other side: `pt stock
+  <part>` lists the builds reserving it, and `pt bom show <project>` lists what
+  one project consumes.
+- **Distributor stock and price are not in search results.** They cost one
+  call per part, so they appear in `pt show`, not `pt search`.
+- **Substitutes, distributor configs, the dashboard and the activity log have
+  no commands yet.** If the question needs one of those, say so rather than
+  approximating it from what is available.
+- **Reading the cart needs the purchaser role.** Exit 3 on `pt cart show` when
+  everything else works means the user is a viewer, not that auth is broken.

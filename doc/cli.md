@@ -1,10 +1,11 @@
 # `pt` — the partrack command-line client
 
-`pt` queries your partrack catalog and inventory from a terminal: parametric part
-search, stock levels and locations, distributor listings, notes and datasheets.
-It is built for non-interactive use — plain column-aligned text by default,
-`--format json` for anything that gets parsed, data on stdout and diagnostics on
-stderr.
+`pt` queries your partrack instance from a terminal: parametric part search,
+stock levels and locations, distributor listings, notes and datasheets, and the
+workflow around them — projects and their BOM revisions, the cart, orders,
+builds and checkouts. It is built for non-interactive use — plain column-aligned
+text by default, `--format json` for anything that gets parsed, data on stdout
+and diagnostics on stderr.
 
 It is a sibling to [`dks`](https://github.com/…/dks) (DigiKey catalog research):
 same conventions, same output discipline, pointed at your own library instead of
@@ -50,8 +51,16 @@ Precedence: built-in defaults < config file < environment < flags.
 | Config dir | `--config-dir` | `PT_CONFIG_DIR` | `$XDG_CONFIG_HOME/partrack` |
 | Cache dir | `--cache-dir` | `PT_CACHE_DIR` | `$XDG_CACHE_HOME/partrack` |
 
+`-v` / `--debug` logs each HTTP request and its status to stderr, which is the
+quickest way to see the query a command actually sent.
+
+The config and cache directories fall back to `~/.config/partrack` and
+`~/.cache/partrack` when `XDG_*` is unset. State found in the old
+`os.UserConfigDir` location is migrated on first run, with a note on stderr.
+
 ```sh
 pt config show          # resolved settings, with where the token came from
+pt config get team
 pt config set team Lab
 pt config path
 pt config clear-cache
@@ -60,13 +69,13 @@ pt config clear-cache
 Settings live in `config.json`; the token lives in a separate `credentials.json`
 at mode `0600`, so the config file never holds a secret and is safe to share.
 
-## Addressing a part
+## Addressing an object
 
 Every command that takes a part accepts, tried in this order:
 
 | Form | Meaning |
 |---|---|
-| `@3` | row 3 of your last `pt search` |
+| `@3` | row 3 of your last listing |
 | `3f2a1111-…` | a full part id |
 | `3f2a` | an id prefix, matched against parts you have recently seen |
 | `RC0402FR-0710KL` | an exact MPN |
@@ -83,7 +92,34 @@ pt show @2
 pt stock RC0402FR-0710KL
 ```
 
+Projects, orders, builds and checkouts use the same ladder, with the text form
+matched against whatever identifies that kind:
+
+| Kind | Text form matches |
+|---|---|
+| project | the project name |
+| order | the external reference, then the distributor name |
+| build | the project name or the BOM revision label |
+| checkout | nothing — a checkout has no name, so use `@N` or an id prefix |
+
+**`@N` is scoped to the kind of the last listing.** After `pt orders list`, `@1`
+is an order; asking `pt show @1` for a part then fails with a usage error naming
+the command that would refresh the set, rather than fetching a part by an
+order's id.
+
+```sh
+pt orders list
+pt orders show @1          # the first order
+pt show @1                 # exits 2: the last listing was orders
+```
+
+`pt cart show` and `pt bom show` are the exceptions that prove the rule: their
+rows *are* parts, so they leave `@N` addressing parts — `pt show @2` on a cart
+row is the useful next step.
+
 ## Commands
+
+**The parts library**
 
 | Command | Purpose |
 |---|---|
@@ -93,14 +129,37 @@ pt stock RC0402FR-0710KL
 | `pt show <part>` | full dossier: identity, inventory, parameters, listings, note, reservations |
 | `pt stock <part>` | on-hand vs reserved vs free, thresholds, location, ledger |
 | `pt where [part]` | locate a part, list a location's contents, or print the storage tree |
+
+**The workflow: BOM → shortfall → cart → order → build**
+
+| Command | Purpose |
+|---|---|
+| `pt projects list` / `show <project>` | projects, their active revision and its resolution summary |
 | `pt bom check <file>` | how partrack will read a BOM file, before importing it (local, no server) |
+| `pt bom show <project>` | an imported revision's lines and how each one resolved |
+| `pt bom stock <project> --quantity N` | what building N boards would take, line by line |
+| `pt cart show` | the team's cart, with the listing each item will be ordered from |
+| `pt orders list` / `show <order>` | purchase orders and their line items |
+| `pt builds list` / `pipeline` / `show <build>` | assembly runs and the stock they reserve |
+| `pt checkouts list` / `show <checkout>` | ad-hoc withdrawals and the ledger entries they made |
+
+**Everything else**
+
+| Command | Purpose |
+|---|---|
 | `pt teams` | the teams you belong to |
 | `pt auth` / `pt config` | credentials and settings |
+
+Most list commands share `--fields`, `--limit`, `--offset` and `--format json`;
+`pt <noun> list --help` names the columns that noun offers.
 
 Two flags take an **optional** value and so require it attached:
 `--history=20` (`pt stock`) and `--params=tolerance,power` (`pt search`).
 Bare `--history` / `--params` use their defaults; detached, the value is left
 behind as a stray argument and the command exits 2 saying so.
+
+Reading the cart needs the **purchaser** role; everything else here needs
+**viewer**. A role you do not hold comes back as exit **3**.
 
 ### Searching
 
@@ -117,6 +176,9 @@ pt search --stock low --fields mpn,stock,min,loc --sort stock
 
 Other filters: `--mpn` (exact), `--scope global|team`, `--lifecycle`,
 `--location` (includes descendant locations), `--limit` / `--offset` / `--all`.
+
+`--all` walks every page in 200-row steps, up to **2000 rows**. Past that it
+stops and says so on stderr rather than silently returning a partial answer.
 
 ### The `--param` grammar
 
@@ -194,6 +256,24 @@ lower bound**. So `--param temperature_range=85` finds parts whose *minimum*
 rating is 85 °C, not parts rated up to 85 °C. `pt` warns on stderr whenever you
 filter one. They are also omitted from `pt filters` entirely (the catalog
 endpoint excludes them), so the command names them explicitly instead.
+
+### Narrowing a dossier
+
+`pt show <part>` prints six sections; `--only` picks among them:
+
+```sh
+pt show @1 --only params,listings
+pt show @1 --only stock            # alias for `inventory`
+```
+
+Sections: `identity, inventory, params, listings, note, allocations`.
+`specs` / `parameters` and `stock` are accepted as aliases for `params` and
+`inventory`.
+
+Two other narrowing flags are easy to miss: `pt categories --non-empty` hides
+categories your team holds nothing in (and `cats` is an alias for the command),
+`pt filters <category> --max-values N` caps how many observed values each
+parameter lists, and `pt where --location X --limit N` bounds a location listing.
 
 ### Checking a BOM before importing
 
@@ -278,11 +358,87 @@ a distributor API call the preview does not make, and the forecast is against th
 catalog as it stands — parts created during an import can change what later lines
 match. See [bom-import.md](bom-import.md) for the full flow.
 
+### Reading an imported BOM
+
+`pt bom show <project>` prints the line items of a revision — the designators,
+what each line resolved to, and the state that decided it. Without `--revision`
+it reads the project's **active** revision, which is the one stock checks and
+builds run against.
+
+`--unresolved` narrows to the lines that still need a person. That includes
+`auto_mpn_fuzzy`, which does resolve: a substring MPN match is a weaker claim
+than an exact one, so the review queue surfaces it and so does this.
+
+```sh
+pt bom show "Power Supply v2"
+pt bom show @1 --unresolved
+pt bom show @1 --revision rev-2 --fields refdes,qty,value,mpn,state
+```
+
+Columns: `id, refdes, qty, value, footprint, bom_mpn, mpn, mfr, pkg, stock,
+state, subs, desc`. `bom_mpn` is what the file said; `mpn` is what it resolved
+to, and comparing the two is usually the point.
+
+### Checking stock for a build
+
+```sh
+pt bom stock "Power Supply v2" --quantity 10
+pt bom stock @1 --quantity 25 --short
+```
+
+`--quantity` is required. Build quantity is **ephemeral** — a parameter of the
+question, not a property of the project — so there is no default to fall back
+on. `--short` keeps only the lines with a shortfall, which is the question you
+were actually asking.
+
+The header reports `fully buildable`: how many complete boards current stock
+covers, which is a different number from "is line N short". Per line you get
+need, on hand, reserved (by other builds), free, on order and short. A line
+fitted with an approved substitute names the substitute, not the primary part.
+
+### Orders, builds, the cart
+
+```sh
+pt orders list --status open           # every status that is not yet terminal
+pt orders show @1
+pt builds list --project "Power Supply v2" --status pending
+pt builds pipeline                     # active builds, grouped into their four stages
+pt builds show @1 --preview            # what it will consume, line by line
+pt cart show --demands                 # …and which pending builds asked for it
+pt checkouts list
+```
+
+`--status open` on `pt orders list` is not a server-side value: it expands to
+`draft,exported,submitted,confirmed,shipped`, one request each, merged and
+re-sorted newest-first.
+
+`pt cart show` marks each listing `auto` or `by hand`. An `auto` listing was
+picked by the team's sourcing policy, and `--fields …,reason` says which rule
+applied — plus `(stale stock)` when a preference was honoured against stock data
+old enough that the server flagged it. An item with **no** listing cannot be
+ordered at all, and is called out under the table rather than silently costing
+nothing.
+
+`pt builds show --preview` is opt-in because the endpoint behind it costs the
+server a query per BOM line.
+
+Two order endpoints are deliberately **not** wired up. `GET …/orders/{id}/export`
+transitions the order to `exported` — that is a write, and belongs with the write
+commands. `GET …/orders/{id}/distributor-status` calls the distributor and caches
+the result onto the order, so it sits behind an explicit
+`pt orders show --distributor-status`.
+
 ### Columns
 
-`--fields` picks and orders columns for both plain and JSON output. The default
-is `mpn,mfr,desc,pkg,stock,loc,status`. Available: `id, uuid, mpn, mfr, desc,
-category, pkg, status, scope, stock, min, reorder, loc, tracked`.
+`--fields` picks and orders columns for both plain and JSON output. Every list
+command has one; `pt <noun> list --help` names its columns, and an unknown field
+exits 2 listing the ones that exist.
+
+For `pt search` the default is `mpn,mfr,desc,pkg,stock,loc,status`, and the
+available set is `id, uuid, mpn, mfr, desc, category, pkg, status, scope, stock,
+min, reorder, loc, tracked`.
+
+`--wide` (`pt search`) stops the description column being truncated.
 
 `--params` adds parameter columns — bare for every parameter in the result set,
 or `--params=tolerance,power` for a subset. It **requires `--category`**, because
@@ -305,6 +461,10 @@ anything absent is `null` — never the `—` placeholder used for display.
 pt --format json search --fields mpn,stock,loc | jq '.items[] | select(.stock == null) | .mpn'
 pt --format json show @1 | jq '.part.listings[] | {distributor_name, stock_available, unit_price}'
 pt --format json stock @1 | jq '.quantity_free'
+pt --format json bom stock @1 --quantity 10 | jq '.items[] | select(.shortfall > 0) | .resolved_part_mpn'
+pt --format json cart show | jq '[.items[].line] | add'
+pt --format json orders list --status open | jq '.items[] | {ref, status, total}'
+pt --format json builds show @1 | jq '.build.allocations[] | {part_mpn, quantity_reserved}'
 ```
 
 ## Caching
@@ -340,12 +500,21 @@ range parameters comparing only the lower bound). Symlink it into
 
 ## Known limits
 
-- **No "where used".** Nothing answers "which projects consume this part", so
-  `pt` cannot either. That needs a server-side query first.
-- **Distributor stock and price are not in the search response.** Your own
-  inventory rides along free with `GET /parts`; distributor availability costs
-  one call per part, so it appears in `pt show`, not in `pt search`.
 - **Writes are not implemented yet.** Checkouts, deposits, cart operations and
   `pt bom import` are the next increment. This is a matter of what has been
   built, not a design constraint: the client speaks every verb, and
   `pt bom check` already produces the exact payload an import would post.
+- **No "where used".** Nothing answers "which projects consume this part", so
+  `pt` cannot either. That needs a server-side query first. `pt stock <part>`
+  gets close from the other direction: it lists the builds reserving it.
+- **Distributor stock and price are not in the search response.** Your own
+  inventory rides along free with `GET /parts`; distributor availability costs
+  one call per part, so it appears in `pt show`, not in `pt search`.
+- **Substitutes, distributor configs, the dashboard and the activity log have no
+  commands.** They are read-only surfaces `pt` simply has not reached yet.
+- **`pt orders list --status` costs one request per status.** The endpoint takes
+  a single status, so `--status open` — five statuses — is five requests, and its
+  reported total is their sum rather than a de-duplicated count.
+- **BOM revision listings are not paginated server-side.** `pt bom show` fetches
+  every line and filters locally; `--limit` clamps what is *printed*, not what is
+  fetched.
