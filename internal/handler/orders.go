@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	"net/http"
 	"sort"
 	"strings"
@@ -20,60 +21,56 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func orderResponse(o dbgen.GetOrderRow) map[string]any {
-	resp := map[string]any{
-		"id":                      o.ID.String(),
-		"distributor_id":          o.DistributorID.String(),
-		"distributor_name":        o.DistributorName,
-		"distributor_api_type":    o.DistributorApiType,
-		"status":                  string(o.Status),
-		"external_reference":      o.ExternalReference,
-		"notes":                   o.Notes,
-		"purchase_order_number":   o.PurchaseOrderNumber,
-		"created_at":              o.CreatedAt.Time.UTC().Format(time.RFC3339),
-		"created_by_display_name": o.CreatedByDisplayName,
+func orderResponse(o dbgen.GetOrderRow) apitypes.Order {
+	resp := apitypes.Order{
+		ID:                   o.ID.String(),
+		DistributorID:        o.DistributorID.String(),
+		DistributorName:      o.DistributorName,
+		DistributorApiType:   o.DistributorApiType,
+		Status:               string(o.Status),
+		ExternalReference:    o.ExternalReference,
+		Notes:                o.Notes,
+		PurchaseOrderNumber:  o.PurchaseOrderNumber,
+		CreatedAt:            o.CreatedAt.Time.UTC().Format(time.RFC3339),
+		CreatedByDisplayName: o.CreatedByDisplayName,
+		// An empty integrations column stays an empty object, not null, so a
+		// client can index into it without a nil check.
+		Integrations: json.RawMessage("{}"),
 	}
 	if o.SubmissionMethod.Valid {
-		resp["submission_method"] = string(o.SubmissionMethod.OrderSubmissionMethod)
-	} else {
-		resp["submission_method"] = nil
+		m := string(o.SubmissionMethod.OrderSubmissionMethod)
+		resp.SubmissionMethod = &m
 	}
 	if o.ExternalRefLinkedAt.Valid {
-		resp["external_ref_linked_at"] = o.ExternalRefLinkedAt.Time.UTC().Format(time.RFC3339)
-	} else {
-		resp["external_ref_linked_at"] = nil
+		t := o.ExternalRefLinkedAt.Time.UTC().Format(time.RFC3339)
+		resp.ExternalRefLinkedAt = &t
 	}
 	if o.ReceivedAt.Valid {
-		resp["received_at"] = o.ReceivedAt.Time.UTC().Format(time.RFC3339)
-	} else {
-		resp["received_at"] = nil
+		t := o.ReceivedAt.Time.UTC().Format(time.RFC3339)
+		resp.ReceivedAt = &t
 	}
-	// integrations: return as raw JSON object (nil/empty stays as null/empty)
 	if len(o.Integrations) > 0 {
-		var raw json.RawMessage = o.Integrations
-		resp["integrations"] = raw
-	} else {
-		resp["integrations"] = json.RawMessage("{}")
+		resp.Integrations = json.RawMessage(o.Integrations)
 	}
 	return resp
 }
 
-func orderLineItemResponse(li dbgen.GetOrderLineItemsRow) map[string]any {
-	return map[string]any{
-		"id":                        li.ID.String(),
-		"listing_id":                li.ListingID.String(),
-		"part_id":                   li.PartID.String(),
-		"part_mpn":                  li.PartMpn,
-		"part_manufacturer":         li.PartManufacturer,
-		"part_lifecycle_status":     string(li.PartLifecycleStatus),
-		"part_image_url":            li.PartImageUrl,
-		"part_description":          li.PartDescription,
-		"sku":                       li.Sku,
-		"packaging_type":            li.PackagingType,
-		"quantity_ordered":          li.QuantityOrdered,
-		"quantity_received":         li.QuantityReceived,
-		"unit_price_snapshot":       numericString(li.UnitPriceSnapshot),
-		"fixed_order_cost_snapshot": numericString(li.FixedOrderCostSnapshot),
+func orderLineItemResponse(li dbgen.GetOrderLineItemsRow) apitypes.OrderLineItem {
+	return apitypes.OrderLineItem{
+		ID:                     li.ID.String(),
+		ListingID:              li.ListingID.String(),
+		PartID:                 li.PartID.String(),
+		PartMpn:                li.PartMpn,
+		PartManufacturer:       li.PartManufacturer,
+		PartLifecycleStatus:    string(li.PartLifecycleStatus),
+		PartImageURL:           li.PartImageUrl,
+		PartDescription:        li.PartDescription,
+		Sku:                    li.Sku,
+		PackagingType:          li.PackagingType,
+		QuantityOrdered:        li.QuantityOrdered,
+		QuantityReceived:       li.QuantityReceived,
+		UnitPriceSnapshot:      numericString(li.UnitPriceSnapshot),
+		FixedOrderCostSnapshot: numericString(li.FixedOrderCostSnapshot),
 	}
 }
 
@@ -126,21 +123,9 @@ func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type orderItem struct {
-		ID                   string  `json:"id"`
-		DistributorID        string  `json:"distributor_id"`
-		DistributorName      string  `json:"distributor_name"`
-		Status               string  `json:"status"`
-		ExternalReference    *string `json:"external_reference"`
-		CreatedAt            string  `json:"created_at"`
-		CreatedByDisplayName string  `json:"created_by_display_name"`
-		LineItemCount        int64   `json:"line_item_count"`
-		TotalPrice           *string `json:"total_price"`
-	}
-
-	items := make([]orderItem, len(rows))
+	items := make([]apitypes.OrderListItem, len(rows))
 	for i, o := range rows {
-		items[i] = orderItem{
+		items[i] = apitypes.OrderListItem{
 			ID:                   o.ID.String(),
 			DistributorID:        o.DistributorID.String(),
 			DistributorName:      o.DistributorName,
@@ -153,33 +138,25 @@ func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":  items,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+	writeJSON(w, http.StatusOK, apitypes.List[apitypes.OrderListItem]{
+		Total: total, Limit: limit, Offset: offset, Items: items,
 	})
 }
 
-func linkedBuildResponse(b dbgen.GetLinkedBuildsForOrderRow) map[string]any {
-	resp := map[string]any{
-		"id":                   b.ID.String(),
-		"project_id":           b.ProjectID.String(),
-		"project_name":         b.ProjectName,
-		"bom_revision_id":      b.BomRevisionID.String(),
-		"bom_revision_label":   b.BomRevisionLabel,
-		"quantity":             b.Quantity,
-		"status":               b.Status,
-		"created_at":           b.CreatedAt.Time.UTC().Format(time.RFC3339),
-		"total_line_items":     b.TotalLineItems,
-		"fulfilled_line_items": b.FulfilledLineItems,
+func linkedBuildResponse(b dbgen.GetLinkedBuildsForOrderRow) apitypes.LinkedBuild {
+	return apitypes.LinkedBuild{
+		ID:                   b.ID.String(),
+		ProjectID:            b.ProjectID.String(),
+		ProjectName:          b.ProjectName,
+		BomRevisionID:        b.BomRevisionID.String(),
+		BomRevisionLabel:     b.BomRevisionLabel,
+		Quantity:             b.Quantity,
+		Status:               b.Status,
+		CreatedAt:            b.CreatedAt.Time.UTC().Format(time.RFC3339),
+		CreatedByDisplayName: b.CreatedByDisplayName,
+		TotalLineItems:       b.TotalLineItems,
+		FulfilledLineItems:   b.FulfilledLineItems,
 	}
-	if b.CreatedByDisplayName != nil {
-		resp["created_by_display_name"] = *b.CreatedByDisplayName
-	} else {
-		resp["created_by_display_name"] = nil
-	}
-	return resp
 }
 
 // GetOrderLinkedBuilds handles GET /api/v1/teams/{teamId}/orders/{orderId}/linked-builds
@@ -211,7 +188,8 @@ func (h *Handler) GetOrderLinkedBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := make([]map[string]any, len(builds))
+	// A bare array, not a list envelope — the shape this endpoint has always had.
+	result := make([]apitypes.LinkedBuild, len(builds))
 	for i, b := range builds {
 		result[i] = linkedBuildResponse(b)
 	}
@@ -250,15 +228,16 @@ func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := orderResponse(order)
-	items := make([]map[string]any, len(lineItems))
+	items := make([]apitypes.OrderLineItem, len(lineItems))
 	for i, li := range lineItems {
 		items[i] = orderLineItemResponse(li)
 	}
-	resp["line_item_count"] = len(items)
-	resp["items"] = items
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, apitypes.OrderDetail{
+		Order:         orderResponse(order),
+		LineItemCount: len(items),
+		Items:         items,
+	})
 }
 
 // UpdateOrder handles PATCH /api/v1/teams/{teamId}/orders/{orderId}

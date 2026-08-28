@@ -146,3 +146,162 @@ func TestNullableQuantitiesEncodeAsNull(t *testing.T) {
 		t.Errorf("parameters should be omitted when empty: %s", data)
 	}
 }
+
+// The order header carries three fields that are explicitly present-and-null
+// rather than omitted, and an integrations object that defaults to {} rather
+// than null. Both were map-built before these types existed; adding `omitempty`
+// to any of them would be a silent wire change.
+func TestOrderNullableFieldsStayPresent(t *testing.T) {
+	data, err := json.Marshal(Order{ID: "o1", Integrations: json.RawMessage("{}")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"submission_method", "external_ref_linked_at", "received_at",
+		"external_reference", "notes", "purchase_order_number", "distributor_api_type",
+	} {
+		raw, ok := got[key]
+		if !ok {
+			t.Errorf("%q is absent; it must be present and null", key)
+			continue
+		}
+		if string(raw) != "null" {
+			t.Errorf("%q = %s, want null", key, raw)
+		}
+	}
+	if string(got["integrations"]) != "{}" {
+		t.Errorf("integrations = %s, want {} — a client indexes into it without a nil check",
+			got["integrations"])
+	}
+}
+
+// OrderDetail embeds Order, which must flatten: a nested "Order" key would break
+// every client reading order.status off the detail response.
+func TestOrderDetailFlattensTheHeader(t *testing.T) {
+	data, err := json.Marshal(OrderDetail{
+		Order: Order{ID: "o1", Status: "draft", Integrations: json.RawMessage("{}")},
+		Items: []OrderLineItem{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, nested := got["Order"]; nested {
+		t.Fatalf("the header did not flatten: %s", data)
+	}
+	for _, key := range []string{"id", "status", "line_item_count", "items"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("detail is missing %q: %s", key, data)
+		}
+	}
+}
+
+// A build's consumed items are null until it is assembled, which is a different
+// statement from an assembled build that consumed nothing. Adding omitempty or
+// pre-allocating the slice would collapse the two.
+func TestBuildConsumedItemsAreNullBeforeAssembly(t *testing.T) {
+	data, err := json.Marshal(BuildDetail{ID: "b1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["items"]) != "null" {
+		t.Errorf("items = %s, want null for a build that is not assembled", got["items"])
+	}
+	if _, ok := got["kitting_session"]; !ok {
+		t.Error("kitting_session must be present and null, not omitted")
+	}
+
+	assembled, err := json.Marshal(BuildDetail{ID: "b1", Items: []BuildConsumedItem{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(assembled, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["items"]) != "[]" {
+		t.Errorf("items = %s, want [] for an assembled build that consumed nothing", got["items"])
+	}
+}
+
+// A cart listing that the user chose carries no reason; one the sourcing policy
+// resolved does. The two keys are omitempty precisely so "chosen by hand" does
+// not render as an empty explanation.
+func TestCartListingReasonIsOmittedWhenChosen(t *testing.T) {
+	chosen, err := json.Marshal(CartListing{ListingID: "l1", Chosen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(chosen, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["reason"]; ok {
+		t.Errorf("reason should be omitted for a hand-chosen listing: %s", chosen)
+	}
+	if _, ok := got["preferred_stale"]; ok {
+		t.Errorf("preferred_stale should be omitted for a hand-chosen listing: %s", chosen)
+	}
+
+	resolved, err := json.Marshal(CartListing{ListingID: "l1", Reason: "cheapest_in_stock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(resolved, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["reason"]) != `"cheapest_in_stock"` {
+		t.Errorf("reason = %s, want the policy rule that applied", got["reason"])
+	}
+	// A cart item always reports its listing key, even when nothing resolved.
+	item, err := json.Marshal(CartItem{ID: "c1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(item, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["listing"]) != "null" {
+		t.Errorf("listing = %s, want null when no listing resolved", got["listing"])
+	}
+}
+
+// A BOM line's inherited-resolution fields are omitted rather than null, which is
+// how the frontend tells "this line did not inherit" from "it inherited from
+// nowhere". The resolved-part fields opposite them are present-and-null.
+func TestBOMLineItemOmitsInheritanceUnlessInherited(t *testing.T) {
+	data, err := json.Marshal(BOMLineItem{ID: "li1", Substitutes: []BOMSubstituteEntry{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"origin_resolution_state", "origin_revision_label", "resolved_part_flag",
+		"value", "footprint", "interpretation", "resolve_item",
+	} {
+		if _, ok := got[key]; ok {
+			t.Errorf("%q should be omitted when unset: %s", key, data)
+		}
+	}
+	for _, key := range []string{"resolved_part_id", "resolved_part_mpn", "quantity_on_hand", "resolution_state"} {
+		if raw, ok := got[key]; !ok || string(raw) != "null" {
+			t.Errorf("%q must be present and null, got (%s, present=%v)", key, raw, ok)
+		}
+	}
+	if string(got["substitutes"]) != "[]" {
+		t.Errorf("substitutes = %s, want []", got["substitutes"])
+	}
+}

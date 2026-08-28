@@ -534,3 +534,481 @@ type ProjectListItem struct {
 	CreatedByDisplayName      string  `json:"created_by_display_name"`
 	CreatedAt                 string  `json:"created_at"`
 }
+
+// --- Projects and BOM revisions -----------------------------------------------
+
+// RevisionSummary counts how a revision's lines came out of resolution. It rides
+// along on a project detail for the active revision, so "is this BOM ready" can
+// be answered without a second request.
+type RevisionSummary struct {
+	ItemCount       int64 `json:"item_count"`
+	ResolvedCount   int64 `json:"resolved_count"`
+	UnresolvedCount int64 `json:"unresolved_count"`
+	AmbiguousCount  int64 `json:"ambiguous_count"`
+}
+
+// ProjectDetail is GET /teams/{teamId}/projects/{projectId}. It is ProjectListItem
+// plus the import config and the active revision's resolution summary.
+type ProjectDetail struct {
+	ID                        string           `json:"id"`
+	Name                      string           `json:"name"`
+	Description               *string          `json:"description"`
+	Status                    string           `json:"status"`
+	ActiveBomRevisionID       *string          `json:"active_bom_revision_id"`
+	ActiveBomRevisionLabel    *string          `json:"active_bom_revision_label"`
+	BomImportConfig           json.RawMessage  `json:"bom_import_config"`
+	PreferredDistributorID    *string          `json:"preferred_distributor_id"`
+	SourceURL                 *string          `json:"source_url"`
+	ProjectManagerID          *string          `json:"project_manager_id"`
+	ProjectManagerDisplayName *string          `json:"project_manager_display_name"`
+	CreatedByDisplayName      string           `json:"created_by_display_name"`
+	CreatedAt                 string           `json:"created_at"`
+	ActiveRevisionSummary     *RevisionSummary `json:"active_revision_summary"`
+}
+
+// RevisionListItem is one row of GET …/projects/{projectId}/revisions.
+type RevisionListItem struct {
+	ID                    string  `json:"id"`
+	Label                 string  `json:"label"`
+	ImportedAt            string  `json:"imported_at"`
+	Notes                 *string `json:"notes"`
+	ImportedByDisplayName string  `json:"imported_by_display_name"`
+	ItemCount             int64   `json:"item_count"`
+	ResolvedCount         int64   `json:"resolved_count"`
+	UnresolvedCount       int64   `json:"unresolved_count"`
+	IsActive              bool    `json:"is_active"`
+}
+
+// RevisionList is GET …/projects/{projectId}/revisions. It predates the standard
+// envelope and does not paginate, so it carries items alone.
+type RevisionList struct {
+	Items []RevisionListItem `json:"items"`
+}
+
+// BOMSubstituteEntry is one approved substitute on a BOM line.
+type BOMSubstituteEntry struct {
+	PartID  string  `json:"part_id"`
+	PartMpn *string `json:"part_mpn"`
+}
+
+// BOMResolveItem is the resolve-queue task attached to a BOM line, present only
+// while a line is still being looked up or after it failed.
+type BOMResolveItem struct {
+	ID             string          `json:"id"`
+	Status         *string         `json:"status"`
+	TaskType       *string         `json:"task_type"`
+	EnrichmentData json.RawMessage `json:"enrichment_data,omitempty"`
+	ErrorMessage   *string         `json:"error_message,omitempty"`
+}
+
+// BOMLineItem is one line of an imported revision: the raw columns as they were
+// read, what they resolved to, and the state that decided it.
+type BOMLineItem struct {
+	ID                   string  `json:"id"`
+	ReferenceDesignators string  `json:"reference_designators"`
+	Quantity             int32   `json:"quantity"`
+	PartName             *string `json:"part_name"`
+	RawDescription       *string `json:"raw_description"`
+	Manufacturer         *string `json:"manufacturer"`
+	MPN                  *string `json:"mpn"`
+	SKU                  *string `json:"sku"`
+	DistributorName      string  `json:"distributor_name"`
+	HasLinkedDistributor bool    `json:"has_linked_distributor"`
+	ResolvedPartID       *string `json:"resolved_part_id"`
+	ResolvedPartMpn      *string `json:"resolved_part_mpn"`
+	ResolvedPartFlag     *string `json:"resolved_part_flag,omitempty"`
+	ResolvedPartMfr      *string `json:"resolved_part_manufacturer"`
+	ResolvedPartDesc     *string `json:"resolved_part_description"`
+	ResolvedPartPackage  *string `json:"resolved_part_package"`
+	ResolvedPartLifecyle *string `json:"resolved_part_lifecycle_status"`
+	ResolvedPartImageURL *string `json:"resolved_part_image_url"`
+	QuantityOnHand       *int32  `json:"quantity_on_hand"`
+	ResolutionState      *string `json:"resolution_state"`
+
+	// Where an inherited resolution actually came from — the decision that chose
+	// the part, already collapsed to one hop by the import worker. Null unless
+	// resolution_state is auto_prior_revision.
+	OriginResolutionState *string `json:"origin_resolution_state,omitempty"`
+	OriginRevisionLabel   *string `json:"origin_revision_label,omitempty"`
+
+	Ignored              bool                 `json:"ignored"`
+	Value                *string              `json:"value,omitempty"`
+	Footprint            *string              `json:"footprint,omitempty"`
+	Interpretation       json.RawMessage      `json:"interpretation,omitempty"`
+	InterpretationSource string               `json:"interpretation_source,omitempty"`
+	Substitutes          []BOMSubstituteEntry `json:"substitutes"`
+	ResolveItem          *BOMResolveItem      `json:"resolve_item,omitempty"`
+}
+
+// RevisionDetail is GET …/revisions/{revId}.
+type RevisionDetail struct {
+	ID                    string        `json:"id"`
+	Label                 string        `json:"label"`
+	ImportedAt            string        `json:"imported_at"`
+	Notes                 *string       `json:"notes"`
+	ImportedByDisplayName string        `json:"imported_by_display_name"`
+	IsActive              bool          `json:"is_active"`
+	Items                 []BOMLineItem `json:"items"`
+}
+
+// --- Stock check ---------------------------------------------------------------
+
+// StockCheckItem is one BOM line measured against the team's stock for a given
+// build quantity. Build quantity is ephemeral — a parameter of the question, not
+// a property of the project.
+type StockCheckItem struct {
+	BomLineItemID        string  `json:"bom_line_item_id"`
+	ReferenceDesignators string  `json:"reference_designators"`
+	QuantityPerBoard     int32   `json:"quantity_per_board"`
+	RequiredQuantity     int32   `json:"required_quantity"`
+	QuantityOnHand       int32   `json:"quantity_on_hand"`
+	QuantityReserved     int32   `json:"quantity_reserved"`
+	QuantityFree         int32   `json:"quantity_free"`
+	QuantityOnOrder      int32   `json:"quantity_on_order"`
+	Shortfall            int32   `json:"shortfall"`
+	StockStatus          string  `json:"stock_status"`
+	ResolvedPartID       *string `json:"resolved_part_id"`
+	ResolvedPartMpn      *string `json:"resolved_part_mpn"`
+	MinStockQty          *int32  `json:"min_stock_qty"`
+	BelowRestock         bool    `json:"below_restock"`
+
+	// Substitute fields — nil when using the primary part.
+	SelectedSubstituteID  *string `json:"selected_substitute_id"`
+	SelectedSubstituteMPN *string `json:"selected_substitute_mpn"`
+	SubstituteQtyOnHand   *int32  `json:"substitute_qty_on_hand"`
+}
+
+// StockCheck is GET …/revisions/{revId}/stock-check. FullyBuildable is how many
+// complete boards the current stock covers.
+type StockCheck struct {
+	RevisionID     string           `json:"revision_id"`
+	BuildQuantity  int32            `json:"build_quantity"`
+	FullyBuildable int32            `json:"fully_buildable"`
+	Items          []StockCheckItem `json:"items"`
+}
+
+// --- Orders --------------------------------------------------------------------
+
+// OrderListItem is one row of GET /teams/{teamId}/orders.
+type OrderListItem struct {
+	ID                   string  `json:"id"`
+	DistributorID        string  `json:"distributor_id"`
+	DistributorName      string  `json:"distributor_name"`
+	Status               string  `json:"status"`
+	ExternalReference    *string `json:"external_reference"`
+	CreatedAt            string  `json:"created_at"`
+	CreatedByDisplayName string  `json:"created_by_display_name"`
+	LineItemCount        int64   `json:"line_item_count"`
+	TotalPrice           *string `json:"total_price"`
+}
+
+// Order is the header of a purchase order. Every nullable field is a pointer
+// without omitempty: the keys are always present, and absent reads as null.
+type Order struct {
+	ID                  string  `json:"id"`
+	DistributorID       string  `json:"distributor_id"`
+	DistributorName     string  `json:"distributor_name"`
+	DistributorApiType  *string `json:"distributor_api_type"`
+	Status              string  `json:"status"`
+	ExternalReference   *string `json:"external_reference"`
+	Notes               *string `json:"notes"`
+	PurchaseOrderNumber *string `json:"purchase_order_number"`
+	CreatedAt           string  `json:"created_at"`
+
+	CreatedByDisplayName string  `json:"created_by_display_name"`
+	SubmissionMethod     *string `json:"submission_method"`
+	ExternalRefLinkedAt  *string `json:"external_ref_linked_at"`
+	ReceivedAt           *string `json:"received_at"`
+
+	// Integrations is the distributor-side state cached on the order. It defaults
+	// to an empty object rather than null, so a client can index into it without
+	// a nil check.
+	Integrations json.RawMessage `json:"integrations"`
+}
+
+// OrderLineItem is one line of an order, with the price snapshot taken when the
+// line was created — not the listing's price today.
+type OrderLineItem struct {
+	ID                     string  `json:"id"`
+	ListingID              string  `json:"listing_id"`
+	PartID                 string  `json:"part_id"`
+	PartMpn                *string `json:"part_mpn"`
+	PartManufacturer       *string `json:"part_manufacturer"`
+	PartLifecycleStatus    string  `json:"part_lifecycle_status"`
+	PartImageURL           *string `json:"part_image_url"`
+	PartDescription        *string `json:"part_description"`
+	Sku                    string  `json:"sku"`
+	PackagingType          string  `json:"packaging_type"`
+	QuantityOrdered        int32   `json:"quantity_ordered"`
+	QuantityReceived       int32   `json:"quantity_received"`
+	UnitPriceSnapshot      *string `json:"unit_price_snapshot"`
+	FixedOrderCostSnapshot *string `json:"fixed_order_cost_snapshot"`
+}
+
+// OrderDetail is GET …/orders/{orderId}: the header flattened alongside its lines.
+type OrderDetail struct {
+	Order
+	LineItemCount int             `json:"line_item_count"`
+	Items         []OrderLineItem `json:"items"`
+}
+
+// LinkedBuild is one build an order was raised for. GET …/orders/{orderId}/linked-builds
+// returns these as a bare array, not a list envelope.
+type LinkedBuild struct {
+	ID                   string  `json:"id"`
+	ProjectID            string  `json:"project_id"`
+	ProjectName          string  `json:"project_name"`
+	BomRevisionID        string  `json:"bom_revision_id"`
+	BomRevisionLabel     string  `json:"bom_revision_label"`
+	Quantity             int32   `json:"quantity"`
+	Status               string  `json:"status"`
+	CreatedAt            string  `json:"created_at"`
+	CreatedByDisplayName *string `json:"created_by_display_name"`
+	TotalLineItems       int32   `json:"total_line_items"`
+	FulfilledLineItems   int32   `json:"fulfilled_line_items"`
+}
+
+// --- Builds --------------------------------------------------------------------
+
+// BuildListItem is one row of GET /teams/{teamId}/builds.
+type BuildListItem struct {
+	ID                     string  `json:"id"`
+	ProjectID              string  `json:"project_id"`
+	ProjectName            string  `json:"project_name"`
+	BomRevisionID          string  `json:"bom_revision_id"`
+	BomRevisionLabel       string  `json:"bom_revision_label"`
+	Quantity               int32   `json:"quantity"`
+	Status                 string  `json:"status"`
+	AssembledAt            *string `json:"assembled_at"`
+	CreatedAt              string  `json:"created_at"`
+	Notes                  *string `json:"notes"`
+	CreatedBy              string  `json:"created_by"`
+	CreatedByDisplayName   *string `json:"created_by_display_name"`
+	AssembledByDisplayName *string `json:"assembled_by_display_name"`
+}
+
+// PipelineBuild is one build in GET …/builds/pipeline, which groups the active
+// (non-terminal) builds by status.
+type PipelineBuild struct {
+	ID                   string  `json:"id"`
+	ProjectID            string  `json:"project_id"`
+	ProjectName          string  `json:"project_name"`
+	BomRevisionID        string  `json:"bom_revision_id"`
+	BomRevisionLabel     string  `json:"bom_revision_label"`
+	Quantity             int32   `json:"quantity"`
+	Status               string  `json:"status"`
+	CreatedAt            string  `json:"created_at"`
+	Notes                *string `json:"notes"`
+	CreatedBy            string  `json:"created_by"`
+	CreatedByDisplayName *string `json:"created_by_display_name"`
+	ExcludedFromCart     bool    `json:"excluded_from_cart"`
+}
+
+// BuildAllocation is one soft reservation a build holds against a part.
+type BuildAllocation struct {
+	ID                  string  `json:"id"`
+	PartID              string  `json:"part_id"`
+	PartMpn             *string `json:"part_mpn"`
+	PartManufacturer    *string `json:"part_manufacturer"`
+	PartLifecycleStatus string  `json:"part_lifecycle_status"`
+	PartImageURL        *string `json:"part_image_url"`
+	PartDescription     *string `json:"part_description"`
+	QuantityNeeded      int32   `json:"quantity_needed"`
+	QuantityReserved    int32   `json:"quantity_reserved"`
+	QuantityReceived    int32   `json:"quantity_received"`
+}
+
+// BuildConsumedItem is one stock deduction an assembled build made. It is null on
+// the wire until the build is assembled, which is what distinguishes "nothing was
+// consumed" from "this build has not been built yet".
+type BuildConsumedItem struct {
+	InventoryEntryID    string  `json:"inventory_entry_id"`
+	PartID              string  `json:"part_id"`
+	PartMpn             *string `json:"part_mpn"`
+	PartManufacturer    *string `json:"part_manufacturer"`
+	PartLifecycleStatus string  `json:"part_lifecycle_status"`
+	PartImageURL        *string `json:"part_image_url"`
+	PartDescription     *string `json:"part_description"`
+	QuantityDeducted    int32   `json:"quantity_deducted"`
+}
+
+// BuildSubstituteSelection records that a build will use a substitute rather than
+// the BOM line's primary part.
+type BuildSubstituteSelection struct {
+	BomLineItemID   string  `json:"bom_line_item_id"`
+	SelectedPartID  string  `json:"selected_part_id"`
+	SelectedPartMpn *string `json:"selected_part_mpn"`
+}
+
+// BuildLineItemOverride records a per-line decision (e.g. do not source) taken on
+// a build.
+type BuildLineItemOverride struct {
+	BomLineItemID string `json:"bom_line_item_id"`
+	OverrideType  string `json:"override_type"`
+}
+
+// BuildKittingSession is the most recent non-abandoned kitting session, so the
+// desktop can restore the kitting panel after a reload.
+type BuildKittingSession struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+// BuildDetail is GET …/builds/{buildId}.
+type BuildDetail struct {
+	ID                     string   `json:"id"`
+	ProjectID              string   `json:"project_id"`
+	ProjectName            string   `json:"project_name"`
+	BomRevisionID          string   `json:"bom_revision_id"`
+	BomRevisionLabel       string   `json:"bom_revision_label"`
+	Quantity               int32    `json:"quantity"`
+	Status                 string   `json:"status"`
+	Notes                  *string  `json:"notes"`
+	ExcludedFromCart       bool     `json:"excluded_from_cart"`
+	ExcludedDesignators    []string `json:"excluded_designators"`
+	CreatedAt              string   `json:"created_at"`
+	CreatedByDisplayName   *string  `json:"created_by_display_name"`
+	AssembledByDisplayName *string  `json:"assembled_by_display_name"`
+	AssembledQuantity      *int32   `json:"assembled_quantity"`
+	AssembledAt            *string  `json:"assembled_at"`
+
+	Allocations []BuildAllocation `json:"allocations"`
+	OrderIDs    []string          `json:"order_ids"`
+	// Items are the stock deductions an assembled build made — null until then.
+	Items []BuildConsumedItem `json:"items"`
+
+	SelectionsStale      bool                       `json:"selections_stale"`
+	SelectionsCheckedAt  *string                    `json:"selections_checked_at"`
+	SubstituteSelections []BuildSubstituteSelection `json:"substitute_selections"`
+	LineItemOverrides    []BuildLineItemOverride    `json:"line_item_overrides"`
+	KittingSession       *BuildKittingSession       `json:"kitting_session"`
+}
+
+// BuildPreviewSubstitute is one substitute offered for a previewed BOM line.
+type BuildPreviewSubstitute struct {
+	PartID          string  `json:"part_id"`
+	PartMpn         *string `json:"part_mpn"`
+	PartDescription *string `json:"part_description"`
+	QuantityOnHand  int32   `json:"quantity_on_hand"`
+}
+
+// BuildPreviewItem is one BOM line as the build will actually consume it, with
+// the build's excluded designators, line overrides and substitute selections
+// already applied.
+type BuildPreviewItem struct {
+	BomLineItemID               string  `json:"bom_line_item_id"`
+	ReferenceDesignators        string  `json:"reference_designators"`
+	ResolvedPartID              *string `json:"resolved_part_id"`
+	ResolvedPartMpn             *string `json:"resolved_part_mpn"`
+	ResolvedPartManufacturer    *string `json:"resolved_part_manufacturer"`
+	ResolvedPartLifecycleStatus *string `json:"resolved_part_lifecycle_status"`
+	ResolvedPartImageURL        *string `json:"resolved_part_image_url"`
+	ResolvedPartDescription     *string `json:"resolved_part_description"`
+	QuantityPerBoard            int32   `json:"quantity_per_board"`
+	EffectiveQuantityPerBoard   int32   `json:"effective_quantity_per_board"`
+	TotalQuantity               int32   `json:"total_quantity"`
+	EffectiveTotalQuantity      int32   `json:"effective_total_quantity"`
+	QuantityOnHand              int32   `json:"quantity_on_hand"`
+	Sufficient                  bool    `json:"sufficient"`
+	ExcludedDesignatorCount     int     `json:"excluded_designator_count"`
+	Override                    *string `json:"override"`
+	AvailableQuantity           *int32  `json:"available_quantity"`
+
+	Substitutes []BuildPreviewSubstitute `json:"substitutes"`
+}
+
+// BuildPreview is GET …/builds/{buildId}/preview.
+type BuildPreview struct {
+	Items []BuildPreviewItem `json:"items"`
+}
+
+// --- Cart ----------------------------------------------------------------------
+
+// CartListing is the listing a cart item will be ordered from. Chosen=true means
+// the user set it explicitly; false means the sourcing policy resolved it, and
+// Reason says which rule applied.
+type CartListing struct {
+	ListingID       string          `json:"listing_id"`
+	DistributorID   *string         `json:"distributor_id"`
+	DistributorName *string         `json:"distributor_name"`
+	SKU             *string         `json:"sku"`
+	UnitPrice       *string         `json:"unit_price"`
+	FixedOrderCost  *string         `json:"fixed_order_cost"`
+	MOQ             int32           `json:"moq"`
+	PriceBreaks     json.RawMessage `json:"price_breaks"`
+	PackagingType   *string         `json:"packaging_type"`
+	StockAvailable  *int32          `json:"stock_available"`
+	LastRefreshedAt *string         `json:"last_refreshed_at"`
+	OptimizedQty    int32           `json:"optimized_qty"`
+	Chosen          bool            `json:"chosen"`
+
+	// Reason explains an auto-resolved selection under the sourcing policy (empty
+	// when the user chose the listing). PreferredStale flags a preference honoured
+	// on stale stock.
+	Reason         string `json:"reason,omitempty"`
+	PreferredStale bool   `json:"preferred_stale,omitempty"`
+}
+
+// CartBuildDemand attributes part of a cart item's quantity to a pending build.
+type CartBuildDemand struct {
+	BuildID          string `json:"build_id"`
+	ProjectName      string `json:"project_name"`
+	BomRevisionLabel string `json:"bom_revision_label"`
+	QuantityNeeded   int32  `json:"quantity_needed"`
+}
+
+// CartItem is one staged part in the team's shopping cart.
+type CartItem struct {
+	ID                   string  `json:"id"`
+	PartID               string  `json:"part_id"`
+	PartMpn              *string `json:"part_mpn"`
+	PartDescription      *string `json:"part_description"`
+	PartShortDescription *string `json:"part_short_description"`
+	PartManufacturer     *string `json:"part_manufacturer"`
+	PartLifecycleStatus  string  `json:"part_lifecycle_status"`
+	PartCategory         *string `json:"part_category"`
+	PartPackage          *string `json:"part_package"`
+	PartProductURL       *string `json:"part_product_url"`
+	PartDatasheetURL     *string `json:"part_datasheet_url"`
+	PartImageURL         *string `json:"part_image_url"`
+	Quantity             int32   `json:"quantity"`
+	Source               string  `json:"source"`
+	SourceBomLineItemID  *string `json:"source_bom_line_item_id"`
+
+	Listing      *CartListing      `json:"listing"`
+	BuildDemands []CartBuildDemand `json:"build_demands"`
+}
+
+// Cart is GET /teams/{teamId}/cart. There is one cart per team.
+type Cart struct {
+	Items []CartItem `json:"items"`
+}
+
+// --- Checkouts -----------------------------------------------------------------
+
+// CheckoutListItem is one row of GET /teams/{teamId}/checkouts.
+type CheckoutListItem struct {
+	ID                     string  `json:"id"`
+	PerformedAt            string  `json:"performed_at"`
+	Reason                 *string `json:"reason"`
+	PerformedByDisplayName string  `json:"performed_by_display_name"`
+	ItemCount              int64   `json:"item_count"`
+}
+
+// CheckoutLineItem is one part withdrawn by a general checkout, with the ledger
+// entry the withdrawal produced.
+type CheckoutLineItem struct {
+	PartID            string  `json:"part_id"`
+	PartMpn           *string `json:"part_mpn"`
+	Quantity          int32   `json:"quantity"`
+	StockAdjustmentID *string `json:"stock_adjustment_id"`
+}
+
+// CheckoutDetail is GET …/checkouts/{checkoutId}.
+type CheckoutDetail struct {
+	ID                     string             `json:"id"`
+	PerformedAt            string             `json:"performed_at"`
+	Reason                 *string            `json:"reason"`
+	PerformedByDisplayName string             `json:"performed_by_display_name"`
+	Items                  []CheckoutLineItem `json:"items"`
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	"net/http"
 	"time"
 
@@ -42,17 +43,9 @@ func (h *Handler) ListCheckouts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type checkoutItem struct {
-		ID                     string  `json:"id"`
-		PerformedAt            string  `json:"performed_at"`
-		Reason                 *string `json:"reason"`
-		PerformedByDisplayName string  `json:"performed_by_display_name"`
-		ItemCount              int64   `json:"item_count"`
-	}
-
-	items := make([]checkoutItem, len(rows))
+	items := make([]apitypes.CheckoutListItem, len(rows))
 	for i, c := range rows {
-		items[i] = checkoutItem{
+		items[i] = apitypes.CheckoutListItem{
 			ID:                     c.ID.String(),
 			PerformedAt:            c.PerformedAt.Time.UTC().Format(time.RFC3339),
 			Reason:                 c.Reason,
@@ -61,11 +54,8 @@ func (h *Handler) ListCheckouts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":  items,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+	writeJSON(w, http.StatusOK, apitypes.List[apitypes.CheckoutListItem]{
+		Total: total, Limit: limit, Offset: offset, Items: items,
 	})
 }
 
@@ -441,16 +431,9 @@ func (h *Handler) GetCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type lineItemResp struct {
-		PartID            string  `json:"part_id"`
-		PartMpn           *string `json:"part_mpn"`
-		Quantity          int32   `json:"quantity"`
-		StockAdjustmentID *string `json:"stock_adjustment_id"`
-	}
-
-	items := make([]lineItemResp, len(lineItems))
+	items := make([]apitypes.CheckoutLineItem, len(lineItems))
 	for i, li := range lineItems {
-		items[i] = lineItemResp{
+		items[i] = apitypes.CheckoutLineItem{
 			PartID:            li.PartID.String(),
 			PartMpn:           li.PartMpn,
 			Quantity:          li.Quantity,
@@ -458,11 +441,11 @@ func (h *Handler) GetCheckout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                        checkout.ID.String(),
-		"performed_at":              checkout.PerformedAt.Time.UTC().Format(time.RFC3339),
-		"reason":                    checkout.Reason,
-		"performed_by_display_name": checkout.PerformedByDisplayName,
-		"items":                     items,
+	writeJSON(w, http.StatusOK, apitypes.CheckoutDetail{
+		ID:                     checkout.ID.String(),
+		PerformedAt:            checkout.PerformedAt.Time.UTC().Format(time.RFC3339),
+		Reason:                 checkout.Reason,
+		PerformedByDisplayName: checkout.PerformedByDisplayName,
+		Items:                  items,
 	})
 }

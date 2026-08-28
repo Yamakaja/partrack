@@ -39,21 +39,9 @@ func (h *Handler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type revItem struct {
-		ID                    string  `json:"id"`
-		Label                 string  `json:"label"`
-		ImportedAt            string  `json:"imported_at"`
-		Notes                 *string `json:"notes"`
-		ImportedByDisplayName string  `json:"imported_by_display_name"`
-		ItemCount             int64   `json:"item_count"`
-		ResolvedCount         int64   `json:"resolved_count"`
-		UnresolvedCount       int64   `json:"unresolved_count"`
-		IsActive              bool    `json:"is_active"`
-	}
-
-	items := make([]revItem, len(rows))
+	items := make([]apitypes.RevisionListItem, len(rows))
 	for i, r := range rows {
-		items[i] = revItem{
+		items[i] = apitypes.RevisionListItem{
 			ID:                    r.ID.String(),
 			Label:                 r.Label,
 			ImportedAt:            r.ImportedAt.Time.UTC().Format(time.RFC3339),
@@ -66,7 +54,7 @@ func (h *Handler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, apitypes.RevisionList{Items: items})
 }
 
 // ImportRevision handles POST /api/v1/teams/{teamId}/projects/{projectId}/revisions
@@ -382,66 +370,19 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Index substitutes by BOM line item ID.
-	type subEntry struct {
-		PartID  string  `json:"part_id"`
-		PartMpn *string `json:"part_mpn"`
-	}
-	subsByItem := make(map[string][]subEntry)
+	subsByItem := make(map[string][]apitypes.BOMSubstituteEntry)
 	for _, s := range subs {
 		key := s.BomLineItemID.String()
-		subsByItem[key] = append(subsByItem[key], subEntry{
+		subsByItem[key] = append(subsByItem[key], apitypes.BOMSubstituteEntry{
 			PartID:  s.PartID.String(),
 			PartMpn: s.PartMpn,
 		})
 	}
 
-	type resolveItemResp struct {
-		ID             string          `json:"id"`
-		Status         *string         `json:"status"`
-		TaskType       *string         `json:"task_type"`
-		EnrichmentData json.RawMessage `json:"enrichment_data,omitempty"`
-		ErrorMessage   *string         `json:"error_message,omitempty"`
-	}
-
-	type lineItemResp struct {
-		ID                   string  `json:"id"`
-		ReferenceDesignators string  `json:"reference_designators"`
-		Quantity             int32   `json:"quantity"`
-		PartName             *string `json:"part_name"`
-		RawDescription       *string `json:"raw_description"`
-		Manufacturer         *string `json:"manufacturer"`
-		MPN                  *string `json:"mpn"`
-		SKU                  *string `json:"sku"`
-		DistributorName      string  `json:"distributor_name"`
-		HasLinkedDistributor bool    `json:"has_linked_distributor"`
-		ResolvedPartID       *string `json:"resolved_part_id"`
-		ResolvedPartMpn      *string `json:"resolved_part_mpn"`
-		ResolvedPartFlag     *string `json:"resolved_part_flag,omitempty"`
-		ResolvedPartMfr      *string `json:"resolved_part_manufacturer"`
-		ResolvedPartDesc     *string `json:"resolved_part_description"`
-		ResolvedPartPackage  *string `json:"resolved_part_package"`
-		ResolvedPartLifecyle *string `json:"resolved_part_lifecycle_status"`
-		ResolvedPartImageURL *string `json:"resolved_part_image_url"`
-		QuantityOnHand       *int32  `json:"quantity_on_hand"`
-		ResolutionState      *string `json:"resolution_state"`
-		// Where an inherited resolution actually came from — the decision that chose
-		// the part, already collapsed to one hop by the import worker. Null unless
-		// resolution_state is auto_prior_revision.
-		OriginResolutionState *string          `json:"origin_resolution_state,omitempty"`
-		OriginRevisionLabel   *string          `json:"origin_revision_label,omitempty"`
-		Ignored               bool             `json:"ignored"`
-		Value                 *string          `json:"value,omitempty"`
-		Footprint             *string          `json:"footprint,omitempty"`
-		Interpretation        json.RawMessage  `json:"interpretation,omitempty"`
-		InterpretationSource  string           `json:"interpretation_source,omitempty"`
-		Substitutes           []subEntry       `json:"substitutes"`
-		ResolveItem           *resolveItemResp `json:"resolve_item,omitempty"`
-	}
-
-	itemsResp := make([]lineItemResp, len(lineItems))
+	itemsResp := make([]apitypes.BOMLineItem, len(lineItems))
 	for i, li := range lineItems {
 		id := li.ID.String()
-		itemsResp[i] = lineItemResp{
+		itemsResp[i] = apitypes.BOMLineItem{
 			ID:                    id,
 			ReferenceDesignators:  li.ReferenceDesignators,
 			Quantity:              li.Quantity,
@@ -485,7 +426,7 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		// renders as "not tracked" — distinct from a tracked zero.
 		itemsResp[i].QuantityOnHand = li.QuantityOnHand
 		if li.ResolveItemID.Valid {
-			ri := &resolveItemResp{
+			ri := &apitypes.BOMResolveItem{
 				ID:           li.ResolveItemID.String(),
 				Status:       li.ResolveStatus,
 				TaskType:     li.ResolveTaskType,
@@ -497,18 +438,18 @@ func (h *Handler) GetRevision(w http.ResponseWriter, r *http.Request) {
 			itemsResp[i].ResolveItem = ri
 		}
 		if itemsResp[i].Substitutes == nil {
-			itemsResp[i].Substitutes = []subEntry{}
+			itemsResp[i].Substitutes = []apitypes.BOMSubstituteEntry{}
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                       rev.ID.String(),
-		"label":                    rev.Label,
-		"imported_at":              rev.ImportedAt.Time.UTC().Format(time.RFC3339),
-		"notes":                    rev.Notes,
-		"imported_by_display_name": rev.ImportedByDisplayName,
-		"is_active":                rev.IsActive,
-		"items":                    itemsResp,
+	writeJSON(w, http.StatusOK, apitypes.RevisionDetail{
+		ID:                    rev.ID.String(),
+		Label:                 rev.Label,
+		ImportedAt:            rev.ImportedAt.Time.UTC().Format(time.RFC3339),
+		Notes:                 rev.Notes,
+		ImportedByDisplayName: rev.ImportedByDisplayName,
+		IsActive:              rev.IsActive,
+		Items:                 itemsResp,
 	})
 }
 

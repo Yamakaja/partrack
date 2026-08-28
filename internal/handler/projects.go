@@ -15,31 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type revisionSummary struct {
-	ItemCount       int64 `json:"item_count"`
-	ResolvedCount   int64 `json:"resolved_count"`
-	UnresolvedCount int64 `json:"unresolved_count"`
-	AmbiguousCount  int64 `json:"ambiguous_count"`
-}
-
-type projectListItem = apitypes.ProjectListItem
-
-type projectDetail struct {
-	ID                        string           `json:"id"`
-	Name                      string           `json:"name"`
-	Description               *string          `json:"description"`
-	Status                    string           `json:"status"`
-	ActiveBomRevisionID       *string          `json:"active_bom_revision_id"`
-	ActiveBomRevisionLabel    *string          `json:"active_bom_revision_label"`
-	BomImportConfig           json.RawMessage  `json:"bom_import_config"`
-	PreferredDistributorID    *string          `json:"preferred_distributor_id"`
-	SourceURL                 *string          `json:"source_url"`
-	ProjectManagerID          *string          `json:"project_manager_id"`
-	ProjectManagerDisplayName *string          `json:"project_manager_display_name"`
-	CreatedByDisplayName      string           `json:"created_by_display_name"`
-	CreatedAt                 string           `json:"created_at"`
-	ActiveRevisionSummary     *revisionSummary `json:"active_revision_summary"`
-}
+type (
+	revisionSummary = apitypes.RevisionSummary
+	projectListItem = apitypes.ProjectListItem
+	projectDetail   = apitypes.ProjectDetail
+)
 
 func uuidPtrString(u pgtype.UUID) *string {
 	if !u.Valid {
@@ -106,11 +86,8 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":  items,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+	writeJSON(w, http.StatusOK, apitypes.List[projectListItem]{
+		Total: total, Limit: limit, Offset: offset, Items: items,
 	})
 }
 

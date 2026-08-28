@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	"net/http"
 	"sort"
 
@@ -18,49 +19,32 @@ import (
 )
 
 // cartListingJSON is the unified listing object returned for every cart item.
-// chosen=true means the user explicitly set this listing; false means it was auto-resolved.
-type cartListingJSON struct {
-	ListingID       string          `json:"listing_id"`
-	DistributorID   *string         `json:"distributor_id"`
-	DistributorName *string         `json:"distributor_name"`
-	SKU             *string         `json:"sku"`
-	UnitPrice       *string         `json:"unit_price"`
-	FixedOrderCost  *string         `json:"fixed_order_cost"`
-	MOQ             int32           `json:"moq"`
-	PriceBreaks     json.RawMessage `json:"price_breaks"`
-	PackagingType   *string         `json:"packaging_type"`
-	StockAvailable  *int32          `json:"stock_available"`
-	LastRefreshedAt *string         `json:"last_refreshed_at"`
-	OptimizedQty    int32           `json:"optimized_qty"`
-	Chosen          bool            `json:"chosen"`
-	// Reason explains an auto-resolved selection under the sourcing policy (empty when
-	// the user chose the listing). PreferredStale flags a preference honoured on stale stock.
-	Reason         string `json:"reason,omitempty"`
-	PreferredStale bool   `json:"preferred_stale,omitempty"`
-}
+// chosen=true means the user explicitly set this listing; false means it was
+// auto-resolved by the sourcing policy, and Reason says which rule applied.
+type cartListingJSON = apitypes.CartListing
 
 // publishCartChanged notifies other team members that the cart has been modified.
 func (h *Handler) publishCartChanged(r *http.Request, teamID pgtype.UUID) {
 	h.publishEvent(r, "cart_changed", teamID.String(), map[string]string{})
 }
 
-func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
-	m := map[string]any{
-		"id":                      i.ID.String(),
-		"part_id":                 i.PartID.String(),
-		"part_mpn":                i.PartMpn,
-		"part_description":        i.PartDescription,
-		"part_short_description":  i.PartShortDescription,
-		"part_manufacturer":       i.PartManufacturer,
-		"part_lifecycle_status":   string(i.PartLifecycleStatus),
-		"part_category":           i.PartCategory,
-		"part_package":            i.PartPackage,
-		"part_product_url":        i.PartProductUrl,
-		"part_datasheet_url":      i.PartDatasheetUrl,
-		"part_image_url":          i.PartImageUrl,
-		"quantity":                i.Quantity,
-		"source":                  string(i.Source),
-		"source_bom_line_item_id": uuidPtrString(i.SourceBomLineItemID),
+func cartItemResponse(i dbgen.GetCartItemsRow) apitypes.CartItem {
+	m := apitypes.CartItem{
+		ID:                   i.ID.String(),
+		PartID:               i.PartID.String(),
+		PartMpn:              i.PartMpn,
+		PartDescription:      i.PartDescription,
+		PartShortDescription: i.PartShortDescription,
+		PartManufacturer:     i.PartManufacturer,
+		PartLifecycleStatus:  string(i.PartLifecycleStatus),
+		PartCategory:         i.PartCategory,
+		PartPackage:          i.PartPackage,
+		PartProductURL:       i.PartProductUrl,
+		PartDatasheetURL:     i.PartDatasheetUrl,
+		PartImageURL:         i.PartImageUrl,
+		Quantity:             i.Quantity,
+		Source:               string(i.Source),
+		SourceBomLineItemID:  uuidPtrString(i.SourceBomLineItemID),
 	}
 	// For items with an explicit listing, build the unified listing object with chosen=true.
 	if i.ListingID.Valid {
@@ -68,7 +52,7 @@ func cartItemResponse(i dbgen.GetCartItemsRow) map[string]any {
 		if i.ListingMoq != nil {
 			moq = *i.ListingMoq
 		}
-		m["listing"] = cartListingJSON{
+		m.Listing = &cartListingJSON{
 			ListingID:       i.ListingID.String(),
 			DistributorID:   uuidPtrString(i.ListingDistributorID),
 			DistributorName: i.ListingDistributorName,
@@ -310,13 +294,7 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Compute per-build demand for every part in the cart.
-	type buildDemand struct {
-		BuildID          string `json:"build_id"`
-		ProjectName      string `json:"project_name"`
-		BomRevisionLabel string `json:"bom_revision_label"`
-		QuantityNeeded   int32  `json:"quantity_needed"`
-	}
-	buildDemandsByPart := make(map[string][]buildDemand)
+	buildDemandsByPart := make(map[string][]apitypes.CartBuildDemand)
 	pendingBuilds, err := h.Queries.GetPendingBuildsForTeamCart(r.Context(), teamID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -333,7 +311,7 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			pid := li.ResolvedPartID.String()
-			buildDemandsByPart[pid] = append(buildDemandsByPart[pid], buildDemand{
+			buildDemandsByPart[pid] = append(buildDemandsByPart[pid], apitypes.CartBuildDemand{
 				BuildID:          pb.ID.String(),
 				ProjectName:      pb.ProjectName,
 				BomRevisionLabel: pb.RevisionLabel,
@@ -342,14 +320,14 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	items := make([]map[string]any, len(rows))
+	items := make([]apitypes.CartItem, len(rows))
 	for i, row := range rows {
 		m := cartItemResponse(row)
 		// For items without an explicit listing, populate from the auto-resolved listing.
 		if !row.ListingID.Valid {
 			if rl := resolution.ByItemID[row.ID.String()]; rl != nil {
 				distIDStr := rl.DistributorID.String()
-				m["listing"] = cartListingJSON{
+				m.Listing = &cartListingJSON{
 					ListingID:       rl.ListingID.String(),
 					DistributorID:   &distIDStr,
 					DistributorName: &rl.DistributorName,
@@ -366,21 +344,17 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 					Reason:          rl.Reason,
 					PreferredStale:  rl.PreferredStale,
 				}
-			} else {
-				m["listing"] = nil
 			}
 		}
 		demands := buildDemandsByPart[row.PartID.String()]
 		if demands == nil {
-			demands = []buildDemand{}
+			demands = []apitypes.CartBuildDemand{}
 		}
-		m["build_demands"] = demands
+		m.BuildDemands = demands
 		items[i] = m
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items": items,
-	})
+	writeJSON(w, http.StatusOK, apitypes.Cart{Items: items})
 }
 
 // RefreshCartListings handles POST /api/v1/teams/{teamId}/cart/refresh-listings

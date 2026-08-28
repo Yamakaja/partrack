@@ -207,30 +207,14 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type buildItem struct {
-		ID                     string  `json:"id"`
-		ProjectID              string  `json:"project_id"`
-		ProjectName            string  `json:"project_name"`
-		BomRevisionID          string  `json:"bom_revision_id"`
-		BomRevisionLabel       string  `json:"bom_revision_label"`
-		Quantity               int32   `json:"quantity"`
-		Status                 string  `json:"status"`
-		AssembledAt            *string `json:"assembled_at"`
-		CreatedAt              string  `json:"created_at"`
-		Notes                  *string `json:"notes"`
-		CreatedBy              string  `json:"created_by"`
-		CreatedByDisplayName   *string `json:"created_by_display_name"`
-		AssembledByDisplayName *string `json:"assembled_by_display_name"`
-	}
-
-	items := make([]buildItem, len(rows))
+	items := make([]apitypes.BuildListItem, len(rows))
 	for i, b := range rows {
 		var assembledAt *string
 		if b.AssembledAt.Valid {
 			t := b.AssembledAt.Time.UTC().Format(time.RFC3339)
 			assembledAt = &t
 		}
-		items[i] = buildItem{
+		items[i] = apitypes.BuildListItem{
 			ID:                     b.ID.String(),
 			ProjectID:              b.ProjectID.String(),
 			ProjectName:            b.ProjectName,
@@ -247,28 +231,12 @@ func (h *Handler) ListBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":  items,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+	writeJSON(w, http.StatusOK, apitypes.List[apitypes.BuildListItem]{
+		Total: total, Limit: limit, Offset: offset, Items: items,
 	})
 }
 
-type pipelineBuild struct {
-	ID                   string  `json:"id"`
-	ProjectID            string  `json:"project_id"`
-	ProjectName          string  `json:"project_name"`
-	BomRevisionID        string  `json:"bom_revision_id"`
-	BomRevisionLabel     string  `json:"bom_revision_label"`
-	Quantity             int32   `json:"quantity"`
-	Status               string  `json:"status"`
-	CreatedAt            string  `json:"created_at"`
-	Notes                *string `json:"notes"`
-	CreatedBy            string  `json:"created_by"`
-	CreatedByDisplayName *string `json:"created_by_display_name"`
-	ExcludedFromCart     bool    `json:"excluded_from_cart"`
-}
+type pipelineBuild = apitypes.PipelineBuild
 
 // GetBuildPipeline handles GET /api/v1/teams/{teamId}/builds/pipeline
 // Returns all active (non-terminal) builds grouped by status.
@@ -365,34 +333,7 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 		subSelMap[s.BomLineItemID.String()] = s.SelectedPartID
 	}
 
-	type subItem struct {
-		PartID          string  `json:"part_id"`
-		PartMpn         *string `json:"part_mpn"`
-		PartDescription *string `json:"part_description"`
-		QuantityOnHand  int32   `json:"quantity_on_hand"`
-	}
-	type previewItem struct {
-		BomLineItemID               string    `json:"bom_line_item_id"`
-		ReferenceDesignators        string    `json:"reference_designators"`
-		ResolvedPartID              *string   `json:"resolved_part_id"`
-		ResolvedPartMpn             *string   `json:"resolved_part_mpn"`
-		ResolvedPartManufacturer    *string   `json:"resolved_part_manufacturer"`
-		ResolvedPartLifecycleStatus *string   `json:"resolved_part_lifecycle_status"`
-		ResolvedPartImageURL        *string   `json:"resolved_part_image_url"`
-		ResolvedPartDescription     *string   `json:"resolved_part_description"`
-		QuantityPerBoard            int32     `json:"quantity_per_board"`
-		EffectiveQuantityPerBoard   int32     `json:"effective_quantity_per_board"`
-		TotalQuantity               int32     `json:"total_quantity"`
-		EffectiveTotalQuantity      int32     `json:"effective_total_quantity"`
-		QuantityOnHand              int32     `json:"quantity_on_hand"`
-		Sufficient                  bool      `json:"sufficient"`
-		ExcludedDesignatorCount     int       `json:"excluded_designator_count"`
-		Override                    *string   `json:"override"`
-		AvailableQuantity           *int32    `json:"available_quantity"`
-		Substitutes                 []subItem `json:"substitutes"`
-	}
-
-	var items []previewItem
+	var items []apitypes.BuildPreviewItem
 	for _, li := range lineItems {
 		if li.Ignored {
 			continue
@@ -467,13 +408,13 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		subItems := make([]subItem, len(subs))
+		subItems := make([]apitypes.BuildPreviewSubstitute, len(subs))
 		for j, s := range subs {
 			var subQty int32
 			if s.QuantityOnHand != nil {
 				subQty = *s.QuantityOnHand
 			}
-			subItems[j] = subItem{
+			subItems[j] = apitypes.BuildPreviewSubstitute{
 				PartID:          s.PartID.String(),
 				PartMpn:         s.PartMpn,
 				PartDescription: s.Description,
@@ -481,7 +422,7 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		items = append(items, previewItem{
+		items = append(items, apitypes.BuildPreviewItem{
 			BomLineItemID:               li.ID.String(),
 			ReferenceDesignators:        li.ReferenceDesignators,
 			ResolvedPartID:              resolvedPartID,
@@ -504,9 +445,9 @@ func (h *Handler) GetBuildPreview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if items == nil {
-		items = []previewItem{}
+		items = []apitypes.BuildPreviewItem{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, apitypes.BuildPreview{Items: items})
 }
 
 // SetBuildExcludedDesignators handles PUT /api/v1/teams/{teamId}/builds/{buildId}/excluded-designators
@@ -765,11 +706,11 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 	// Most recent (non-abandoned) kitting session for the build, if any — lets the
 	// desktop restore the kitting panel after reload and hand a completed kitting
 	// session off to checkout.
-	var kittingSession map[string]any
+	var kittingSession *apitypes.BuildKittingSession
 	if ks, kerr := h.Queries.GetLatestKittingSessionForBuild(r.Context(), buildID); kerr == nil {
-		kittingSession = map[string]any{
-			"id":     ks.ID.String(),
-			"status": ks.Status,
+		kittingSession = &apitypes.BuildKittingSession{
+			ID:     ks.ID.String(),
+			Status: ks.Status,
 		}
 	} else if !errors.Is(kerr, pgx.ErrNoRows) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
@@ -787,26 +728,18 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	type consumedItemResp struct {
-		InventoryEntryID    string  `json:"inventory_entry_id"`
-		PartID              string  `json:"part_id"`
-		PartMpn             *string `json:"part_mpn"`
-		PartManufacturer    *string `json:"part_manufacturer"`
-		PartLifecycleStatus string  `json:"part_lifecycle_status"`
-		PartImageURL        *string `json:"part_image_url"`
-		PartDescription     *string `json:"part_description"`
-		QuantityDeducted    int32   `json:"quantity_deducted"`
-	}
-	var consumedItems []consumedItemResp
+	// Left nil until the build is assembled, so the wire distinguishes "consumed
+	// nothing" from "has not been built yet".
+	var consumedItems []apitypes.BuildConsumedItem
 	if build.Status == "assembled" {
 		deductions, err := h.Queries.ListBuildDeductions(r.Context(), buildID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 			return
 		}
-		consumedItems = make([]consumedItemResp, len(deductions))
+		consumedItems = make([]apitypes.BuildConsumedItem, len(deductions))
 		for i, d := range deductions {
-			consumedItems[i] = consumedItemResp{
+			consumedItems[i] = apitypes.BuildConsumedItem{
 				InventoryEntryID:    d.InventoryEntryID.String(),
 				PartID:              d.PartID.String(),
 				PartMpn:             d.PartMpn,
@@ -819,21 +752,9 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	type allocationResp struct {
-		ID                  string  `json:"id"`
-		PartID              string  `json:"part_id"`
-		PartMpn             *string `json:"part_mpn"`
-		PartManufacturer    *string `json:"part_manufacturer"`
-		PartLifecycleStatus string  `json:"part_lifecycle_status"`
-		PartImageURL        *string `json:"part_image_url"`
-		PartDescription     *string `json:"part_description"`
-		QuantityNeeded      int32   `json:"quantity_needed"`
-		QuantityReserved    int32   `json:"quantity_reserved"`
-		QuantityReceived    int32   `json:"quantity_received"`
-	}
-	allocs := make([]allocationResp, len(allocations))
+	allocs := make([]apitypes.BuildAllocation, len(allocations))
 	for i, a := range allocations {
-		allocs[i] = allocationResp{
+		allocs[i] = apitypes.BuildAllocation{
 			ID:                  a.ID.String(),
 			PartID:              a.PartID.String(),
 			PartMpn:             a.PartMpn,
@@ -852,14 +773,9 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		orderIDStrs[i] = oid.String()
 	}
 
-	type subSelectionResp struct {
-		BomLineItemID   string  `json:"bom_line_item_id"`
-		SelectedPartID  string  `json:"selected_part_id"`
-		SelectedPartMpn *string `json:"selected_part_mpn"`
-	}
-	subSelResp := make([]subSelectionResp, len(substituteSelections))
+	subSelResp := make([]apitypes.BuildSubstituteSelection, len(substituteSelections))
 	for i, s := range substituteSelections {
-		subSelResp[i] = subSelectionResp{
+		subSelResp[i] = apitypes.BuildSubstituteSelection{
 			BomLineItemID:   s.BomLineItemID.String(),
 			SelectedPartID:  s.SelectedPartID.String(),
 			SelectedPartMpn: s.SelectedPartMpn,
@@ -871,50 +787,44 @@ func (h *Handler) GetBuild(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	type overrideResp struct {
-		BomLineItemID string `json:"bom_line_item_id"`
-		OverrideType  string `json:"override_type"`
-	}
-	overrideResps := make([]overrideResp, len(lineItemOverrides))
+	overrideResps := make([]apitypes.BuildLineItemOverride, len(lineItemOverrides))
 	for i, ov := range lineItemOverrides {
-		overrideResps[i] = overrideResp{
+		overrideResps[i] = apitypes.BuildLineItemOverride{
 			BomLineItemID: ov.BomLineItemID.String(),
 			OverrideType:  ov.OverrideType,
 		}
 	}
 
-	resp := map[string]any{
-		"id":                        build.ID.String(),
-		"project_id":                build.ProjectID.String(),
-		"project_name":              build.ProjectName,
-		"bom_revision_id":           build.BomRevisionID.String(),
-		"bom_revision_label":        build.BomRevisionLabel,
-		"quantity":                  build.Quantity,
-		"status":                    build.Status,
-		"notes":                     build.Notes,
-		"excluded_from_cart":        build.ExcludedFromCart,
-		"excluded_designators":      build.ExcludedDesignators,
-		"created_at":                build.CreatedAt.Time.UTC().Format(time.RFC3339),
-		"created_by_display_name":   build.CreatedByDisplayName,
-		"assembled_by_display_name": build.AssembledByDisplayName,
-		"assembled_quantity":        build.AssembledQuantity,
-		"allocations":               allocs,
-		"order_ids":                 orderIDStrs,
-		"items":                     consumedItems,
-		"selections_stale":          selectionsStale,
-		"substitute_selections":     subSelResp,
-		"line_item_overrides":       overrideResps,
-		"kitting_session":           kittingSession,
+	resp := apitypes.BuildDetail{
+		ID:                     build.ID.String(),
+		ProjectID:              build.ProjectID.String(),
+		ProjectName:            build.ProjectName,
+		BomRevisionID:          build.BomRevisionID.String(),
+		BomRevisionLabel:       build.BomRevisionLabel,
+		Quantity:               build.Quantity,
+		Status:                 build.Status,
+		Notes:                  build.Notes,
+		ExcludedFromCart:       build.ExcludedFromCart,
+		ExcludedDesignators:    build.ExcludedDesignators,
+		CreatedAt:              build.CreatedAt.Time.UTC().Format(time.RFC3339),
+		CreatedByDisplayName:   build.CreatedByDisplayName,
+		AssembledByDisplayName: build.AssembledByDisplayName,
+		AssembledQuantity:      build.AssembledQuantity,
+		Allocations:            allocs,
+		OrderIDs:               orderIDStrs,
+		Items:                  consumedItems,
+		SelectionsStale:        selectionsStale,
+		SubstituteSelections:   subSelResp,
+		LineItemOverrides:      overrideResps,
+		KittingSession:         kittingSession,
 	}
 	if build.AssembledAt.Valid {
-		resp["assembled_at"] = build.AssembledAt.Time.UTC().Format(time.RFC3339)
-	} else {
-		resp["assembled_at"] = nil
+		t := build.AssembledAt.Time.UTC().Format(time.RFC3339)
+		resp.AssembledAt = &t
 	}
 	if build.SelectionsCheckedAt.Valid {
-		resp["selections_checked_at"] = build.SelectionsCheckedAt.Time.UTC().Format(time.RFC3339)
-	} else {
-		resp["selections_checked_at"] = nil
+		t := build.SelectionsCheckedAt.Time.UTC().Format(time.RFC3339)
+		resp.SelectionsCheckedAt = &t
 	}
 
 	writeJSON(w, http.StatusOK, resp)

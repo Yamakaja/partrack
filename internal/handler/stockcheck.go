@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/Yamakaja/partrack/internal/apitypes"
 	"net/http"
 	"strconv"
 
@@ -15,26 +16,9 @@ import (
 )
 
 // StockCheckItem is the per-line-item result of a stock check.
-type StockCheckItem struct {
-	BomLineItemID        string  `json:"bom_line_item_id"`
-	ReferenceDesignators string  `json:"reference_designators"`
-	QuantityPerBoard     int32   `json:"quantity_per_board"`
-	RequiredQuantity     int32   `json:"required_quantity"`
-	QuantityOnHand       int32   `json:"quantity_on_hand"`
-	QuantityReserved     int32   `json:"quantity_reserved"`
-	QuantityFree         int32   `json:"quantity_free"`
-	QuantityOnOrder      int32   `json:"quantity_on_order"`
-	Shortfall            int32   `json:"shortfall"`
-	StockStatus          string  `json:"stock_status"`
-	ResolvedPartID       *string `json:"resolved_part_id"`
-	ResolvedPartMpn      *string `json:"resolved_part_mpn"`
-	MinStockQty          *int32  `json:"min_stock_qty"`
-	BelowRestock         bool    `json:"below_restock"`
-	// Substitute fields — nil when using the primary part.
-	SelectedSubstituteID  *string `json:"selected_substitute_id"`
-	SelectedSubstituteMPN *string `json:"selected_substitute_mpn"`
-	SubstituteQtyOnHand   *int32  `json:"substitute_qty_on_hand"`
-}
+// StockCheckItem is one BOM line measured against the team's stock. The wire
+// shape lives in apitypes so the handler and its clients cannot disagree.
+type StockCheckItem = apitypes.StockCheckItem
 
 type subInfo struct {
 	PartID   string
@@ -363,10 +347,10 @@ func (h *Handler) StockCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"revision_id":     revID.String(),
-		"build_quantity":  buildQty,
-		"fully_buildable": fullyBuildable,
-		"items":           items,
+	writeJSON(w, http.StatusOK, apitypes.StockCheck{
+		RevisionID:     revID.String(),
+		BuildQuantity:  buildQty,
+		FullyBuildable: fullyBuildable,
+		Items:          items,
 	})
 }
