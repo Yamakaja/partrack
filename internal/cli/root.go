@@ -160,6 +160,11 @@ func init() {
 		showCmd,
 		stockCmd,
 		whereCmd,
+		projectsCmd,
+		ordersCmd,
+		buildsCmd,
+		cartCmd,
+		checkoutsCmd,
 	)
 }
 

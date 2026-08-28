@@ -15,16 +15,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// bomCmd groups everything that operates on a BOM file. `check` is the only
-// member today; importing a checked file is the next command to land here, which
-// is why the mapping and item-building live in internal/bomfile rather than in
-// this file — `check` already produces the exact payload an import would post.
+// bomCmd groups everything that operates on a bill of materials, on either side
+// of the import: `check` rehearses a file locally, `show` and `stock` read a
+// revision the server already holds. Importing a checked file is the next
+// command to land here, which is why the mapping and item-building live in
+// internal/bomfile rather than in this file — `check` already produces the exact
+// payload an import would post.
 var bomCmd = &cobra.Command{
 	Use:   "bom",
-	Short: "Work with BOM files",
-	Long: `Commands that operate on a BOM file before it reaches partrack.
+	Short: "Bills of materials, before and after import",
+	Long: `Read a BOM file the way partrack will, and read the revisions already imported
+into a project.
 
-  pt bom check my-board.csv`,
+  pt bom check my-board.csv
+  pt bom show "Power Supply v2" --unresolved
+  pt bom stock "Power Supply v2" --quantity 10`,
 }
 
 var bomCheckFlags struct {

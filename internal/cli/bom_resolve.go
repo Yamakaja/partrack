@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/Yamakaja/partrack/internal/apitypes"
@@ -28,7 +27,7 @@ func resolveForecast(ctx context.Context, items []apitypes.BOMImportItem, projec
 	req := apitypes.BOMResolvePreviewRequest{Items: items}
 	var projectName string
 	if projectRef != "" {
-		p, err := resolveProject(ctx, client, teamID, projectRef)
+		p, err := ap.resolveProjectRef(ctx, teamID, projectRef)
 		if err != nil {
 			return nil, "", err
 		}
@@ -40,45 +39,6 @@ func resolveForecast(ctx context.Context, items []apitypes.BOMImportItem, projec
 		return nil, "", err
 	}
 	return &out, projectName, nil
-}
-
-// resolveProject turns a project name or id into the project itself. Names are
-// matched case-insensitively, exactly first and then as a substring; anything
-// ambiguous lists the candidates rather than picking one.
-func resolveProject(ctx context.Context, client *Client, teamID, ref string) (*apitypes.ProjectListItem, error) {
-	q := url.Values{}
-	q.Set("limit", "200")
-	var list apitypes.List[apitypes.ProjectListItem]
-	if err := client.Get(ctx, "/teams/"+teamID+"/projects", q, &list); err != nil {
-		return nil, err
-	}
-
-	var exact, partial []apitypes.ProjectListItem
-	for _, p := range list.Items {
-		switch {
-		case p.ID == ref || strings.EqualFold(p.Name, ref):
-			exact = append(exact, p)
-		case strings.Contains(strings.ToLower(p.Name), strings.ToLower(ref)):
-			partial = append(partial, p)
-		}
-	}
-	matches := exact
-	if len(matches) == 0 {
-		matches = partial
-	}
-
-	switch len(matches) {
-	case 1:
-		return &matches[0], nil
-	case 0:
-		return nil, exitErrf(ExitNotFound, "no project matching %q", ref)
-	default:
-		names := make([]string, len(matches))
-		for i, p := range matches {
-			names[i] = p.Name
-		}
-		return nil, exitErrf(ExitAmbiguous, "%q matches %d projects: %s", ref, len(matches), strings.Join(names, ", "))
-	}
 }
 
 // stateLabel names a state for display. The unresolved state is the empty
