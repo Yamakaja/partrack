@@ -146,7 +146,7 @@ Higher roles inherit all permissions of lower roles.
 |--------|------|------|-------------|
 | GET | `/` | viewer | Team details |
 | PATCH | `/` | admin | `{name?, description?}` |
-| GET | `/dashboard` | viewer | Stats, recent activity, alerts, outstanding orders, build pipeline |
+| GET | `/dashboard` | viewer | Stats, recent activity, alerts, outstanding orders, build pipeline. `recent_activity` is the top 10 **milestone** team-feed entries, not the raw feed — per-line order receipts, bulk part creation during a BOM import, and routine stock corrections are excluded (see `dashboardMilestones` in `internal/handler/dashboard.go`). The unfiltered feed is `/activity-log`. |
 | GET | `/members` | admin | List members; each item includes `directory_managed` (true when maintained by LDAP group sync) |
 | POST | `/members` | admin | `{user_id, role}` (manual membership) |
 | PATCH | `/members/{userId}` | admin | `{role}`; a manual change pins the membership (`directory_managed=false`), preserving it against LDAP sync |

@@ -54,6 +54,30 @@ type dashboardActivitySubject struct {
 	Label string `json:"label"`
 }
 
+// dashboardMilestones are the actions that earn a place on the dashboard: the
+// things a teammate would want to know happened. Everything else a team does is
+// still recorded and still readable in the activity feed — it just isn't news.
+//
+// Deliberately excluded:
+//   - order.item_received — one row per line, so receiving a 30-line order would
+//     bury everything else. order.received marks the order arriving instead.
+//   - part.created — a BOM import creates parts in bulk; bom.imported already
+//     reports the same event with counts.
+//   - inventory.adjusted — routine stock correction, the definition of audit
+//     detail rather than news.
+var dashboardMilestones = []string{
+	"project.created",
+	"bom.imported",
+	"build.submitted",
+	"build.assembled",
+	"build.cancelled",
+	"cart.converted",
+	"order.external_linked",
+	"order.received",
+	"order.cancelled",
+	"checkout.created",
+}
+
 // dashboardActivityItem mirrors the ListActivity item shape so the dashboard
 // widget and the side panel render through the same frontend component.
 type dashboardActivityItem struct {
@@ -117,8 +141,9 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activityRows, err := h.Queries.RecentTeamActivity(ctx, dbgen.RecentTeamActivityParams{
-		TeamID: teamID,
-		Limit:  10,
+		TeamID:  teamID,
+		Actions: dashboardMilestones,
+		Limit:   10,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")

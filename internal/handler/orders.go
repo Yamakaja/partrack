@@ -820,17 +820,32 @@ func (h *Handler) ReceiveOrderItem(w http.ResponseWriter, r *http.Request) {
 
 	h.publishEvent(r, "order_changed", teamID.String(), map[string]string{"order_id": orderID.String()})
 	h.publishEvent(r, "inventory_changed", teamID.String(), map[string]string{"part_id": li.PartID.String(), "entry_id": invEntry.ID.String()})
+	orderRefLabel := h.orderLabel(r.Context(), orderID, teamID)
 	h.record(r, activity.Event{
 		TeamID:  teamID,
 		Action:  "order.item_received",
 		Feed:    activity.FeedTeam,
-		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: h.orderLabel(r.Context(), orderID, teamID)},
+		Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: orderRefLabel},
 		Refs: map[string]activity.Ref{
 			"part": {Type: "part", ID: li.PartID.String(), Label: h.partLabel(r.Context(), li.PartID)},
 		},
 		Values:  map[string]any{"qty": body.QuantityReceived},
 		Summary: fmt.Sprintf("Received %d unit(s) on an order", body.QuantityReceived),
 	})
+
+	// The order arriving is the milestone; the per-line receipts above are the
+	// detail behind it. Recording it here — once, on the transition — is what
+	// lets the dashboard report receiving without replaying every line.
+	if newOrderStatus == dbgen.OrderStatusReceived {
+		h.record(r, activity.Event{
+			TeamID:  teamID,
+			Action:  "order.received",
+			Feed:    activity.FeedTeam,
+			Subject: &activity.Ref{Type: "order", ID: orderID.String(), Label: orderRefLabel},
+			Values:  map[string]any{"lines": receiptStatus.Total},
+			Summary: fmt.Sprintf("Received all %d line(s) on an order", receiptStatus.Total),
+		})
+	}
 
 	// Transition ready builds and publish events.
 	for _, bid := range readyBuildIDs {

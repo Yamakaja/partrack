@@ -216,13 +216,18 @@ SELECT id, actor_label, source, action, feed,
        subject_type, subject_id, subject_label, summary, payload, created_at
 FROM activity_log
 WHERE team_id = $1 AND feed = 'team'
+  AND (
+    array_length($2::text[], 1) IS NULL
+    OR action = ANY($2::text[])
+  )
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT $3
 `
 
 type RecentTeamActivityParams struct {
-	TeamID pgtype.UUID `json:"team_id"`
-	Limit  int32       `json:"limit"`
+	TeamID  pgtype.UUID `json:"team_id"`
+	Actions []string    `json:"actions"`
+	Limit   int32       `json:"limit"`
 }
 
 type RecentTeamActivityRow struct {
@@ -239,9 +244,12 @@ type RecentTeamActivityRow struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
-// Top-N team feed for the dashboard widget.
+// Top-N team feed for the dashboard widget, restricted to the milestone actions
+// the caller supplies. The dashboard answers "what happened that I should know
+// about"; the routine bookkeeping behind those milestones stays in the full feed
+// (see ListActivity). An empty set means no filtering.
 func (q *Queries) RecentTeamActivity(ctx context.Context, arg RecentTeamActivityParams) ([]RecentTeamActivityRow, error) {
-	rows, err := q.db.Query(ctx, recentTeamActivity, arg.TeamID, arg.Limit)
+	rows, err := q.db.Query(ctx, recentTeamActivity, arg.TeamID, arg.Actions, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

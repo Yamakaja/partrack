@@ -51,13 +51,20 @@ ORDER BY al.created_at DESC, al.id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: RecentTeamActivity :many
--- Top-N team feed for the dashboard widget.
+-- Top-N team feed for the dashboard widget, restricted to the milestone actions
+-- the caller supplies. The dashboard answers "what happened that I should know
+-- about"; the routine bookkeeping behind those milestones stays in the full feed
+-- (see ListActivity). An empty set means no filtering.
 SELECT id, actor_label, source, action, feed,
        subject_type, subject_id, subject_label, summary, payload, created_at
 FROM activity_log
-WHERE team_id = $1 AND feed = 'team'
+WHERE team_id = @team_id AND feed = 'team'
+  AND (
+    array_length(sqlc.slice('actions')::text[], 1) IS NULL
+    OR action = ANY(sqlc.slice('actions')::text[])
+  )
 ORDER BY created_at DESC, id DESC
-LIMIT $2;
+LIMIT sqlc.arg('limit');
 
 -- name: MarkActivityResolved :exec
 -- Resolve a 'scan.part_not_found' row by its own id, linking it to the part that
