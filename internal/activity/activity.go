@@ -127,7 +127,17 @@ func (r *Recorder) run(ctx context.Context) {
 			return
 		}
 		if _, err := r.queries.InsertActivityRows(context.Background(), buf); err != nil {
-			slog.Warn("activity: batch insert failed", "rows", len(buf), "err", err)
+			// CopyFrom is all-or-nothing, so a single unusable row — most
+			// plausibly one whose team was deleted while it sat in this buffer —
+			// would otherwise discard everyone else's rows in the same batch.
+			// Retry individually so the damage is limited to the bad row.
+			slog.Warn("activity: batch insert failed, retrying rows individually",
+				"rows", len(buf), "err", err)
+			for _, p := range buf {
+				if _, err := r.queries.CreateActivity(context.Background(), dbgen.CreateActivityParams(p)); err != nil {
+					slog.Warn("activity: row insert failed", "action", p.Action, "err", err)
+				}
+			}
 		}
 		buf = buf[:0]
 	}
