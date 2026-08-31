@@ -130,6 +130,10 @@ export function activateTeamInvalidation(teamId: string) {
 
     subscribeSSEType(teamId, 'activity_changed', () => {
       qc!.invalidateQueries({ queryKey: ['activity-log', teamId] });
+      // The dashboard embeds its own activity slice, so it has to follow the
+      // same events — otherwise "Recent activity" silently goes stale there
+      // while the side panel stays live.
+      qc!.invalidateQueries({ queryKey: ['dashboard', teamId] });
     }),
 
     subscribeSSEType(teamId, 'build_kitting_changed', (ev) => {
