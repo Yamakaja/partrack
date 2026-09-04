@@ -20,10 +20,15 @@
     effectiveOrderQty, effectiveUnitPrice, itemDistributor,
   } from '$lib/utils/cart.js';
   import type { CartItem } from '$lib/types/orders.js';
+  import { activeTeamStore } from '$lib/stores/activeTeam.svelte.js';
+  import { hasMinRole } from '$lib/utils/roles.js';
 
   let { teamId }: { teamId: string } = $props();
 
   const qc = useQueryClient();
+
+  // Every role can see the cart; changing it is procurement (purchaser+).
+  const canEdit = $derived(hasMinRole(activeTeamStore.current?.role ?? 'viewer', 'purchaser'));
 
   let cartQuery = createQuery(() => ({
     queryKey: ['cart', teamId],
@@ -209,44 +214,50 @@
 <div class="flex flex-col h-full">
   <Topbar title="Shopping Cart">
     {#snippet actions()}
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => (sourcingPolicyOpen = true)}
-        title="Configure how cart items are matched to a distributor"
-      >
-        <SlidersHorizontal class="h-4 w-4 mr-1" />
-        Sourcing Policy
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={handleAddLowStock}
-        disabled={addingLowStock}
-      >
-        <RefreshCw class="h-4 w-4 mr-1" />
-        {addingLowStock ? 'Adding…' : 'Add Low Stock'}
-      </Button>
-      {#if items.some(i => i.listing !== null)}
+      {#if !canEdit}
+        <span class="text-xs text-muted-foreground" title="Changing the cart requires the purchaser role">
+          Read-only
+        </span>
+      {:else}
         <Button
           variant="outline"
           size="sm"
-          onclick={handleRefreshListings}
-          disabled={refreshingListings}
+          onclick={() => (sourcingPolicyOpen = true)}
+          title="Configure how cart items are matched to a distributor"
+        >
+          <SlidersHorizontal class="h-4 w-4 mr-1" />
+          Sourcing Policy
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={handleAddLowStock}
+          disabled={addingLowStock}
         >
           <RefreshCw class="h-4 w-4 mr-1" />
-          {refreshingListings ? 'Queuing…' : 'Refresh Stock & Prices'}
+          {addingLowStock ? 'Adding…' : 'Add Low Stock'}
         </Button>
-      {/if}
-      {#if (cartQuery.data?.items?.length ?? 0) > 0}
-        <Button
-          size="sm"
-          onclick={handleConvert}
-          disabled={converting}
-        >
-          <ArrowRight class="h-4 w-4 mr-1" />
-          {converting ? 'Converting…' : 'Convert to Orders'}
-        </Button>
+        {#if items.some(i => i.listing !== null)}
+          <Button
+            variant="outline"
+            size="sm"
+            onclick={handleRefreshListings}
+            disabled={refreshingListings}
+          >
+            <RefreshCw class="h-4 w-4 mr-1" />
+            {refreshingListings ? 'Queuing…' : 'Refresh Stock & Prices'}
+          </Button>
+        {/if}
+        {#if (cartQuery.data?.items?.length ?? 0) > 0}
+          <Button
+            size="sm"
+            onclick={handleConvert}
+            disabled={converting}
+          >
+            <ArrowRight class="h-4 w-4 mr-1" />
+            {converting ? 'Converting…' : 'Convert to Orders'}
+          </Button>
+        {/if}
       {/if}
     {/snippet}
   </Topbar>
@@ -266,10 +277,12 @@
             <Button variant="outline" size="sm" onclick={() => navigate(`/teams/${teamId}/builds`)}>
               View Builds
             </Button>
-            <Button variant="outline" size="sm" onclick={handleAddLowStock} disabled={addingLowStock}>
-              <RefreshCw class="h-4 w-4 mr-1" />
-              {addingLowStock ? 'Adding…' : 'Add Low Stock'}
-            </Button>
+            {#if canEdit}
+              <Button variant="outline" size="sm" onclick={handleAddLowStock} disabled={addingLowStock}>
+                <RefreshCw class="h-4 w-4 mr-1" />
+                {addingLowStock ? 'Adding…' : 'Add Low Stock'}
+              </Button>
+            {/if}
           </div>
         {/snippet}
       </EmptyState>
@@ -277,7 +290,7 @@
       <!-- Section 1: Pending Builds -->
       <section class="space-y-2">
         <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Pending Builds</h3>
-        <CartPendingBuildsTable {teamId} {pendingBuilds} {buildOrderCosts} />
+        <CartPendingBuildsTable {teamId} {pendingBuilds} {buildOrderCosts} {canEdit} />
       </section>
 
       <!-- Section 3: Order Summary + Details -->
@@ -296,7 +309,7 @@
 
         <section class="space-y-4">
           <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Order Details</h3>
-          <CartOrderDetailsSection {teamId} {distributorGroups} {companionPartIds} />
+          <CartOrderDetailsSection {teamId} {distributorGroups} {companionPartIds} {canEdit} />
         </section>
       {/if}
     {/if}

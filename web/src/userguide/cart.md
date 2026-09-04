@@ -1,8 +1,8 @@
 # Shopping cart
 
-The **shopping cart** is your team's persistent staging area for everything you intend to buy. There is exactly **one cart per team**, shared by everyone on the team with the purchaser role or above. It persists indefinitely — nothing clears it except explicitly removing items, clicking **Clear cart**, or converting it to orders.
+The **shopping cart** is your team's persistent staging area for everything you intend to buy. There is exactly **one cart per team**, shared by the whole team. It persists indefinitely — nothing clears it except explicitly removing items, clicking **Clear cart**, or converting it to orders.
 
-All cart operations require the **purchaser** role. Members and viewers cannot see or modify the cart. See [Roles & permissions](roles-and-permissions.md).
+Everyone on the team can open the cart. Changing it — adding, editing quantities, refreshing, converting — requires the **purchaser** role; below that the page is read-only. See [Roles & permissions](roles-and-permissions.md).
 
 ---
 
@@ -199,7 +199,7 @@ Similarly, when a build is submitted or cancelled by anyone on the team, the BOM
 - **The cart does not reserve stock.** Items in the cart are not reserved — stock reservations (soft allocations) are only created at the moment you convert to orders. Two purchasers could simultaneously convert the cart and both succeed, each creating separate orders for the same parts.
 - **Price/stock data may be stale.** Always refresh listings before converting if accurate pricing or availability matters.
 - **Distributor without API integration.** If a distributor is not connected (no DigiKey/Mouser/LCSC credentials), its listings still appear in the cart and can be converted to orders, but the Refresh Stock & Prices action cannot update them.
-- **Purchaser role required throughout.** All cart endpoints — reading, adding, editing, refreshing, converting — require the purchaser role. Members can submit builds (which triggers shortfall recomputation) but cannot view or manipulate the cart directly.
+- **Purchaser role required to change it.** Reading the cart is open to every role, so a member can watch the shortfall their build created land here; adding, editing, refreshing, and converting require the purchaser role.
 
 ---
 

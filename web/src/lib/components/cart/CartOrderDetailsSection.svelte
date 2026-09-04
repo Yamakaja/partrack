@@ -18,10 +18,12 @@
   import type { CartItem } from '$lib/types/orders.js';
   import { navigate } from '$lib/router/index.svelte';
 
-  let { teamId, distributorGroups, companionPartIds }: {
+  let { teamId, distributorGroups, companionPartIds, canEdit = true }: {
     teamId: string;
     distributorGroups: Map<string, CartItem[]>;
     companionPartIds: Set<string>;
+    /** Quantity edits and removal are purchaser+; false renders plain values. */
+    canEdit?: boolean;
   } = $props();
 
   // Map of part_id → manual companion quantity (excess above demand floor).
@@ -173,17 +175,21 @@
             <TableCell>
               <div class="flex flex-col gap-0.5">
                 <div class="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    value={getQty(item)}
-                    min="1"
-                    class="w-20"
-                    oninput={(e: Event) => handleQtyInput(item.id, (e.target as HTMLInputElement).value)}
-                    onblur={() => commitQtyUpdate(item)}
-                    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') commitQtyUpdate(item); }}
-                    onclick={(e: MouseEvent) => e.stopPropagation()}
-                    disabled={updatingItems.has(item.id)}
-                  />
+                  {#if canEdit}
+                    <Input
+                      type="number"
+                      value={getQty(item)}
+                      min="1"
+                      class="w-20"
+                      oninput={(e: Event) => handleQtyInput(item.id, (e.target as HTMLInputElement).value)}
+                      onblur={() => commitQtyUpdate(item)}
+                      onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') commitQtyUpdate(item); }}
+                      onclick={(e: MouseEvent) => e.stopPropagation()}
+                      disabled={updatingItems.has(item.id)}
+                    />
+                  {:else}
+                    <span class="tabular-nums text-sm">{getQty(item)}</span>
+                  {/if}
                 </div>
                 <div class="flex gap-2 text-xs text-muted-foreground">
                   {#if demand > 0 && item.source === 'bom_shortfall'}
@@ -226,15 +232,17 @@
               {/if}
             </TableCell>
             <TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onclick={() => handleRemove(item.id)}
-                disabled={removingItems.has(item.id)}
-                class="text-destructive hover:text-destructive"
-              >
-                <Trash2 class="h-4 w-4" />
-              </Button>
+              {#if canEdit}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onclick={() => handleRemove(item.id)}
+                  disabled={removingItems.has(item.id)}
+                  class="text-destructive hover:text-destructive"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </Button>
+              {/if}
               <Button
                 variant="ghost"
                 size="sm"

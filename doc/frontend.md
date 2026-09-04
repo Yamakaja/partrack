@@ -195,7 +195,7 @@ No third-party router dependency.
 | `/teams/:teamId/projects/:projectId` | `ProjectDetail.svelte` | V | Revision list, set active revision |
 | `/teams/:teamId/projects/:projectId/revisions/:revId` | `RevisionDetail.svelte` | V | Line item list, resolve line items, manage substitutes |
 | `/teams/:teamId/projects/:projectId/revisions/:revId/stock` | `StockCheck.svelte` | V | Stock check with build-qty input; add to cart |
-| `/teams/:teamId/cart` | `Cart.svelte` | P | Cart management, convert to orders |
+| `/teams/:teamId/cart` | `Cart.svelte` | V | Cart; read-only below purchaser (quantities, removal, refresh, convert are P+) |
 | `/teams/:teamId/orders` | `Orders.svelte` | V | Order list |
 | `/teams/:teamId/orders/:orderId` | `OrderDetail.svelte` | V | Order detail, receive items (P+) |
 | `/teams/:teamId/builds` | `Builds.svelte` | V | Build event history |

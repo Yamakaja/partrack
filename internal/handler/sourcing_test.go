@@ -78,17 +78,24 @@ func TestSourcingPolicy_RejectsBadStrategy(t *testing.T) {
 	}
 }
 
-func TestSourcingPolicy_ForbiddenForMember(t *testing.T) {
+func TestSourcingPolicy_MemberCanReadNotWrite(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
 	userID := testutil.CreateUser(t, testDB, "sourcing-member@example.com", "pw", "Src")
 	teamID := testutil.CreateTeam(t, testDB, userID, "member", "Src Team")
 	token := testutil.CreateSession(t, testDB, userID)
 
-	_, status := testutil.Do(t, testEnv.Server, http.MethodGet,
+	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
 		fmt.Sprintf("/api/v1/teams/%s/sourcing-policy", teamID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 for member read, got %d: %v", status, body)
+	}
+
+	_, status = testutil.Do(t, testEnv.Server, http.MethodPut,
+		fmt.Sprintf("/api/v1/teams/%s/sourcing-policy", teamID),
+		map[string]any{"strategy": "cost", "distributor_priority": []string{}}, token)
 	if status != http.StatusForbidden {
-		t.Fatalf("expected 403 for member, got %d", status)
+		t.Fatalf("expected 403 for member write, got %d", status)
 	}
 }
 

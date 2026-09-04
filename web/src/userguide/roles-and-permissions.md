@@ -16,9 +16,9 @@ Within a team you hold exactly one role. Roles are cumulative: each role include
 
 | Role | Level | Description |
 |---|---|---|
-| **Viewer** | 1 | Read-only access. Browse everything — parts, inventory, storage, projects, BOMs, builds, orders, checkouts — but make no changes. |
+| **Viewer** | 1 | Read-only access. Browse everything — parts, inventory, storage, projects, BOMs, builds, orders, the cart, checkouts, the team roster — but make no changes. |
 | **Member** | 2 | Day-to-day operations. Everything a viewer can do, plus creating and modifying content: adjust stock, manage parts and inventory, import and resolve BOMs, create and check out builds, record general checkouts, and use the scanning tools. |
-| **Purchaser** | 3 | Procurement. Everything a member can do, plus the cart and orders: view and modify the cart, convert it to orders, receive order items, manage OAuth connections to distributors, and control which pending builds contribute to purchase demand. |
+| **Purchaser** | 3 | Procurement. Everything a member can do, plus the cart and orders: modify the cart, convert it to orders, receive order items, manage OAuth connections to distributors, and control which pending builds contribute to purchase demand. |
 | **Admin** | 4 | Team administration. Everything a purchaser can do, plus managing the team itself: roster changes, role assignments, team settings, and distributor configuration. |
 
 ---
@@ -29,7 +29,8 @@ The table below maps concrete actions to the minimum role required. Actions not 
 
 | Action | Minimum role |
 |---|---|
-| **Browse parts, inventory, projects, BOMs, builds, orders, checkouts** | Viewer |
+| **Browse parts, inventory, projects, BOMs, builds, orders, the cart, checkouts** | Viewer |
+| **See the team roster and which distributors the team has enabled** | Viewer |
 | **Run a stock check** | Viewer |
 | **Read activity log (own actions only)** | Viewer |
 | **Read the team-wide activity log** | Purchaser |
@@ -54,17 +55,17 @@ The table below maps concrete actions to the minimum role required. Actions not 
 | **Add parts to the catalog (global / shared scope)** | Instance admin only |
 | **Edit parameters on a global part** | Instance admin only |
 | **Delete a part** | Instance admin only |
-| **View and manage the shopping cart** | Purchaser |
+| **Add to, edit, refresh, or clear the shopping cart** | Purchaser |
 | **Convert the cart to orders** | Purchaser |
 | **Import, update, submit, and cancel orders** | Purchaser |
 | **Receive order items** | Purchaser |
 | **Export an order** | Purchaser |
 | **Toggle whether a build contributes to cart demand** | Purchaser |
 | **Connect / disconnect distributor OAuth** | Purchaser |
-| **Manage scan-session context (purchaser push)** | Purchaser |
-| **View and manage team members and roles** | Team admin |
+| **Push a context (order, list) to a paired phone** | Member |
+| **Manage team members and roles** | Team admin |
 | **Update team name and settings** | Team admin |
-| **Configure team distributor credentials** | Team admin |
+| **Configure team distributor credentials and settings** | Team admin |
 | **Deactivate a user account** | Team admin |
 | **Create a new team** | Instance admin only |
 | **Manage user accounts** | Instance admin only |

@@ -158,7 +158,7 @@ Down migration: `DROP TABLE scan_sessions;`
 
 ## API Specification
 
-### Desktop Endpoints (Require `purchaser` role on `teamId`)
+### Desktop Endpoints (Require `member` role on `teamId`)
 
 #### `POST /api/v1/teams/{teamId}/scan-sessions`
 

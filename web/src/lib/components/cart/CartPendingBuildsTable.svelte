@@ -9,10 +9,12 @@
   import PriceDisplay from '$lib/components/common/PriceDisplay.svelte';
   import type { Build } from '$lib/types/orders.js';
 
-  let { teamId, pendingBuilds, buildOrderCosts }: {
+  let { teamId, pendingBuilds, buildOrderCosts, canEdit = true }: {
     teamId: string;
     pendingBuilds: Build[];
     buildOrderCosts: Map<string, number>;
+    /** Toggling cart inclusion is purchaser+; false renders the checkbox inert. */
+    canEdit?: boolean;
   } = $props();
 
   const qc = useQueryClient();
@@ -61,9 +63,10 @@
             <input
               type="checkbox"
               checked={!excluded}
-              disabled={togglingBuilds.has(build.id)}
+              disabled={!canEdit || togglingBuilds.has(build.id)}
+              title={canEdit ? undefined : 'Requires the purchaser role'}
               onchange={(e) => handleToggleInclusion(build.id, !(e.target as HTMLInputElement).checked)}
-              class="h-4 w-4 cursor-pointer"
+              class="h-4 w-4 {canEdit ? 'cursor-pointer' : 'cursor-not-allowed'}"
             />
           </TableCell>
           <TableCell class="text-sm font-medium">{build.project_name}</TableCell>

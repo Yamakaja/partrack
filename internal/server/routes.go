@@ -233,6 +233,25 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					// hence viewer rather than member.
 					r.Post("/bom/resolve-preview", h.ResolvePreview)
 
+					// 12. Cart (read). Seeing what is staged for purchase is visibility,
+					// the same as seeing orders — a member who submitted a build can watch
+					// its shortfall land here. Every cart mutation is purchaser+ below.
+					r.Get("/cart", h.GetCart)
+					r.Get("/cart/count", h.GetCartCount)
+					r.Get("/cart/part-quantity", h.GetCartPartQuantity)
+					r.Get("/sourcing-policy", h.GetSourcingPolicy)
+
+					// Team roster (read). Pickers — project manager, build creator
+					// filter — need names; roster changes stay admin-only below.
+					r.Get("/members", h.ListMembers)
+
+					// Distributor availability: which distributors this team has
+					// enabled / prefers, so part import, listing, and BOM review UIs
+					// can offer them. The handler only includes config specifics
+					// (cache TTL, non-secret credential fields, rate-limit) for team
+					// admins; writes are admin-only below.
+					r.Get("/distributor-configs", h.ListDistributorConfigs)
+
 					// 13. Orders
 					r.Get("/orders", h.ListOrders)
 					r.Get("/orders/{orderId}", h.GetOrder)
@@ -370,6 +389,10 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/scan-sessions", h.CreateScanSession)
 					r.Get("/scan-sessions/active", h.GetActiveScanSession)
 					r.Post("/scan-sessions/{sessionId}/pairing-ticket", h.RefreshPairingTicket)
+					// Delete is member+ because sessions are per-user and the handler
+					// already restricts it to the owner (or a team admin); the old
+					// purchaser gate left members unable to disconnect their own phone.
+					r.Delete("/scan-sessions/{sessionId}", h.DeleteScanSession)
 					// Context push is member+: sessions are per-user, and list
 					// (Collect) contexts are member-level — the old purchaser
 					// gate was inconsistent with StartKitting below.
@@ -392,13 +415,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireTeamRole("purchaser"))
 
-					// Scan session management (purchaser can delete)
-					r.Delete("/scan-sessions/{sessionId}", h.DeleteScanSession)
-
-					// Cart
-					r.Get("/cart/count", h.GetCartCount)
-					r.Get("/cart/part-quantity", h.GetCartPartQuantity)
-					r.Get("/cart", h.GetCart)
+					// Cart (mutations; reads are viewer+ above)
 					r.Delete("/cart", h.ClearCart)
 					r.Post("/cart/items", h.AddCartItem)
 					r.Post("/cart/items/bulk", h.BulkAddCartItems)
@@ -408,8 +425,7 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 					r.Post("/cart/refresh-listings", h.RefreshCartListings)
 					r.Post("/cart/convert", h.ConvertCart)
 
-					// Distributor sourcing policy (ranked preference + fallback)
-					r.Get("/sourcing-policy", h.GetSourcingPolicy)
+					// Distributor sourcing policy (ranked preference + fallback; read is viewer+)
 					r.Put("/sourcing-policy", h.UpdateSourcingPolicy)
 
 					// Build cart-inclusion toggle (purchaser+)
@@ -438,15 +454,13 @@ func registerRoutes(r chi.Router, h *handler.Handler, mw *middleware.Middleware)
 
 					r.Patch("/", h.UpdateTeam)
 
-					// Members
-					r.Get("/members", h.ListMembers)
+					// Members (roster read is viewer+)
 					r.Post("/members", h.AddMember)
 					r.Patch("/members/{userId}", h.UpdateMember)
 					r.Delete("/members/{userId}", h.RemoveMember)
 					r.Post("/members/{userId}/deactivate", h.DeactivateUser)
 
-					// Distributor configs
-					r.Get("/distributor-configs", h.ListDistributorConfigs)
+					// Distributor configs (list is viewer+, redacted below admin)
 					r.Put("/distributor-configs/{distributorId}", h.UpsertDistributorConfig)
 					r.Delete("/distributor-configs/{distributorId}", h.DeleteDistributorConfig)
 				})

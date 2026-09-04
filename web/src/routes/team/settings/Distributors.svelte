@@ -162,7 +162,7 @@
       await upsertDistributorConfig(teamId, dist.id, {
         enabled: config.enabled,
         preferred: !config.preferred,
-        cache_duration_seconds: config.cache_duration_seconds,
+        cache_duration_seconds: config.cache_duration_seconds ?? 3600,
       });
       qc.invalidateQueries({ queryKey: ['distributor-configs', teamId] });
     } catch (err: any) {
@@ -309,7 +309,7 @@
                     {/if}
                   </TableCell>
                   <TableCell class="text-muted-foreground text-sm">
-                    {config ? `${config.cache_duration_seconds}s` : '—'}
+                    {config?.cache_duration_seconds != null ? `${config.cache_duration_seconds}s` : '—'}
                   </TableCell>
                   <TableCell class="text-sm">
                     {#if config?.rate_limit}

@@ -158,8 +158,8 @@ Two flags take an **optional** value and so require it attached:
 Bare `--history` / `--params` use their defaults; detached, the value is left
 behind as a stray argument and the command exits 2 saying so.
 
-Reading the cart needs the **purchaser** role; everything else here needs
-**viewer**. A role you do not hold comes back as exit **3**.
+Everything here, the cart included, needs only the **viewer** role. A role you
+do not hold comes back as exit **3**.
 
 ### Searching
 

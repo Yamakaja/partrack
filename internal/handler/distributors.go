@@ -8,6 +8,7 @@ import (
 
 	dbgen "github.com/Yamakaja/partrack/internal/db/gen"
 	"github.com/Yamakaja/partrack/internal/distributor"
+	"github.com/Yamakaja/partrack/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -101,14 +102,23 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// The route is viewer+: every team member needs to know which distributors
+	// exist for the team (enabled, preferred, usable) so import, listing, and
+	// BOM review UIs can offer them. The config specifics that the settings page
+	// edits — cache TTL, the non-secret credential fields, rate-limit status —
+	// are only included for team admins (the role that can change them).
+	// Secret credential values are never returned to anyone.
+	membership := middleware.MembershipFromContext(r.Context())
+	showConfig := membership != nil && membership.Role == "admin"
+
 	type item struct {
 		DistributorID        string                       `json:"distributor_id"`
 		DistributorName      string                       `json:"distributor_name"`
 		Enabled              bool                         `json:"enabled"`
 		Preferred            bool                         `json:"preferred"`
 		Priority             *int32                       `json:"priority"`
-		CacheDurationSeconds int32                        `json:"cache_duration_seconds"`
 		HasCredentials       bool                         `json:"has_credentials"`
+		CacheDurationSeconds *int32                       `json:"cache_duration_seconds,omitempty"`
 		ApiCredentials       map[string]any               `json:"api_credentials,omitempty"`
 		RateLimit            *distributor.RateLimitStatus `json:"rate_limit,omitempty"`
 	}
@@ -116,14 +126,19 @@ func (h *Handler) ListDistributorConfigs(w http.ResponseWriter, r *http.Request)
 	for i, c := range configs {
 		hasCreds, _ := c.HasCredentials.(bool)
 		it := item{
-			DistributorID:        c.DistributorID.String(),
-			DistributorName:      c.DistributorName,
-			Enabled:              c.Enabled,
-			Preferred:            c.Preferred,
-			Priority:             c.Priority,
-			CacheDurationSeconds: c.CacheDurationSeconds,
-			HasCredentials:       hasCreds,
+			DistributorID:   c.DistributorID.String(),
+			DistributorName: c.DistributorName,
+			Enabled:         c.Enabled,
+			Preferred:       c.Preferred,
+			Priority:        c.Priority,
+			HasCredentials:  hasCreds,
 		}
+		if !showConfig {
+			items[i] = it
+			continue
+		}
+		cacheDuration := c.CacheDurationSeconds
+		it.CacheDurationSeconds = &cacheDuration
 		// Include non-secret credential fields so the frontend can pre-populate the form.
 		if len(c.ApiCredentials) > 0 && c.ApiType != nil {
 			if client := h.Distributors.Lookup(*c.ApiType); client != nil {

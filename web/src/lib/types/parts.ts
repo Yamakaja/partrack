@@ -150,6 +150,11 @@ export interface DistributorRateLimit {
   updated_at: string;
 }
 
+/**
+ * One row of GET /teams/{id}/distributor-configs. The availability fields are
+ * returned to every role; the config specifics below the divider are only
+ * present for team admins (the settings page), so treat them as optional.
+ */
 export interface DistributorConfig {
   id: string;
   distributor_id: string;
@@ -157,8 +162,9 @@ export interface DistributorConfig {
   enabled: boolean;
   preferred: boolean;
   priority: number | null;
-  cache_duration_seconds: number;
   has_credentials: boolean;
+  // ── admin-only ──
+  cache_duration_seconds?: number;
   api_credentials?: Record<string, unknown> | null;
   rate_limit?: DistributorRateLimit | null;
 }

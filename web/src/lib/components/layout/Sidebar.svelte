@@ -22,6 +22,7 @@
   import PartrackMark from '$lib/components/brand/PartrackMark.svelte';
   import { Tooltip } from '$lib/components/ui/tooltip/index.js';
   import { request } from '$lib/api/client.js';
+  import { hasMinRole } from '$lib/utils/roles.js';
 
   const versionTooltip = $derived(
     versionStore.info
@@ -59,14 +60,14 @@
     return sub ? `/teams/${activeTeam.teamId}/${sub}` : `/teams/${activeTeam.teamId}`;
   }
 
-  const isPurchaser = $derived(
-    activeTeam?.role === 'purchaser' || activeTeam?.role === 'admin'
-  );
+  // Scanning (phone pairing, bulk-scan review) and lists are member+; the
+  // cart is readable by every role (mutations are purchaser+ on the page).
+  const isMember = $derived(hasMinRole(activeTeam?.role ?? 'viewer', 'member'));
 
   const cartCountQuery = createQuery(() => ({
     queryKey: ['cart', activeTeam?.teamId, 'count'],
     queryFn: () => getCartCount(activeTeam!.teamId),
-    enabled: !!activeTeam && isPurchaser,
+    enabled: !!activeTeam,
     staleTime: 30_000,
   }));
 
@@ -75,7 +76,7 @@
   const bulkScanBadgeQuery = createQuery(() => ({
     queryKey: ['bulk-scan-sessions', activeTeam?.teamId, 'badge'],
     queryFn: () => getBulkScanBadgeCount(activeTeam!.teamId),
-    enabled: !!activeTeam,
+    enabled: !!activeTeam && isMember,
     staleTime: 30_000,
   }));
 
@@ -134,15 +135,15 @@
           {isActive(teamPath('storage')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Storage
       </a>
-      <a href={teamPath('bulk-scan')} use:linkAction
-        class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
-          {isActive(teamPath('bulk-scan')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
-        Bulk Scan Review
-        {#if bulkScanCount > 0}
-          <span class="ml-auto text-xs font-medium tabular-nums bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 leading-none">{bulkScanCount}</span>
-        {/if}
-      </a>
-      {#if activeTeam.role !== 'viewer'}
+      {#if isMember}
+        <a href={teamPath('bulk-scan')} use:linkAction
+          class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
+            {isActive(teamPath('bulk-scan')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
+          Bulk Scan Review
+          {#if bulkScanCount > 0}
+            <span class="ml-auto text-xs font-medium tabular-nums bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 leading-none">{bulkScanCount}</span>
+          {/if}
+        </a>
         <a href={teamPath('lists')} use:linkAction
           class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
             {isActive(teamPath('lists')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
@@ -164,7 +165,7 @@
         class="flex items-center gap-2 rounded px-2 py-1.5 transition-colors
           {isActive(teamPath('cart')) ? 'bg-accent text-accent-foreground font-medium' : 'text-foreground/80 hover:text-foreground hover:bg-accent/50'}">
         Cart
-        {#if isPurchaser && cartCount > 0}
+        {#if cartCount > 0}
           <span class="ml-auto text-xs font-medium tabular-nums bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 leading-none">{cartCount}</span>
         {/if}
       </a>
@@ -239,6 +240,7 @@
         <SSEConnectionIndicator />
       </div>
 
+      {#if isMember}
       <div class="border-t border-border px-2 py-1.5">
       {#if !session}
         <button
@@ -299,6 +301,7 @@
         </Popover.Root>
       {/if}
       </div>
+      {/if}
     </div>
   {/if}
 

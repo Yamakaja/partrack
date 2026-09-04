@@ -386,7 +386,8 @@ Roles are strictly ordered — each is a superset of the one below. There are no
 
 | Action | Viewer | Member | Purchaser | Admin |
 |---|:---:|:---:|:---:|:---:|
-| View inventory, parts, projects, orders | ✓ | ✓ | ✓ | ✓ |
+| View inventory, parts, projects, orders, the cart, the team roster | ✓ | ✓ | ✓ | ✓ |
+| See which distributors the team has enabled (not their configuration) | ✓ | ✓ | ✓ | ✓ |
 | Import a BOM / create a project | | ✓ | ✓ | ✓ |
 | Resolve BOM line items; approve substitutes | | ✓ | ✓ | ✓ |
 | Manually add or edit a part | | ✓ | ✓ | ✓ |

@@ -8,6 +8,13 @@ All endpoints are prefixed with `/api/v1`. Auth: session cookie or `Authorizatio
 
 Higher roles inherit all permissions of lower roles.
 
+Within a team, **every read is `viewer`** unless the row says otherwise — including the cart, the
+sourcing policy, and the member roster. The one shaped read is `GET /distributor-configs`: every
+role sees which distributors the team has enabled, but the config specifics are only returned to
+`admin`. Mutations step up by domain: `member` for inventory, catalog, BOM, build, checkout and
+scanning operations; `purchaser` for the cart and orders; `admin` for the roster and distributor
+configuration.
+
 ---
 
 ## Public (no auth)
@@ -140,19 +147,19 @@ Higher roles inherit all permissions of lower roles.
 |--------|------|------|-------------|
 | POST | `/attachments` | member | Upload an image. Body is the **raw image bytes** (not multipart/JSON); optional `?filename=` records the original name. Content type is sniffed from the bytes (the declared type is ignored) and validated against the allowlist (`image/png,jpeg,webp,gif`; SVG rejected). Deduplicated by content hash. Returns 201 `{id, url, content_type, byte_size, width?, height?, filename?}` where `url` is `/api/v1/blobs/{sha256}` to embed in note markdown. 413 over the size cap (default 5 MiB); 415 for unsupported type. |
 
-### Team (admin)
+### Team
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/` | viewer | Team details |
 | PATCH | `/` | admin | `{name?, description?}` |
 | GET | `/dashboard` | viewer | Stats, recent activity, alerts, outstanding orders, build pipeline. `recent_activity` is the top 10 **milestone** team-feed entries, not the raw feed — per-line order receipts, bulk part creation during a BOM import, and routine stock corrections are excluded (see `dashboardMilestones` in `internal/handler/dashboard.go`). The unfiltered feed is `/activity-log`. |
-| GET | `/members` | admin | List members; each item includes `directory_managed` (true when maintained by LDAP group sync) |
+| GET | `/members` | viewer | List members (the roster is readable by every role — pickers need names); each item includes `directory_managed` (true when maintained by LDAP group sync) |
 | POST | `/members` | admin | `{user_id, role}` (manual membership) |
 | PATCH | `/members/{userId}` | admin | `{role}`; a manual change pins the membership (`directory_managed=false`), preserving it against LDAP sync |
 | DELETE | `/members/{userId}` | admin | Remove member |
 | POST | `/members/{userId}/deactivate` | admin | Globally deactivate user; clears all sessions/tokens |
-| GET | `/distributor-configs` | admin | List configs (secret credential values omitted; includes `priority` (sourcing rank, null if unranked) and `rate_limit` if available) |
+| GET | `/distributor-configs` | viewer | Which distributors the team has configured: `{distributor_id, distributor_name, enabled, preferred, priority (sourcing rank, null if unranked), has_credentials}`. Team admins additionally get the config specifics — `cache_duration_seconds`, the non-secret `api_credentials` fields, and `rate_limit` if available; every other role gets only the availability fields. Secret credential values are never returned. |
 | PUT | `/distributor-configs/{distributorId}` | admin | `{enabled, preferred, cache_duration_seconds, api_credentials?}`. Setting `preferred` clears other distributors' preferred flag and deletes their OAuth tokens. Credentials are merged (blank secret fields preserve existing values). |
 | DELETE | `/distributor-configs/{distributorId}` | admin | Delete config + OAuth tokens; 204 |
 
@@ -303,9 +310,9 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| GET | `/cart/count` | purchaser | `{count}` |
-| GET | `/cart/part-quantity` | purchaser | Quantity for specific part; query: `part_id` (required), `listing_id?` |
-| GET | `/cart` | purchaser | Full cart with items, listings, and build demands per item |
+| GET | `/cart/count` | viewer | `{count}` |
+| GET | `/cart/part-quantity` | viewer | Quantity for specific part; query: `part_id` (required), `listing_id?` |
+| GET | `/cart` | viewer | Full cart with items, listings, and build demands per item. Reading the cart is visibility (like orders); every mutation below is purchaser+ |
 | DELETE | `/cart` | purchaser | Clear all items; 204 |
 | POST | `/cart/items` | purchaser | `{part_id, quantity, listing_id?, source?}` → 201 |
 | POST | `/cart/items/bulk` | purchaser | `{items: [{part_id, quantity, listing_id?}]}` → `{added}`. Upserts all items in one tx (quantities merge per part, `source=manual`); one `cart_changed` event. Used by "Add from list". |
@@ -314,7 +321,7 @@ Upload/delete publish the owner's existing entity-change event (`part_changed` /
 | POST | `/cart/add-low-stock` | purchaser | Add items to reach reorder levels → `{added_count}` |
 | POST | `/cart/refresh-listings` | purchaser | Enqueue refresh for all cart listings → 202 `{job_id, listing_count}` (or 204 if nothing to refresh). Progress streams over SSE: per-listing `listing_refresh_done` then a terminal `listing_refresh_complete` `{total, done, unavailable, failed}`. |
 | POST | `/cart/convert` | purchaser | Convert to orders grouped by distributor; links pending builds, creates allocations, transitions pending→ordered/ready. Returns 422 if cart empty or items missing listings. → `{order_ids}` |
-| GET | `/sourcing-policy` | purchaser | Team sourcing policy → `{strategy, cost_tolerance_pct, cost_tolerance_abs, distributors: [{distributor_id, distributor_name, enabled, priority}]}` |
+| GET | `/sourcing-policy` | viewer | Team sourcing policy → `{strategy, cost_tolerance_pct, cost_tolerance_abs, distributors: [{distributor_id, distributor_name, enabled, priority}]}` |
 | PUT | `/sourcing-policy` | purchaser | Replace policy. Body: `{strategy: "cost"\|"preferred_in_stock", cost_tolerance_pct?, cost_tolerance_abs?, distributor_priority: [distributorId,...]}`. `distributor_priority` is the ordered ranking (index+1 = priority); rank 1 also syncs the legacy `preferred` flag. Invalidates cached cart resolution. → same shape as GET |
 
 **Listing auto-resolution.** Cart items with no explicit `listing_id` are resolved to a listing on read/convert. Under `cost` (default) the cheapest total-cost listing wins. Under `preferred_in_stock` the highest-ranked distributor that has the quantity in stock wins, falling through the ranking when a distributor is out of stock and finally to cheapest when none qualify; an optional cost guardrail (`cost_tolerance_pct`/`abs`) vetoes an over-expensive preferred pick. The resolved `listing` object carries `reason` (`cost`/`only_option`/`preferred`/`preferred_fallback`/`out_of_stock_fallback`/`over_tolerance`) and `preferred_stale` (preference honoured on missing/stale stock data).
@@ -394,7 +401,7 @@ all of the owner's connections, nobody else's).
 | POST | `/teams/{teamId}/scan-sessions` | member+ | Create scan session. Body: `{order_id?: string}`. Returns `{id, pairing_ticket, pairing_ticket_expires_in, expires_at}`. The durable token is NOT returned here — the phone obtains it by redeeming `pairing_ticket` at `POST /scan/pair`. Durable token TTL 24h. |
 | POST | `/teams/{teamId}/scan-sessions/{sessionId}/pairing-ticket` | member+ | Mint a fresh single-use pairing ticket for an existing session (desktop refreshes the QR before the 60s TTL lapses). Returns `{pairing_ticket, pairing_ticket_expires_in}`. |
 | GET | `/teams/{teamId}/scan-sessions/active` | member+ | Get current user's active scan session. Returns `{id, phone_connected, context_type, context_order_id, context_order_ref, phone_ip, phone_ua}` or 204 if none. |
-| DELETE | `/teams/{teamId}/scan-sessions/{sessionId}` | purchaser+ | Delete scan session. |
+| DELETE | `/teams/{teamId}/scan-sessions/{sessionId}` | member+ | Delete scan session. Only the session's owner or a team admin; 403 otherwise. |
 | PATCH | `/teams/{teamId}/scan-sessions/{sessionId}/context` | member+ | Push a context to the phone (SSE, immediate). Body: `{order_id}` (receive flow) or `{collection_id}` (Collect flow). Collection pushes require the session to belong to the acting user (lists are private) and return `{ok, context_collection_name}`; order pushes return `{ok, context_order_ref}`. |
 | POST | `/teams/{teamId}/scan-sessions/{sessionId}/kitting` | member+ | Start kitting session for a build. Body: `{build_id}`. Any non-terminal build status (kitting is advisory; 409 `INVALID_BUILD_STATUS` only for assembled/cancelled). Seeds confirmations from BOM demand (resolved line items + overrides + substitute selections × build qty); 409 `EMPTY_KITTING` if the build has no resolvable demand. Pushes `scan_context_changed` to phone. Returns `{kitting_session_id}`. |
 | GET | `/teams/{teamId}/activity-log` | viewer+ | Paginated unified activity feed. Default scope = the caller's own activity; `?scope=team` (purchaser+) returns the team-wide feed (`feed='team'` rows). Query: `action` (comma-separated), `cursor_time`, `cursor_id`, `limit` (default 50). Each item: `{id, action, feed, source, actor_label, subject:{type,id,label}|null, summary, payload, created_at, part_*}`. Returns `{items:[...], next_cursor_time, next_cursor_id}`. |

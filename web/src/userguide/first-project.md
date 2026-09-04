@@ -182,9 +182,9 @@ once. Before you buy:
   and remove anything you don't want yet. Items are grouped **by distributor**,
   because that's how the orders will come out.
 
-> **Heads up:** Working with the cart requires the **purchaser** role. If you're
-> a member, hand off to a purchaser at this point — they'll see the cart and the
-> shortfalls your build created. See [Shopping cart](cart.md).
+> **Heads up:** Changing the cart requires the **purchaser** role. As a member
+> you can open the cart and see the shortfalls your build created, but hand off
+> to a purchaser to adjust quantities and convert. See [Shopping cart](cart.md).
 
 ## Step 8 — Convert to orders, then receive them
 
@@ -206,8 +206,8 @@ of it lands through the immutable stock ledger, so your counts stay auditable.
 This is what lets a build that was waiting on parts move toward **ready**
 without any manual reconciliation.
 
-Converting and ordering need the **purchaser** role; receiving can be done by a
-**member**. See [Shopping cart](cart.md) and [Orders](orders.md).
+Converting, ordering, and receiving all need the **purchaser** role. See
+[Shopping cart](cart.md) and [Orders](orders.md).
 
 ## Step 9 — Build the boards
 

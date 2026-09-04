@@ -28,19 +28,24 @@ func TestListMembers_AdminCanList(t *testing.T) {
 	}
 }
 
-func TestListMembers_MemberForbidden(t *testing.T) {
+// The roster is readable by every role: pickers (project manager, build
+// creator filter) need names. Only roster changes are admin-gated.
+func TestListMembers_ViewerCanList(t *testing.T) {
 	t.Cleanup(func() { testutil.Truncate(t, testDB) })
 
 	adminID := testutil.CreateUser(t, testDB, "memblistadmin@example.com", "pw", "Admin")
-	memberID := testutil.CreateUser(t, testDB, "memblistmember@example.com", "pw", "Member")
+	viewerID := testutil.CreateUser(t, testDB, "memblistviewer@example.com", "pw", "Viewer")
 	teamID := testutil.CreateTeam(t, testDB, adminID, "admin", "Test Team")
-	testutil.AddMember(t, testDB, teamID, memberID, "member")
-	memberToken := testutil.CreateSession(t, testDB, memberID)
+	testutil.AddMember(t, testDB, teamID, viewerID, "viewer")
+	viewerToken := testutil.CreateSession(t, testDB, viewerID)
 
-	_, status := testutil.Do(t, testEnv.Server,
-		http.MethodGet, fmt.Sprintf("/api/v1/teams/%s/members", teamID), nil, memberToken)
-	if status != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", status)
+	body, status := testutil.Do(t, testEnv.Server,
+		http.MethodGet, fmt.Sprintf("/api/v1/teams/%s/members", teamID), nil, viewerToken)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %v", status, body)
+	}
+	if items, _ := body["items"].([]any); len(items) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(items))
 	}
 }
 
