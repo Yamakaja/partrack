@@ -94,6 +94,26 @@ func (q *Queries) DeletePartCollectionItem(ctx context.Context, arg DeletePartCo
 	return result.RowsAffected(), nil
 }
 
+const deletePartCollectionItemsByIDs = `-- name: DeletePartCollectionItemsByIDs :execrows
+DELETE FROM part_collection_items
+WHERE collection_id = $1 AND id = ANY($2::uuid[])
+`
+
+type DeletePartCollectionItemsByIDsParams struct {
+	CollectionID pgtype.UUID   `json:"collection_id"`
+	ItemIds      []pgtype.UUID `json:"item_ids"`
+}
+
+// Scoped delete: the "Delete selected" verb. Ids outside the collection are
+// silently ignored (the collection_id predicate is the authorization).
+func (q *Queries) DeletePartCollectionItemsByIDs(ctx context.Context, arg DeletePartCollectionItemsByIDsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePartCollectionItemsByIDs, arg.CollectionID, arg.ItemIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getPartCollection = `-- name: GetPartCollection :one
 SELECT id, user_id, team_id, name, archived, collect_capture_qty, created_at, updated_at
 FROM part_collections
@@ -122,10 +142,39 @@ func (q *Queries) GetPartCollection(ctx context.Context, arg GetPartCollectionPa
 	return i, err
 }
 
+const getPartCollectionItemByPart = `-- name: GetPartCollectionItemByPart :one
+SELECT id, collection_id, part_id, quantity, note, checked_at
+FROM part_collection_items
+WHERE collection_id = $1 AND part_id = $2
+`
+
+type GetPartCollectionItemByPartParams struct {
+	CollectionID pgtype.UUID `json:"collection_id"`
+	PartID       pgtype.UUID `json:"part_id"`
+}
+
+// Pick mode's membership test: is the scanned part on this list, and is it
+// already checked? (The uniqueness of (collection_id, part_id) makes this the
+// row the scan would tick.)
+func (q *Queries) GetPartCollectionItemByPart(ctx context.Context, arg GetPartCollectionItemByPartParams) (PartCollectionItem, error) {
+	row := q.db.QueryRow(ctx, getPartCollectionItemByPart, arg.CollectionID, arg.PartID)
+	var i PartCollectionItem
+	err := row.Scan(
+		&i.ID,
+		&i.CollectionID,
+		&i.PartID,
+		&i.Quantity,
+		&i.Note,
+		&i.CheckedAt,
+	)
+	return i, err
+}
+
 const getPartCollectionTally = `-- name: GetPartCollectionTally :one
 SELECT COUNT(pci.id)::int                                     AS item_count,
        COALESCE(SUM(pci.quantity), 0)::bigint                 AS total_quantity,
-       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int AS unquantified_count
+       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int AS unquantified_count,
+       COUNT(pci.id) FILTER (WHERE pci.checked_at IS NOT NULL)::int AS checked_count
 FROM part_collection_items pci
 WHERE pci.collection_id = $1
 `
@@ -134,18 +183,24 @@ type GetPartCollectionTallyRow struct {
 	ItemCount         int32 `json:"item_count"`
 	TotalQuantity     int64 `json:"total_quantity"`
 	UnquantifiedCount int32 `json:"unquantified_count"`
+	CheckedCount      int32 `json:"checked_count"`
 }
 
 // Running tally for one collection (scan Collect responses + summaries).
 func (q *Queries) GetPartCollectionTally(ctx context.Context, collectionID pgtype.UUID) (GetPartCollectionTallyRow, error) {
 	row := q.db.QueryRow(ctx, getPartCollectionTally, collectionID)
 	var i GetPartCollectionTallyRow
-	err := row.Scan(&i.ItemCount, &i.TotalQuantity, &i.UnquantifiedCount)
+	err := row.Scan(
+		&i.ItemCount,
+		&i.TotalQuantity,
+		&i.UnquantifiedCount,
+		&i.CheckedCount,
+	)
 	return i, err
 }
 
 const listPartCollectionItems = `-- name: ListPartCollectionItems :many
-SELECT pci.id, pci.part_id, pci.quantity, pci.note,
+SELECT pci.id, pci.part_id, pci.quantity, pci.note, pci.checked_at,
        p.mpn, p.manufacturer, p.lifecycle_status, p.image_url,
        COALESCE(p.short_description, p.description, '') AS part_description,
        ie.quantity_on_hand
@@ -167,6 +222,7 @@ type ListPartCollectionItemsRow struct {
 	PartID          pgtype.UUID         `json:"part_id"`
 	Quantity        *int32              `json:"quantity"`
 	Note            *string             `json:"note"`
+	CheckedAt       pgtype.Timestamptz  `json:"checked_at"`
 	Mpn             *string             `json:"mpn"`
 	Manufacturer    *string             `json:"manufacturer"`
 	LifecycleStatus PartLifecycleStatus `json:"lifecycle_status"`
@@ -192,6 +248,7 @@ func (q *Queries) ListPartCollectionItems(ctx context.Context, arg ListPartColle
 			&i.PartID,
 			&i.Quantity,
 			&i.Note,
+			&i.CheckedAt,
 			&i.Mpn,
 			&i.Manufacturer,
 			&i.LifecycleStatus,
@@ -210,7 +267,7 @@ func (q *Queries) ListPartCollectionItems(ctx context.Context, arg ListPartColle
 }
 
 const listPartCollectionItemsWithStock = `-- name: ListPartCollectionItemsWithStock :many
-SELECT pci.id, pci.part_id, pci.quantity, pci.note,
+SELECT pci.id, pci.part_id, pci.quantity, pci.note, pci.checked_at,
        p.mpn, COALESCE(p.short_description, p.description, '') AS part_description,
        ie.quantity_on_hand, ie.storage_location_id, ie.storage_coordinate
 FROM part_collection_items pci
@@ -227,15 +284,16 @@ type ListPartCollectionItemsWithStockParams struct {
 }
 
 type ListPartCollectionItemsWithStockRow struct {
-	ID                pgtype.UUID `json:"id"`
-	PartID            pgtype.UUID `json:"part_id"`
-	Quantity          *int32      `json:"quantity"`
-	Note              *string     `json:"note"`
-	Mpn               *string     `json:"mpn"`
-	PartDescription   string      `json:"part_description"`
-	QuantityOnHand    *int32      `json:"quantity_on_hand"`
-	StorageLocationID pgtype.UUID `json:"storage_location_id"`
-	StorageCoordinate []int32     `json:"storage_coordinate"`
+	ID                pgtype.UUID        `json:"id"`
+	PartID            pgtype.UUID        `json:"part_id"`
+	Quantity          *int32             `json:"quantity"`
+	Note              *string            `json:"note"`
+	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
+	Mpn               *string            `json:"mpn"`
+	PartDescription   string             `json:"part_description"`
+	QuantityOnHand    *int32             `json:"quantity_on_hand"`
+	StorageLocationID pgtype.UUID        `json:"storage_location_id"`
+	StorageCoordinate []int32            `json:"storage_coordinate"`
 }
 
 // Phone list view: rows with team stock + storage location — the "where do
@@ -255,6 +313,7 @@ func (q *Queries) ListPartCollectionItemsWithStock(ctx context.Context, arg List
 			&i.PartID,
 			&i.Quantity,
 			&i.Note,
+			&i.CheckedAt,
 			&i.Mpn,
 			&i.PartDescription,
 			&i.QuantityOnHand,
@@ -275,7 +334,8 @@ const listPartCollections = `-- name: ListPartCollections :many
 SELECT pc.id, pc.name, pc.archived, pc.collect_capture_qty, pc.created_at, pc.updated_at,
        COUNT(pci.id)::int                                        AS item_count,
        COALESCE(SUM(pci.quantity), 0)::bigint                    AS total_quantity,
-       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int    AS unquantified_count
+       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int    AS unquantified_count,
+       COUNT(pci.id) FILTER (WHERE pci.checked_at IS NOT NULL)::int AS checked_count
 FROM part_collections pc
 LEFT JOIN part_collection_items pci ON pci.collection_id = pc.id
 WHERE pc.user_id = $1
@@ -301,6 +361,7 @@ type ListPartCollectionsRow struct {
 	ItemCount         int32              `json:"item_count"`
 	TotalQuantity     int64              `json:"total_quantity"`
 	UnquantifiedCount int32              `json:"unquantified_count"`
+	CheckedCount      int32              `json:"checked_count"`
 }
 
 func (q *Queries) ListPartCollections(ctx context.Context, arg ListPartCollectionsParams) ([]ListPartCollectionsRow, error) {
@@ -322,6 +383,7 @@ func (q *Queries) ListPartCollections(ctx context.Context, arg ListPartCollectio
 			&i.ItemCount,
 			&i.TotalQuantity,
 			&i.UnquantifiedCount,
+			&i.CheckedCount,
 		); err != nil {
 			return nil, err
 		}
@@ -331,6 +393,42 @@ func (q *Queries) ListPartCollections(ctx context.Context, arg ListPartCollectio
 		return nil, err
 	}
 	return items, nil
+}
+
+const setPartCollectionItemsChecked = `-- name: SetPartCollectionItemsChecked :execrows
+UPDATE part_collection_items
+SET checked_at = CASE
+        WHEN $1::text = 'none'                              THEN NULL
+        WHEN $1::text = 'invert'                            THEN (CASE WHEN checked_at IS NULL THEN now() ELSE NULL END)
+        WHEN $1::text = 'set' AND NOT $2::bool THEN NULL
+        ELSE COALESCE(checked_at, now())
+    END
+WHERE collection_id = $3
+  AND ($1::text <> 'set' OR id = ANY($4::uuid[]))
+`
+
+type SetPartCollectionItemsCheckedParams struct {
+	Op           string        `json:"op"`
+	Checked      bool          `json:"checked"`
+	CollectionID pgtype.UUID   `json:"collection_id"`
+	ItemIds      []pgtype.UUID `json:"item_ids"`
+}
+
+// The selection ops behind the header checkbox and its menu. 'all'/'none'/
+// 'invert' sweep the whole collection; 'set' writes @checked to @item_ids only
+// (row toggles and shift-click ranges). Checking preserves an existing
+// checked_at for the same reason UpdatePartCollectionItem does.
+func (q *Queries) SetPartCollectionItemsChecked(ctx context.Context, arg SetPartCollectionItemsCheckedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPartCollectionItemsChecked,
+		arg.Op,
+		arg.Checked,
+		arg.CollectionID,
+		arg.ItemIds,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const touchPartCollection = `-- name: TouchPartCollection :exec
@@ -386,10 +484,17 @@ func (q *Queries) UpdatePartCollection(ctx context.Context, arg UpdatePartCollec
 
 const updatePartCollectionItem = `-- name: UpdatePartCollectionItem :one
 UPDATE part_collection_items
-SET quantity = CASE WHEN $3::bool THEN $4 ELSE quantity END,
-    note     = CASE WHEN $5::bool THEN $6 ELSE note END
+SET quantity   = CASE WHEN $3::bool THEN $4 ELSE quantity END,
+    note       = CASE WHEN $5::bool THEN $6 ELSE note END,
+    -- Checking an already-checked row keeps the original timestamp, so a
+    -- redundant write never reorders "most recently checked".
+    checked_at = CASE
+        WHEN NOT $7::bool THEN checked_at
+        WHEN $8::bool         THEN COALESCE(checked_at, now())
+        ELSE NULL
+    END
 WHERE id = $1 AND collection_id = $2
-RETURNING id, collection_id, part_id, quantity, note
+RETURNING id, collection_id, part_id, quantity, note, checked_at
 `
 
 type UpdatePartCollectionItemParams struct {
@@ -399,6 +504,8 @@ type UpdatePartCollectionItemParams struct {
 	Quantity     *int32      `json:"quantity"`
 	SetNote      bool        `json:"set_note"`
 	Note         *string     `json:"note"`
+	SetChecked   bool        `json:"set_checked"`
+	Checked      bool        `json:"checked"`
 }
 
 // Set-style item edit: explicit flags so quantity/note can be cleared to NULL
@@ -411,6 +518,8 @@ func (q *Queries) UpdatePartCollectionItem(ctx context.Context, arg UpdatePartCo
 		arg.Quantity,
 		arg.SetNote,
 		arg.Note,
+		arg.SetChecked,
+		arg.Checked,
 	)
 	var i PartCollectionItem
 	err := row.Scan(
@@ -419,6 +528,7 @@ func (q *Queries) UpdatePartCollectionItem(ctx context.Context, arg UpdatePartCo
 		&i.PartID,
 		&i.Quantity,
 		&i.Note,
+		&i.CheckedAt,
 	)
 	return i, err
 }
@@ -432,7 +542,7 @@ SET quantity = CASE
         ELSE COALESCE(part_collection_items.quantity, 0) + EXCLUDED.quantity
     END,
     note = COALESCE(EXCLUDED.note, part_collection_items.note)
-RETURNING id, collection_id, part_id, quantity, note
+RETURNING id, collection_id, part_id, quantity, note, checked_at
 `
 
 type UpsertPartCollectionItemParams struct {
@@ -459,6 +569,7 @@ func (q *Queries) UpsertPartCollectionItem(ctx context.Context, arg UpsertPartCo
 		&i.PartID,
 		&i.Quantity,
 		&i.Note,
+		&i.CheckedAt,
 	)
 	return i, err
 }

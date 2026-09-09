@@ -11,7 +11,8 @@ RETURNING id, user_id, team_id, name, archived, collect_capture_qty, created_at,
 SELECT pc.id, pc.name, pc.archived, pc.collect_capture_qty, pc.created_at, pc.updated_at,
        COUNT(pci.id)::int                                        AS item_count,
        COALESCE(SUM(pci.quantity), 0)::bigint                    AS total_quantity,
-       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int    AS unquantified_count
+       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int    AS unquantified_count,
+       COUNT(pci.id) FILTER (WHERE pci.checked_at IS NOT NULL)::int AS checked_count
 FROM part_collections pc
 LEFT JOIN part_collection_items pci ON pci.collection_id = pc.id
 WHERE pc.user_id = $1
@@ -53,16 +54,23 @@ SET quantity = CASE
         ELSE COALESCE(part_collection_items.quantity, 0) + EXCLUDED.quantity
     END,
     note = COALESCE(EXCLUDED.note, part_collection_items.note)
-RETURNING id, collection_id, part_id, quantity, note;
+RETURNING id, collection_id, part_id, quantity, note, checked_at;
 
 -- Set-style item edit: explicit flags so quantity/note can be cleared to NULL
 -- (a COALESCE-narg update could never write NULL back).
 -- name: UpdatePartCollectionItem :one
 UPDATE part_collection_items
-SET quantity = CASE WHEN sqlc.arg('set_quantity')::bool THEN sqlc.narg('quantity') ELSE quantity END,
-    note     = CASE WHEN sqlc.arg('set_note')::bool THEN sqlc.narg('note') ELSE note END
+SET quantity   = CASE WHEN sqlc.arg('set_quantity')::bool THEN sqlc.narg('quantity') ELSE quantity END,
+    note       = CASE WHEN sqlc.arg('set_note')::bool THEN sqlc.narg('note') ELSE note END,
+    -- Checking an already-checked row keeps the original timestamp, so a
+    -- redundant write never reorders "most recently checked".
+    checked_at = CASE
+        WHEN NOT sqlc.arg('set_checked')::bool THEN checked_at
+        WHEN sqlc.arg('checked')::bool         THEN COALESCE(checked_at, now())
+        ELSE NULL
+    END
 WHERE id = $1 AND collection_id = $2
-RETURNING id, collection_id, part_id, quantity, note;
+RETURNING id, collection_id, part_id, quantity, note, checked_at;
 
 -- name: DeletePartCollectionItem :execrows
 DELETE FROM part_collection_items
@@ -73,11 +81,32 @@ WHERE id = $1 AND collection_id = $2;
 DELETE FROM part_collection_items
 WHERE collection_id = $1;
 
+-- Scoped delete: the "Delete selected" verb. Ids outside the collection are
+-- silently ignored (the collection_id predicate is the authorization).
+-- name: DeletePartCollectionItemsByIDs :execrows
+DELETE FROM part_collection_items
+WHERE collection_id = $1 AND id = ANY(sqlc.arg('item_ids')::uuid[]);
+
+-- The selection ops behind the header checkbox and its menu. 'all'/'none'/
+-- 'invert' sweep the whole collection; 'set' writes @checked to @item_ids only
+-- (row toggles and shift-click ranges). Checking preserves an existing
+-- checked_at for the same reason UpdatePartCollectionItem does.
+-- name: SetPartCollectionItemsChecked :execrows
+UPDATE part_collection_items
+SET checked_at = CASE
+        WHEN sqlc.arg('op')::text = 'none'                              THEN NULL
+        WHEN sqlc.arg('op')::text = 'invert'                            THEN (CASE WHEN checked_at IS NULL THEN now() ELSE NULL END)
+        WHEN sqlc.arg('op')::text = 'set' AND NOT sqlc.arg('checked')::bool THEN NULL
+        ELSE COALESCE(checked_at, now())
+    END
+WHERE collection_id = sqlc.arg('collection_id')
+  AND (sqlc.arg('op')::text <> 'set' OR id = ANY(sqlc.arg('item_ids')::uuid[]));
+
 -- Phone list view: rows with team stock + storage location — the "where do
 -- these parts live?" lens. The phone resolves location labels from its cached
 -- storage tree, so ids + coordinates suffice.
 -- name: ListPartCollectionItemsWithStock :many
-SELECT pci.id, pci.part_id, pci.quantity, pci.note,
+SELECT pci.id, pci.part_id, pci.quantity, pci.note, pci.checked_at,
        p.mpn, COALESCE(p.short_description, p.description, '') AS part_description,
        ie.quantity_on_hand, ie.storage_location_id, ie.storage_coordinate
 FROM part_collection_items pci
@@ -91,7 +120,8 @@ ORDER BY pci.id;
 -- name: GetPartCollectionTally :one
 SELECT COUNT(pci.id)::int                                     AS item_count,
        COALESCE(SUM(pci.quantity), 0)::bigint                 AS total_quantity,
-       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int AS unquantified_count
+       COUNT(pci.id) FILTER (WHERE pci.quantity IS NULL)::int AS unquantified_count,
+       COUNT(pci.id) FILTER (WHERE pci.checked_at IS NOT NULL)::int AS checked_count
 FROM part_collection_items pci
 WHERE pci.collection_id = $1;
 
@@ -99,7 +129,7 @@ WHERE pci.collection_id = $1;
 -- lifecycle) joined in; everything richer comes from the part hover card's
 -- lazy fetch. uuidv7 PK order = insertion order.
 -- name: ListPartCollectionItems :many
-SELECT pci.id, pci.part_id, pci.quantity, pci.note,
+SELECT pci.id, pci.part_id, pci.quantity, pci.note, pci.checked_at,
        p.mpn, p.manufacturer, p.lifecycle_status, p.image_url,
        COALESCE(p.short_description, p.description, '') AS part_description,
        ie.quantity_on_hand
@@ -109,3 +139,11 @@ LEFT JOIN inventory_entries ie
        ON ie.part_id = pci.part_id AND ie.team_id = sqlc.arg('team_id')
 WHERE pci.collection_id = sqlc.arg('collection_id')
 ORDER BY pci.id;
+
+-- Pick mode's membership test: is the scanned part on this list, and is it
+-- already checked? (The uniqueness of (collection_id, part_id) makes this the
+-- row the scan would tick.)
+-- name: GetPartCollectionItemByPart :one
+SELECT id, collection_id, part_id, quantity, note, checked_at
+FROM part_collection_items
+WHERE collection_id = $1 AND part_id = $2;

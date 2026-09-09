@@ -818,11 +818,12 @@ type PartCollection struct {
 }
 
 type PartCollectionItem struct {
-	ID           pgtype.UUID `json:"id"`
-	CollectionID pgtype.UUID `json:"collection_id"`
-	PartID       pgtype.UUID `json:"part_id"`
-	Quantity     *int32      `json:"quantity"`
-	Note         *string     `json:"note"`
+	ID           pgtype.UUID        `json:"id"`
+	CollectionID pgtype.UUID        `json:"collection_id"`
+	PartID       pgtype.UUID        `json:"part_id"`
+	Quantity     *int32             `json:"quantity"`
+	Note         *string            `json:"note"`
+	CheckedAt    pgtype.Timestamptz `json:"checked_at"`
 }
 
 type PartNote struct {

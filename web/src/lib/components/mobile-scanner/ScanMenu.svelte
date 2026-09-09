@@ -108,7 +108,7 @@
       </div>
       <div>
         <p class="font-medium">Lists</p>
-        <p class="text-xs text-zinc-400">Browse your lists &amp; collect parts into them</p>
+        <p class="text-xs text-zinc-400">Browse, collect into a list, or pick a pile against one</p>
       </div>
     </button>
 

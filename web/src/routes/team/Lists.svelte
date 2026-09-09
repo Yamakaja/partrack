@@ -91,6 +91,7 @@
           <tr class="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             <th class="px-3 py-2">Name</th>
             <th class="px-3 py-2 text-right">Parts</th>
+            <th class="px-3 py-2 text-right">Checked</th>
             <th class="px-3 py-2 text-right">Pieces</th>
             <th class="px-3 py-2">Updated</th>
             <th class="px-3 py-2"></th>
@@ -106,6 +107,15 @@
                 {/if}
               </td>
               <td class="px-3 py-2 text-right tabular-nums">{c.item_count}</td>
+              <!-- Checked rows are a persisted selection, so this is real
+                   progress: what a phone pick run has ticked off so far. -->
+              <td class="px-3 py-2 text-right tabular-nums">
+                {#if c.checked_count > 0}
+                  {c.checked_count}/{c.item_count}
+                {:else}
+                  <span class="text-muted-foreground">—</span>
+                {/if}
+              </td>
               <td class="px-3 py-2 text-right tabular-nums">
                 {c.total_quantity > 0 ? c.total_quantity.toLocaleString() : '—'}
                 {#if c.unquantified_count > 0}

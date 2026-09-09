@@ -47,7 +47,7 @@ export type NavEntry =
   | { screen: 'location_inventory'; locationId: string; coordinate?: number[] | null }
   | { screen: 'storage_assignment' }
   | { screen: 'build_kitting'; kittingSessionId: string; buildRef: string }
-  | { screen: 'collect'; collectionId?: string; collectionName?: string }
+  | { screen: 'collect'; collectionId?: string; collectionName?: string; initialMode?: 'collect' | 'pick' }
   | { screen: 'filter'; collectionId?: string; collectionName?: string };
 
 export interface SelectedListing {

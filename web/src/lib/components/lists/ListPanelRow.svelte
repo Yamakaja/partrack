@@ -1,22 +1,28 @@
 <script lang="ts">
   import { X, StickyNote } from 'lucide-svelte';
   import PartCell from '$lib/components/parts/PartCell.svelte';
+  import { Checkbox } from '$lib/components/ui/checkbox/index.js';
   import type { CollectionItem } from '$lib/api/collections.js';
 
-  // One list row: two-line part cell, inline-editable quantity and note,
-  // delete. Quantity NULL renders as a warning "—" — quantitative verbs skip
-  // those rows, so the row is where the user fixes them.
+  // One list row: selection checkbox, two-line part cell, inline-editable
+  // quantity and note, delete. Quantity NULL renders as a warning "—" —
+  // quantitative verbs skip those rows, so the row is where the user fixes them.
   let {
     teamId,
     item,
     onupdate,
     ondelete,
+    oncheck,
   }: {
     teamId: string;
     item: CollectionItem;
     onupdate: (itemId: string, body: { quantity?: number | null; note?: string | null }) => Promise<void>;
     ondelete: (itemId: string) => Promise<void>;
+    /** `range` is set when the user shift-clicked (select through from the last click). */
+    oncheck: (itemId: string, checked: boolean, range: boolean) => void;
   } = $props();
+
+  const checked = $derived(item.checked_at !== null);
 
   let editingQty = $state(false);
   let qtyValue = $state('');
@@ -67,8 +73,13 @@
   }
 </script>
 
-<div class="group border-b border-border px-3 py-2">
-  <div class="grid grid-cols-[minmax(0,1fr)_64px_auto] items-center gap-2">
+<div class="group border-b border-border px-3 py-2 {checked ? 'bg-accent/40' : ''}">
+  <div class="grid grid-cols-[auto_minmax(0,1fr)_64px_auto] items-center gap-2">
+    <Checkbox
+      {checked}
+      label={checked ? 'Deselect row' : 'Select row'}
+      onchange={(next, e) => oncheck(item.id, next, e.shiftKey)}
+    />
     <PartCell
       partId={item.part_id}
       mpn={item.mpn}
@@ -129,12 +140,12 @@
       onkeydown={noteKey}
       onblur={saveNote}
       placeholder="Note…"
-      class="mt-1 w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs italic focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      class="mt-1 ml-6 w-[calc(100%-1.5rem)] rounded border border-input bg-background px-1.5 py-0.5 text-xs italic focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     />
   {:else if item.note}
     <button
       onclick={startNoteEdit}
-      class="mt-0.5 block w-full truncate rounded px-1.5 text-left text-[11px] italic text-muted-foreground hover:bg-accent/60"
+      class="mt-0.5 ml-6 block w-[calc(100%-1.5rem)] truncate rounded px-1.5 text-left text-[11px] italic text-muted-foreground hover:bg-accent/60"
       title="Edit note"
     >
       {item.note}

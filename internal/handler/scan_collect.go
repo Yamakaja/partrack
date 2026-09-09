@@ -174,6 +174,7 @@ func (h *Handler) ListScanCollections(w http.ResponseWriter, r *http.Request) {
 		CollectCaptureQty *bool  `json:"collect_capture_qty"`
 		ItemCount         int32  `json:"item_count"`
 		TotalQuantity     int64  `json:"total_quantity"`
+		CheckedCount      int32  `json:"checked_count"`
 		UpdatedAt         string `json:"updated_at"`
 	}
 	resp := make([]item, 0, len(rows))
@@ -184,6 +185,7 @@ func (h *Handler) ListScanCollections(w http.ResponseWriter, r *http.Request) {
 			CollectCaptureQty: c.CollectCaptureQty,
 			ItemCount:         c.ItemCount,
 			TotalQuantity:     c.TotalQuantity,
+			CheckedCount:      c.CheckedCount,
 			UpdatedAt:         c.UpdatedAt.Time.UTC().Format(time.RFC3339),
 		})
 	}
@@ -310,6 +312,7 @@ func (h *Handler) ListScanCollectionItems(w http.ResponseWriter, r *http.Request
 		PartID          string    `json:"part_id"`
 		Quantity        *int32    `json:"quantity"`
 		Note            *string   `json:"note"`
+		CheckedAt       *string   `json:"checked_at"`
 		Mpn             *string   `json:"mpn"`
 		Description     string    `json:"description"`
 		QuantityOnHand  *int32    `json:"quantity_on_hand"`
@@ -322,6 +325,7 @@ func (h *Handler) ListScanCollectionItems(w http.ResponseWriter, r *http.Request
 			PartID:         row.PartID.String(),
 			Quantity:       row.Quantity,
 			Note:           row.Note,
+			CheckedAt:      timestamptzString(row.CheckedAt),
 			Mpn:            row.Mpn,
 			Description:    row.PartDescription,
 			QuantityOnHand: row.QuantityOnHand,

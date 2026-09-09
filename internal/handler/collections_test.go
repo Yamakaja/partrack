@@ -469,3 +469,204 @@ func TestCollections_ClearItems(t *testing.T) {
 		t.Errorf("expected empty items after clear, got %d", len(items))
 	}
 }
+
+// The checkbox on list rows is a persisted, cross-device selection: the desktop
+// panel scopes its verbs by it and the phone's pick mode writes it. These tests
+// pin the write paths and the counts both surfaces read.
+
+func TestCollectionItems_CheckedSelection(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	_, teamID, token := collectionsTestSetup(t, "coll-checked@example.com")
+	collID := createCollectionViaAPI(t, teamID, token, "Pile")
+
+	itemsPath := fmt.Sprintf("/api/v1/teams/%s/collections/%s/items", teamID, collID)
+	itemIDs := make([]string, 0, 3)
+	for i, mpn := range []string{"COLL-CHK-01", "COLL-CHK-02", "COLL-CHK-03"} {
+		partID := testutil.CreatePart(t, testDB, "global", mpn, nil)
+		body, status := testutil.Do(t, testEnv.Server, http.MethodPost, itemsPath,
+			map[string]any{"part_id": partID, "quantity": 10 * (i + 1)}, token)
+		if status != http.StatusCreated {
+			t.Fatalf("add item %s: expected 201, got %d: %v", mpn, status, body)
+		}
+		if body["checked_at"] != nil {
+			t.Errorf("new row must start unchecked, got %v", body["checked_at"])
+		}
+		itemIDs = append(itemIDs, body["id"].(string))
+	}
+
+	checkedPath := fmt.Sprintf("%s/checked", itemsPath)
+
+	// PATCH checked=true stamps checked_at; the count follows on the summary.
+	body, status := testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("%s/%s", itemsPath, itemIDs[0]),
+		map[string]any{"checked": true}, token)
+	if status != http.StatusOK {
+		t.Fatalf("check item: expected 200, got %d: %v", status, body)
+	}
+	firstCheckedAt, _ := body["checked_at"].(string)
+	if firstCheckedAt == "" {
+		t.Fatalf("expected checked_at to be set, got %v", body["checked_at"])
+	}
+	assertCheckedCount(t, teamID, collID, token, 1)
+
+	// Re-checking keeps the original stamp: a redundant write must not reorder
+	// "most recently checked".
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("%s/%s", itemsPath, itemIDs[0]),
+		map[string]any{"checked": true}, token)
+	if got, _ := body["checked_at"].(string); got != firstCheckedAt {
+		t.Errorf("re-check changed checked_at: %v → %v", firstCheckedAt, got)
+	}
+
+	// An absent `checked` leaves the selection alone (set-if-present, like note).
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("%s/%s", itemsPath, itemIDs[0]),
+		map[string]any{"note": "front bin"}, token)
+	if got, _ := body["checked_at"].(string); got != firstCheckedAt {
+		t.Errorf("note edit must not touch checked_at: %v → %v", firstCheckedAt, got)
+	}
+
+	// PATCH checked=false clears it.
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodPatch,
+		fmt.Sprintf("%s/%s", itemsPath, itemIDs[0]),
+		map[string]any{"checked": false}, token)
+	if body["checked_at"] != nil {
+		t.Errorf("expected checked_at cleared, got %v", body["checked_at"])
+	}
+	assertCheckedCount(t, teamID, collID, token, 0)
+
+	// op=set writes a subset — the row toggle and shift-click range path.
+	body, status = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "set", "item_ids": itemIDs[:2], "checked": true}, token)
+	if status != http.StatusOK {
+		t.Fatalf("op=set: expected 200, got %d: %v", status, body)
+	}
+	if n := body["checked_count"].(float64); n != 2 {
+		t.Errorf("op=set: expected checked_count 2, got %v", n)
+	}
+
+	// op=invert flips the whole list: 2 checked of 3 becomes 1.
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "invert"}, token)
+	if n := body["checked_count"].(float64); n != 1 {
+		t.Errorf("op=invert: expected checked_count 1, got %v", n)
+	}
+	if !itemChecked(t, teamID, collID, token, itemIDs[2]) {
+		t.Error("op=invert: expected the previously unchecked row to be checked")
+	}
+
+	// op=all / op=none sweep.
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "all"}, token)
+	if n := body["checked_count"].(float64); n != 3 {
+		t.Errorf("op=all: expected checked_count 3, got %v", n)
+	}
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "none"}, token)
+	if n := body["checked_count"].(float64); n != 0 {
+		t.Errorf("op=none: expected checked_count 0, got %v", n)
+	}
+
+	// Bad ops and a set without ids are rejected.
+	if _, status = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "sometimes"}, token); status != http.StatusBadRequest {
+		t.Errorf("unknown op: expected 400, got %d", status)
+	}
+	if _, status = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "set", "checked": true}, token); status != http.StatusBadRequest {
+		t.Errorf("op=set without item_ids: expected 400, got %d", status)
+	}
+
+	// Another team member cannot reach the list at all (owner filter → 404).
+	otherID := testutil.CreateUser(t, testDB, "coll-checked-other@example.com", "pw", "Other")
+	testutil.AddMember(t, testDB, teamID, otherID, "member")
+	otherToken := testutil.CreateSession(t, testDB, otherID)
+	if _, status = testutil.Do(t, testEnv.Server, http.MethodPost, checkedPath,
+		map[string]any{"op": "all"}, otherToken); status != http.StatusNotFound {
+		t.Errorf("selection op as non-owner: expected 404, got %d", status)
+	}
+}
+
+func TestCollectionItems_ScopedDelete(t *testing.T) {
+	t.Cleanup(func() { testutil.Truncate(t, testDB) })
+	_, teamID, token := collectionsTestSetup(t, "coll-scoped-del@example.com")
+	collID := createCollectionViaAPI(t, teamID, token, "Scoped")
+
+	itemsPath := fmt.Sprintf("/api/v1/teams/%s/collections/%s/items", teamID, collID)
+	itemIDs := make([]string, 0, 3)
+	for _, mpn := range []string{"COLL-DEL-01", "COLL-DEL-02", "COLL-DEL-03"} {
+		partID := testutil.CreatePart(t, testDB, "global", mpn, nil)
+		body, status := testutil.Do(t, testEnv.Server, http.MethodPost, itemsPath,
+			map[string]any{"part_id": partID}, token)
+		if status != http.StatusCreated {
+			t.Fatalf("add item %s: expected 201, got %d: %v", mpn, status, body)
+		}
+		itemIDs = append(itemIDs, body["id"].(string))
+	}
+
+	// item_ids narrows the delete to the selection; the rest of the list stays.
+	body, status := testutil.Do(t, testEnv.Server, http.MethodDelete, itemsPath,
+		map[string]any{"item_ids": itemIDs[:2]}, token)
+	if status != http.StatusOK {
+		t.Fatalf("scoped delete: expected 200, got %d: %v", status, body)
+	}
+	if n := body["removed"].(float64); n != 2 {
+		t.Errorf("expected removed=2, got %v", n)
+	}
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s", teamID, collID), nil, token)
+	items := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 surviving row, got %d", len(items))
+	}
+	if got := items[0].(map[string]any)["id"].(string); got != itemIDs[2] {
+		t.Errorf("wrong row survived: got %v, want %v", got, itemIDs[2])
+	}
+
+	// An empty id list is a no-op rather than a full clear.
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodDelete, itemsPath,
+		map[string]any{"item_ids": []string{}}, token)
+	if n := body["removed"].(float64); n != 0 {
+		t.Errorf("empty item_ids: expected removed=0, got %v", n)
+	}
+	body, _ = testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s", teamID, collID), nil, token)
+	if got := len(body["items"].([]any)); got != 1 {
+		t.Errorf("empty item_ids must not clear the list, got %d rows", got)
+	}
+}
+
+// assertCheckedCount checks the summary listing's checked_count for one list.
+func assertCheckedCount(t *testing.T, teamID, collID, token string, want float64) {
+	t.Helper()
+	body, status := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections", teamID), nil, token)
+	if status != http.StatusOK {
+		t.Fatalf("list collections: expected 200, got %d", status)
+	}
+	for _, raw := range body["collections"].([]any) {
+		c := raw.(map[string]any)
+		if c["id"].(string) != collID {
+			continue
+		}
+		if got := c["checked_count"].(float64); got != want {
+			t.Errorf("checked_count: got %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatalf("collection %s not found in listing", collID)
+}
+
+func itemChecked(t *testing.T, teamID, collID, token, itemID string) bool {
+	t.Helper()
+	body, _ := testutil.Do(t, testEnv.Server, http.MethodGet,
+		fmt.Sprintf("/api/v1/teams/%s/collections/%s", teamID, collID), nil, token)
+	for _, raw := range body["items"].([]any) {
+		it := raw.(map[string]any)
+		if it["id"].(string) == itemID {
+			return it["checked_at"] != nil
+		}
+	}
+	t.Fatalf("item %s not found", itemID)
+	return false
+}

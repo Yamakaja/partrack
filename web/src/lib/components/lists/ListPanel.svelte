@@ -4,7 +4,7 @@
   import {
     ChevronDown, ChevronUp, ClipboardList, Ellipsis, Pencil, Plus, ShoppingCart,
     ArrowDownToLine, PackageMinus, ScanBarcode, Copy, Eraser, Download, MapPin,
-    Hammer, Package, FileText, Box, TrendingDown, Layers, Cpu, Search,
+    Hammer, Package, FileText, Box, TrendingDown, Layers, Cpu, Search, ListChecks,
   } from 'lucide-svelte';
   import { request } from '$lib/api/client.js';
   import { scanSessionStore } from '$lib/stores/scanSession.svelte.js';
@@ -17,7 +17,7 @@
   import {
     listCollections, createCollection, getCollection, updateCollection, deleteCollection,
     addCollectionItem, bulkAddCollectionItems, updateCollectionItem, removeCollectionItem,
-    clearCollectionItems, addSearchResultsToCollection,
+    clearCollectionItems, addSearchResultsToCollection, setCollectionItemsChecked,
   } from '$lib/api/collections.js';
   import { partsSearchStore } from '$lib/stores/partsSearch.svelte.js';
   import { getCart, bulkAddCartItems } from '$lib/api/cart.js';
@@ -28,6 +28,7 @@
   import { replenishPreview } from '$lib/api/inventory.js';
   import type { PartSummary } from '$lib/types/parts.js';
   import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '$lib/components/ui/dropdown-menu/index.js';
+  import { Checkbox } from '$lib/components/ui/checkbox/index.js';
   import PartSearch from '$lib/components/parts/PartSearch.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import ListPanelRow from './ListPanelRow.svelte';
@@ -84,9 +85,52 @@
   }));
   const detail = $derived(detailQuery.data);
   const items = $derived(detail?.items ?? []);
-  const totalPieces = $derived(items.reduce((s, i) => s + (i.quantity ?? 0), 0));
-  const unquantified = $derived(items.filter((i) => i.quantity == null).length);
-  const quantified = $derived(items.filter((i) => i.quantity != null));
+
+  // ── Selection ────────────────────────────────────────────────────────────
+  // The checkbox state is persisted server-side (checked_at), not held here,
+  // because the phone's pick mode writes it from another device — sorting a
+  // pile there leaves the selection waiting at the desktop.
+  //
+  // Additive scope rule: with nothing checked, verbs act on the whole list;
+  // with a selection, they act on the selection. Every verb label carries the
+  // count, so which one is in force is never a guess.
+  const checkedItems = $derived(items.filter((i) => i.checked_at !== null));
+  const scoped = $derived(checkedItems.length > 0 ? checkedItems : items);
+  const hasSelection = $derived(checkedItems.length > 0);
+  const allChecked = $derived(items.length > 0 && checkedItems.length === items.length);
+
+  const totalPieces = $derived(scoped.reduce((s, i) => s + (i.quantity ?? 0), 0));
+  const unquantified = $derived(scoped.filter((i) => i.quantity == null).length);
+  const quantified = $derived(scoped.filter((i) => i.quantity != null));
+
+  // Anchor for shift-click range selection.
+  let lastCheckedIndex = $state<number | null>(null);
+
+  async function handleCheck(itemId: string, checked: boolean, range: boolean) {
+    if (!activeId) return;
+    const idx = items.findIndex((i) => i.id === itemId);
+    const ids = range && lastCheckedIndex !== null && idx >= 0
+      ? items.slice(Math.min(lastCheckedIndex, idx), Math.max(lastCheckedIndex, idx) + 1).map((i) => i.id)
+      : [itemId];
+    lastCheckedIndex = idx;
+    try {
+      await setCollectionItemsChecked(teamId, activeId, { op: 'set', item_ids: ids, checked });
+      invalidate();
+    } catch (err) {
+      toastError(err);
+    }
+  }
+
+  async function selectionOp(op: 'all' | 'none' | 'invert') {
+    if (!activeId) return;
+    lastCheckedIndex = null;
+    try {
+      await setCollectionItemsChecked(teamId, activeId, { op });
+      invalidate();
+    } catch (err) {
+      toastError(err);
+    }
+  }
 
   // ── Page context: pre-targets + promotion, never availability ────────────
   const path = $derived(currentRoute().path);
@@ -160,10 +204,15 @@
     }
   }
 
+  // Scoped by the selection like every other sink: with rows checked this is
+  // "delete selected", otherwise it empties the list.
   async function clearItems() {
     if (!activeId) return;
     try {
-      const res = await clearCollectionItems(teamId, activeId);
+      const res = await clearCollectionItems(
+        teamId, activeId,
+        hasSelection ? checkedItems.map((i) => i.id) : undefined,
+      );
       invalidate();
       pushToast('success', `Removed ${res.removed} item${res.removed === 1 ? '' : 's'}`);
     } catch (err) {
@@ -545,7 +594,7 @@
     try {
       await bulkAddCartItems(teamId, toAdd);
       qc.invalidateQueries({ queryKey: ['cart', teamId] });
-      const skipped = items.length - withQty.length;
+      const skipped = scoped.length - withQty.length;
       const notes = [
         skipped > 0 ? `${skipped} skipped (no quantity)` : '',
         covered > 0 ? `${covered} covered by stock` : '',
@@ -563,13 +612,13 @@
   }
 
   function exportCsv() {
-    if (!detail || items.length === 0) return;
+    if (!detail || scoped.length === 0) return;
     const esc = (v: unknown) => {
       const s = v == null ? '' : String(v);
       return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
     };
     const lines = [['mpn', 'manufacturer', 'description', 'quantity', 'note', 'available'].join(',')];
-    for (const i of items) {
+    for (const i of scoped) {
       lines.push([i.mpn, i.manufacturer, i.description, i.quantity, i.note, i.available_qty].map(esc).join(','));
     }
     const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
@@ -581,8 +630,9 @@
   }
 
   // Hand the active list to the paired phone: as a Collect target (scan bags
-  // into the list) or a Filter target (scan bags against it).
-  async function sendToPhone(mode: 'collect' | 'filter') {
+  // into the list), a Filter target (scan bags against it), or a Pick target
+  // (scan a pile and tick the rows you find).
+  async function sendToPhone(mode: 'collect' | 'filter' | 'pick') {
     const sess = scanSessionStore.current;
     if (!activeId || !sess) return;
     try {
@@ -592,7 +642,9 @@
       });
       pushToast('success', mode === 'collect'
         ? 'Sent to the scanner — start scanning bags'
-        : 'Filter sent to the scanner — scan the pile');
+        : mode === 'pick'
+          ? 'Pick sent to the scanner — scan the pile to tick rows off'
+          : 'Filter sent to the scanner — scan the pile');
     } catch (err) {
       toastError(err);
     }
@@ -627,11 +679,17 @@
     run: () => void;
   }
 
-  const emptyReason = $derived(items.length === 0 ? 'List is empty' : null);
+  // Reasons are computed over the scope, so "no quantities set" means the
+  // selected rows, not the list behind them.
+  const emptyReason = $derived(scoped.length === 0 ? 'List is empty' : null);
   const qtyReason = $derived(
     !isPurchaser ? 'Requires the purchaser role'
-      : items.length === 0 ? 'List is empty'
+      : scoped.length === 0 ? 'List is empty'
         : quantified.length === 0 ? 'No quantities set' : null,
+  );
+  // Appended to sink labels so the acting scope is always stated.
+  const scopeSuffix = $derived(
+    hasSelection ? ` (${checkedItems.length} selected)` : items.length > 0 ? ` (${items.length})` : '',
   );
 
   const sourceVerbs: Verb[] = $derived([
@@ -695,29 +753,34 @@
 
   const sinkVerbs: Verb[] = $derived([
     {
-      id: 'add-to-cart', label: 'Add to cart', short: 'Add to cart', icon: ShoppingCart,
+      id: 'add-to-cart', label: `Add to cart${scopeSuffix}`, short: 'Add to cart', icon: ShoppingCart,
       reason: qtyReason,
       run: () => void addToCart(false),
     },
     {
-      id: 'add-shortfall', label: 'Add shortfall to cart', short: 'Add shortfall', icon: ShoppingCart,
+      id: 'add-shortfall', label: `Add shortfall to cart${scopeSuffix}`, short: 'Add shortfall', icon: ShoppingCart,
       reason: qtyReason,
       run: () => void addToCart(true),
     },
     {
-      id: 'checkout', label: 'Check out…', short: 'Check out', icon: PackageMinus,
+      id: 'checkout', label: `Check out…${scopeSuffix}`, short: 'Check out', icon: PackageMinus,
       reason: emptyReason,
       run: () => (checkoutOpen = true),
     },
     {
-      id: 'assign-storage', label: 'Assign storage…', short: 'Assign storage', icon: MapPin,
+      id: 'assign-storage', label: `Assign storage…${scopeSuffix}`, short: 'Assign storage', icon: MapPin,
       reason: emptyReason,
       run: () => (assignStorageOpen = true),
     },
     {
-      id: 'export-csv', label: 'Export CSV', short: 'Export CSV', icon: Download,
+      id: 'export-csv', label: `Export CSV${scopeSuffix}`, short: 'Export CSV', icon: Download,
       reason: emptyReason,
       run: exportCsv,
+    },
+    {
+      id: 'pick', label: 'Pick on phone', short: 'Pick', icon: ScanBarcode, scanner: true,
+      reason: !scannerConnected ? 'No scanner paired' : emptyReason,
+      run: () => void sendToPhone('pick'),
     },
     {
       id: 'filter', label: 'Filter on phone', short: 'Filter', icon: ScanBarcode, scanner: true,
@@ -738,7 +801,7 @@
     else if (pagePartId) ids.push('add-from-part');
     else if (partsSearchStore.active) ids.push('add-from-parts-search');
     if (scannerConnected) {
-      for (const id of ['collect', 'filter']) {
+      for (const id of ['collect', 'pick']) {
         if (ids.length >= 2) break;
         ids.push(id);
       }
@@ -859,7 +922,8 @@
                 disabled={!activeId || items.length === 0}
                 class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
               >
-                <Eraser class="h-3.5 w-3.5 text-muted-foreground" /> Clear items
+                <Eraser class="h-3.5 w-3.5 text-muted-foreground" />
+                {hasSelection ? `Delete selected (${checkedItems.length})` : 'Clear items'}
               </button>
               <button
                 onclick={archiveActive}
@@ -941,17 +1005,51 @@
           {/each}
         </div>
 
-        <!-- Tally: one quiet sentence -->
+        <!-- Tally: one quiet sentence, plus the select-all box. The counts
+             follow the scope, so with a selection they describe it — the same
+             rows every verb above is about to act on. -->
         {#if items.length > 0}
-          <div class="border-b border-border px-3 py-1.5 text-[11.5px] text-muted-foreground">
-            <span class="font-semibold text-foreground tabular-nums">{items.length}</span>
-            part{items.length === 1 ? '' : 's'}
-            {#if totalPieces > 0}
-              · <span class="font-semibold text-foreground tabular-nums">{totalPieces.toLocaleString()}</span> pcs
-            {/if}
-            {#if unquantified > 0}
-              · <span class="text-warning">{unquantified} without qty</span>
-            {/if}
+          <div class="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11.5px] text-muted-foreground">
+            <Checkbox
+              checked={allChecked}
+              indeterminate={hasSelection && !allChecked}
+              label={hasSelection ? 'Clear selection' : 'Select all rows'}
+              onchange={(next) => void selectionOp(next ? 'all' : 'none')}
+            />
+            <span class="min-w-0 flex-1 truncate">
+              {#if hasSelection}
+                <span class="font-semibold text-foreground tabular-nums">{checkedItems.length}</span>
+                of <span class="tabular-nums">{items.length}</span> selected
+              {:else}
+                <span class="font-semibold text-foreground tabular-nums">{items.length}</span>
+                part{items.length === 1 ? '' : 's'}
+              {/if}
+              {#if totalPieces > 0}
+                · <span class="font-semibold text-foreground tabular-nums">{totalPieces.toLocaleString()}</span> pcs
+              {/if}
+              {#if unquantified > 0}
+                · <span class="text-warning">{unquantified} without qty</span>
+              {/if}
+            </span>
+            <DropdownMenu>
+              {#snippet trigger()}
+                <button
+                  title="Selection"
+                  class="rounded p-0.5 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  <ListChecks class="h-3.5 w-3.5" />
+                </button>
+              {/snippet}
+              <DropdownMenuItem disabled={allChecked} onSelect={() => void selectionOp('all')}>
+                Select all ({items.length})
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!hasSelection} onSelect={() => void selectionOp('none')}>
+                Clear selection
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void selectionOp('invert')}>
+                Invert selection
+              </DropdownMenuItem>
+            </DropdownMenu>
           </div>
         {/if}
 
@@ -965,7 +1063,12 @@
             </p>
           {:else}
             {#each items as item (item.id)}
-              <ListPanelRow {teamId} {item} onupdate={handleItemUpdate} ondelete={handleItemDelete} />
+              <ListPanelRow
+                {teamId} {item}
+                onupdate={handleItemUpdate}
+                ondelete={handleItemDelete}
+                oncheck={handleCheck}
+              />
             {/each}
           {/if}
         </div>
@@ -1015,14 +1118,14 @@
   <ListCheckoutDialog
     {teamId}
     listName={detail.name}
-    {items}
+    items={scoped}
     bind:open={checkoutOpen}
     oncomplete={handleCheckoutComplete}
   />
   <AssignStorageDialog
     {teamId}
     listName={detail.name}
-    partIds={items.map((i) => i.part_id)}
+    partIds={scoped.map((i) => i.part_id)}
     bind:open={assignStorageOpen}
     oncomplete={handleAssignStorageComplete}
   />
@@ -1039,9 +1142,11 @@
 
 <ConfirmDialog
   bind:open={clearConfirmOpen}
-  title="Clear this list?"
-  description="All rows are removed; the list itself stays. Parts and stock are not affected."
-  confirmLabel="Clear"
+  title={hasSelection ? 'Delete the selected rows?' : 'Clear this list?'}
+  description={hasSelection
+    ? `${checkedItems.length} selected row${checkedItems.length === 1 ? '' : 's'} are removed; the rest of the list stays. Parts and stock are not affected.`
+    : 'All rows are removed; the list itself stays. Parts and stock are not affected.'}
+  confirmLabel={hasSelection ? 'Delete' : 'Clear'}
   destructive
   onconfirm={clearItems}
 />

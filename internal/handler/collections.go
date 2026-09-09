@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -29,6 +30,7 @@ type collectionResponse struct {
 	ItemCount         int32  `json:"item_count"`
 	TotalQuantity     int64  `json:"total_quantity"`
 	UnquantifiedCount int32  `json:"unquantified_count"`
+	CheckedCount      int32  `json:"checked_count"`
 }
 
 type collectionItemResponse struct {
@@ -45,6 +47,9 @@ type collectionItemResponse struct {
 	// has no inventory entry for the team (not tracked). Drives the row's stock
 	// dot, compared against the item's own quantity when present.
 	AvailableQty *int32 `json:"available_qty"`
+	// Selection state. Null = unchecked. Persisted (not a transient UI
+	// selection) so the phone's pick mode can write it and the desktop see it.
+	CheckedAt *string `json:"checked_at"`
 }
 
 func collectionToResponse(c dbgen.PartCollection) collectionResponse {
@@ -69,6 +74,18 @@ func collectionItemToResponse(it dbgen.ListPartCollectionItemsRow) collectionIte
 		Description:     it.PartDescription,
 		LifecycleStatus: string(it.LifecycleStatus),
 		ImageURL:        it.ImageUrl,
+		CheckedAt:       timestamptzString(it.CheckedAt),
+	}
+}
+
+// collectionItemMutationResponse is the row echo every item write returns.
+func collectionItemMutationResponse(id, partID pgtype.UUID, quantity *int32, note *string, checkedAt pgtype.Timestamptz) map[string]any {
+	return map[string]any{
+		"id":         id.String(),
+		"part_id":    partID.String(),
+		"quantity":   quantity,
+		"note":       note,
+		"checked_at": timestamptzString(checkedAt),
 	}
 }
 
@@ -150,6 +167,7 @@ func (h *Handler) ListCollections(w http.ResponseWriter, r *http.Request) {
 			ItemCount:         c.ItemCount,
 			TotalQuantity:     c.TotalQuantity,
 			UnquantifiedCount: c.UnquantifiedCount,
+			CheckedCount:      c.CheckedCount,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"collections": resp})
@@ -351,12 +369,7 @@ func (h *Handler) AddCollectionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.publishCollectionChanged(r, teamID, c.ID.String())
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":       item.ID.String(),
-		"part_id":  item.PartID.String(),
-		"quantity": item.Quantity,
-		"note":     item.Note,
-	})
+	writeJSON(w, http.StatusCreated, collectionItemMutationResponse(item.ID, item.PartID, item.Quantity, item.Note, item.CheckedAt))
 }
 
 // BulkAddCollectionItems handles POST /api/v1/teams/{teamId}/collections/{collectionId}/items/bulk
@@ -538,8 +551,10 @@ func (h *Handler) AddSearchResultsToCollection(w http.ResponseWriter, r *http.Re
 }
 
 // UpdateCollectionItem handles PATCH /api/v1/teams/{teamId}/collections/{collectionId}/items/{itemId}
-// Body: {quantity?, note?}. Fields are set-if-present — an explicit null clears
-// (quantity back to "no quantity", note removed), an absent field is untouched.
+// Body: {quantity?, note?, checked?}. Fields are set-if-present — an explicit
+// null clears (quantity back to "no quantity", note removed), an absent field
+// is untouched. `checked` is a plain bool (the selection has no third state);
+// the timestamp behind it is the server's.
 func (h *Handler) UpdateCollectionItem(w http.ResponseWriter, r *http.Request) {
 	userID, teamID, ok := collectionScope(w, r)
 	if !ok {
@@ -558,6 +573,7 @@ func (h *Handler) UpdateCollectionItem(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Quantity json.RawMessage `json:"quantity"`
 		Note     json.RawMessage `json:"note"`
+		Checked  *bool           `json:"checked"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -582,6 +598,10 @@ func (h *Handler) UpdateCollectionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if body.Checked != nil {
+		params.SetChecked = true
+		params.Checked = *body.Checked
+	}
 
 	item, err := h.Queries.UpdatePartCollectionItem(r.Context(), params)
 	if err != nil {
@@ -597,17 +617,14 @@ func (h *Handler) UpdateCollectionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.publishCollectionChanged(r, teamID, c.ID.String())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":       item.ID.String(),
-		"part_id":  item.PartID.String(),
-		"quantity": item.Quantity,
-		"note":     item.Note,
-	})
+	writeJSON(w, http.StatusOK, collectionItemMutationResponse(item.ID, item.PartID, item.Quantity, item.Note, item.CheckedAt))
 }
 
 // ClearCollectionItems handles DELETE /api/v1/teams/{teamId}/collections/{collectionId}/items
 // Empties the list in one shot (the "Clear items" verb); the collection itself
-// survives, unlike DeleteCollection.
+// survives, unlike DeleteCollection. An optional {item_ids} body narrows the
+// delete to those rows — the selection-scoped "Delete selected" verb. An absent
+// body clears everything.
 func (h *Handler) ClearCollectionItems(w http.ResponseWriter, r *http.Request) {
 	userID, teamID, ok := collectionScope(w, r)
 	if !ok {
@@ -617,7 +634,33 @@ func (h *Handler) ClearCollectionItems(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	n, err := h.Queries.ClearPartCollectionItems(r.Context(), c.ID)
+	var body struct {
+		ItemIDs []string `json:"item_ids"`
+	}
+	// A DELETE with no body is the whole-list clear; only a malformed body is
+	// an error.
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+
+	var n int64
+	var err error
+	if body.ItemIDs != nil {
+		itemIDs, ok := parseCollectionItemIDs(w, body.ItemIDs)
+		if !ok {
+			return
+		}
+		if len(itemIDs) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"removed": 0})
+			return
+		}
+		n, err = h.Queries.DeletePartCollectionItemsByIDs(r.Context(), dbgen.DeletePartCollectionItemsByIDsParams{
+			CollectionID: c.ID, ItemIds: itemIDs,
+		})
+	} else {
+		n, err = h.Queries.ClearPartCollectionItems(r.Context(), c.ID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
@@ -662,4 +705,86 @@ func (h *Handler) DeleteCollectionItem(w http.ResponseWriter, r *http.Request) {
 	}
 	h.publishCollectionChanged(r, teamID, c.ID.String())
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// parseCollectionItemIDs parses a body-supplied item id list into UUIDs.
+func parseCollectionItemIDs(w http.ResponseWriter, ids []string) ([]pgtype.UUID, bool) {
+	out := make([]pgtype.UUID, 0, len(ids))
+	for _, idStr := range ids {
+		var id pgtype.UUID
+		if err := id.Scan(idStr); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid item id: "+idStr, "BAD_REQUEST")
+			return nil, false
+		}
+		out = append(out, id)
+	}
+	return out, true
+}
+
+// SetCollectionItemsChecked handles
+// POST /api/v1/teams/{teamId}/collections/{collectionId}/items/checked
+//
+// The list's selection ops. Body: {op, item_ids?, checked?} where op is one of
+// all | none | invert | set; `set` writes `checked` to `item_ids` only (row
+// toggles and shift-click ranges), the rest sweep the whole collection.
+//
+// This is a persisted selection rather than a transient client one, because
+// the phone's pick mode writes it from another device — see the migration.
+func (h *Handler) SetCollectionItemsChecked(w http.ResponseWriter, r *http.Request) {
+	userID, teamID, ok := collectionScope(w, r)
+	if !ok {
+		return
+	}
+	c, ok := h.requireCollectionOwned(w, r, userID, teamID)
+	if !ok {
+		return
+	}
+	var body struct {
+		Op      string   `json:"op"`
+		ItemIDs []string `json:"item_ids"`
+		Checked bool     `json:"checked"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
+		return
+	}
+	switch body.Op {
+	case "all", "none", "invert":
+	case "set":
+		if len(body.ItemIDs) == 0 {
+			writeError(w, http.StatusBadRequest, "item_ids is required for op=set", "BAD_REQUEST")
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "op must be all, none, invert, or set", "BAD_REQUEST")
+		return
+	}
+	itemIDs, ok := parseCollectionItemIDs(w, body.ItemIDs)
+	if !ok {
+		return
+	}
+
+	if _, err := h.Queries.SetPartCollectionItemsChecked(r.Context(), dbgen.SetPartCollectionItemsCheckedParams{
+		CollectionID: c.ID,
+		Op:           body.Op,
+		ItemIds:      itemIDs,
+		Checked:      body.Checked,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	if err := h.Queries.TouchPartCollection(r.Context(), c.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	tally, err := h.Queries.GetPartCollectionTally(r.Context(), c.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+	h.publishCollectionChanged(r, teamID, c.ID.String())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"item_count":    tally.ItemCount,
+		"checked_count": tally.CheckedCount,
+	})
 }

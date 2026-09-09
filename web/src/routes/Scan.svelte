@@ -94,6 +94,7 @@
     | { kind: 'kitting'; kittingSessionId: string; buildRef: string }
     | { kind: 'order'; orderId: string; orderRef: string }
     | { kind: 'collect'; collectionId: string; collectionName: string }
+    | { kind: 'pick'; collectionId: string; collectionName: string }
     | { kind: 'filter'; collectionId: string; collectionName: string };
   let pendingContext = $state<PendingContext | null>(null);
 
@@ -102,8 +103,13 @@
     navStack = [{ screen: 'menu' }];
     if (ctx.kind === 'kitting') {
       goTo({ screen: 'build_kitting', kittingSessionId: ctx.kittingSessionId, buildRef: ctx.buildRef });
-    } else if (ctx.kind === 'collect') {
-      goTo({ screen: 'collect', collectionId: ctx.collectionId, collectionName: ctx.collectionName });
+    } else if (ctx.kind === 'collect' || ctx.kind === 'pick') {
+      goTo({
+        screen: 'collect',
+        collectionId: ctx.collectionId,
+        collectionName: ctx.collectionName,
+        initialMode: ctx.kind,
+      });
     } else if (ctx.kind === 'filter') {
       goTo({ screen: 'filter', collectionId: ctx.collectionId, collectionName: ctx.collectionName });
     } else {
@@ -124,11 +130,12 @@
       return; // already in this kitting session
     }
     if (
-      ctx.kind === 'collect' &&
+      (ctx.kind === 'collect' || ctx.kind === 'pick') &&
       current.screen === 'collect' &&
-      current.collectionId === ctx.collectionId
+      current.collectionId === ctx.collectionId &&
+      (current.initialMode ?? 'collect') === ctx.kind
     ) {
-      return; // already collecting into this list
+      return; // already on this list in this mode
     }
     if (
       ctx.kind === 'filter' &&
@@ -203,10 +210,18 @@
             const ksId = msg.context_kitting_session_id as string | undefined;
             const ref = (msg.context_build_ref as string) ?? '';
             if (ksId) receiveContext({ kind: 'kitting', kittingSessionId: ksId, buildRef: ref });
-          } else if (msg.context_type === 'collect' || msg.context_type === 'filter_list') {
+          } else if (
+            msg.context_type === 'collect' ||
+            msg.context_type === 'filter_list' ||
+            msg.context_type === 'pick_list'
+          ) {
             const collectionId = msg.context_collection_id as string | undefined;
             const collectionName = (msg.context_collection_name as string) ?? '';
-            const kind = msg.context_type === 'filter_list' ? 'filter' as const : 'collect' as const;
+            const kind = msg.context_type === 'filter_list'
+              ? 'filter' as const
+              : msg.context_type === 'pick_list'
+                ? 'pick' as const
+                : 'collect' as const;
             if (collectionId) receiveContext({ kind, collectionId, collectionName });
           } else {
             const orderId = (msg.context_order_id as string) ?? null;
@@ -394,6 +409,7 @@
           <span class="text-lg">
             {pendingContext.kind === 'kitting' ? '🧰'
               : pendingContext.kind === 'collect' ? '📋'
+              : pendingContext.kind === 'pick' ? '✅'
               : pendingContext.kind === 'filter' ? '🔍'
               : '📦'}
           </span>
@@ -403,14 +419,16 @@
                 ? 'Kitting ready — tap to open'
                 : pendingContext.kind === 'collect'
                   ? 'Collect ready — tap to scan'
-                  : pendingContext.kind === 'filter'
-                    ? 'Filter ready — tap to scan'
-                    : 'Order ready — tap to receive'}
+                  : pendingContext.kind === 'pick'
+                    ? 'Pick ready — tap to sort the pile'
+                    : pendingContext.kind === 'filter'
+                      ? 'Filter ready — tap to scan'
+                      : 'Order ready — tap to receive'}
             </span>
             <span class="block truncate text-sm font-medium">
               {pendingContext.kind === 'kitting'
                 ? (pendingContext.buildRef || 'Build')
-                : pendingContext.kind === 'collect' || pendingContext.kind === 'filter'
+                : pendingContext.kind === 'collect' || pendingContext.kind === 'pick' || pendingContext.kind === 'filter'
                   ? (pendingContext.collectionName || 'List')
                   : (pendingContext.orderRef || 'Order')}
             </span>
@@ -568,6 +586,7 @@
       {locations}
       initialCollectionId={current.collectionId ?? null}
       initialCollectionName={current.collectionName ?? null}
+      initialMode={current.initialMode ?? 'collect'}
       onBack={goBack}
       onExpired={handleExpired}
     />

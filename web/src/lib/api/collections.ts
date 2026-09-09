@@ -12,6 +12,7 @@ export interface PartCollectionSummary {
   item_count: number;
   total_quantity: number;
   unquantified_count: number;
+  checked_count: number;
 }
 
 export interface CollectionItem {
@@ -26,6 +27,11 @@ export interface CollectionItem {
   image_url: string | null;
   /** Available (free) stock = on hand − reservations; null when not tracked. */
   available_qty: number | null;
+  /**
+   * Selection state — null when unchecked. Persisted rather than held in the
+   * client, because the phone's pick mode writes it from another device.
+   */
+  checked_at: string | null;
 }
 
 export interface CollectionDetail {
@@ -85,15 +91,38 @@ export function bulkAddCollectionItems(
   );
 }
 
+export interface CollectionItemEcho {
+  id: string;
+  part_id: string;
+  quantity: number | null;
+  note: string | null;
+  checked_at: string | null;
+}
+
 // quantity/note use set-if-present semantics: pass null to clear, omit to leave.
+// `checked` is a plain bool — the selection has no third state.
 export function updateCollectionItem(
   teamId: string,
   collectionId: string,
   itemId: string,
-  body: { quantity?: number | null; note?: string | null },
+  body: { quantity?: number | null; note?: string | null; checked?: boolean },
 ) {
-  return request<{ id: string; part_id: string; quantity: number | null; note: string | null }>(
+  return request<CollectionItemEcho>(
     'PATCH', `/api/v1/teams/${teamId}/collections/${collectionId}/items/${itemId}`, body,
+  );
+}
+
+/**
+ * The list's selection ops. 'all' | 'none' | 'invert' sweep the whole list;
+ * 'set' writes `checked` to `item_ids` only (row toggles, shift-click ranges).
+ */
+export function setCollectionItemsChecked(
+  teamId: string,
+  collectionId: string,
+  body: { op: 'all' | 'none' | 'invert' | 'set'; item_ids?: string[]; checked?: boolean },
+) {
+  return request<{ item_count: number; checked_count: number }>(
+    'POST', `/api/v1/teams/${teamId}/collections/${collectionId}/items/checked`, body,
   );
 }
 
@@ -101,8 +130,12 @@ export function removeCollectionItem(teamId: string, collectionId: string, itemI
   return request<void>('DELETE', `/api/v1/teams/${teamId}/collections/${collectionId}/items/${itemId}`);
 }
 
-export function clearCollectionItems(teamId: string, collectionId: string) {
-  return request<{ removed: number }>('DELETE', `/api/v1/teams/${teamId}/collections/${collectionId}/items`);
+// Omit itemIds to empty the list; pass them to delete just those rows.
+export function clearCollectionItems(teamId: string, collectionId: string, itemIds?: string[]) {
+  return request<{ removed: number }>(
+    'DELETE', `/api/v1/teams/${teamId}/collections/${collectionId}/items`,
+    itemIds ? { item_ids: itemIds } : undefined,
+  );
 }
 
 // Adds every part matching the current parts-search filters (across all pages)

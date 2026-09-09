@@ -447,6 +447,8 @@ export interface ScanCollection {
   collect_capture_qty: boolean | null;
   item_count: number;
   total_quantity: number;
+  /** Rows already ticked — the pick run's progress, and its resume point. */
+  checked_count: number;
   updated_at: string;
 }
 
@@ -511,6 +513,7 @@ export interface ScanCollectionItem {
   part_id: string;
   quantity: number | null;
   note: string | null;
+  checked_at: string | null;
   mpn: string | null;
   description: string;
   quantity_on_hand: number | null;
@@ -521,6 +524,53 @@ export function listScanCollectionItems(
   collectionId: string,
 ): Promise<{ name: string; items: ScanCollectionItem[] }> {
   return scanRequest('GET', `/api/v1/scan/collections/${collectionId}/items`);
+}
+
+// ── Pick mode (phone side) ────────────────────────────────────────────────────
+
+export interface PickTally {
+  item_count: number;
+  checked_count: number;
+  total_quantity: number;
+  unquantified_count: number;
+}
+
+export type PickScanResponse =
+  | {
+      status: 'checked' | 'already_checked';
+      part?: CollectPart;
+      item_id: string;
+      quantity?: number | null;
+      note?: string | null;
+      checked_at: string | null;
+      tally: PickTally;
+    }
+  | { status: 'unchecked'; item_id: string; checked_at: string | null; tally: PickTally }
+  | { status: 'not_on_list'; part: CollectPart }
+  | {
+      status: 'unknown';
+      reason: 'unparsed' | 'not_in_catalog';
+      raw?: string;
+      parsed_mpn?: string;
+      parsed_sku?: string;
+      parsed_manufacturer?: string;
+      parsed_distributor?: string;
+    };
+
+/** One pick scan, or a manual tick when `item_id` is supplied instead. */
+export function pickScan(
+  collectionId: string,
+  body: { barcode?: string; item_id?: string; checked?: boolean },
+): Promise<PickScanResponse> {
+  return scanRequest('POST', `/api/v1/scan/collections/${collectionId}/pick`, body);
+}
+
+/** Bulk selection op — 'none' is the pick loop's "start fresh". */
+export function setScanCollectionChecked(
+  collectionId: string,
+  op: 'all' | 'none' | 'invert',
+): Promise<{ item_count: number; checked_count: number }> {
+  return scanRequest('POST', `/api/v1/scan/collections/${collectionId}/checked`, { op });
 }
 
 // ── Filter mode (phone side) ──────────────────────────────────────────────────
