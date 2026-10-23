@@ -10,6 +10,7 @@
   } from '$lib/api/scanner.js';
   import type { ScanOrder } from './types.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { scanFeedback, scanPulse } from './feedback.svelte.js';
 
   // Filter mode: scan a pile of bags AGAINST a target set — big per-bag
   // verdicts, no writes anywhere. The phone owns the tally; the real product
@@ -129,7 +130,8 @@
     const now = Date.now();
     const last = seenBarcodes.get(raw);
     seenBarcodes.set(raw, now);
-    if (last !== undefined && now - last <= 2500) return;
+    // Same bag again within the debounce window: no new verdict, but say so.
+    if (last !== undefined && now - last <= 2500) { scanFeedback('notice'); return; }
 
     busy = true;
     try {
@@ -137,6 +139,7 @@
       applyVerdict(res);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      scanFeedback('error');
       pushToast('error', 'Scan failed — try again');
     } finally {
       busy = false;
@@ -147,15 +150,19 @@
     if (res.verdict === 'match' && res.entry) {
       seen.add(res.entry.part_id);
       card = { kind: 'match', entry: res.entry };
+      scanFeedback(seen.size === total ? 'complete' : 'success');
     } else if (res.verdict === 'substitute' && res.entry) {
       if (res.entry.substitute_for_part_id) seen.add(res.entry.substitute_for_part_id);
       card = { kind: 'substitute', entry: res.entry };
+      scanFeedback('warning');
     } else if (res.verdict === 'miss') {
       missCount += 1;
       card = { kind: 'miss', mpn: res.part?.mpn ?? null, description: res.part?.description ?? null };
+      scanFeedback('error');
     } else {
       unknownCount += 1;
       card = { kind: 'unknown' };
+      scanFeedback('error');
     }
   }
 
@@ -322,7 +329,8 @@
     <!-- Verdict card: full-tint + icon + text (never color alone). Sits above
          the hold-to-scan button (which owns the bottom ~7rem of the viewport). -->
     {#if card}
-      <div class="absolute inset-x-0 bottom-32 z-20 px-3">
+      {#key scanPulse.seq}
+      <div class="scan-card absolute inset-x-0 bottom-32 z-20 px-3">
         {#if card.kind === 'match'}
           <div class="rounded-2xl bg-emerald-950/95 border border-emerald-600 p-4">
             <div class="flex items-start gap-3">
@@ -376,6 +384,7 @@
           </div>
         {/if}
       </div>
+      {/key}
     {/if}
 
     {#if confirmLeave}

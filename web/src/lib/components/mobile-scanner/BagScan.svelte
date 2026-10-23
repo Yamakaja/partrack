@@ -9,6 +9,7 @@
   } from '$lib/api/scanner.js';
   import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { scanFeedback } from './feedback.svelte.js';
 
   let {
     onBack,
@@ -201,9 +202,11 @@
 
     if (lastSeen !== undefined) {
       if (now - lastSeen <= 3000) {
-        pushToast('info', 'Scanned');
+        scanFeedback('notice');
+        pushToast('info', `Same bag again — still ${bulkItemCount} scanned`);
       } else {
-        pushToast('warning', 'Already scanned!');
+        scanFeedback('warning');
+        pushToast('warning', 'Already scanned!', 'This bag is already in the session.');
       }
       return;
     }
@@ -212,13 +215,16 @@
       const res = await addBulkScanItem(bulkSessionId, raw);
       if (res.new) {
         bulkItemCount++;
-        pushToast('success', res.found_in_db ? 'Scanned' : 'Scanned — looking up part…');
+        scanFeedback('success');
+        pushToast('success', `#${bulkItemCount} scanned${res.found_in_db ? '' : ' — looking up part…'}`);
         showQtyCaptureFor(res.item_id, bulkSessionId, res.encoded_qty);
       } else {
-        pushToast('info', 'Scanned');
+        scanFeedback('notice');
+        pushToast('info', 'Already in this session');
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      scanFeedback('error');
       pushToast('error', 'Scan failed');
     }
   }
@@ -283,6 +289,7 @@
 
     const loc = parseStorageLocationQR(raw);
     if (loc) {
+      scanFeedback('success');
       onLocationScanned(loc);
       return;
     }
@@ -291,6 +298,7 @@
       const data = await lookupBag(raw);
 
       if (data.status === 'found') {
+        scanFeedback('success');
         onPartFound(
           {
             id: data.id,
@@ -325,6 +333,7 @@
         auditLogId = data.audit_log_id;
         importError = '';
 
+        scanFeedback('warning');
         const isFastPath = data.can_auto_import &&
           (!data.preferred_distributor_id || data.parsed_distributor_id === data.preferred_distributor_id);
         screen = isFastPath ? 'importing' : 'not_found_in_db';
@@ -338,6 +347,7 @@
         parsedLot = data.parsed_lot;
         rawBarcode = '';
         screen = 'scan_result';
+        scanFeedback('warning');
 
       } else {
         parseError = true;
@@ -348,9 +358,12 @@
         parsedLot = '';
         rawBarcode = data.raw || '';
         screen = 'scan_result';
+        scanFeedback('error');
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
+      scanFeedback('error');
+      pushToast('error', 'Lookup failed — try again');
     }
   }
 </script>

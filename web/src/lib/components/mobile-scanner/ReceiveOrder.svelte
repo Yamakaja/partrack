@@ -10,6 +10,7 @@
     scanFocus, ScanExpiredError, ScanRequestError, type ScanMatchedResponse,
   } from '$lib/api/scanner.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { scanFeedback } from './feedback.svelte.js';
   import MobileLocationPicker from './MobileLocationPicker.svelte';
 
   let {
@@ -118,12 +119,15 @@
         screen = 'error_no_match';
         errorMPN = data.parsed_mpn || '';
         errorSKU = data.parsed_sku || '';
+        scanFeedback('error');
       } else {
         screen = 'error_parse';
+        scanFeedback('error');
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       screen = 'error_parse';
+      scanFeedback('error');
     }
   }
 
@@ -140,6 +144,7 @@
     };
     confirmQty = String(data.barcode_qty || '');
     screen = data.over_receive ? 'confirming_over_receive' : 'confirming';
+    scanFeedback(data.over_receive ? 'warning' : 'success');
   }
 
   async function confirm() {
@@ -156,6 +161,7 @@
       nextScreenAfterConfirm = data.order_status === 'received' ? 'order_complete' : 'scanning';
       confirmData = null;
       screen = 'confirmed';
+      scanFeedback(nextScreenAfterConfirm === 'order_complete' ? 'complete' : 'success');
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       if (e instanceof ScanRequestError && e.code === 'STALE_PENDING_SCAN') {

@@ -1,5 +1,6 @@
 import { readBarcodes, prepareZXingModule } from 'zxing-wasm/reader';
 import zxingWasmUrl from 'zxing-wasm/reader/zxing_reader.wasm?url';
+import { scanDecoded } from './feedback.svelte.js';
 
 type ScanState = 'idle' | 'decoding' | 'no_barcode';
 
@@ -133,6 +134,7 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
       return;
     }
 
+    scanDecoded();
     try {
       await onResult(text);
     } finally {
@@ -162,6 +164,7 @@ export function createScanner(getVideoEl: () => HTMLVideoElement | null) {
       if (text && continuousActive) {
         continuousActive = false;
         scanState = 'idle';
+        scanDecoded();
         await onResult(text);
         return;
       }

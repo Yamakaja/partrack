@@ -4,6 +4,7 @@
   import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
   import { fullLocationLabel } from './locationUtils.js';
   import CameraViewport from './CameraViewport.svelte';
+  import { scanFeedback } from './feedback.svelte.js';
   import MobileGridVisualiser from './MobileGridVisualiser.svelte';
   import StorageTree from '$lib/components/storage/StorageTree.svelte';
 
@@ -122,17 +123,20 @@
     const loc = parseStorageLocationQR(raw);
     if (!loc) {
       scanError = 'Not a location code';
+      scanFeedback('error');
       return;
     }
 
     const found = locations.find(l => l.id === loc.id);
     if (!found) {
       scanError = 'Location not found';
+      scanFeedback('error');
       return;
     }
 
     if (found.grid_config && !loc.coordinate) {
       // Grid location but no coordinate — pre-select and go to cell screen
+      scanFeedback('success');
       screen = 'cell';
       pendingLocation = found;
       address = [];
@@ -142,6 +146,7 @@
 
     // Full result or non-grid location
     const coordinate = loc.coordinate ?? null;
+    scanFeedback('success');
     onSelect({ id: found.id, coordinate });
     onClose();
   }

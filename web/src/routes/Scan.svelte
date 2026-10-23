@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Toaster from '$lib/components/common/Toaster.svelte';
+  import ScanFlash from '$lib/components/mobile-scanner/ScanFlash.svelte';
   import type { NavEntry, ScanPart, PartLocation } from '$lib/components/mobile-scanner/types.js';
   import { type ScanHistoryEntry, setHistoryTeam, clearHistory } from '$lib/stores/scannerHistory.svelte.js';
   import { checkSession, listScanStorageLocations, ScanExpiredError, pairScanSession, createStreamTicket } from '$lib/api/scanner.js';
@@ -604,3 +605,4 @@
 </div>
 
 <Toaster position="top-right" />
+<ScanFlash />

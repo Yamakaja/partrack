@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createScanner, type Scanner } from './scanner.svelte.js';
   import CameraSelector from './CameraSelector.svelte';
-  import type { Snippet } from 'svelte';
+  import { scanPulse, scanFeedbackPrefs } from './feedback.svelte.js';
+  import { untrack, type Snippet } from 'svelte';
 
   // Shared live-camera viewport for every mobile-scanner screen: it owns the
   // scanner lifecycle (camera start/stop, hold-to-scan) and renders the <video>,
@@ -32,6 +33,8 @@
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   const scanner = createScanner(() => videoEl);
+  // Decodes from before this viewport mounted must not replay the reticle pulse.
+  const mountDecodeSeq = untrack(() => scanPulse.decodeSeq);
 
   $effect(() => {
     const deviceId = scanner.selectedCameraId;
@@ -47,6 +50,22 @@
 
 <div class="absolute top-3 right-3 z-10 flex items-center gap-2">
   {@render topRightControls?.()}
+  <button
+    onclick={() => (scanFeedbackPrefs.sound = !scanFeedbackPrefs.sound)}
+    aria-label={scanFeedbackPrefs.sound ? 'Mute scan sounds' : 'Unmute scan sounds'}
+    aria-pressed={scanFeedbackPrefs.sound}
+    class="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 {scanFeedbackPrefs.sound ? 'text-white' : 'text-zinc-500'}"
+  >
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {#if scanFeedbackPrefs.sound}
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+      {:else}
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+      {/if}
+    </svg>
+  </button>
   <CameraSelector {scanner} />
 </div>
 
@@ -61,7 +80,15 @@
   </div>
 {:else}
   <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-    <div class="{reticleSize === 'sm' ? 'h-36 w-36' : 'h-56 w-56'} rounded-lg border-2 border-white/60 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"></div>
+    <!-- Keyed on the decode counter: the reticle snaps the instant a code is
+         read, before the server's verdict arrives (feedback.svelte.ts). -->
+    <div class="rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] {scanner.isScanning ? 'reticle-hunting' : ''}">
+      {#key scanPulse.decodeSeq}
+        <div class="{reticleSize === 'sm' ? 'h-36 w-36' : 'h-56 w-56'} rounded-lg border-2
+          {scanner.isScanning ? 'border-white' : 'border-white/60'}
+          {scanPulse.decodeSeq > mountDecodeSeq ? 'reticle-hit' : ''}"></div>
+      {/key}
+    </div>
   </div>
 
   {@render overlay?.()}
@@ -82,3 +109,22 @@
     </div>
   {/if}
 {/if}
+
+<style>
+  /* Hold-to-scan in progress: the reticle breathes so "is it looking?" is
+     never a question. */
+  .reticle-hunting { animation: reticle-hunt 900ms ease-in-out infinite; }
+  @keyframes reticle-hunt {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(0.96); }
+  }
+  /* A code was decoded: a white snap-in pulse. */
+  .reticle-hit { animation: reticle-hit 350ms ease-out; }
+  @keyframes reticle-hit {
+    0%   { transform: scale(1.12); border-width: 6px; border-color: #fff; }
+    100% { transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reticle-hunting, .reticle-hit { animation: none; }
+  }
+</style>

@@ -11,6 +11,7 @@
   import type { StorageLocation } from '$lib/types/inventory.js';
   import { fullLocationLabel } from './locationUtils.js';
   import { pushToast } from '$lib/stores/toasts.svelte.js';
+  import { scanFeedback, scanPulse } from './feedback.svelte.js';
 
   // The phone's Lists surface. Three things happen here:
   //   browse — a list's rows with stock and storage ("where do these live?")
@@ -124,7 +125,7 @@
     const now = Date.now();
     const last = seenBarcodes.get(raw);
     seenBarcodes.set(raw, now);
-    if (last !== undefined && now - last <= 2500) return;
+    if (last !== undefined && now - last <= 2500) { scanFeedback('notice'); return; }
 
     busy = true;
     try {
@@ -138,20 +139,25 @@
           quantity: res.quantity ?? null,
           note: res.note ?? null,
         };
+        scanFeedback(pickDone === pickTotal ? 'complete' : 'success');
       } else if (res.status === 'already_checked') {
         applyChecked(res.item_id, res.checked_at);
         lastPickedItemId = null;
         pickCard = { kind: 'already', part: res.part ?? null };
+        scanFeedback('notice');
       } else if (res.status === 'not_on_list') {
         lastPickedItemId = null;
         pickCard = { kind: 'not_on_list', part: res.part };
+        scanFeedback('error');
       } else if (res.status === 'unknown') {
         lastPickedItemId = null;
         pickCard = { kind: 'unknown', label: res.parsed_sku || res.parsed_mpn || 'unrecognised barcode' };
+        scanFeedback('error');
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       pickCard = { kind: 'error', message: 'Scan failed — try again' };
+      scanFeedback('error');
     } finally {
       busy = false;
     }
@@ -333,7 +339,7 @@
     const now = Date.now();
     const last = seenBarcodes.get(raw);
     seenBarcodes.set(raw, now);
-    if (last !== undefined && now - last <= 2500) return;
+    if (last !== undefined && now - last <= 2500) { scanFeedback('notice'); return; }
 
     busy = true;
     try {
@@ -346,9 +352,11 @@
           rowQuantity: res.item_quantity,
         };
         tally = res.tally;
+        scanFeedback('success');
       } else if (res.status === 'quantity_required') {
         qtyPrompt = res.part;
         qtyInput = '';
+        scanFeedback('warning');
       } else {
         card = {
           kind: 'unknown',
@@ -356,10 +364,12 @@
           label: res.parsed_sku || res.parsed_mpn || 'unrecognised barcode',
           sentToResolve: false,
         };
+        scanFeedback('error');
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       card = { kind: 'error', message: 'Scan failed — try again' };
+      scanFeedback('error');
     } finally {
       busy = false;
     }
@@ -386,10 +396,12 @@
           rowQuantity: res.item_quantity,
         };
         tally = res.tally;
+        scanFeedback('success');
       }
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
       card = { kind: 'error', message: 'Could not add — try again' };
+      scanFeedback('error');
     } finally {
       busy = false;
     }
@@ -559,7 +571,8 @@
     <!-- Verdict card: full tint + icon + text, never colour alone. Sits above
          the hold-to-scan button (which owns the bottom ~7rem of the viewport). -->
     {#if pickCard && !sheetOpen && !showStartFresh}
-      <div class="absolute inset-x-0 bottom-32 z-20 px-3">
+      {#key scanPulse.seq}
+      <div class="scan-card absolute inset-x-0 bottom-32 z-20 px-3">
         {#if pickCard.kind === 'checked'}
           <div class="rounded-2xl bg-emerald-950/95 border border-emerald-600 p-4">
             <div class="flex items-start gap-3">
@@ -621,6 +634,7 @@
           </div>
         {/if}
       </div>
+      {/key}
     {/if}
 
     <!-- Outstanding sheet: what is still to find in the pile. Tappable, because
@@ -709,7 +723,8 @@
     <!-- Result card: persists until the next scan. Sits above the
          hold-to-scan button (which owns the bottom ~7rem of the viewport). -->
     {#if card && !qtyPrompt}
-      <div class="absolute inset-x-0 bottom-32 z-20 px-3">
+      {#key scanPulse.seq}
+      <div class="scan-card absolute inset-x-0 bottom-32 z-20 px-3">
         {#if card.kind === 'added'}
           <div class="rounded-2xl bg-emerald-950/95 border border-emerald-700 p-4">
             <div class="flex items-center gap-3">
@@ -758,6 +773,7 @@
           </div>
         {/if}
       </div>
+      {/key}
     {/if}
 
     <!-- Quantity prompt (capture ON, barcode had no qty) — skippable -->

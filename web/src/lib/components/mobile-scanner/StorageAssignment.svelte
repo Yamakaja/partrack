@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import CameraViewport from './CameraViewport.svelte';
+  import { scanFeedback, type ScanOutcome } from './feedback.svelte.js';
   import type { PartLocation } from './types.js';
   import type { StorageLocation, GridConfig } from '$lib/types/inventory.js';
   import { parseStorageLocationQR } from '$lib/utils/ipc2d.js';
@@ -43,7 +44,7 @@
   let loadingOccupied = $state(false);
   let showLocationPicker = $state(false);
   let pickerInitialLocationId = $state<string | null>(null);
-  let toast = $state<string | null>(null);
+  let toast = $state<{ msg: string; outcome: ScanOutcome } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   interface ConflictState {
@@ -87,8 +88,10 @@
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function showToast(msg: string) {
-    toast = msg;
+  // Every scan outcome lands here, so this is also where it is announced.
+  function showToast(msg: string, outcome: ScanOutcome) {
+    scanFeedback(outcome);
+    toast = { msg, outcome };
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toast = null; }, 2500);
   }
@@ -213,7 +216,7 @@
         await refreshLocations();
         found = locations.find(l => l.id === loc.id);
       }
-      if (!found) { showToast('Location not found'); return; }
+      if (!found) { showToast('Location not found', 'error'); return; }
 
       const locationChanged = loc.id !== selectedLocationId;
       switchLocation(loc.id);
@@ -223,10 +226,10 @@
         const { address, cursor: cell } = decomposeCoordinate(loc.coordinate, found.grid_config);
         cursorAddress = address;
         cursor = cell;
-        showToast(`Target: ${fullLocationLabel({ id: loc.id, coordinate: loc.coordinate }, locations)}`);
+        showToast(`Target: ${fullLocationLabel({ id: loc.id, coordinate: loc.coordinate }, locations)}`, 'success');
       } else if (found.grid_config) {
         // Grid location but no cell coord — open picker pre-focused if location changed
-        showToast(`Target: ${locationPath(loc.id, locations)}`);
+        showToast(`Target: ${locationPath(loc.id, locations)}`, 'success');
         if (locationChanged) {
           pickerInitialLocationId = loc.id;
           showLocationPicker = true;
@@ -234,23 +237,23 @@
         // Same location re-scan: toast only, keep existing cursor
       } else {
         // Non-grid location — ready to scan bags immediately
-        showToast(`Target: ${locationPath(loc.id, locations)}`);
+        showToast(`Target: ${locationPath(loc.id, locations)}`, 'success');
       }
       return;
     }
 
     // ── Bag barcode ───────────────────────────────────────────────────────
-    if (!selectedLocationId) { showToast('Scan a location first'); return; }
-    if (isGridLocation && !cursor) { showToast('Select a cell on the grid'); return; }
+    if (!selectedLocationId) { showToast('Scan a location first', 'warning'); return; }
+    if (isGridLocation && !cursor) { showToast('Select a cell on the grid', 'warning'); return; }
 
     const flat = isGridLocation && cursor ? flatCoord() : null;
     const target: PartLocation = { id: selectedLocationId, coordinate: flat };
 
     try {
       const data = await lookupBag(raw);
-      if (data.status !== 'found') { showToast('Part not found — import it first'); return; }
+      if (data.status !== 'found') { showToast('Part not found — import it first', 'error'); return; }
       const entryId = data.inventory_entry_id;
-      if (!entryId) { showToast('No inventory entry for this part'); return; }
+      if (!entryId) { showToast('No inventory entry for this part', 'error'); return; }
 
       const existing = data.storage_location;
       const sameLocation = existing?.id === target.id;
@@ -258,13 +261,14 @@
 
       if (existing && !(sameLocation && sameCoord)) {
         conflict = { inventoryEntryId: entryId, currentLocation: existing, newLocation: target, mpn: data.mpn };
+        scanFeedback('warning');
         return;
       }
 
       await doAssign(entryId, target, data.mpn, flat);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
-      showToast('Error — try again');
+      showToast('Error — try again', 'error');
     }
   }
 
@@ -276,7 +280,7 @@
     }
     log = [{ mpn, coord: flat }, ...log].slice(0, 5);
     const cell = isGridLocation && cursor ? cellLabel(cursor) : null;
-    showToast(cell ? `✓ ${mpn ?? '—'} → ${cell}` : `✓ ${mpn ?? '—'} stored`);
+    showToast(cell ? `✓ ${mpn ?? '—'} → ${cell}` : `✓ ${mpn ?? '—'} stored`, 'success');
     if (autoAdvance && isGridLocation) advanceCursor();
   }
 
@@ -286,7 +290,7 @@
       await doAssign(conflict.inventoryEntryId, conflict.newLocation, conflict.mpn, conflict.newLocation.coordinate);
     } catch (e) {
       if (e instanceof ScanExpiredError) { onExpired(); return; }
-      showToast('Could not move — try again');
+      showToast('Could not move — try again', 'error');
     } finally {
       conflict = null;
     }
@@ -369,9 +373,15 @@
 
       {#snippet overlay()}
         {#if toast}
-          <div class="pointer-events-none absolute top-3 left-3 right-3 rounded-xl bg-zinc-900/90 px-4 py-2 text-center text-sm text-white">
-            {toast}
-          </div>
+          {#key toast}
+            <div class="scan-card pointer-events-none absolute top-3 left-3 right-3 rounded-xl border px-4 py-2 text-center text-sm font-medium
+              {toast.outcome === 'success' ? 'bg-emerald-950/95 border-emerald-600 text-emerald-100'
+                : toast.outcome === 'warning' ? 'bg-amber-950/95 border-amber-600 text-amber-100'
+                : toast.outcome === 'error' ? 'bg-red-950/95 border-red-700 text-red-100'
+                : 'bg-zinc-900/90 border-zinc-700 text-white'}">
+              {toast.msg}
+            </div>
+          {/key}
         {/if}
       {/snippet}
 
